@@ -352,7 +352,7 @@ def download_recording(call_sid):
         else:
             # File doesn't exist locally - enqueue download job (NO SLOT ACQUISITION IN API)
             # 🔥 FIX: API never acquires slots, just enqueues. Worker acquires/releases slots.
-            from server.recording_semaphore import check_status
+            from server.services.recording_semaphore import check_status
             from server.tasks_recording import enqueue_recording_download_only
             
             # Check current status first (dedup + queue position)
@@ -475,7 +475,7 @@ def get_recording_status(call_sid):
             }), 200
         
         # Check status in semaphore system (Redis)
-        from server.recording_semaphore import check_status
+        from server.services.recording_semaphore import check_status
         status, info = check_status(business_id, call_sid)
         
         if status == "processing":
@@ -657,7 +657,7 @@ def stream_recording(call_sid):
         else:
             # File doesn't exist locally - enqueue download job (NO SLOT ACQUISITION IN API)
             # 🔥 FIX: API never acquires slots, just enqueues. Worker acquires/releases slots.
-            from server.recording_semaphore import check_status
+            from server.services.recording_semaphore import check_status
             from server.tasks_recording import enqueue_recording_download_only
             
             # Check current status first (dedup + queue position)

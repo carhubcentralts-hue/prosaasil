@@ -1,14 +1,15 @@
 """
-Recording Download Semaphore System
-====================================
+Recording Processing Semaphore System
+======================================
 
-Per-business 3-concurrent-downloads limit using Redis.
+Per-business 3-concurrent-processing limit using Redis.
+Uses RecordingRun.id (run_id) as the unique identifier.
 
 Redis Keys:
-- rec_slots:{business_id} - SET of active call_sid (not counter)
-- rec_inflight:{business_id}:{call_sid} - STRING with TTL 120s (dedup/double-click prevention)
-- rec_queued:{business_id} - SET of call_sids waiting in queue
-- rec_queue:{business_id} - FIFO LIST of waiting call_sids (RPUSH/LPOP)
+- rec_slots:{business_id} - SET of active run_id (not counter)
+- rec_inflight:{business_id}:{run_id} - STRING with TTL 900s (processing marker)
+- rec_queued:{business_id} - SET of run_ids waiting in queue
+- rec_queue:{business_id} - FIFO LIST of waiting run_ids (RPUSH/LPOP)
 """
 import logging
 import os
@@ -17,12 +18,11 @@ from typing import Optional, Tuple
 logger = logging.getLogger(__name__)
 log = logging.getLogger("recording_semaphore")
 
-# Max concurrent downloads per business
-# 🔥 PERFORMANCE FIX: Increased from 3 to 5 to improve throughput
-MAX_SLOTS_PER_BUSINESS = 5
+# Max concurrent recordings per business
+MAX_SLOTS_PER_BUSINESS = 3
 
 # TTL values
-INFLIGHT_TTL = 900  # 15 minutes - must be > max download time for large recordings
+INFLIGHT_TTL = 900  # 15 minutes - must be > max processing time
 QUEUED_TTL = 1200  # 20 minutes - prevents re-adding to queue
 
 # Redis client (initialized in init_redis)
@@ -49,44 +49,48 @@ def init_redis():
         REDIS_ENABLED = False
 
 
-def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
+def acquire_slot(business_id: int, run_id: int) -> Tuple[bool, str]:
     """
-    Try to acquire a download slot for this business.
+    Try to acquire a processing slot for this business.
     
     Uses atomic Redis operations to prevent race conditions.
-    Checks both inflight and queued sets to prevent duplicates.
+    Enforces hard limit of MAX_SLOTS_PER_BUSINESS concurrent recordings.
+    
+    Args:
+        business_id: Business ID
+        run_id: RecordingRun.id (unique identifier)
     
     Returns:
         (acquired: bool, status: str)
-        - (True, "acquired") - Slot acquired, can download
+        - (True, "acquired") - Slot acquired, can process
         - (False, "queued") - No slots available, added to queue
-        - (False, "inflight") - Already processing this call_sid
+        - (False, "inflight") - Already processing this run_id
         - (False, "already_queued") - Already in queue
     """
     if not REDIS_ENABLED or not _redis_client:
-        # Fallback: allow download without Redis
+        # Fallback: allow processing without Redis
+        logger.warning("[RECORDING_SEM] Redis not available, allowing without limit")
         return True, "no_redis"
     
     try:
         # 🔥 FIX: Clean up expired slots first (frees stuck slots)
         cleanup_expired_slots(business_id)
         
-        inflight_key = f"rec_inflight:{business_id}:{call_sid}"
+        inflight_key = f"rec_inflight:{business_id}:{run_id}"
         queued_set_key = f"rec_queued:{business_id}"
         
-        # Check 1: Is this call_sid already in flight?
+        # Check 1: Is this run_id already in flight?
         if _redis_client.exists(inflight_key):
             ttl = _redis_client.ttl(inflight_key)
-            log.debug(f"[RECORDING_SEM] Call {call_sid} already inflight (TTL: {ttl}s)")
+            log.debug(f"[RECORDING_SEM] Run {run_id} already inflight (TTL: {ttl}s)")
             return False, "inflight"
         
-        # Check 2: Is this call_sid already in queue?
-        if _redis_client.sismember(queued_set_key, call_sid):
-            log.debug(f"[RECORDING_SEM] Call {call_sid} already in queue")
+        # Check 2: Is this run_id already in queue?
+        if _redis_client.sismember(queued_set_key, str(run_id)):
+            log.debug(f"[RECORDING_SEM] Run {run_id} already in queue")
             return False, "already_queued"
         
         # Check 3: Try to acquire slot atomically using Lua script
-        # 🔥 NEW: Use SET instead of counter for rec_slots
         slots_key = f"rec_slots:{business_id}"
         queue_list_key = f"rec_queue:{business_id}"
         
@@ -96,14 +100,14 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
         lua_script = """
         local slots_key = KEYS[1]
         local inflight_key = KEYS[2]
-        local call_sid = ARGV[1]
+        local run_id = ARGV[1]
         local max_slots = tonumber(ARGV[2])
         local inflight_ttl = tonumber(ARGV[3])
         local current = redis.call('SCARD', slots_key)
         
         if current < max_slots then
             -- Atomically add to slots and mark as inflight
-            redis.call('SADD', slots_key, call_sid)
+            redis.call('SADD', slots_key, run_id)
             redis.call('SETEX', inflight_key, inflight_ttl, 'processing')
             return 1
         else
@@ -117,38 +121,35 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
             2,  # 2 keys
             slots_key, 
             inflight_key,
-            call_sid, 
+            str(run_id), 
             MAX_SLOTS_PER_BUSINESS,
             INFLIGHT_TTL
         )
         
         if acquired == 1:
             # Slot acquired! (inflight already marked by Lua script)
-            # Get current count for logging
             current_slots = int(_redis_client.scard(slots_key) or 0)
-            logger.info(f"🎧 RECORDING_ENQUEUE business_id={business_id} sid={call_sid[:8]}... active={current_slots}/{MAX_SLOTS_PER_BUSINESS}")
+            logger.info(f"🎧 RECORDING_ENQUEUE business_id={business_id} run_id={run_id} active={current_slots}/{MAX_SLOTS_PER_BUSINESS}")
             return True, "acquired"
         else:
             # No slots available - add to queue atomically
-            # Use Lua to add to both SET and LIST atomically
-            # 🔥 FIX: Add TTL to queued_set to prevent memory leaks
             lua_queue_script = """
             local queued_set = KEYS[1]
             local queue_list = KEYS[2]
-            local call_sid = ARGV[1]
+            local run_id = ARGV[1]
             local ttl = tonumber(ARGV[2])
             
             -- Check if already in set (double-check)
-            if redis.call('SISMEMBER', queued_set, call_sid) == 1 then
+            if redis.call('SISMEMBER', queued_set, run_id) == 1 then
                 return 0
             end
             
             -- Add to set with TTL (cleanup if never processed)
-            redis.call('SADD', queued_set, call_sid)
+            redis.call('SADD', queued_set, run_id)
             redis.call('EXPIRE', queued_set, ttl)
             
             -- Add to list (FIFO)
-            redis.call('RPUSH', queue_list, call_sid)
+            redis.call('RPUSH', queue_list, run_id)
             
             -- Get queue length
             local queue_len = redis.call('LLEN', queue_list)
@@ -160,8 +161,8 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
                 2, 
                 queued_set_key, 
                 queue_list_key, 
-                call_sid,
-                QUEUED_TTL  # Add TTL for cleanup
+                str(run_id),
+                QUEUED_TTL
             )
             
             if queue_len == 0:
@@ -169,73 +170,72 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
                 return False, "already_queued"
             
             current_slots = int(_redis_client.scard(slots_key) or 0)
-            logger.info(f"⏳ RECORDING_QUEUED business_id={business_id} sid={call_sid[:8]}... active={current_slots}/{MAX_SLOTS_PER_BUSINESS} queue_len={queue_len}")
+            logger.info(f"⏳ RECORDING_QUEUED business_id={business_id} run_id={run_id} active={current_slots}/{MAX_SLOTS_PER_BUSINESS} queue_len={queue_len}")
             return False, "queued"
             
     except Exception as e:
         logger.error(f"[RECORDING_SEM] Error acquiring slot: {e}")
         import traceback
         traceback.print_exc()
-        # On error, allow download (fail-open)
+        # On error, allow processing (fail-open)
         return True, "error_fallback"
 
 
-def release_slot(business_id: int, call_sid: str) -> Optional[str]:
+def release_slot(business_id: int, run_id: int) -> Optional[int]:
     """
-    Release a download slot and atomically get next call_sid from queue.
+    Release a processing slot and atomically get next run_id from queue.
     
     🔥 CRITICAL: Must be atomic to prevent race conditions.
     Uses Lua script to release slot and pop next job in single transaction.
     
-    This is called by the WORKER (not API) in the finally block.
+    This is called in the finally block after processing completes.
     
     Returns:
-        next_call_sid if there's work waiting, None otherwise
+        next_run_id if there's work waiting, None otherwise
     """
     if not REDIS_ENABLED or not _redis_client:
         return None
     
     try:
         slots_key = f"rec_slots:{business_id}"
-        inflight_key = f"rec_inflight:{business_id}:{call_sid}"
+        inflight_key = f"rec_inflight:{business_id}:{run_id}"
         queued_set_key = f"rec_queued:{business_id}"
         queue_list_key = f"rec_queue:{business_id}"
         
         # 🔥 ATOMIC: Release slot + pop next from queue using Lua script
-        # 🔥 NEW: Use SREM instead of DECR for SET-based slots
         lua_release_script = """
         local slots_key = KEYS[1]
         local inflight_key = KEYS[2]
         local queued_set = KEYS[3]
         local queue_list = KEYS[4]
-        local call_sid = ARGV[1]
+        local run_id = ARGV[1]
         local inflight_ttl = tonumber(ARGV[2])
         local business_id = ARGV[3]
         
         -- Step 1: Remove from slots SET
-        redis.call('SREM', slots_key, call_sid)
+        redis.call('SREM', slots_key, run_id)
         local current = redis.call('SCARD', slots_key)
         
         -- Step 2: Remove inflight marker
         redis.call('DEL', inflight_key)
         
         -- Step 3: Try to get next from queue
-        local next_sid = redis.call('LPOP', queue_list)
+        local next_run_id = redis.call('LPOP', queue_list)
         
-        if next_sid then
+        if next_run_id then
             -- Step 4: Remove from queued set
-            redis.call('SREM', queued_set, next_sid)
+            redis.call('SREM', queued_set, next_run_id)
             
             -- Step 5: Add next to slots SET
-            redis.call('SADD', slots_key, next_sid)
+            redis.call('SADD', slots_key, next_run_id)
             
             -- Step 6: Mark next as inflight
-            local next_inflight_key = 'rec_inflight:' .. business_id .. ':' .. next_sid
+            local next_inflight_key = 'rec_inflight:' .. business_id .. ':' .. next_run_id
             redis.call('SETEX', next_inflight_key, inflight_ttl, 'processing')
             
-            -- Return: [current_slots_after_release, next_sid, new_slots_after_acquire]
+            -- Return: [current_slots_after_release, next_run_id, new_slots_after_acquire]
             local new_count = redis.call('SCARD', slots_key)
-            return {current, next_sid, new_count}
+            return {current, next_run_id, new_count}
         else
             -- No work waiting
             return {current, nil, current}
@@ -250,21 +250,23 @@ def release_slot(business_id: int, call_sid: str) -> Optional[str]:
             inflight_key,
             queued_set_key,
             queue_list_key,
-            call_sid,
+            str(run_id),
             INFLIGHT_TTL,
             str(business_id)
         )
         
         slots_after_release = result[0]
-        next_sid = result[1] if len(result) > 1 and result[1] else None
+        next_run_id = result[1] if len(result) > 1 and result[1] else None
         slots_after_acquire = result[2] if len(result) > 2 else slots_after_release
         
-        if next_sid:
-            logger.info(f"✅ RECORDING_DONE business_id={business_id} sid={call_sid[:8]}... active={slots_after_release}/{MAX_SLOTS_PER_BUSINESS}")
-            logger.info(f"➡️ RECORDING_NEXT business_id={business_id} sid={next_sid[:8]}... active={slots_after_acquire}/{MAX_SLOTS_PER_BUSINESS}")
-            return next_sid
+        if next_run_id:
+            # Convert to int
+            next_run_id = int(next_run_id)
+            logger.info(f"✅ RECORDING_DONE business_id={business_id} run_id={run_id} active={slots_after_release}/{MAX_SLOTS_PER_BUSINESS}")
+            logger.info(f"➡️ RECORDING_NEXT business_id={business_id} run_id={next_run_id} active={slots_after_acquire}/{MAX_SLOTS_PER_BUSINESS}")
+            return next_run_id
         else:
-            logger.info(f"✅ RECORDING_DONE business_id={business_id} sid={call_sid[:8]}... active={slots_after_release}/{MAX_SLOTS_PER_BUSINESS}")
+            logger.info(f"✅ RECORDING_DONE business_id={business_id} run_id={run_id} active={slots_after_release}/{MAX_SLOTS_PER_BUSINESS}")
             return None
         
     except Exception as e:
@@ -274,85 +276,13 @@ def release_slot(business_id: int, call_sid: str) -> Optional[str]:
         return None
 
 
-def check_status(business_id: int, call_sid: str) -> Tuple[str, dict]:
-    """
-    Check the status of a recording download request.
-    
-    Returns:
-        (status, info)
-        - ("processing", {...}) - Download in progress
-        - ("queued", {...}) - Waiting in queue
-        - ("failed", {...}) - Download failed after retries
-        - ("unknown", {...}) - Not found in system
-    """
-    if not REDIS_ENABLED or not _redis_client:
-        return "unknown", {}
-    
-    try:
-        # Check if failed (highest priority - stop retries)
-        failed_key = f"rec_failed:{business_id}:{call_sid}"
-        if _redis_client.exists(failed_key):
-            ttl = _redis_client.ttl(failed_key)
-            error_msg = _redis_client.get(failed_key) or "Download failed"
-            return "failed", {"ttl": ttl, "error": error_msg}
-        
-        # Check if inflight
-        inflight_key = f"rec_inflight:{business_id}:{call_sid}"
-        if _redis_client.exists(inflight_key):
-            ttl = _redis_client.ttl(inflight_key)
-            return "processing", {"ttl": ttl}
-        
-        # Check if in queue
-        queue_key = f"rec_queue:{business_id}"
-        queue_items = _redis_client.lrange(queue_key, 0, -1)
-        if call_sid in queue_items:
-            position = queue_items.index(call_sid) + 1
-            queue_len = len(queue_items)
-            return "queued", {"position": position, "queue_length": queue_len}
-        
-        return "unknown", {}
-        
-    except Exception as e:
-        logger.error(f"[RECORDING_SEM] Error checking status: {e}")
-        return "unknown", {}
-
-
-def mark_recording_failed(business_id: int, call_sid: str, error_msg: str = "Download failed") -> None:
-    """
-    Mark a recording as failed in Redis with 1-hour TTL.
-    
-    This prevents the frontend from retrying indefinitely and provides
-    clear feedback that the download has permanently failed.
-    
-    Args:
-        business_id: Business ID
-        call_sid: Call SID
-        error_msg: Error message to store
-    """
-    if not REDIS_ENABLED or not _redis_client:
-        return
-    
-    try:
-        failed_key = f"rec_failed:{business_id}:{call_sid}"
-        # Store failed status for 1 hour - long enough to prevent retries but not forever
-        _redis_client.setex(failed_key, 3600, error_msg)
-        logger.info(f"🚫 [RECORDING_SEM] Marked {call_sid} as failed: {error_msg}")
-        
-        # Also delete the dedup key to allow fresh retry after 1 hour if user wants
-        dedup_key = f"job:download:{business_id}:{call_sid}"
-        _redis_client.delete(dedup_key)
-        
-    except Exception as e:
-        logger.error(f"[RECORDING_SEM] Error marking failed: {e}")
-
-
 def cleanup_expired_slots(business_id: int) -> int:
     """
     🔥 FIX: Clean up expired inflight markers that didn't get properly released.
     
     This can happen if:
-    - Worker crashed during download
-    - Network issues caused download to hang
+    - Worker crashed during processing
+    - Network issues caused processing to hang
     - Redis TTL expired but slot wasn't released
     
     Uses Lua script for atomic batch cleanup of all expired slots.
@@ -367,23 +297,22 @@ def cleanup_expired_slots(business_id: int) -> int:
         slots_key = f"rec_slots:{business_id}"
         
         # 🔥 OPTIMIZATION: Use Lua script for atomic batch cleanup
-        # This is much more efficient than individual calls in a loop
         lua_cleanup_script = """
         local slots_key = KEYS[1]
         local business_id = ARGV[1]
         
-        -- Get all call_sids in slots
-        local call_sids = redis.call('SMEMBERS', slots_key)
+        -- Get all run_ids in slots
+        local run_ids = redis.call('SMEMBERS', slots_key)
         local cleaned = 0
         
-        for _, call_sid in ipairs(call_sids) do
-            local inflight_key = 'rec_inflight:' .. business_id .. ':' .. call_sid
+        for _, run_id in ipairs(run_ids) do
+            local inflight_key = 'rec_inflight:' .. business_id .. ':' .. run_id
             
             -- Check if inflight marker still exists
             if redis.call('EXISTS', inflight_key) == 0 then
                 -- Inflight marker expired/missing but slot still occupied
                 -- Remove from slots (this frees the slot)
-                redis.call('SREM', slots_key, call_sid)
+                redis.call('SREM', slots_key, run_id)
                 cleaned = cleaned + 1
             end
         end
@@ -411,6 +340,80 @@ def cleanup_expired_slots(business_id: int) -> int:
     except Exception as e:
         logger.error(f"[RECORDING_SEM] Error during cleanup: {e}")
         return 0
+
+
+def get_slot_status(business_id: int) -> dict:
+    """
+    Get current slot usage for a business.
+    
+    Returns:
+        {
+            "active": int,  # Number of active slots
+            "max": int,     # Maximum slots
+            "available": int  # Available slots
+        }
+    """
+    if not REDIS_ENABLED or not _redis_client:
+        return {"active": 0, "max": MAX_SLOTS_PER_BUSINESS, "available": MAX_SLOTS_PER_BUSINESS}
+    
+    try:
+        slots_key = f"rec_slots:{business_id}"
+        active = int(_redis_client.scard(slots_key) or 0)
+        available = max(0, MAX_SLOTS_PER_BUSINESS - active)
+        
+        return {
+            "active": active,
+            "max": MAX_SLOTS_PER_BUSINESS,
+            "available": available
+        }
+    except Exception as e:
+        logger.error(f"[RECORDING_SEM] Error getting slot status: {e}")
+        return {"active": 0, "max": MAX_SLOTS_PER_BUSINESS, "available": MAX_SLOTS_PER_BUSINESS}
+
+
+def check_status(business_id: int, call_sid: str) -> tuple[str, dict]:
+    """
+    Check the status of a recording download request.
+    
+    🚫 DEPRECATED: This function is for backwards compatibility only.
+    New code should use RecordingRun model to track job status.
+    
+    Args:
+        business_id: Business ID
+        call_sid: Call SID (NOTE: old API used call_sid, new system uses run_id)
+    
+    Returns:
+        (status, info)
+        - ("unknown", {}) - Status unknown (use RecordingRun instead)
+    """
+    logger.debug(f"[RECORDING_SEM] check_status called with call_sid (deprecated) - use RecordingRun model instead")
+    
+    # Try to find RecordingRun by call_sid
+    try:
+        from server.models_sql import RecordingRun
+        from server.app_factory import get_process_app
+        
+        app = get_process_app()
+        with app.app_context():
+            run = RecordingRun.query.filter_by(
+                business_id=business_id,
+                call_sid=call_sid
+            ).order_by(RecordingRun.created_at.desc()).first()
+            
+            if run:
+                if run.status == 'running':
+                    return "processing", {"run_id": run.id}
+                elif run.status == 'queued':
+                    return "queued", {"run_id": run.id}
+                elif run.status == 'failed':
+                    return "failed", {"run_id": run.id, "error": run.error_message}
+                elif run.status == 'completed':
+                    return "completed", {"run_id": run.id}
+            
+            return "unknown", {}
+    except Exception as e:
+        logger.error(f"[RECORDING_SEM] Error in check_status: {e}")
+        return "unknown", {}
 
 
 # Initialize Redis on module import
