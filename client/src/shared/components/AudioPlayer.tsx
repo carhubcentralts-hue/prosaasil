@@ -14,25 +14,36 @@ type PlaybackSpeed = 1 | 1.5 | 2;
 const PLAYBACK_SPEED_KEY = 'audioPlaybackRate';
 
 // 🔥 GLOBAL DEDUPLICATION: Track preparation requests across all AudioPlayer instances
-// Key: recording URL, Value: timestamp of last preparation request
-const globalPreparationCache = new Map<string, number>();
-const PREPARATION_COOLDOWN_MS = 30000; // 30 seconds cooldown between preparation requests
+// Key: call_sid (stable identifier), Value: {timestamp, status}
+interface PrepareStatus {
+  timestamp: number;
+  status: 'preparing' | 'processing' | 'failed';
+}
+const globalPreparationCache = new Map<string, PrepareStatus>();
+const PREPARATION_COOLDOWN_MS = 30000; // 30 seconds cooldown for active jobs
 const CACHE_CLEANUP_INTERVAL_MS = 60000; // Clean up cache every 60 seconds
+
+// 🔥 FIX: Extract call_sid from URL for stable deduplication
+function extractCallSidFromUrl(url: string): string | null {
+  // Match: /api/recordings/<call_sid>/stream or /api/calls/<call_sid>/download
+  const match = url.match(/\/api\/(?:recordings|calls)\/([A-Z0-9a-z]+)\//);
+  return match ? match[1] : null;
+}
 
 // 🔥 FIX: Periodic cleanup to prevent memory leaks
 setInterval(() => {
   const now = Date.now();
   const entriesToDelete: string[] = [];
   
-  // Find expired entries
-  globalPreparationCache.forEach((timestamp, url) => {
-    if (now - timestamp > PREPARATION_COOLDOWN_MS) {
-      entriesToDelete.push(url);
+  // Find expired entries (cleanup after cooldown expires)
+  globalPreparationCache.forEach((value, callSid) => {
+    if (now - value.timestamp > PREPARATION_COOLDOWN_MS) {
+      entriesToDelete.push(callSid);
     }
   });
   
   // Remove expired entries
-  entriesToDelete.forEach(url => globalPreparationCache.delete(url));
+  entriesToDelete.forEach(callSid => globalPreparationCache.delete(callSid));
   
   if (entriesToDelete.length > 0) {
     console.log(`[AudioPlayer] Cleaned ${entriesToDelete.length} expired cache entries`);
@@ -139,26 +150,38 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   // 🔥 NEW: Trigger recording preparation (call /stream once)
   const triggerRecordingPreparation = async (streamUrl: string, statusUrl: string) => {
     try {
-      // 🔥 GLOBAL DEDUPLICATION: Check if another instance already triggered this
-      const now = Date.now();
-      const lastPreparation = globalPreparationCache.get(streamUrl);
-      
-      if (lastPreparation && (now - lastPreparation) < PREPARATION_COOLDOWN_MS) {
-        // Another instance triggered this recently
-        // Instead of making request, just start polling to wait for result
-        const remainingMs = PREPARATION_COOLDOWN_MS - (now - lastPreparation);
-        console.log(`[AudioPlayer] Skipping duplicate preparation for ${streamUrl} (${Math.ceil(remainingMs / 1000)}s cooldown remaining)`);
-        
-        // 🔥 FIX: Don't immediately poll - wait a bit first to avoid server load
-        // The other instance is likely already polling
-        setTimeout(() => {
-          pollRecordingStatus(statusUrl, 0);
-        }, Math.min(5000, remainingMs)); // Wait 5 seconds or until cooldown expires
-        return;
+      // 🔥 GLOBAL DEDUPLICATION: Check by call_sid (stable identifier)
+      const callSid = extractCallSidFromUrl(streamUrl);
+      if (!callSid) {
+        console.error('[AudioPlayer] Could not extract call_sid from URL:', streamUrl);
+        // Fallback: continue without dedup
       }
       
-      // Mark this URL as being prepared globally
-      globalPreparationCache.set(streamUrl, now);
+      const now = Date.now();
+      if (callSid) {
+        const cached = globalPreparationCache.get(callSid);
+        
+        // 🔥 FIX: Only apply cooldown if status is 'preparing' or 'processing'
+        // If previous attempt failed, allow retry immediately
+        if (cached && cached.status !== 'failed') {
+          const elapsed = now - cached.timestamp;
+          if (elapsed < PREPARATION_COOLDOWN_MS) {
+            // Another instance is preparing/processing this
+            const remainingMs = PREPARATION_COOLDOWN_MS - elapsed;
+            console.log(`[AudioPlayer] Skipping duplicate preparation for ${callSid} (${Math.ceil(remainingMs / 1000)}s cooldown remaining, status=${cached.status})`);
+            
+            // 🔥 FIX: Don't immediately poll - wait a bit first to avoid server load
+            // The other instance is likely already polling
+            setTimeout(() => {
+              pollRecordingStatus(statusUrl, 0);
+            }, Math.min(5000, remainingMs)); // Wait 5 seconds or until cooldown expires
+            return;
+          }
+        }
+        
+        // Mark this call_sid as being prepared
+        globalPreparationCache.set(callSid, { timestamp: now, status: 'preparing' });
+      }
       
       // 🔥 SECURITY: Add explicit_user_action parameter
       const urlWithParam = streamUrl.includes('?') 
@@ -175,6 +198,11 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
 
       // 202 Accepted or 200 OK - start polling status
       if (response.status === 202 || response.status === 200) {
+        // Update status to processing
+        if (callSid) {
+          globalPreparationCache.set(callSid, { timestamp: now, status: 'processing' });
+        }
+        
         if (response.status === 200) {
           // Got the file immediately!
           const blob = await response.blob();
@@ -183,6 +211,11 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
           setPreparingRecording(false);
           setIsLoading(false);
           setRetryCount(0);
+          
+          // Clear from cache - job complete
+          if (callSid) {
+            globalPreparationCache.delete(callSid);
+          }
         } else {
           // 202 - enqueued, start polling
           pollRecordingStatus(statusUrl, 0);
@@ -190,7 +223,11 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         return;
       }
 
-      // Handle errors
+      // Handle errors - mark as failed so retry is allowed
+      if (callSid) {
+        globalPreparationCache.set(callSid, { timestamp: now, status: 'failed' });
+      }
+      
       if (response.status === 410) {
         throw new Error('ההקלטה פגה תוקף (ישנה מ-7 ימים)');
       }
@@ -199,6 +236,13 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       throw new Error(errorData.error || 'שגיאה בהפעלת ההקלטה');
     } catch (error) {
       console.error('Error triggering recording preparation:', error);
+      
+      // Mark as failed in cache
+      const callSid = extractCallSidFromUrl(streamUrl);
+      if (callSid) {
+        globalPreparationCache.set(callSid, { timestamp: Date.now(), status: 'failed' });
+      }
+      
       setErrorMessage((error as Error).message);
       setPreparingRecording(false);
       setIsLoading(false);

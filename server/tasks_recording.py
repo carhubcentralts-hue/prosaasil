@@ -441,6 +441,9 @@ def start_recording_worker(app):
                 try:
                     log.debug(f"[WORKER] Download slot acquired for {call_sid}")
                     
+                    # Track result for logging
+                    download_result = "unknown"
+                    
                     # 🔥 FIX: Handle download_only jobs (priority for UI)
                     if job_type == "download_only":
                         # 🔥 NEW: [DOWNLOAD_START] log with both call_sid and recording_sid
@@ -460,6 +463,7 @@ def start_recording_worker(app):
                         download_duration_ms = int((time.time() - download_start_time) * 1000)
                         
                         if success:
+                            download_result = "success"
                             # 🔥 NEW: [DOWNLOAD_OK] log with size and duration
                             try:
                                 from server.services.recording_service import check_local_recording_exists, _get_recordings_dir
@@ -476,6 +480,7 @@ def start_recording_worker(app):
                             logger.info(f"✅ [WORKER] Recording downloaded for {call_sid}")
                             log.info(f"[WORKER DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
                         else:
+                            download_result = "failed"
                             # 🔥 NEW: [DOWNLOAD_FAIL] log with reason
                             logger.error(f"❌ [DOWNLOAD_FAIL] call_sid={call_sid} reason=download_failed attempt={retry_count + 1} duration={download_duration_ms}ms")
                             
@@ -553,10 +558,13 @@ def start_recording_worker(app):
                     if job_type == "download_only":
                         # Release slot and get next from queue (ATOMIC operation)
                         from server.recording_semaphore import release_slot
-                        logger.info(f"🔧 [WORKER] Releasing slot for {call_sid} in business {business_id}")
+                        
+                        # 🔥 FIX: Log with reason for easier debugging
+                        reason = download_result if 'download_result' in locals() else 'exception'
+                        logger.info(f"🔧 [WORKER] Releasing slot for {call_sid} in business {business_id} (reason={reason})")
                         next_call_sid = release_slot(business_id, call_sid)
                         
-                        # 🔥 NEW: [RECORDING_SLOT_RELEASED] log with active/queue metrics
+                        # 🔥 NEW: [RECORDING_SLOT_RELEASED] log with active/queue metrics and reason
                         try:
                             from server.recording_semaphore import _redis_client, REDIS_ENABLED
                             if REDIS_ENABLED and _redis_client:
@@ -564,12 +572,12 @@ def start_recording_worker(app):
                                 queue_key = f"rec_queue:{business_id}"
                                 active_after = int(_redis_client.scard(slots_key) or 0)
                                 queue_len_after = int(_redis_client.llen(queue_key) or 0)
-                                logger.info(f"🔓 [RECORDING_SLOT_RELEASED] call_sid={call_sid} business_id={business_id} active_after={active_after}/3 queue_len_after={queue_len_after}")
+                                logger.info(f"🔓 [RECORDING_SLOT_RELEASED] call_sid={call_sid} business_id={business_id} reason={reason} active_after={active_after}/{MAX_SLOTS_PER_BUSINESS} queue_len_after={queue_len_after}")
                             else:
-                                logger.info(f"🔓 [RECORDING_SLOT_RELEASED] call_sid={call_sid} business_id={business_id} (Redis disabled)")
+                                logger.info(f"🔓 [RECORDING_SLOT_RELEASED] call_sid={call_sid} business_id={business_id} reason={reason} (Redis disabled)")
                         except Exception as log_error:
                             logger.warning(f"⚠️ [RECORDING_SLOT_RELEASED] Failed to get metrics: {log_error}")
-                            logger.info(f"🔓 [RECORDING_SLOT_RELEASED] call_sid={call_sid} business_id={business_id}")
+                            logger.info(f"🔓 [RECORDING_SLOT_RELEASED] call_sid={call_sid} business_id={business_id} reason={reason}")
                         
                         # If there's a next job waiting, enqueue it
                         if next_call_sid:
