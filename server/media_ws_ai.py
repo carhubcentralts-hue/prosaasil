@@ -2098,6 +2098,13 @@ class MediaStreamHandler:
         self._limit_exceeded = False
         self._limit_frames = 0
         self._limit_seconds = 0.0
+        
+        # 🔥 TTS FLOOD PREVENTION: Per-call gate to prevent multiple concurrent TTS requests
+        # Issue: Multiple "Submitting audio generation..." close together causes timeouts
+        # Solution: Track inflight TTS and use latest-wins strategy
+        self.tts_inflight = False  # True when TTS request is in progress
+        self.tts_request_id = 0  # Incremented for each TTS request (latest-wins)
+        self.tts_lock = threading.Lock()  # Protect TTS state
         self._usage_guard_frames = 0
         self._usage_guard_seconds = 0.0
         self._usage_guard_limit_hit = False
@@ -11198,17 +11205,21 @@ class MediaStreamHandler:
                 logger.info(f"✅ GREETING_TTS_SUCCESS: {len(tts_audio)} bytes")
                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
             else:
-                logger.error("❌ GREETING_TTS_FAILED - sending beep")
-                self._send_beep(800)
+                logger.error("❌ GREETING_TTS_FAILED - NOT sending beep (per requirements)")
+                # 🔥 REQUIREMENT: Mark as failed, don't auto-beep
+                if hasattr(self, 'call_log') and self.call_log:
+                    self.call_log.tts_status = "failed"
+                    self.call_log.tts_error_code = "GREETING_NO_AUDIO"
                 self._finalize_speaking()
         except Exception as e:
             logger.error(f"❌ GREETING_TTS_ERROR: {e}")
             import traceback
             traceback.print_exc()
-            try:
-                self._send_beep(800)
-            except:
-                pass
+            # 🔥 REQUIREMENT: Mark as failed, don't auto-beep
+            if hasattr(self, 'call_log') and self.call_log:
+                self.call_log.tts_status = "failed"
+                self.call_log.tts_error_code = f"GREETING_EXCEPTION: {str(e)[:100]}"
+            self._finalize_speaking()
             self._finalize_speaking()
     
     def _speak_simple(self, text: str):
@@ -11283,8 +11294,29 @@ class MediaStreamHandler:
             # This code should never run when USE_REALTIME_API=True
             
             ai_provider = getattr(self, '_ai_provider', 'unknown')
-            logger.info(f"[TTS] Submitting TTS to executor: provider={ai_provider}, text_len={len(text)}")
-            _orig_print(f"🎤 [TTS] Submitting audio generation for {len(text)} chars (provider={ai_provider})", flush=True)
+            
+            # 🔥 TTS FLOOD PREVENTION: Check if TTS already inflight
+            with self.tts_lock:
+                if self.tts_inflight:
+                    logger.warning(
+                        f"[TTS] TTS already inflight (request_id={self.tts_request_id}) - "
+                        f"skipping new request (latest-wins strategy)"
+                    )
+                    self._finalize_speaking()
+                    return
+                
+                # Mark TTS as inflight and assign request ID
+                self.tts_inflight = True
+                self.tts_request_id += 1
+                current_request_id = self.tts_request_id
+                logger.info(
+                    f"[TTS] request_id={current_request_id} started: provider={ai_provider}, text_len={len(text)}"
+                )
+            
+            _orig_print(
+                f"🎤 [TTS] request_id={current_request_id} Submitting audio generation for {len(text)} chars (provider={ai_provider})",
+                flush=True
+            )
             
             # 🔥 FIX: Use ThreadPoolExecutor with callback - NEVER blocks receive_loop
             # Submit TTS to executor and attach callback for result
@@ -11297,9 +11329,22 @@ class MediaStreamHandler:
                     """Callback when TTS completes - runs in executor thread"""
                     tts_generation_time = time.time() - tts_start
                     
+                    # 🔥 TTS FLOOD PREVENTION: Clear inflight flag
+                    with self.tts_lock:
+                        # Check if this is the latest request
+                        is_latest = (current_request_id == self.tts_request_id)
+                        self.tts_inflight = False
+                        
+                        if not is_latest:
+                            logger.info(
+                                f"[TTS_CALLBACK] request_id={current_request_id} is stale "
+                                f"(latest={self.tts_request_id}) - discarding result"
+                            )
+                            return
+                    
                     # 🔥 Guard: Check if session still active
                     if self.closed or self._ws_closed:
-                        logger.info(f"[TTS_CALLBACK] Session closed - discarding TTS result")
+                        logger.info(f"[TTS_CALLBACK] request_id={current_request_id} Session closed - discarding TTS result")
                         return
                     
                     try:
@@ -11309,8 +11354,8 @@ class MediaStreamHandler:
                         if DEBUG: logger.debug(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
                         
                         if tts_audio and len(tts_audio) > 1000:
-                            logger.info(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
-                            _orig_print(f"✅ [TTS] Got {len(tts_audio)} bytes, sending to Twilio...", flush=True)
+                            logger.info(f"🔊 TTS SUCCESS: request_id={current_request_id} {len(tts_audio)} bytes")
+                            _orig_print(f"✅ [TTS] request_id={current_request_id} Got {len(tts_audio)} bytes, sending to Twilio...", flush=True)
                             
                             # 🔥 Guard: Double-check session before sending
                             if not self.closed and not self._ws_closed:
@@ -11318,7 +11363,7 @@ class MediaStreamHandler:
                                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
                                 send_time = time.time() - send_start
                                 logger.info(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission complete)")
-                                _orig_print(f"✅ [TTS] Audio sent in {send_time:.3f}s", flush=True)
+                                _orig_print(f"✅ [TTS] request_id={current_request_id} Audio sent in {send_time:.3f}s", flush=True)
                                 
                                 # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
                                 if eou_saved:
@@ -11335,20 +11380,26 @@ class MediaStreamHandler:
                                     if hasattr(self, 'eou_timestamp'):
                                         delattr(self, 'eou_timestamp')
                             else:
-                                logger.info(f"[TTS_CALLBACK] Session closed during TTS - discarding audio")
+                                logger.info(f"[TTS_CALLBACK] request_id={current_request_id} Session closed during TTS - discarding audio")
                         else:
-                            logger.error("🔊 TTS returned no audio - sending beep")
+                            logger.error(f"🔊 TTS returned no audio (request_id={current_request_id}) - NOT sending beep (per requirements)")
+                            # 🔥 REQUIREMENT: Don't auto-beep - log critical error instead
+                            if hasattr(self, 'call_log') and self.call_log:
+                                self.call_log.tts_status = "failed"
+                                self.call_log.tts_error_code = "NO_AUDIO_BYTES"
                             if not self.closed and not self._ws_closed:
-                                self._send_beep(800)
                                 self._finalize_speaking()
                                 
                     except Exception as callback_err:
-                        logger.error(f"🔊 TTS callback error: {callback_err}")
+                        logger.error(f"🔊 TTS callback error (request_id={current_request_id}): {callback_err}")
                         import traceback
                         traceback.print_exc()
+                        # 🔥 REQUIREMENT: Mark as failed, don't auto-beep
+                        if hasattr(self, 'call_log') and self.call_log:
+                            self.call_log.tts_status = "failed"
+                            self.call_log.tts_error_code = f"CALLBACK_ERROR: {str(callback_err)[:100]}"
                         if not self.closed and not self._ws_closed:
                             try:
-                                self._send_beep(800)
                                 self._finalize_speaking()
                             except:
                                 pass
@@ -11358,20 +11409,29 @@ class MediaStreamHandler:
                 
                 # 🔥 CRITICAL: _speak_simple returns IMMEDIATELY
                 # Receive_loop continues processing without waiting for TTS
-                logger.info(f"[TTS] Submitted to executor with callback - continuing receive_loop")
+                logger.info(f"[TTS] request_id={current_request_id} Submitted to executor with callback - continuing receive_loop")
                 
             except Exception as submit_error:
-                logger.error(f"🔊 TTS executor submit failed: {submit_error}")
-                self._send_beep(800)
+                logger.error(f"🔊 TTS executor submit failed (request_id={current_request_id}): {submit_error}")
+                # 🔥 Clear inflight flag on error
+                with self.tts_lock:
+                    self.tts_inflight = False
+                # 🔥 REQUIREMENT: Mark as failed, don't auto-beep
+                if hasattr(self, 'call_log') and self.call_log:
+                    self.call_log.tts_status = "failed"
+                    self.call_log.tts_error_code = f"SUBMIT_ERROR: {str(submit_error)[:100]}"
                 self._finalize_speaking()
         except Exception as e:
             logger.error(f"❌ TTS_ERROR: {e}")
             import traceback
             traceback.print_exc()
-            try:
-                self._send_beep(800)
-            except:
-                pass
+            # 🔥 Clear inflight flag on error
+            with self.tts_lock:
+                self.tts_inflight = False
+            # 🔥 REQUIREMENT: Mark as failed, don't auto-beep
+            if hasattr(self, 'call_log') and self.call_log:
+                self.call_log.tts_status = "failed"
+                self.call_log.tts_error_code = f"EXCEPTION: {str(e)[:100]}"
             self._finalize_speaking()
     
     def _tx_enqueue(self, item):
@@ -15871,23 +15931,23 @@ class MediaStreamHandler:
         Hebrew TTS synthesis - supports OpenAI Realtime API and Gemini TTS
         
         - OpenAI Realtime: Returns None (handled natively by Realtime API)
-        - Gemini: Uses Gemini TTS API to generate audio with 6-second timeout
+        - Gemini: Uses Gemini TTS API to generate audio with HTTP-level timeout
         
-        🔥 FIX ISSUE #2: Added TTS timeout (6 seconds) to prevent call death
-        If Gemini TTS takes too long, returns short error message instead
+        🔥 FIX: HTTP-level timeout (connect=2s, read=10s) prevents hanging requests
+        Timeout is enforced at HTTP transport layer, not at Future level
         """
         # 🔥 Check per-call override first (set based on ai_provider)
         use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
         ai_provider = getattr(self, '_ai_provider', 'unknown')
         
-        logger.info(f"[TTS] _hebrew_tts called: provider={ai_provider}, use_realtime={use_realtime_for_this_call}, text_len={len(text)}")
+        logger.info(f"[GEMINI_TTS] _hebrew_tts called: provider={ai_provider}, use_realtime={use_realtime_for_this_call}, text_len={len(text)}")
         
         # 🚀 REALTIME API: Skip TTS - OpenAI Realtime generates audio natively
         if use_realtime_for_this_call:
-            logger.info(f"[TTS] Skipping TTS - OpenAI Realtime handles it")
+            logger.info(f"[GEMINI_TTS] Skipping TTS - OpenAI Realtime handles it")
             return None
         
-        # 🔷 GEMINI TTS: Use Gemini for text-to-speech WITH TIMEOUT
+        # 🔷 GEMINI TTS: Use Gemini for text-to-speech
         logger.info(f"[GEMINI_TTS] Starting synthesis: {len(text)} chars, provider={ai_provider}")
         _orig_print(f"🔷 [GEMINI_TTS] Synthesizing {len(text)} chars...", flush=True)
         
@@ -15915,50 +15975,21 @@ class MediaStreamHandler:
                 speed = float(getattr(business, 'tts_speed', 1.0) or 1.0)
                 language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
             
-            # 🔥 FIX ISSUE #2: Add timeout wrapper for TTS synthesis
-            # Use threading to implement timeout since tts_provider.synthesize is synchronous
-            import threading
+            # 🔥 Call TTS provider directly - timeout handled at HTTP layer
+            # HTTP client configured with connect=2s, read=10s in google_clients.py
             from server.services import tts_provider
             
-            TTS_TIMEOUT_SECONDS = 6  # 6 seconds max for TTS
-            result = {'audio_bytes': None, 'content_type': None, 'error': None}
-            
-            def _synthesize_with_result():
-                try:
-                    audio_bytes, content_type_or_error = tts_provider.synthesize(
-                        text=text,
-                        provider='gemini',
-                        voice_id=voice_name,
-                        language=language,
-                        speed=speed
-                    )
-                    result['audio_bytes'] = audio_bytes
-                    result['content_type'] = content_type_or_error
-                except Exception as e:
-                    result['error'] = str(e)
-            
-            # Start synthesis in thread with timeout
-            tts_thread = threading.Thread(target=_synthesize_with_result, daemon=True)
-            tts_thread.start()
-            tts_thread.join(timeout=TTS_TIMEOUT_SECONDS)
-            
-            # Check if thread completed
-            if tts_thread.is_alive():
-                # Thread is still running - timeout!
-                logger.error(f"[GEMINI_TTS] ⏱️ TIMEOUT after {TTS_TIMEOUT_SECONDS}s - generating fallback")
-                _orig_print(f"❌ [GEMINI_TTS] TIMEOUT after {TTS_TIMEOUT_SECONDS}s", flush=True)
-                
-                # 🔥 FIX ISSUE #2: Generate short fallback message
-                # Use a simple beep or short pre-cached message instead
-                return None  # Caller will use beep fallback
-            
-            # Check for errors
-            if result['error']:
-                logger.error(f"[GEMINI_TTS] Synthesis error: {result['error']}")
+            try:
+                audio_bytes, content_type_or_error = tts_provider.synthesize(
+                    text=text,
+                    provider='gemini',
+                    voice_id=voice_name,
+                    language=language,
+                    speed=speed
+                )
+            except Exception as e:
+                logger.error(f"[GEMINI_TTS] Synthesis exception: {e}")
                 return None
-            
-            audio_bytes = result['audio_bytes']
-            content_type_or_error = result['content_type']
             
             if audio_bytes is None:
                 logger.error(f"[GEMINI_TTS] Synthesis failed: {content_type_or_error}")

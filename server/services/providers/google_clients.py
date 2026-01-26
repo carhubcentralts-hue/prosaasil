@@ -103,6 +103,7 @@ def get_gemini_client():
         - Thread-safe with double-checked locking
         - Caches failures to avoid repeated init attempts
         - NOT affected by DISABLE_GOOGLE (Gemini is separate from Google Cloud STT/TTS)
+        - Configured with timeout: connect=2s, read=10s (for TTS/LLM requests)
     """
     global _gemini_client
     
@@ -128,8 +129,16 @@ def get_gemini_client():
                 _gemini_client = False  # Cache failure
                 return None
             
-            _gemini_client = genai.Client(api_key=gemini_api_key)
-            logger.info("✅ Gemini client initialized (singleton)")
+            # 🔥 Initialize with timeout configuration (connect=2s, read=10s)
+            # This prevents requests from hanging indefinitely
+            # TTS typically takes 1-3s, LLM takes 0.5-2s, so 10s read timeout is safe
+            import httpx
+            http_client = httpx.Client(
+                timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0)
+            )
+            
+            _gemini_client = genai.Client(api_key=gemini_api_key, http_options={'client': http_client})
+            logger.info("✅ Gemini client initialized (singleton) with timeout: connect=2s, read=10s")
             return _gemini_client
             
         except Exception as e:
