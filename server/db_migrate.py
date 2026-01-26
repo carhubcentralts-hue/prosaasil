@@ -5402,6 +5402,102 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ recording_runs table already exists - skipping Migration 106")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 107: Add cancel_requested fields for unified long-running tasks
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 107: Adding cancel_requested and progress fields for unified long-running tasks")
+        
+        # 1. Add cancel_requested to WhatsAppBroadcast
+        if check_table_exists('whatsapp_broadcasts'):
+            try:
+                if not check_column_exists('whatsapp_broadcasts', 'cancel_requested'):
+                    checkpoint("  → Adding cancel_requested to whatsapp_broadcasts...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE whatsapp_broadcasts 
+                        ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT FALSE
+                    """)
+                    checkpoint("  ✅ cancel_requested added to whatsapp_broadcasts")
+                    migrations_applied.append('107_broadcast_cancel_requested')
+                else:
+                    checkpoint("  ℹ️ cancel_requested already exists on whatsapp_broadcasts")
+                
+                # Add cancelled_count field
+                if not check_column_exists('whatsapp_broadcasts', 'cancelled_count'):
+                    checkpoint("  → Adding cancelled_count to whatsapp_broadcasts...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE whatsapp_broadcasts 
+                        ADD COLUMN cancelled_count INTEGER DEFAULT 0
+                    """)
+                    checkpoint("  ✅ cancelled_count added to whatsapp_broadcasts")
+                    migrations_applied.append('107_broadcast_cancelled_count')
+                else:
+                    checkpoint("  ℹ️ cancelled_count already exists on whatsapp_broadcasts")
+                
+                # Add processed_count field
+                if not check_column_exists('whatsapp_broadcasts', 'processed_count'):
+                    checkpoint("  → Adding processed_count to whatsapp_broadcasts...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE whatsapp_broadcasts 
+                        ADD COLUMN processed_count INTEGER DEFAULT 0
+                    """)
+                    checkpoint("  ✅ processed_count added to whatsapp_broadcasts")
+                    migrations_applied.append('107_broadcast_processed_count')
+                else:
+                    checkpoint("  ℹ️ processed_count already exists on whatsapp_broadcasts")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 107 (broadcasts) failed: {e}")
+                logger.error(f"Migration 107 broadcasts error: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ whatsapp_broadcasts table does not exist - skipping")
+        
+        # 2. Add cancelled status to WhatsAppBroadcastRecipient
+        if check_table_exists('whatsapp_broadcast_recipients'):
+            try:
+                # Update status constraint to include 'cancelled'
+                checkpoint("  → Updating whatsapp_broadcast_recipients status constraint to include 'cancelled'...")
+                # First drop existing constraint if it exists
+                db.session.execute(text("""
+                    ALTER TABLE whatsapp_broadcast_recipients 
+                    DROP CONSTRAINT IF EXISTS chk_recipient_status
+                """))
+                # Add new constraint with 'cancelled'
+                db.session.execute(text("""
+                    ALTER TABLE whatsapp_broadcast_recipients 
+                    ADD CONSTRAINT chk_recipient_status 
+                    CHECK (status IN ('queued', 'processing', 'sent', 'delivered', 'failed', 'cancelled'))
+                """))
+                checkpoint("  ✅ Status constraint updated for whatsapp_broadcast_recipients")
+                migrations_applied.append('107_recipient_cancelled_status')
+            except Exception as e:
+                checkpoint(f"⚠️ Migration 107 (recipient status) warning: {e}")
+        else:
+            checkpoint("  ℹ️ whatsapp_broadcast_recipients table does not exist - skipping")
+        
+        # 3. Add cancel_requested to ReceiptSyncRun
+        if check_table_exists('receipt_sync_runs'):
+            try:
+                if not check_column_exists('receipt_sync_runs', 'cancel_requested'):
+                    checkpoint("  → Adding cancel_requested to receipt_sync_runs...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT FALSE
+                    """)
+                    checkpoint("  ✅ cancel_requested added to receipt_sync_runs")
+                    migrations_applied.append('107_receipt_sync_cancel_requested')
+                else:
+                    checkpoint("  ℹ️ cancel_requested already exists on receipt_sync_runs")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 107 (receipt_sync) failed: {e}")
+                logger.error(f"Migration 107 receipt_sync error: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ receipt_sync_runs table does not exist - skipping")
+        
+        checkpoint("✅ Migration 107 complete: Unified long-running tasks support added")
+        checkpoint("   🎯 WhatsApp broadcasts now support cancel_requested + progress tracking")
+        checkpoint("   🎯 Receipt sync now supports cancel_requested")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

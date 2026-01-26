@@ -18,7 +18,7 @@ from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
 from sqlalchemy import func
 from sqlalchemy import text
 from flask import Blueprint, jsonify, request, g, session
-from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings, OutboundCallRun, OutboundCallJob
+from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings, OutboundCallRun, OutboundCallJob, RecordingRun
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.services.call_limiter import check_call_limits, get_call_counts, MAX_TOTAL_CALLS_PER_BUSINESS, MAX_OUTBOUND_CALLS_PER_BUSINESS
@@ -2239,6 +2239,19 @@ def get_recent_calls():
                     lead_name = lead.full_name
                     lead_status = lead.status
             
+            # ✅ Enrich with recording status
+            recording_status = None
+            recording_run_id = None
+            recording_run = RecordingRun.query.filter_by(call_sid=call.call_sid).order_by(RecordingRun.created_at.desc()).first()
+            
+            if recording_run:
+                recording_status = recording_run.status  # Use RecordingRun status
+                recording_run_id = recording_run.id
+            elif call.recording_url:
+                recording_status = 'completed'  # Has URL means completed
+            elif call.recording_sid:
+                recording_status = 'processing'  # Has SID but no URL yet
+            
             items.append({
                 "call_sid": call.call_sid,
                 "to_number": call.to_number,
@@ -2251,6 +2264,8 @@ def get_recent_calls():
                 "duration": call.duration,
                 "recording_url": call.recording_url,
                 "recording_sid": call.recording_sid,
+                "recording_status": recording_status,
+                "recording_run_id": recording_run_id,
                 "transcript": call.final_transcript or call.transcription,
                 "summary": call.summary
             })
@@ -2373,6 +2388,19 @@ def get_recent_inbound_calls():
                     lead_name = lead.full_name
                     lead_status = lead.status
             
+            # ✅ Enrich with recording status
+            recording_status = None
+            recording_run_id = None
+            recording_run = RecordingRun.query.filter_by(call_sid=call.call_sid).order_by(RecordingRun.created_at.desc()).first()
+            
+            if recording_run:
+                recording_status = recording_run.status  # Use RecordingRun status
+                recording_run_id = recording_run.id
+            elif call.recording_url:
+                recording_status = 'completed'  # Has URL means completed
+            elif call.recording_sid:
+                recording_status = 'processing'  # Has SID but no URL yet
+            
             items.append({
                 "call_sid": call.call_sid,
                 "to_number": call.to_number,
@@ -2385,6 +2413,8 @@ def get_recent_inbound_calls():
                 "duration": call.duration,
                 "recording_url": call.recording_url,
                 "recording_sid": call.recording_sid,
+                "recording_status": recording_status,
+                "recording_run_id": recording_run_id,
                 "transcript": call.final_transcript or call.transcription,
                 "summary": call.summary
             })
@@ -2848,10 +2878,10 @@ def process_bulk_call_run(run_id: int):
                                 "lock_token": lock_token
                             })
                             
-                                log.error(f"[BulkCall] Lock token mismatch for job {next_job.id}, call may be duplicate")
-                                    # Call was created but we lost the lock - log warning but continue
-                                    # Twilio will handle the duplicate via their idempotency
-                                
+                            log.error(f"[BulkCall] Lock token mismatch for job {next_job.id}, call may be duplicate")
+                            # Call was created but we lost the lock - log warning but continue
+                            # Twilio will handle the duplicate via their idempotency
+                            
                             call_log.call_sid = call_sid
                             db.session.commit()
                             
@@ -3272,3 +3302,49 @@ def export_leads_by_status():
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"שגיאה בייצוא: {str(e)}"}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# API COMPATIBILITY LAYER - Aliases for Frontend
+# ═══════════════════════════════════════════════════════════════════════
+# 🔥 PURPOSE: Frontend expects specific endpoint names after refactor to Runs
+# These aliases map old endpoint names to new implementations
+
+@outbound_bp.route("/api/inbound/recent", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_inbound')
+def get_inbound_recent_alias():
+    """
+    ✅ COMPATIBILITY ALIAS: Maps /api/inbound/recent → /api/inbound/recent-calls
+    
+    Frontend expects this endpoint after refactor to CallLog/RecordingRun.
+    This ensures no 404 errors in UI.
+    """
+    return get_recent_inbound_calls()
+
+
+@outbound_bp.route("/api/inbound/calls/counts", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_inbound')
+def get_inbound_counts_alias():
+    """
+    ✅ COMPATIBILITY ALIAS: Maps /api/inbound/calls/counts → /api/inbound_calls/counts
+    
+    Frontend expects this endpoint for call counters.
+    """
+    return get_inbound_call_counts_endpoint()
+
+
+@outbound_bp.route("/api/outbound/recent", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
+def get_outbound_recent_alias():
+    """
+    ✅ COMPATIBILITY ALIAS: Maps /api/outbound/recent → /api/outbound/recent-calls
+    
+    Frontend expects this endpoint after refactor to CallLog/OutboundCallRun.
+    """
+    return get_recent_calls()
+
+
+# Note: /api/outbound/bulk/active already exists at line 2035 (no alias needed)

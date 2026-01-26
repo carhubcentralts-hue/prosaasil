@@ -1198,11 +1198,16 @@ class WhatsAppBroadcast(db.Model):
     audience_filter = db.Column(db.JSON)  # Statuses, tags, etc.
     
     # Status and progress
-    # ✅ ENHANCEMENT 1: Clear status progression: accepted → queued → running → completed/failed/partial
-    status = db.Column(db.String(32), default="accepted", index=True)  # accepted|queued|running|completed|failed|paused|partial
+    # ✅ ENHANCEMENT 1: Clear status progression: accepted → queued → running → completed/failed/partial/cancelled
+    status = db.Column(db.String(32), default="accepted", index=True)  # accepted|queued|running|completed|failed|paused|partial|cancelled
     total_recipients = db.Column(db.Integer, default=0)
+    processed_count = db.Column(db.Integer, default=0)  # Total processed (sent+failed+cancelled)
     sent_count = db.Column(db.Integer, default=0)
     failed_count = db.Column(db.Integer, default=0)
+    cancelled_count = db.Column(db.Integer, default=0)  # Recipients cancelled before sending
+    
+    # ✅ Cancel support: Real cancel that worker respects
+    cancel_requested = db.Column(db.Boolean, default=False, nullable=False)  # User requested cancellation
     
     # ✅ ENHANCEMENT 3: Idempotency key to prevent duplicates
     idempotency_key = db.Column(db.String(64), index=True)
@@ -1234,8 +1239,8 @@ class WhatsAppBroadcastRecipient(db.Model):
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True)
     
     # Status
-    # ✅ ENHANCEMENT 1: Clear status progression: queued → sent → delivered/failed
-    status = db.Column(db.String(32), default="queued", index=True)  # queued|sent|delivered|failed
+    # ✅ ENHANCEMENT 1: Clear status progression: queued → processing → sent → delivered/failed/cancelled
+    status = db.Column(db.String(32), default="queued", index=True)  # queued|processing|sent|delivered|failed|cancelled
     error_message = db.Column(db.Text)
     
     # Message details
@@ -1754,6 +1759,7 @@ class ReceiptSyncRun(db.Model):
     
     # Progress tracking
     status = db.Column(db.String(20), nullable=False, default='running')  # running|paused|completed|failed|cancelled
+    cancel_requested = db.Column(db.Boolean, default=False, nullable=False)  # User requested cancellation
     started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     finished_at = db.Column(db.DateTime, nullable=True)
     cancelled_at = db.Column(db.DateTime, nullable=True)  # When cancellation was requested

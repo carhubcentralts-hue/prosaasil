@@ -186,17 +186,47 @@ def sync_gmail_receipts_job(
             now = time.time()
             if now - last_heartbeat >= HEARTBEAT_INTERVAL:
                 try:
+                    # Check for cancellation during heartbeat
+                    db.session.refresh(sync_run)
+                    if sync_run.cancel_requested:
+                        logger.info(f"🛑 Sync {run_id} was cancelled during heartbeat - stopping")
+                        raise InterruptedError("Sync cancelled by user")
+                    
                     sync_run.last_heartbeat_at = datetime.now(timezone.utc)
                     db.session.commit()
                     last_heartbeat = now
                     # Refresh lock TTL
                     redis_conn.expire(lock_key, LOCK_TTL)
+                except InterruptedError:
+                    raise  # Re-raise cancellation
                 except Exception as e:
                     logger.error(f"Failed to update heartbeat: {e}")
         
         # Call the actual sync service with heartbeat callback (if supported)
         # Note: heartbeat_callback is optional - only used if sync service supports it
         # CRITICAL: Pass sync_run to avoid creating duplicate records
+        
+        # Check for cancellation before processing
+        db.session.refresh(sync_run)
+        if sync_run.cancel_requested:
+            logger.info(f"🛑 Sync {run_id} was cancelled - stopping")
+            sync_run.status = 'cancelled'
+            sync_run.finished_at = datetime.now(timezone.utc)
+            db.session.commit()
+            
+            # Release the Redis lock
+            try:
+                redis_conn.delete(lock_key)
+                logger.info(f"✓ Released Redis lock for business {business_id}")
+            except Exception as e:
+                logger.error(f"Failed to release lock: {e}")
+            
+            return {
+                "success": True,
+                "cancelled": True,
+                "message": "Sync was cancelled by user"
+            }
+        
         try:
             result = sync_gmail_receipts(
                 business_id=business_id,
@@ -208,6 +238,25 @@ def sync_gmail_receipts_job(
                 heartbeat_callback=update_heartbeat,
                 sync_run=sync_run  # Pass existing sync_run to avoid duplicates
             )
+        except InterruptedError:
+            # Sync was cancelled during execution
+            logger.info(f"🛑 Sync {run_id} was interrupted - marking as cancelled")
+            sync_run.status = 'cancelled'
+            sync_run.finished_at = datetime.now(timezone.utc)
+            db.session.commit()
+            
+            # Release the Redis lock
+            try:
+                redis_conn.delete(lock_key)
+                logger.info(f"✓ Released Redis lock for business {business_id}")
+            except Exception as e:
+                logger.error(f"Failed to release lock: {e}")
+            
+            return {
+                "success": True,
+                "cancelled": True,
+                "message": "Sync was cancelled by user"
+            }
         except TypeError:
             # Fallback if heartbeat_callback not supported
             logger.warning("sync_gmail_receipts doesn't support heartbeat_callback, using without it")
