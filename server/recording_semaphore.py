@@ -68,6 +68,9 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
         return True, "no_redis"
     
     try:
+        # 🔥 FIX: Clean up expired slots first (frees stuck slots)
+        cleanup_expired_slots(business_id)
+        
         inflight_key = f"rec_inflight:{business_id}:{call_sid}"
         queued_set_key = f"rec_queued:{business_id}"
         
@@ -304,6 +307,53 @@ def check_status(business_id: int, call_sid: str) -> Tuple[str, dict]:
     except Exception as e:
         logger.error(f"[RECORDING_SEM] Error checking status: {e}")
         return "unknown", {}
+
+
+def cleanup_expired_slots(business_id: int) -> int:
+    """
+    🔥 FIX: Clean up expired inflight markers that didn't get properly released.
+    
+    This can happen if:
+    - Worker crashed during download
+    - Network issues caused download to hang
+    - Redis TTL expired but slot wasn't released
+    
+    Returns:
+        Number of slots cleaned up
+    """
+    if not REDIS_ENABLED or not _redis_client:
+        return 0
+    
+    try:
+        slots_key = f"rec_slots:{business_id}"
+        
+        # Get all call_sids in slots
+        active_call_sids = _redis_client.smembers(slots_key)
+        if not active_call_sids:
+            return 0
+        
+        cleaned = 0
+        for call_sid in active_call_sids:
+            inflight_key = f"rec_inflight:{business_id}:{call_sid}"
+            
+            # Check if inflight marker still exists
+            if not _redis_client.exists(inflight_key):
+                # Inflight marker expired/missing but slot still occupied
+                # Remove from slots (this frees the slot)
+                _redis_client.srem(slots_key, call_sid)
+                logger.warning(f"🧹 [RECORDING_SEM] Cleaned expired slot: business={business_id} call_sid={call_sid}")
+                cleaned += 1
+        
+        if cleaned > 0:
+            # Try to process next from queue if slots were freed
+            current_slots = int(_redis_client.scard(slots_key) or 0)
+            logger.info(f"🧹 [RECORDING_SEM] Cleanup complete: {cleaned} slots freed, active={current_slots}/{MAX_SLOTS_PER_BUSINESS}")
+        
+        return cleaned
+        
+    except Exception as e:
+        logger.error(f"[RECORDING_SEM] Error during cleanup: {e}")
+        return 0
 
 
 # Initialize Redis on module import

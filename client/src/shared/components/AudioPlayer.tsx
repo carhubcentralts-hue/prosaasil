@@ -13,6 +13,11 @@ type PlaybackSpeed = 1 | 1.5 | 2;
 // LocalStorage key for playback speed preference
 const PLAYBACK_SPEED_KEY = 'audioPlaybackRate';
 
+// 🔥 GLOBAL DEDUPLICATION: Track preparation requests across all AudioPlayer instances
+// Key: recording URL, Value: timestamp of last preparation request
+const globalPreparationCache = new Map<string, number>();
+const PREPARATION_COOLDOWN_MS = 30000; // 30 seconds cooldown between preparation requests
+
 /**
  * AudioPlayer with Playback Speed Controls and Async Recording Support
  * 
@@ -22,6 +27,7 @@ const PLAYBACK_SPEED_KEY = 'audioPlaybackRate';
  * - Applies speed automatically on load
  * - Works with blob URLs and regular URLs
  * - 🔥 NEW: Handles 202 responses for async recording downloads with retry logic
+ * - 🔥 FIX: Global deduplication to prevent duplicate requests across instances
  */
 export function AudioPlayer({ src, loading = false, className = '' }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -33,6 +39,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [prepareTriggered, setPrepareTriggered] = useState(false);
+  const lastSrcRef = useRef<string>(''); // 🔥 FIX: Track last src to prevent duplicate processing
 
   // 🔥 PERFORMANCE FIX: Reduced retry limit and improved backoff
   const MAX_RETRIES = 10; // Reduced from 20 to prevent excessive polling
@@ -111,6 +118,20 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   // 🔥 NEW: Trigger recording preparation (call /stream once)
   const triggerRecordingPreparation = async (streamUrl: string, statusUrl: string) => {
     try {
+      // 🔥 GLOBAL DEDUPLICATION: Check if another instance already triggered this
+      const now = Date.now();
+      const lastPreparation = globalPreparationCache.get(streamUrl);
+      
+      if (lastPreparation && (now - lastPreparation) < PREPARATION_COOLDOWN_MS) {
+        // Another instance triggered this recently, just start polling
+        console.log(`[AudioPlayer] Skipping duplicate preparation for ${streamUrl} (cooldown active)`);
+        pollRecordingStatus(statusUrl, 0);
+        return;
+      }
+      
+      // Mark this URL as being prepared globally
+      globalPreparationCache.set(streamUrl, now);
+      
       // 🔥 SECURITY: Add explicit_user_action parameter
       const urlWithParam = streamUrl.includes('?') 
         ? `${streamUrl}&explicit_user_action=true`
@@ -209,6 +230,12 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   // 🔥 NEW: Load recording with smart polling
   useEffect(() => {
     try {
+      // 🔥 FIX: Skip if src hasn't actually changed (prevents duplicate processing)
+      if (lastSrcRef.current === src) {
+        return;
+      }
+      lastSrcRef.current = src;
+      
       // Clean up any existing timeouts
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
