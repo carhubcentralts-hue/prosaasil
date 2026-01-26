@@ -2024,106 +2024,54 @@ def sync_receipts():
         # P3-2: Feature flag for RQ usage (default: enabled)
         use_rq = os.getenv('USE_RQ_FOR_RECEIPTS', '1') == '1'
         
-        # Use Redis Queue if available AND feature flag enabled, otherwise fall back to threading
-        if use_rq and RQ_AVAILABLE and receipts_queue:
-            # Enqueue job to Redis queue for worker processing
-            # CRITICAL: Use string reference to ensure worker can resolve the function
-            # This prevents import path mismatches between API and Worker
-            
-            logger.info(f"🔔 ENQUEUEING JOB: Preparing to enqueue sync job to 'default' queue...")
-            
-            # P3-3: Enhanced RQ configuration with retries and backoff
-            from rq import Retry
-            job = receipts_queue.enqueue(
-                'server.jobs.gmail_sync_job.sync_gmail_receipts_job',  # String reference for RQ
-                business_id=business_id,
-                mode=mode,
-                max_messages=max_messages,
-                from_date=from_date,
-                to_date=to_date,
-                months_back=months_back,
-                job_timeout='1h',  # Max 1 hour for sync (3600 seconds)
-                result_ttl=3600,  # Keep result for 1 hour
-                failure_ttl=86400,  # Keep failure info for 24 hours
-                retry=Retry(max=3, interval=[30, 120, 600]),  # P3-3: Retry 3 times with backoff (30s, 2m, 10m)
-            )
-            
-            # Store metadata for stuck job detection
-            job.meta['business_id'] = business_id
-            job.meta['enqueued_at'] = datetime.now(timezone.utc).isoformat()
-            job.save_meta()
-            
-            logger.info(f"🔔 JOB ENQUEUED SUCCESSFULLY:")
-            logger.info(f"  → job_id: {job.id}")
-            logger.info(f"  → business_id: {business_id}")
-            logger.info(f"  → queue: default")
-            logger.info(f"  → status: {job.get_status()}")
-            
-            # Return immediately with 202 Accepted
+        # Check if worker system is available
+        if not (use_rq and RQ_AVAILABLE and receipts_queue):
+            logger.error("Worker system not available - cannot process sync")
             return jsonify({
-                "success": True,
-                "message": "Sync job queued for processing",
-                "job_id": job.id,
-                "status": "queued"
-            }), 202
-        else:
-            # Fallback to threading (for development or if RQ not available)
-            logger.warning("RQ not available, using threading fallback")
-            
-            # Capture app object before starting thread (current_app proxy only works in request context)
-            app = current_app._get_current_object()
-            
-            # Start background thread (non-daemon to prevent data loss on server restart)
-            def run_sync_in_background():
-                from server.db import db
-                # Need app context for background thread
-                with app.app_context():
-                    try:
-                        logger.info(f"🔔 BACKGROUND SYNC STARTED: business_id={business_id}")
-                        # Note: heartbeat_callback not supported in threading fallback
-                        # Only used in RQ worker mode
-                        sync_gmail_receipts(
-                            business_id=business_id,
-                            mode=mode,
-                            max_messages=max_messages,
-                            from_date=from_date,
-                            to_date=to_date,
-                            months_back=months_back
-                        )
-                        logger.info(f"🔔 BACKGROUND SYNC COMPLETED: business_id={business_id}")
-                    except Exception as e:
-                        logger.error(f"🔔 BACKGROUND SYNC FAILED: {e}", exc_info=True)
-                        # Ensure sync run status is updated on failure
-                        try:
-                            # Re-query the sync run to avoid stale session issues
-                            from server.models_sql import ReceiptSyncRun
-                            failed_run = ReceiptSyncRun.query.filter_by(
-                                business_id=business_id,
-                                status='running'
-                            ).order_by(ReceiptSyncRun.started_at.desc()).first()
-                            
-                            if failed_run:
-                                failed_run.status = 'failed'
-                                failed_run.error_message = f"Background sync exception: {str(e)[:500]}"
-                                failed_run.finished_at = datetime.now(timezone.utc)
-                                failed_run.updated_at = datetime.now(timezone.utc)
-                                db.session.commit()
-                                logger.info(f"🔔 SYNC RUN MARKED AS FAILED: run_id={failed_run.id}")
-                        except Exception as update_error:
-                            logger.error(f"🔔 FAILED TO UPDATE SYNC STATUS: {update_error}")
-
-            thread = threading.Thread(target=run_sync_in_background, daemon=False)
-            thread.start()
-            
-            logger.info(f"🔔 SYNC THREAD STARTED: business_id={business_id}")
-            
-            # Return immediately with 202 Accepted
-            return jsonify({
-                "success": True,
-                "message": "Sync started in background",
-                "sync_run_id": None,  # Will be created by sync function
-                "status": "starting"
-            }), 202
+                "success": False,
+                "error": "Worker system not available. Please contact support."
+            }), 503
+        
+        # Enqueue job to Redis queue for worker processing
+        # CRITICAL: Use string reference to ensure worker can resolve the function
+        # This prevents import path mismatches between API and Worker
+        
+        logger.info(f"🔔 ENQUEUEING JOB: Preparing to enqueue sync job to 'default' queue...")
+        
+        # P3-3: Enhanced RQ configuration with retries and backoff
+        from rq import Retry
+        job = receipts_queue.enqueue(
+            'server.jobs.gmail_sync_job.sync_gmail_receipts_job',  # String reference for RQ
+            business_id=business_id,
+            mode=mode,
+            max_messages=max_messages,
+            from_date=from_date,
+            to_date=to_date,
+            months_back=months_back,
+            job_timeout='1h',  # Max 1 hour for sync (3600 seconds)
+            result_ttl=3600,  # Keep result for 1 hour
+            failure_ttl=86400,  # Keep failure info for 24 hours
+            retry=Retry(max=3, interval=[30, 120, 600]),  # P3-3: Retry 3 times with backoff (30s, 2m, 10m)
+        )
+        
+        # Store metadata for stuck job detection
+        job.meta['business_id'] = business_id
+        job.meta['enqueued_at'] = datetime.now(timezone.utc).isoformat()
+        job.save_meta()
+        
+        logger.info(f"🔔 JOB ENQUEUED SUCCESSFULLY:")
+        logger.info(f"  → job_id: {job.id}")
+        logger.info(f"  → business_id: {business_id}")
+        logger.info(f"  → queue: default")
+        logger.info(f"  → status: {job.get_status()}")
+        
+        # Return immediately with 202 Accepted
+        return jsonify({
+            "success": True,
+            "message": "Sync job queued for processing",
+            "job_id": job.id,
+            "status": "queued"
+        }), 202
         
     except ImportError:
         logger.warning("Gmail sync service not yet implemented")
@@ -2940,4 +2888,39 @@ def get_queue_diagnostics():
         diagnostics["workers_traceback"] = traceback.format_exc()
     
     return jsonify(diagnostics), 200
+
+
+@receipts_bp.route("/api/receipts/sync/<int:run_id>/cancel", methods=["POST"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def cancel_receipt_sync(run_id):
+    """Cancel a running receipt sync job"""
+    try:
+        from server.models_sql import ReceiptSyncRun
+        business_id = get_current_business_id()
+        
+        sync_run = ReceiptSyncRun.query.filter_by(
+            id=run_id,
+            business_id=business_id
+        ).first_or_404()
+        
+        if sync_run.status not in ['running', 'queued']:
+            return jsonify({
+                "success": False,
+                "message": f"Cannot cancel sync with status {sync_run.status}"
+            }), 400
+        
+        sync_run.cancel_requested = True
+        sync_run.cancelled_at = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        logger.info(f"🛑 Cancel requested for sync run {run_id} by business {business_id}")
+        
+        return jsonify({
+            "success": True,
+            "message": "Cancel requested - sync will stop soon"
+        }), 200
+    except Exception as e:
+        logger.error(f"Error cancelling sync: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
