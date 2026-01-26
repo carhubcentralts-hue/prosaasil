@@ -286,28 +286,18 @@ def main():
         heartbeat_thread.start()
         logger.info("✅ Heartbeat monitoring started (logs every 30s)")
         
-        # 🔥 CRITICAL: Start recording worker thread
-        # This processes the RECORDING_QUEUE (in-memory Python queue)
-        # Separate from RQ queues - handles recording downloads and transcription
-        try:
-            from server.tasks_recording import start_recording_worker
-            recording_thread = threading.Thread(
-                target=start_recording_worker,
-                args=(app,),
-                daemon=True,
-                name="RecordingWorker"
-            )
-            recording_thread.start()
-            logger.info("=" * 60)
-            logger.info("✅ RECORDING WORKER STARTED")
-            logger.info("   This worker processes recording downloads and transcription")
-            logger.info("   Watch for logs: WORKER_PICKED, WORKER_DOWNLOAD_DONE")
-            logger.info("=" * 60)
-        except Exception as e:
-            logger.error(f"❌ Failed to start recording worker: {e}")
-            logger.error("   Recording processing will NOT work!")
-            import traceback
-            traceback.print_exc()
+        # 🚨 CRITICAL NOTE: Recording worker thread NOT started here
+        # REASON: RECORDING_QUEUE is queue.Queue() (in-memory), NOT Redis!
+        # IN-MEMORY QUEUES DON'T WORK ACROSS CONTAINERS:
+        #   - API container enqueues to its memory
+        #   - Worker container has separate memory
+        #   - Jobs never consumed = infinite loop
+        # 
+        # SOLUTION: Convert recording jobs to use RQ (Redis Queue)
+        # See: CRITICAL_RECORDING_QUEUE_ARCHITECTURE.md
+        # 
+        # When converted to RQ, worker will automatically process 'recordings' queue
+        # because it's already in RQ_QUEUES configuration.
         
         # Start worker
         try:
