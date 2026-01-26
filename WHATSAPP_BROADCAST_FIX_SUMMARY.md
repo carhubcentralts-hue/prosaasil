@@ -91,7 +91,7 @@ except Exception as e:
 **Problem:** `broadcast_job.py` was doing `ALTER TABLE` at runtime
 
 **Solution:**
-- Created `migration_add_broadcast_cursor.py`
+- Added Migration 108 to `server/db_migrate.py`
 - Removed ALTER TABLE from `broadcast_job.py`
 - Must run migration before deployment
 
@@ -106,9 +106,9 @@ db.session.execute(text("""
 
 **After:**
 ```python
-# In migration_add_broadcast_cursor.py - GOOD!
-# Proper migration file
-# Run once: python migration_add_broadcast_cursor.py
+# In server/db_migrate.py (Migration 108) - GOOD!
+# Proper migration in central migration file
+# Runs automatically with RUN_MIGRATIONS=1
 ```
 
 ### 6. ✅ Updated Broadcast Worker
@@ -133,7 +133,7 @@ Created `test_whatsapp_send_unification_v2.py` with 4/5 tests passing:
 ```
 
 ### Manual Verification Checklist
-- [ ] Migration `migration_add_broadcast_cursor.py` runs successfully
+- [ ] Migration 108 runs successfully (automatic with RUN_MIGRATIONS=1)
 - [ ] Broadcast sends to 2+ recipients
 - [ ] No HTTP 500 errors in logs
 - [ ] No "ALTER TABLE" in runtime logs
@@ -167,10 +167,9 @@ CodeQL: **0 alerts found** - No security vulnerabilities
 ## Deployment Instructions
 
 ### Step 1: Run Migration ⚠️ CRITICAL
-```bash
-cd /home/runner/work/prosaasil/prosaasil
-python migration_add_broadcast_cursor.py
-```
+Migration 108 runs automatically when the service starts with `RUN_MIGRATIONS=1`
+
+The migration is idempotent and safe to run multiple times.
 
 ### Step 2: Deploy Code
 Deploy the updated files to production

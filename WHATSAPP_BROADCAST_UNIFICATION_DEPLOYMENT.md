@@ -26,11 +26,11 @@ This fix unifies WhatsApp message sending so that broadcasts use the exact same 
 
 ### 3. Fixed Runtime Migration ✅
 **Files:** 
-- `migration_add_broadcast_cursor.py` (NEW)
+- `server/db_migrate.py` (Migration 108 added)
 - `server/jobs/broadcast_job.py` (FIXED)
 
 **Problem:** `broadcast_job.py` was doing `ALTER TABLE` at runtime in production
-**Solution:** Moved to proper migration file
+**Solution:** Added Migration 108 to `server/db_migrate.py` for proper migration handling
 
 ### 4. Single Retry Layer ✅
 **Before:** 
@@ -46,21 +46,18 @@ This fix unifies WhatsApp message sending so that broadcasts use the exact same 
 ## Deployment Steps
 
 ### 1. Run Database Migration
-**CRITICAL:** This must be done before deploying the code!
+**CRITICAL:** Migration 108 will run automatically when the service starts with `RUN_MIGRATIONS=1`
 
-```bash
-# From the project root
-python migration_add_broadcast_cursor.py
-```
+The migration adds the `last_processed_recipient_id` column to `whatsapp_broadcasts` table.
 
-This adds the `last_processed_recipient_id` column to `whatsapp_broadcasts` table.
+**Note:** The migration is idempotent and safe to run multiple times.
 
 ### 2. Deploy Code
 Deploy the updated code with the following files:
 - `server/services/whatsapp_send_service.py` (NEW)
 - `server/services/broadcast_worker.py` (UPDATED)
 - `server/jobs/broadcast_job.py` (UPDATED - removed ALTER TABLE)
-- `migration_add_broadcast_cursor.py` (NEW)
+- `server/db_migrate.py` (Migration 108 added)
 
 ### 3. Restart Workers
 Restart the broadcast worker to pick up the changes:

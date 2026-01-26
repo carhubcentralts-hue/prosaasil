@@ -121,28 +121,28 @@ def test_no_alter_table_in_broadcast_job():
         return False
 
 def test_migration_exists():
-    """Test that migration_add_broadcast_cursor.py exists"""
+    """Test that Migration 108 exists in db_migrate.py"""
     try:
         migration_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            'migration_add_broadcast_cursor.py'
+            'server', 'db_migrate.py'
         )
         
         if os.path.exists(migration_path):
-            print("✅ migration_add_broadcast_cursor.py exists")
+            print("✅ server/db_migrate.py exists")
             
-            # Check it contains the column addition
+            # Check it contains Migration 108
             with open(migration_path, 'r') as f:
                 content = f.read()
             
-            if 'last_processed_recipient_id' in content:
-                print("✅ Migration adds last_processed_recipient_id column")
+            if 'Migration 108' in content and 'last_processed_recipient_id' in content:
+                print("✅ Migration 108 adds last_processed_recipient_id column")
                 return True
             else:
-                print("❌ Migration does not add last_processed_recipient_id column")
+                print("❌ Migration 108 does not add last_processed_recipient_id column")
                 return False
         else:
-            print("❌ migration_add_broadcast_cursor.py does not exist")
+            print("❌ server/db_migrate.py does not exist")
             return False
         
     except Exception as e:
