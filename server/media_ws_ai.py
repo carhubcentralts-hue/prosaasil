@@ -15638,7 +15638,9 @@ class MediaStreamHandler:
             app = _get_flask_app()
             
             with app.app_context():
-                # 🤖 Use Agent for REAL booking actions!
+                # 🔥 ARCHITECTURE CHANGE: Phone calls use simple LLM (no AgentKit)
+                # AgentKit is too heavy for real-time telephony
+                # Use direct Gemini LLM → OpenAI Tools flow instead
                 ai_service = AIService()
                 
                 # 🔥 BUILD 118: Use customer_phone (includes DTMF) instead of caller_phone (None)!
@@ -15647,11 +15649,10 @@ class MediaStreamHandler:
                 logger.info(f"   phone_number (caller) = '{getattr(self, 'phone_number', 'None')}'")
                 logger.info(f"   customer_phone_dtmf = '{getattr(self, 'customer_phone_dtmf', 'None')}'")
                 
-                ai_response = ai_service.generate_response_with_agent(
+                # 🔥 Use simple generate_response for phone calls (not AgentKit)
+                ai_response = ai_service.generate_response(
                     message=hebrew_text,
                     business_id=int(business_id),
-                    customer_phone=customer_phone,  # 🔥 BUILD 118: FIX - Use customer_phone (includes DTMF), not caller_phone (None)!
-                    customer_name=customer_name,
                     context=context,
                     channel='calls',  # ✅ Use 'calls' prompt for phone calls
                     is_first_turn=is_first_turn  # ⚡ Phase 2C: Optimize first turn!
@@ -15660,44 +15661,44 @@ class MediaStreamHandler:
             # ⚡ CRITICAL: Save AI timing for TOTAL_LATENCY calculation
             self.last_ai_time = time.time() - ai_start
             
-            # 🔥 BUILD 118: Normalize ai_response to dict (handle both structured and legacy responses)
+            # 🔥 SIMPLIFIED: For phone calls, generate_response returns simple string
+            # No complex AgentKit metadata, just the response text
             if isinstance(ai_response, str):
-                # Legacy string response (FAQ, fallback paths)
-                logger.warning(f"⚠️ Got legacy string response: {len(ai_response)} chars")
-                ai_response_dict = {
-                    "text": ai_response,
+                # Simple string response from generate_response
+                tts_text = ai_response if ai_response and ai_response.strip() else "סליחה, לא הבנתי. אפשר לחזור?"
+                
+                # Save minimal metadata for analytics
+                self.last_agent_response_metadata = {
+                    "text": tts_text,
                     "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                    "actions": [],  # Empty actions for legacy responses
+                    "actions": [],  # No actions for simple LLM response
                     "booking_successful": False,
-                    "source": "legacy_string"
+                    "source": "gemini_llm"
                 }
             elif isinstance(ai_response, dict):
-                # Structured response from AgentKit - ensure all required fields present
+                # Structured response (shouldn't happen with generate_response, but handle it)
                 ai_response_dict = {
                     "text": ai_response.get("text", ""),
                     "usage": ai_response.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}),
                     "actions": ai_response.get("actions", []),
                     "booking_successful": ai_response.get("booking_successful", False),
                     "error": ai_response.get("error"),
-                    "source": ai_response.get("source", "agentkit")
+                    "source": ai_response.get("source", "gemini_llm")
                 }
+                self.last_agent_response_metadata = ai_response_dict
+                tts_text = ai_response_dict.get('text', '')
             else:
                 # Defensive: shouldn't happen
                 logger.error(f"❌ Unexpected response type: {type(ai_response).__name__}")
-                ai_response_dict = {
-                    "text": "סליחה, לא הבנתי. אפשר לחזור?",
+                tts_text = "סליחה, לא הבנתי. אפשר לחזור?"
+                self.last_agent_response_metadata = {
+                    "text": tts_text,
                     "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                     "actions": [],
                     "booking_successful": False,
                     "source": "error_fallback"
                 }
-            
-            # 🔥 BUILD 118: Save structured response for metadata (analytics, transcripts)
-            self.last_agent_response_metadata = ai_response_dict
-            
-            # 🔥 BUILD 118: Extract TTS text separately (don't mutate ai_response!)
-            # This preserves metadata for downstream consumers (analytics, transcripts, logging)
-            tts_text = ai_response_dict.get('text', '')
+
             
             if not tts_text or not tts_text.strip():
                 logger.error(f"❌ EMPTY TTS TEXT - using fallback")
