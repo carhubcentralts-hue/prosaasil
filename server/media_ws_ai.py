@@ -11286,57 +11286,80 @@ class MediaStreamHandler:
             logger.info(f"[TTS] Submitting TTS to executor: provider={ai_provider}, text_len={len(text)}")
             _orig_print(f"🎤 [TTS] Submitting audio generation for {len(text)} chars (provider={ai_provider})", flush=True)
             
-            # 🔥 FIX: Use ThreadPoolExecutor - never blocks receive_loop
-            # Submit TTS to executor and get Future
+            # 🔥 FIX: Use ThreadPoolExecutor with callback - NEVER blocks receive_loop
+            # Submit TTS to executor and attach callback for result
             try:
                 future = self.exec.submit(self._hebrew_tts, text)
                 
-                # Wait for result with timeout (8 seconds)
-                try:
-                    tts_audio = future.result(timeout=8.0)
+                # 🔥 CRITICAL: Use add_done_callback - NO BLOCKING
+                # Callback runs when TTS completes, receive_loop continues immediately
+                def on_tts_done(fut):
+                    """Callback when TTS completes - runs in executor thread"""
                     tts_generation_time = time.time() - tts_start
-                    if DEBUG: logger.debug(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
                     
-                    if tts_audio and len(tts_audio) > 1000:
-                        logger.info(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
-                        _orig_print(f"✅ [TTS] Got {len(tts_audio)} bytes, sending to Twilio...", flush=True)
-                        send_start = time.time()
-                        self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
-                        send_time = time.time() - send_start
-                        logger.info(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission complete)")
-                        _orig_print(f"✅ [TTS] Audio sent in {send_time:.3f}s", flush=True)
-                        
-                        # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
-                        if eou_saved:
-                            turn_latency = send_start - eou_saved
-                            total_latency = time.time() - eou_saved
-                            stt_time = getattr(self, 'last_stt_time', 0.0)
-                            ai_time = getattr(self, 'last_ai_time', 0.0)
-                            
-                            if DEBUG: logger.debug(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
-                            if DEBUG: logger.debug(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
-                            logger.info(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
-                            
-                            # Clear for next measurement
-                            if hasattr(self, 'eou_timestamp'):
-                                delattr(self, 'eou_timestamp')
-                    else:
-                        logger.error("🔊 TTS returned no audio - sending beep")
-                        self._send_beep(800)
-                        self._finalize_speaking()
-                        
-                except Exception as timeout_err:
-                    # Handle TimeoutError and other exceptions from future.result()
-                    import concurrent.futures
-                    if isinstance(timeout_err, concurrent.futures.TimeoutError):
-                        logger.error(f"🔊 TTS timeout after 8s - executor task still running")
-                        _orig_print(f"❌ [TTS] Timeout after 8s", flush=True)
-                        future.cancel()  # Try to cancel
-                    else:
-                        logger.error(f"🔊 TTS executor error: {timeout_err}")
-                    self._send_beep(800)
-                    self._finalize_speaking()
+                    # 🔥 Guard: Check if session still active
+                    if self.closed or self._ws_closed:
+                        logger.info(f"[TTS_CALLBACK] Session closed - discarding TTS result")
+                        return
                     
+                    try:
+                        # Get result (non-blocking here since future is done)
+                        tts_audio = fut.result(timeout=0.1)
+                        
+                        if DEBUG: logger.debug(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
+                        
+                        if tts_audio and len(tts_audio) > 1000:
+                            logger.info(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
+                            _orig_print(f"✅ [TTS] Got {len(tts_audio)} bytes, sending to Twilio...", flush=True)
+                            
+                            # 🔥 Guard: Double-check session before sending
+                            if not self.closed and not self._ws_closed:
+                                send_start = time.time()
+                                self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
+                                send_time = time.time() - send_start
+                                logger.info(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission complete)")
+                                _orig_print(f"✅ [TTS] Audio sent in {send_time:.3f}s", flush=True)
+                                
+                                # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
+                                if eou_saved:
+                                    turn_latency = send_start - eou_saved
+                                    total_latency = time.time() - eou_saved
+                                    stt_time = getattr(self, 'last_stt_time', 0.0)
+                                    ai_time = getattr(self, 'last_ai_time', 0.0)
+                                    
+                                    if DEBUG: logger.debug(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
+                                    if DEBUG: logger.debug(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
+                                    logger.info(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
+                                    
+                                    # Clear for next measurement
+                                    if hasattr(self, 'eou_timestamp'):
+                                        delattr(self, 'eou_timestamp')
+                            else:
+                                logger.info(f"[TTS_CALLBACK] Session closed during TTS - discarding audio")
+                        else:
+                            logger.error("🔊 TTS returned no audio - sending beep")
+                            if not self.closed and not self._ws_closed:
+                                self._send_beep(800)
+                                self._finalize_speaking()
+                                
+                    except Exception as callback_err:
+                        logger.error(f"🔊 TTS callback error: {callback_err}")
+                        import traceback
+                        traceback.print_exc()
+                        if not self.closed and not self._ws_closed:
+                            try:
+                                self._send_beep(800)
+                                self._finalize_speaking()
+                            except:
+                                pass
+                
+                # Attach callback - returns immediately, no blocking
+                future.add_done_callback(on_tts_done)
+                
+                # 🔥 CRITICAL: _speak_simple returns IMMEDIATELY
+                # Receive_loop continues processing without waiting for TTS
+                logger.info(f"[TTS] Submitted to executor with callback - continuing receive_loop")
+                
             except Exception as submit_error:
                 logger.error(f"🔊 TTS executor submit failed: {submit_error}")
                 self._send_beep(800)
