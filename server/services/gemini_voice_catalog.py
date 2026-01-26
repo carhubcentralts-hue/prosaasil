@@ -133,15 +133,22 @@ HEBREW_VOICE_LABELS: Dict[str, Dict] = {
 
 
 def is_gemini_available() -> bool:
-    """Check if Gemini TTS is available (GEMINI_API_KEY is set)"""
+    """
+    Check if Gemini TTS is available (GEMINI_API_KEY is set).
+    
+    Note: DISABLE_GOOGLE only affects OLD Google Cloud TTS/STT, NOT Gemini!
+    Gemini is a separate service with its own API and should always work when GEMINI_API_KEY is set.
+    """
     gemini_key = os.getenv('GEMINI_API_KEY')
-    is_disabled = os.getenv("DISABLE_GOOGLE", "false").lower() == "true"
-    return bool(gemini_key) and not is_disabled
+    return bool(gemini_key)
 
 
 def discover_voices_via_api() -> Tuple[List[Dict], Optional[str]]:
     """
     Discover available voices using Google Cloud TTS API.
+    
+    Note: DISABLE_GOOGLE only affects OLD Google Cloud TTS/STT, NOT Gemini!
+    This function should work when GEMINI_API_KEY is set, regardless of DISABLE_GOOGLE.
     
     Returns:
         Tuple of (voices_list, error_message)
@@ -164,9 +171,6 @@ def discover_voices_via_api() -> Tuple[List[Dict], Optional[str]]:
     gemini_api_key = os.getenv('GEMINI_API_KEY')
     if not gemini_api_key:
         return [], "GEMINI_API_KEY not configured"
-    
-    if os.getenv("DISABLE_GOOGLE", "false").lower() == "true":
-        return [], "Google TTS is disabled"
     
     try:
         import requests

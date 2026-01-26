@@ -1280,6 +1280,13 @@ def create_app():
         from server.services.lazy_services import warmup_services_async, start_periodic_warmup
         warmup_services_async()
         start_periodic_warmup()
+        
+        # Warmup Google clients (STT & Gemini) to catch config issues early
+        try:
+            from server.services.providers.google_clients import warmup_google_clients
+            warmup_google_clients()
+        except Exception as e:
+            logger.warning(f"⚠️ Google clients warmup failed (non-critical): {e}")
     
 
     # ✅ ERROR HANDLERS - JSON responses instead of Error {}

@@ -84,6 +84,8 @@ services:
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
       R2_ENDPOINT: ${R2_ENDPOINT}
       REDIS_URL: redis://redis:6379/0
+      # 🔥 GOOGLE STT - Service Account Credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
       # 🔥 LOGGING - Development mode (full logs)
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
       PYTHONUNBUFFERED: 1
@@ -100,6 +102,8 @@ services:
       - "5000"
     volumes:
       - recordings_data:/app/server/recordings
+      # 🔥 GOOGLE STT - Mount service account JSON (read-only)
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -161,6 +165,8 @@ services:
       SERVICE_ROLE: worker
       # 🔥 CRITICAL: Worker must NOT run migrations (only API service should)
       RUN_MIGRATIONS_ON_START: "0"
+      # 🔥 GOOGLE STT - Service Account Credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
       # 🔥 LOGGING - Development mode (full logs)
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
       PYTHONUNBUFFERED: 1
@@ -174,6 +180,9 @@ services:
       - timeout:2
       - attempts:2
     command: ["python", "-m", "server.worker"]
+    volumes:
+      # 🔥 GOOGLE STT - Mount service account JSON (read-only)
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -307,6 +316,8 @@ services:
       SERVICE_ROLE: api
       # 🔥 SCHEDULERS: Disable schedulers in API service (only worker should run them)
       ENABLE_SCHEDULERS: "false"
+      # 🔥 GOOGLE STT - Service Account Credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
       # 🔥 LOGGING - Development mode (full logs)
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
       PYTHONUNBUFFERED: 1
@@ -321,6 +332,9 @@ services:
       - attempts:2
     expose:
       - "5000"
+    volumes:
+      # 🔥 GOOGLE STT - Mount service account JSON (read-only)
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -367,6 +381,8 @@ services:
       MAX_CONCURRENT_CALLS: 50
       # 🔥 SCHEDULERS: Disable schedulers in calls service (only worker should run them)
       ENABLE_SCHEDULERS: "false"
+      # 🔥 GOOGLE STT - Service Account Credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
       # 🔥 LOGGING - Development mode (full logs)
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
       PYTHONUNBUFFERED: 1
@@ -386,6 +402,8 @@ services:
       - "5050"
     volumes:
       - recordings_data:/app/server/recordings
+      # 🔥 GOOGLE STT - Mount service account JSON (read-only)
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
     depends_on:
       redis:
         condition: service_healthy

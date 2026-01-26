@@ -55,20 +55,14 @@ class StreamingSTTSession:
             on_partial: Callback for interim results (called frequently ~180ms)
             on_final: Callback for final results (end of utterance)
         """
-        # ⚡ BUILD 115.1: Initialize Google Speech client with explicit service account credentials
-        try:
-            credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-            if not credentials_path:
-                raise ValueError("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set")
-            
-            credentials = service_account.Credentials.from_service_account_file(
-                credentials_path
-            )
-            self.client = speech.SpeechClient(credentials=credentials)
-            log.info(f"✅ StreamingSTTSession: Client initialized with service account from {credentials_path}")
-        except Exception as e:
-            log.error(f"❌ Failed to initialize Speech client: {e}")
-            raise
+        # ⚡ USE SINGLETON: Get Google Speech client (no per-session creation)
+        from server.services.providers.google_clients import get_stt_client
+        
+        self.client = get_stt_client()
+        if not self.client:
+            raise RuntimeError("Google STT client not available - check DISABLE_GOOGLE and GOOGLE_APPLICATION_CREDENTIALS")
+        
+        log.info(f"✅ StreamingSTTSession: Using singleton STT client")
         
         self._on_partial = on_partial
         self._on_final = on_final
@@ -376,21 +370,15 @@ class GcpStreamingSTT:
         self._worker_thread = None
         
     def _ensure_client(self):
-        """Lazy initialization of Speech client with explicit service account credentials"""
+        """Lazy initialization of Speech client (uses singleton)"""
         if self.client is None:
-            try:
-                credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-                if not credentials_path:
-                    raise ValueError("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set")
-                
-                credentials = service_account.Credentials.from_service_account_file(
-                    credentials_path
-                )
-                self.client = speech.SpeechClient(credentials=credentials)
-                log.info(f"✅ Streaming STT client initialized with service account from {credentials_path}")
-            except Exception as e:
-                log.error(f"❌ Failed to initialize Speech client: {e}")
-                raise
+            from server.services.providers.google_clients import get_stt_client
+            
+            self.client = get_stt_client()
+            if not self.client:
+                raise RuntimeError("Google STT client not available - check DISABLE_GOOGLE and GOOGLE_APPLICATION_CREDENTIALS")
+            
+            log.info(f"✅ Streaming STT client ready (singleton)")
         
     def start_streaming(self, on_partial=None, on_final=None):
         """

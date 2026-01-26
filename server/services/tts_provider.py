@@ -268,8 +268,11 @@ def synthesize_gemini(
             # Clamp speed to valid range
             speed = max(0.25, min(4.0, speed))
             
-            # Create Gemini client
-            client = genai.Client(api_key=gemini_api_key)
+            # Get Gemini client (singleton - no per-call creation)
+            from server.services.providers.google_clients import get_gemini_client
+            client = get_gemini_client()
+            if not client:
+                raise RuntimeError("Gemini client not available")
             
             # 🔥 CRITICAL: Use gemini-2.5-flash-preview-tts model for TTS
             # Generate speech using proper SDK with uppercase AUDIO

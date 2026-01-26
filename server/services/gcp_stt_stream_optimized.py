@@ -46,21 +46,15 @@ class GcpHebrewStreamerOptimized:
         self._flush_remaining = False
         
     def _ensure_client(self):
-        """Lazy initialization of Speech client with explicit service account credentials"""
+        """Lazy initialization of Speech client (uses singleton)"""
         if self.client is None:
-            try:
-                credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-                if not credentials_path:
-                    raise ValueError("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set")
-                
-                credentials = service_account.Credentials.from_service_account_file(
-                    credentials_path
-                )
-                self.client = speech.SpeechClient(credentials=credentials)
-                log.info(f"✅ Speech client initialized with service account from {credentials_path}")
-            except Exception as e:
-                log.error(f"❌ Failed to initialize Speech client: {e}")
-                raise
+            from server.services.providers.google_clients import get_stt_client
+            
+            self.client = get_stt_client()
+            if not self.client:
+                raise RuntimeError("Google STT client not available - check DISABLE_GOOGLE and GOOGLE_APPLICATION_CREDENTIALS")
+            
+            log.info(f"✅ Speech client ready (singleton)")
         
     def start(self):
         """Start streaming recognition"""
