@@ -13,6 +13,7 @@ import logging
 import json
 import uuid
 from datetime import datetime, timedelta
+from threading import Thread
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
 from sqlalchemy import func
 from sqlalchemy import text
@@ -2903,13 +2904,23 @@ def process_bulk_call_run(run_id: int):
                             run.last_error = str(e)[:500]
                             db.session.commit()
                     finally:
-                        # 🔥 CRITICAL: Always release semaphore slot when job completes
-                        # This happens when call ends (via webhook) or when job fails
-                        # Note: For successful calls, webhook will handle the transition to completed
-                        # and the slot will be freed when call actually ends
-                        # For now, we rely on Redis TTL to auto-free stuck slots
-                        # The actual slot release happens in webhook when call status becomes final
-                        pass
+                        # 🔥 CRITICAL: Release semaphore slot if call never started
+                        # If call started successfully, webhook will release the slot when call ends
+                        # Only release here if we failed before call actually started (no twilio_call_sid)
+                        try:
+                            db.session.refresh(next_job)
+                            if not next_job.twilio_call_sid:
+                                # Call never started - release slot now
+                                from server.services.outbound_semaphore import release_slot
+                                next_job_id = release_slot(run.business_id, next_job.id)
+                                if next_job_id:
+                                    log.info(f"[SEMAPHORE] Released slot for failed job {next_job.id}, next job {next_job_id} can proceed")
+                                else:
+                                    log.info(f"[SEMAPHORE] Released slot for failed job {next_job.id}, no jobs waiting")
+                            # else: Call started, webhook will release the slot when it ends
+                        except Exception as e:
+                            log.error(f"[SEMAPHORE] Error releasing slot: {e}")
+                            # Don't raise - we're in cleanup
                 else:
                     # No more queued jobs - check if we're done
                     active_jobs_count = OutboundCallJob.query.filter(
