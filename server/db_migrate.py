@@ -5524,6 +5524,107 @@ def apply_migrations():
         
         checkpoint("✅ Migration 108 complete: Broadcast cursor-based pagination support added")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 109: Add duration_sec to call_log for reliable call duration tracking
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 109: Adding duration_sec to call_log for reliable duration tracking")
+        
+        if check_table_exists('call_log'):
+            try:
+                if not check_column_exists('call_log', 'duration_sec'):
+                    checkpoint("  → Adding duration_sec column to call_log...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE call_log 
+                        ADD COLUMN duration_sec INTEGER DEFAULT NULL
+                    """)
+                    checkpoint("  ✅ duration_sec column added to call_log")
+                    
+                    # Backfill duration_sec from existing data
+                    checkpoint("  → Backfilling duration_sec from existing data...")
+                    from sqlalchemy import text
+                    
+                    # First, try to backfill from the 'duration' field (existing Twilio duration)
+                    result = db.session.execute(text("""
+                        UPDATE call_log 
+                        SET duration_sec = duration
+                        WHERE duration IS NOT NULL 
+                          AND duration > 0 
+                          AND duration_sec IS NULL
+                    """))
+                    updated_from_duration = result.rowcount
+                    checkpoint(f"  ✅ Backfilled {updated_from_duration} rows from 'duration' field")
+                    
+                    # Then, calculate from started_at and ended_at for rows that still don't have duration_sec
+                    result = db.session.execute(text("""
+                        UPDATE call_log 
+                        SET duration_sec = EXTRACT(EPOCH FROM (ended_at - started_at))::INTEGER
+                        WHERE started_at IS NOT NULL 
+                          AND ended_at IS NOT NULL 
+                          AND ended_at > started_at
+                          AND duration_sec IS NULL
+                    """))
+                    updated_from_timestamps = result.rowcount
+                    checkpoint(f"  ✅ Calculated {updated_from_timestamps} rows from started_at/ended_at")
+                    
+                    db.session.commit()
+                    checkpoint("  ✅ Backfill complete")
+                    migrations_applied.append('109_call_log_duration_sec')
+                else:
+                    checkpoint("  ℹ️ duration_sec already exists on call_log")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 109 (duration_sec) failed: {e}")
+                logger.error(f"Migration 109 duration_sec error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ call_log table does not exist - skipping")
+        
+        checkpoint("✅ Migration 109 complete: Call duration tracking enhanced")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 110: Add summary_status to call_log for summary generation tracking
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 110: Adding summary_status to call_log for summary tracking")
+        
+        if check_table_exists('call_log'):
+            try:
+                if not check_column_exists('call_log', 'summary_status'):
+                    checkpoint("  → Adding summary_status column to call_log...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE call_log 
+                        ADD COLUMN summary_status VARCHAR(32) DEFAULT NULL,
+                        ADD CONSTRAINT chk_call_log_summary_status 
+                        CHECK (summary_status IN ('pending', 'processing', 'completed', 'failed'))
+                    """)
+                    checkpoint("  ✅ summary_status column added to call_log with CHECK constraint")
+                    
+                    # Mark existing calls with summaries as completed
+                    checkpoint("  → Marking existing calls with summaries as 'completed'...")
+                    from sqlalchemy import text
+                    result = db.session.execute(text("""
+                        UPDATE call_log 
+                        SET summary_status = 'completed'
+                        WHERE summary IS NOT NULL 
+                          AND summary != ''
+                          AND summary_status IS NULL
+                    """))
+                    updated_rows = result.rowcount
+                    checkpoint(f"  ✅ Marked {updated_rows} existing calls with summaries as 'completed'")
+                    
+                    db.session.commit()
+                    migrations_applied.append('110_call_log_summary_status')
+                else:
+                    checkpoint("  ℹ️ summary_status already exists on call_log")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 110 (summary_status) failed: {e}")
+                logger.error(f"Migration 110 summary_status error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ call_log table does not exist - skipping")
+        
+        checkpoint("✅ Migration 110 complete: Summary tracking system ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
