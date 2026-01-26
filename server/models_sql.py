@@ -147,7 +147,8 @@ class CallLog(db.Model):
     recording_mode = db.Column(db.String(32), nullable=True)  # How recording was initiated
     
     # 💰 TWILIO COST METRICS (Cost Killer - tracks billing factors)
-    # Stream metrics
+    # 🔥 DURATION TRACKING: Use these columns for call timing (Migration 51)
+    # Stream metrics - PRIMARY source for call timing
     stream_started_at = db.Column(db.DateTime, nullable=True)  # When WebSocket stream started
     stream_ended_at = db.Column(db.DateTime, nullable=True)  # When WebSocket stream ended
     stream_duration_sec = db.Column(db.Float, nullable=True)  # Stream duration in seconds
@@ -170,11 +171,6 @@ class CallLog(db.Model):
     
     # 🔥 NAME SSOT: Customer name for NAME_ANCHOR system (especially outbound calls)
     customer_name = db.Column(db.String(255), nullable=True)  # Customer/lead name for outbound calls
-    
-    # 🔥 DURATION SSOT: Reliable call timing (fixes 0 seconds duration issue)
-    started_at = db.Column(db.DateTime, nullable=True)  # When call actually started (for accurate duration)
-    ended_at = db.Column(db.DateTime, nullable=True)  # When call actually ended
-    duration_sec = db.Column(db.Integer, nullable=True)  # Call duration in seconds (calculated from started_at/ended_at or from Twilio)
     
     # 🔥 SUMMARY STATUS: Track summary generation for long calls
     summary_status = db.Column(db.String(32), nullable=True)  # "pending" | "processing" | "completed" | "failed" | None

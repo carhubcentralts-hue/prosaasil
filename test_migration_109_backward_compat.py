@@ -1,6 +1,7 @@
 """
 Test Migration 109 Backward Compatibility
-Verify system works without started_at/ended_at/duration_sec columns
+Verify system works WITHOUT started_at/ended_at/duration_sec columns
+Uses Migration 51 columns: stream_started_at, stream_ended_at, stream_duration_sec
 """
 import os
 import sys
@@ -18,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def test_migration_109_is_noop():
-    """Test that migration 109 is a NO-OP"""
+    """Test that migration 109 is a NO-OP and doesn't create columns"""
     logger.info("Testing Migration 109 is NO-OP...")
     
     # Import and run migrations
@@ -32,20 +33,22 @@ def test_migration_109_is_noop():
         migrations_applied = run_migrations()
         logger.info(f"✅ Migrations ran successfully: {len(migrations_applied)} applied")
         
-        # Check that migration 109 didn't create the columns
+        # Check columns
         from sqlalchemy import inspect
         inspector = inspect(db.engine)
         call_log_columns = [col['name'] for col in inspector.get_columns('call_log')]
         
-        # The old stream_* columns should exist (from earlier migrations)
-        if 'stream_started_at' in call_log_columns:
-            logger.info("✅ stream_started_at column exists (old schema)")
+        # Migration 51 columns MUST exist
+        assert 'stream_started_at' in call_log_columns, "❌ stream_started_at missing (Migration 51)"
+        assert 'stream_ended_at' in call_log_columns, "❌ stream_ended_at missing (Migration 51)"
+        assert 'stream_duration_sec' in call_log_columns, "❌ stream_duration_sec missing (Migration 51)"
+        logger.info("✅ Migration 51 columns exist: stream_started_at, stream_ended_at, stream_duration_sec")
         
-        # The new columns may or may not exist (migration 109 is NO-OP)
-        if 'started_at' in call_log_columns:
-            logger.info("ℹ️ started_at column exists (was created before NO-OP change)")
-        else:
-            logger.info("✅ started_at column doesn't exist (expected after NO-OP change)")
+        # Migration 109 columns should NOT exist (NO-OP)
+        assert 'started_at' not in call_log_columns, "❌ started_at should NOT exist (Migration 109 is NO-OP)"
+        assert 'ended_at' not in call_log_columns, "❌ ended_at should NOT exist (Migration 109 is NO-OP)"
+        assert 'duration_sec' not in call_log_columns, "❌ duration_sec should NOT exist (Migration 109 is NO-OP)"
+        logger.info("✅ Migration 109 columns DON'T exist (correct - NO-OP)")
         
         logger.info("✅ Migration 109 NO-OP test passed")
         return True
@@ -56,9 +59,9 @@ def test_migration_109_is_noop():
         traceback.print_exc()
         return False
 
-def test_call_log_with_missing_columns():
-    """Test that CallLog works without started_at/ended_at/duration_sec columns"""
-    logger.info("Testing CallLog operations without new columns...")
+def test_call_log_with_stream_columns():
+    """Test that CallLog works with stream_* columns (Migration 51)"""
+    logger.info("Testing CallLog operations with stream_* columns...")
     
     try:
         # Create a business
@@ -70,7 +73,7 @@ def test_call_log_with_missing_columns():
         db.session.add(business)
         db.session.commit()
         
-        # Create a call log - should work even if columns don't exist
+        # Create a call log - uses stream_* columns
         call_log = CallLog(
             business_id=business.id,
             call_sid="test-call-sid-" + str(datetime.utcnow().timestamp()),
@@ -81,37 +84,11 @@ def test_call_log_with_missing_columns():
             duration=60
         )
         
-        # Set stream_* columns (these exist in old schema)
-        if hasattr(call_log, 'stream_started_at'):
-            call_log.stream_started_at = datetime.utcnow()
-            logger.info("✅ Set stream_started_at")
-        
-        if hasattr(call_log, 'stream_ended_at'):
-            call_log.stream_ended_at = datetime.utcnow()
-            logger.info("✅ Set stream_ended_at")
-        
-        if hasattr(call_log, 'stream_duration_sec'):
-            call_log.stream_duration_sec = 60.0
-            logger.info("✅ Set stream_duration_sec")
-        
-        # Try to set new columns only if they exist
-        if hasattr(call_log, 'started_at'):
-            call_log.started_at = datetime.utcnow()
-            logger.info("ℹ️ Set started_at (column exists)")
-        else:
-            logger.info("✅ started_at column doesn't exist (backward compatible)")
-        
-        if hasattr(call_log, 'ended_at'):
-            call_log.ended_at = datetime.utcnow()
-            logger.info("ℹ️ Set ended_at (column exists)")
-        else:
-            logger.info("✅ ended_at column doesn't exist (backward compatible)")
-        
-        if hasattr(call_log, 'duration_sec'):
-            call_log.duration_sec = 60
-            logger.info("ℹ️ Set duration_sec (column exists)")
-        else:
-            logger.info("✅ duration_sec column doesn't exist (backward compatible)")
+        # Set stream_* columns (Migration 51 - these MUST work)
+        call_log.stream_started_at = datetime.utcnow()
+        call_log.stream_ended_at = datetime.utcnow()
+        call_log.stream_duration_sec = 60.0
+        logger.info("✅ Set stream_started_at, stream_ended_at, stream_duration_sec")
         
         # Save to database
         db.session.add(call_log)
@@ -121,8 +98,11 @@ def test_call_log_with_missing_columns():
         saved_call = CallLog.query.filter_by(call_sid=call_log.call_sid).first()
         assert saved_call is not None
         assert saved_call.duration == 60
+        assert saved_call.stream_started_at is not None
+        assert saved_call.stream_ended_at is not None
+        assert saved_call.stream_duration_sec == 60.0
         
-        logger.info("✅ CallLog operations test passed")
+        logger.info("✅ CallLog operations test passed with stream_* columns")
         return True
         
     except Exception as e:
@@ -148,10 +128,10 @@ if __name__ == '__main__':
         with app.app_context():
             # Run tests
             test1_passed = test_migration_109_is_noop()
-            test2_passed = test_call_log_with_missing_columns()
+            test2_passed = test_call_log_with_stream_columns()
             
             if test1_passed and test2_passed:
-                logger.info("✅ ALL TESTS PASSED")
+                logger.info("✅ ALL TESTS PASSED - System works with Migration 51 columns only")
                 sys.exit(0)
             else:
                 logger.error("❌ SOME TESTS FAILED")

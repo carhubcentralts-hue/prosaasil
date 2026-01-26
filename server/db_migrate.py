@@ -5530,11 +5530,14 @@ def apply_migrations():
         # Migration 109: NO-OP (Backward Compatibility Mode)
         # ═══════════════════════════════════════════════════════════════════════
         # 🔥 BACKWARD COMPATIBILITY: This migration is now a NO-OP to allow the system
-        # to work without these columns. The code uses stream_started_at, stream_ended_at,
-        # and stream_duration_sec as fallbacks when started_at/ended_at/duration_sec don't exist.
-        checkpoint("Migration 109: NO-OP (skipped for backward compatibility)")
-        checkpoint("  ℹ️ Migration 109 disabled - system uses stream_* columns as fallback")
-        checkpoint("  ℹ️ Columns started_at/ended_at/duration_sec are optional, not required")
+        # to work without started_at/ended_at/duration_sec columns.
+        # The system uses the existing columns from Migration 51:
+        #   - stream_started_at (instead of started_at)
+        #   - stream_ended_at (instead of ended_at)
+        #   - stream_duration_sec + duration (instead of duration_sec)
+        checkpoint("Migration 109: NO-OP (skipped - uses Migration 51 columns)")
+        checkpoint("  ℹ️ System uses stream_started_at/stream_ended_at from Migration 51")
+        checkpoint("  ℹ️ Columns started_at/ended_at/duration_sec are NOT created")
         checkpoint("✅ Migration 109 complete: Skipped (backward compatibility mode)")
         
         # ═══════════════════════════════════════════════════════════════════════

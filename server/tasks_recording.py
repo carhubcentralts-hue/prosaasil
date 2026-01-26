@@ -1853,34 +1853,6 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound", tw
                 
                 log.info(f"🔄 [CALL_STATUS] Updating call_sid={call_sid}: status '{old_status}' → '{status}', call_status '{old_call_status}' → '{status}'")
                 
-                # 🔥 BACKWARD-COMPATIBLE DURATION SSOT: Set started_at if column exists and not set
-                if hasattr(call_log, 'started_at') and not call_log.started_at and status in ["ringing", "in-progress", "answered"]:
-                    call_log.started_at = datetime.utcnow()
-                    log.info(f"🕐 [DURATION] Set started_at for call_sid={call_sid}")
-                
-                # 🔥 BACKWARD-COMPATIBLE DURATION SSOT: Set ended_at when call completes (if column exists)
-                calculate_duration_from_timestamps = False
-                if hasattr(call_log, 'ended_at') and not call_log.ended_at and status in ["completed", "busy", "no-answer", "failed", "canceled", "ended"]:
-                    now = datetime.utcnow()
-                    call_log.ended_at = now
-                    log.info(f"🕐 [DURATION] Set ended_at for call_sid={call_sid}")
-                    
-                    # Calculate duration from timestamps if Twilio CallDuration is missing/0
-                    if duration == 0 or duration < (call_log.duration or 0):
-                        # Check started_at exists before using it
-                        if hasattr(call_log, 'started_at') and call_log.started_at and isinstance(call_log.started_at, datetime):
-                            # Calculate duration from timestamps
-                            calculated_duration = int((now - call_log.started_at).total_seconds())
-                            if calculated_duration > 0:
-                                call_log.duration = max(calculated_duration, call_log.duration or 0)
-                                log.info(f"🔢 [DURATION] Calculated duration from timestamps: {calculated_duration}s for call_sid={call_sid}")
-                        elif call_log.created_at:
-                            # Fallback: use created_at as started_at estimate
-                            calculated_duration = int((now - call_log.created_at).total_seconds())
-                            if calculated_duration > 0:
-                                call_log.duration = max(calculated_duration, call_log.duration or 0)
-                                log.info(f"🔢 [DURATION] Calculated duration from created_at (fallback): {calculated_duration}s for call_sid={call_sid}")
-                
                 # ✅ Only update duration if provided and greater than current
                 if duration > 0 and duration > (call_log.duration or 0):
                     call_log.duration = duration
