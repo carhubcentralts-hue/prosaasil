@@ -1036,22 +1036,28 @@ def update_current_business_settings():
         # 🔥 BUILD 112: Flexible lead tabs configuration
         if 'lead_tabs_config' in data:
             tabs_config = data['lead_tabs_config']
-            # Validate structure if provided (should be None or dict with 'primary' and 'secondary' arrays)
+            # Validate structure if provided (should be None or dict with 'primary' and/or 'secondary' arrays)
             if tabs_config is None:
                 business.lead_tabs_config = None  # Use defaults
             elif isinstance(tabs_config, dict):
-                # Validate that primary and secondary are lists
-                if ('primary' in tabs_config and isinstance(tabs_config['primary'], list)) or \
-                   ('secondary' in tabs_config and isinstance(tabs_config['secondary'], list)):
-                    # Limit to max 3 primary tabs and 6 total tabs
-                    if 'primary' in tabs_config:
+                # Validate that at least one of primary or secondary exists and is a list
+                has_primary = 'primary' in tabs_config and isinstance(tabs_config['primary'], list)
+                has_secondary = 'secondary' in tabs_config and isinstance(tabs_config['secondary'], list)
+                
+                if has_primary or has_secondary:
+                    # Limit to max 3 primary tabs and 3 secondary tabs (6 total)
+                    if 'primary' in tabs_config and isinstance(tabs_config['primary'], list):
                         tabs_config['primary'] = tabs_config['primary'][:3]
-                    if 'secondary' in tabs_config:
+                    if 'secondary' in tabs_config and isinstance(tabs_config['secondary'], list):
                         tabs_config['secondary'] = tabs_config['secondary'][:3]
                     business.lead_tabs_config = tabs_config
-                    logger.info(f"✅ Updated lead_tabs_config for business {business_id}")
+                    logger.info(f"✅ Updated lead_tabs_config for business {business_id}: {tabs_config}")
                 else:
-                    logger.warning(f"⚠️ Invalid lead_tabs_config structure for business {business_id}")
+                    logger.warning(f"⚠️ Invalid lead_tabs_config structure for business {business_id}: must have 'primary' or 'secondary' as list")
+                    return jsonify({"error": "תצורת טאבים לא תקינה - חובה לספק primary או secondary כרשימה"}), 400
+            else:
+                logger.warning(f"⚠️ Invalid lead_tabs_config type for business {business_id}: expected dict or null")
+                return jsonify({"error": "תצורת טאבים לא תקינה - חובה לספק אובייקט או null"}), 400
             
         # Track who updated - 🔥 BUILD 186 FIX: Safely handle None values
         al_user = session.get('al_user') or {}

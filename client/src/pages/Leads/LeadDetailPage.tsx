@@ -1210,7 +1210,7 @@ function MergedWhatsAppTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsAp
   const [sending, setSending] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [customMessage, setCustomMessage] = useState('');
-  const [attachmentId, setAttachmentId] = useState<number | null>(null);
+  // Note: attachmentId state removed - attachment picker not yet implemented in merged tab
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const hasSummary = !!lead.whatsapp_last_summary;
@@ -1378,7 +1378,7 @@ function MergedWhatsAppTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsAp
             dir="rtl"
           />
           <p className="text-xs text-gray-500 mt-1">
-            המשתנים {"{{first_name}}"}, {"{{last_name}}"} הוחלפו אוטומטית
+            המשתנים {"{{first_name}}"}, {"{{last_name}}"}, {"{{name}}"} הוחלפו אוטומטית
           </p>
         </div>
 

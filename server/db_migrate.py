@@ -5633,7 +5633,7 @@ def apply_migrations():
                     """)
                     exec_ddl(db.engine, """
                         COMMENT ON COLUMN business.lead_tabs_config IS 
-                        'Flexible tab configuration for lead detail page. JSON object with primary and secondary tab arrays. Max 6 tabs total. Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes'
+                        'Flexible tab configuration for lead detail page. JSON object with primary and secondary tab arrays. Max 3 primary + 3 secondary (6 total). Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes'
                     """)
                     checkpoint("  ✅ Column lead_tabs_config added to business table")
                     migrations_applied.append('112_lead_tabs_config')
