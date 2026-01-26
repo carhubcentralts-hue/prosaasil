@@ -5618,6 +5618,36 @@ def apply_migrations():
         
         checkpoint("✅ Migration 111 complete: Dashboard query performance optimized")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 112: Add lead_tabs_config to business table for flexible tab configuration
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 112: Adding lead_tabs_config column to business table")
+        
+        if check_table_exists('business'):
+            try:
+                if not check_column_exists('business', 'lead_tabs_config'):
+                    checkpoint("  → Adding lead_tabs_config JSON column...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE business 
+                        ADD COLUMN lead_tabs_config JSON DEFAULT NULL
+                    """)
+                    exec_ddl(db.engine, """
+                        COMMENT ON COLUMN business.lead_tabs_config IS 
+                        'Flexible tab configuration for lead detail page. JSON object with primary and secondary tab arrays. Max 3 primary + 3 secondary (6 total). Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes'
+                    """)
+                    checkpoint("  ✅ Column lead_tabs_config added to business table")
+                    migrations_applied.append('112_lead_tabs_config')
+                else:
+                    checkpoint("  ℹ️ Column lead_tabs_config already exists")
+            except Exception as e:
+                checkpoint(f"❌ Migration 112 failed: {e}")
+                logger.error(f"Migration 112 error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ business table does not exist - skipping")
+        
+        checkpoint("✅ Migration 112 complete: Flexible lead tabs configuration enabled")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
