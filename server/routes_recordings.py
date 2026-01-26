@@ -10,6 +10,7 @@ from server.services.recording_service import check_local_recording_exists, _get
 from datetime import datetime
 import logging
 import os
+import traceback
 
 log = logging.getLogger(__name__)
 
@@ -162,58 +163,63 @@ def serve_recording_file(call_sid):
         
         if range_header:
             # Parse Range header (format: "bytes=start-end")
-            byte_range = range_header.replace('bytes=', '').split('-')
-            
-            # Handle suffix-byte-range-spec: bytes=-500 (last N bytes)
-            if not byte_range[0] and byte_range[1]:
-                suffix_length = int(byte_range[1])
-                start = max(0, file_size - suffix_length)
-                end = file_size - 1
-            else:
-                # Normal range or open-ended range
-                start = int(byte_range[0]) if byte_range[0] else 0
-                end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
-            
-            # Ensure valid range
-            if start >= file_size:
-                return Response(status=416)  # Range Not Satisfiable
-            
-            end = min(end, file_size - 1)
-            length = end - start + 1
-            
-            # Read partial content
-            with open(file_path, 'rb') as f:
-                f.seek(start)
-                data = f.read(length)
-            
-            # Return 206 Partial Content with proper headers
-            rv = Response(
-                data,
-                206,
-                mimetype='audio/mpeg',
-                direct_passthrough=True
-            )
-            rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
-            rv.headers.add('Accept-Ranges', 'bytes')
-            rv.headers.add('Content-Length', str(length))
-            rv.headers.add('Cache-Control', 'no-store')  # 🔥 Prevent caching broken files
-            rv.headers.add('Content-Disposition', 'inline')
-            
-            return rv
-        else:
-            # No Range header - serve entire file
-            response = make_response(send_file(
-                file_path,
-                mimetype="audio/mpeg",
-                as_attachment=False,
-                conditional=True
-            ))
-            response.headers['Accept-Ranges'] = 'bytes'
-            response.headers['Cache-Control'] = 'no-store'  # 🔥 Prevent caching broken files
-            response.headers['Content-Disposition'] = 'inline'
-            response.headers['Content-Length'] = str(file_size)
-            
-            return response
+            try:
+                byte_range = range_header.replace('bytes=', '').split('-')
+                
+                # Handle suffix-byte-range-spec: bytes=-500 (last N bytes)
+                if not byte_range[0] and byte_range[1]:
+                    suffix_length = int(byte_range[1])
+                    start = max(0, file_size - suffix_length)
+                    end = file_size - 1
+                else:
+                    # Normal range or open-ended range
+                    start = int(byte_range[0]) if byte_range[0] else 0
+                    end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+                
+                # Ensure valid range
+                if start >= file_size:
+                    return Response(status=416)  # Range Not Satisfiable
+                
+                end = min(end, file_size - 1)
+                length = end - start + 1
+                
+                # Read partial content
+                with open(file_path, 'rb') as f:
+                    f.seek(start)
+                    data = f.read(length)
+                
+                # Return 206 Partial Content with proper headers
+                rv = Response(
+                    data,
+                    206,
+                    mimetype='audio/mpeg',
+                    direct_passthrough=True
+                )
+                rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
+                rv.headers.add('Accept-Ranges', 'bytes')
+                rv.headers.add('Content-Length', str(length))
+                rv.headers.add('Cache-Control', 'no-store')  # Prevent browser caching for security
+                rv.headers.add('Content-Disposition', 'inline')
+                
+                return rv
+            except (ValueError, IndexError) as e:
+                # Malformed Range header - log and serve entire file instead
+                log.warning(f"Malformed Range header '{range_header}' for call_sid={call_sid}: {e}")
+                # Fall through to serve entire file
+        
+        # No Range header or malformed Range - serve entire file
+        response = make_response(send_file(
+            file_path,
+            mimetype="audio/mpeg",
+            as_attachment=False,
+            conditional=True
+        ))
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers['Cache-Control'] = 'no-store'  # Prevent browser caching for security
+        response.headers['Content-Disposition'] = 'inline'
+        response.headers['Content-Length'] = str(file_size)
+        
+        return response
             
     except Exception as e:
         log.error(f"Error serving recording file for {call_sid}: {e}")
