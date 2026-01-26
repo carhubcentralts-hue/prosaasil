@@ -5339,6 +5339,29 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ background_jobs table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 105: Add cancel_requested to outbound_call_runs
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 105: Adding cancel_requested to outbound_call_runs for queue cancellation")
+        if check_table_exists('outbound_call_runs'):
+            try:
+                if not check_column_exists('outbound_call_runs', 'cancel_requested'):
+                    db.session.execute(text("""
+                        ALTER TABLE outbound_call_runs 
+                        ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT FALSE
+                    """))
+                    db.session.commit()
+                    migrations_applied.append('105_outbound_cancel_requested')
+                    checkpoint("✅ Migration 105 complete: cancel_requested column added to outbound_call_runs")
+                else:
+                    checkpoint("  ℹ️  cancel_requested column already exists - skipping Migration 105")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 105 failed: {e}")
+                logger.error(f"Migration 105 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ outbound_call_runs table does not exist - skipping Migration 105")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
