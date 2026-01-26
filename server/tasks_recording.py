@@ -240,8 +240,8 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         job_key = f"job:full:{business_id}:{call_sid}"
         try:
             # Check if already enqueued (dedup check)
-            already_enqueued = redis_conn.get(job_key)
-            if already_enqueued:
+            existing_job_value = redis_conn.get(job_key)
+            if existing_job_value:
                 ttl = redis_conn.ttl(job_key)
                 log.info(f"[OFFLINE_STT] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
                 logger.info(f"🔒 [RQ] Duplicate full job blocked: call_sid={call_sid}")
@@ -340,8 +340,8 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         job_key = f"job:download:{business_id}:{call_sid}"
         try:
             # Check if already enqueued (dedup check)
-            already_enqueued = redis_conn.get(job_key)
-            if already_enqueued:
+            existing_job_value = redis_conn.get(job_key)
+            if existing_job_value:
                 # Job already enqueued recently - skip duplicate
                 ttl = redis_conn.ttl(job_key)
                 log.info(f"[DOWNLOAD_ONLY] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")

@@ -1146,8 +1146,8 @@ def recording_status():
                     # Players need actual audio file URL (.mp3 or .wav)
                     media_url = recording_url
                     if media_url and media_url.endswith(".json"):
-                        # Strip .json and add .mp3 for media playback
-                        media_url = media_url[:-5] + ".mp3"
+                        # Replace .json with .mp3 for media playback
+                        media_url = media_url.replace(".json", ".mp3")
                         logger.info(f"🔄 [REC_CB] Converted .json URL to .mp3 for playback: {call_sid}")
                     
                     # Update recording metadata
