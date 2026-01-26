@@ -525,8 +525,16 @@ def get_recording_status(call_sid):
             }), 200
             
     except Exception as e:
+        # 🔥 FIX: Include traceback for better diagnostics
+        import traceback
         log.error(f"Error getting recording status for {call_sid}: {e}")
-        return jsonify({"success": False, "error": "Internal server error"}), 500
+        log.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False, 
+            "error": "Internal server error",
+            "error_code": "STATUS_EXCEPTION",
+            "error_type": type(e).__name__
+        }), 500
 
 @calls_bp.route("/api/recordings/<call_sid>/stream", methods=["GET"])
 @require_api_auth()
@@ -747,8 +755,16 @@ def stream_recording(call_sid):
             }), 202
         
     except Exception as e:
+        # 🔥 FIX: Include traceback for better diagnostics
+        import traceback
         log.error(f"Error streaming recording for {call_sid}: {e}")
-        return jsonify({"success": False, "error": "Internal server error"}), 500
+        log.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False, 
+            "error": "Internal server error",
+            "error_code": "STREAM_EXCEPTION",
+            "error_type": type(e).__name__
+        }), 500
 
 @calls_bp.route("/api/calls/cleanup", methods=["POST"])
 @calls_bp.route("/api/calls/cleanup-recordings", methods=["POST"])
