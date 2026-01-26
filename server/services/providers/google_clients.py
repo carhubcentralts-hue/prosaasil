@@ -55,6 +55,36 @@ _gemini_llm_client = None
 _gemini_tts_client = None
 
 
+def _validate_gemini_api_key(api_key: Optional[str], env_var_name: str = "GEMINI_API_KEY") -> None:
+    """
+    Validate Gemini API key and raise RuntimeError if invalid.
+    
+    Args:
+        api_key: The API key to validate
+        env_var_name: Name of the environment variable (for error messages)
+    
+    Raises:
+        RuntimeError: If API key is missing or appears to be a placeholder
+    """
+    if not api_key:
+        error_msg = (
+            f"Gemini client initialization failed: {env_var_name} environment variable not set. "
+            f"Please set {env_var_name} to your Gemini API key. "
+            f"Get your key from: https://makersuite.google.com/app/apikey"
+        )
+        logger.error(f"❌ {error_msg}")
+        raise RuntimeError(error_msg)
+    
+    # Check if key looks valid (not empty, not placeholder)
+    if api_key.strip() == "" or api_key in ["your-key-here", "CHANGE_ME"]:
+        error_msg = (
+            f"Gemini client initialization failed: {env_var_name} is set but appears to be a placeholder. "
+            f"Please set a valid API key from: https://makersuite.google.com/app/apikey"
+        )
+        logger.error(f"❌ {error_msg}")
+        raise RuntimeError(error_msg)
+
+
 def get_stt_client():
     """
     Get Google Cloud Speech-to-Text client (singleton).
@@ -173,25 +203,8 @@ def get_gemini_llm_client():
                 f"using_adc_or_sa={using_adc}"
             )
             
-            if not gemini_api_key:
-                error_msg = (
-                    f"Gemini LLM client initialization failed: {env_var_used} environment variable not set. "
-                    f"Please set {env_var_used} to your Gemini API key. "
-                    f"Get your key from: https://makersuite.google.com/app/apikey"
-                )
-                logger.error(f"❌ {error_msg}")
-                _gemini_llm_client = False  # Cache failure
-                raise RuntimeError(error_msg)
-            
-            # Check if key looks valid (not empty, not placeholder)
-            if gemini_api_key.strip() == "" or gemini_api_key in ["your-key-here", "CHANGE_ME"]:
-                error_msg = (
-                    f"Gemini LLM client initialization failed: {env_var_used} is set but appears to be a placeholder. "
-                    f"Please set a valid API key from: https://makersuite.google.com/app/apikey"
-                )
-                logger.error(f"❌ {error_msg}")
-                _gemini_llm_client = False
-                raise RuntimeError(error_msg)
+            # Validate API key using helper function
+            _validate_gemini_api_key(gemini_api_key, env_var_used)
             
             # 🔥 Initialize with timeout configuration (connect=2s, read=10s)
             if httpx is not None:
@@ -207,15 +220,12 @@ def get_gemini_llm_client():
             
             return _gemini_llm_client
             
-        except RuntimeError:
-            # Re-raise our detailed RuntimeError
-            raise
         except Exception as e:
             error_msg = f"Gemini LLM client initialization failed with exception: {type(e).__name__}: {str(e)}"
             logger.error(f"❌ {error_msg}")
             logger.exception("Full traceback:")
             _gemini_llm_client = False  # Cache failure
-            raise RuntimeError(error_msg)
+            raise RuntimeError(error_msg) from e
 
 
 def get_gemini_tts_client():
@@ -275,25 +285,8 @@ def get_gemini_tts_client():
                 f"using_adc_or_sa={using_adc}"
             )
             
-            if not gemini_api_key:
-                error_msg = (
-                    f"Gemini TTS client initialization failed: {env_var_used} environment variable not set. "
-                    f"Please set {env_var_used} to your Gemini API key. "
-                    f"Get your key from: https://makersuite.google.com/app/apikey"
-                )
-                logger.error(f"❌ {error_msg}")
-                _gemini_tts_client = False  # Cache failure
-                raise RuntimeError(error_msg)
-            
-            # Check if key looks valid (not empty, not placeholder)
-            if gemini_api_key.strip() == "" or gemini_api_key in ["your-key-here", "CHANGE_ME"]:
-                error_msg = (
-                    f"Gemini TTS client initialization failed: {env_var_used} is set but appears to be a placeholder. "
-                    f"Please set a valid API key from: https://makersuite.google.com/app/apikey"
-                )
-                logger.error(f"❌ {error_msg}")
-                _gemini_tts_client = False
-                raise RuntimeError(error_msg)
+            # Validate API key using helper function
+            _validate_gemini_api_key(gemini_api_key, env_var_used)
             
             # 🔥 Initialize with timeout configuration (connect=2s, read=10s)
             if httpx is not None:
@@ -309,15 +302,12 @@ def get_gemini_tts_client():
             
             return _gemini_tts_client
             
-        except RuntimeError:
-            # Re-raise our detailed RuntimeError
-            raise
         except Exception as e:
             error_msg = f"Gemini TTS client initialization failed with exception: {type(e).__name__}: {str(e)}"
             logger.error(f"❌ {error_msg}")
             logger.exception("Full traceback:")
             _gemini_tts_client = False  # Cache failure
-            raise RuntimeError(error_msg)
+            raise RuntimeError(error_msg) from e
 
 
 def get_gemini_client():
