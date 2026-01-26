@@ -67,6 +67,32 @@ OPENAI_TTS_VOICES = _get_openai_voices()
 # Note: GEMINI_TTS_VOICES loaded dynamically from voice_catalog.py via _get_gemini_voices()
 
 
+def log_gemini_tts_config():
+    """
+    Log Gemini TTS configuration at startup.
+    Call this from server initialization to verify TTS setup.
+    """
+    tts_model = os.getenv('GEMINI_TTS_MODEL', 'gemini-2.5-flash-preview-tts')
+    default_voice = get_default_voice("gemini")
+    gemini_available = is_gemini_available()
+    
+    logger.info(
+        f"[GEMINI_TTS] Startup config: model={tts_model}, default_voice={default_voice}, "
+        f"available={gemini_available}"
+    )
+    
+    if gemini_available:
+        gemini_voices = _get_gemini_voices()
+        logger.info(f"[GEMINI_TTS] Loaded {len(gemini_voices)} voices from catalog")
+    else:
+        logger.warning("[GEMINI_TTS] Not available - GEMINI_API_KEY not set")
+
+
+# Only log configuration in non-test environments
+# Call log_gemini_tts_config() explicitly from server startup if needed
+# Removed automatic execution to avoid side effects during import
+
+
 def get_available_voices(provider: str) -> List[Dict[str, Any]]:
     """Get list of available voices for a provider"""
     if provider == "openai":
@@ -218,13 +244,15 @@ def synthesize_gemini(
     
     Environment:
         Requires GEMINI_API_KEY to be set.
+        GEMINI_TTS_MODEL: Optional, defaults to 'gemini-2.5-flash-preview-tts'
     
     🔥 CRITICAL: Uses Gemini Native Speech Generation, NOT Google Cloud TTS!
     - Uses google-genai SDK (new unified SDK)
-    - Model: gemini-2.5-flash-preview-tts
-    - response_modalities: ["AUDIO"] (uppercase)
+    - Model: Uses GEMINI_TTS_MODEL (default: gemini-2.5-flash-preview-tts)
+    - response_modalities: ["AUDIO"] (uppercase) - MUST return AUDIO only
     - Returns PCM audio wrapped in WAV format
     - Voice names MUST be lowercase (e.g., "pulcherrima", not "Pulcherrima")
+    - Strict guards: If no audio bytes → raise exception with detailed logging
     """
     try:
         # 🔥 NOTE: DISABLE_GOOGLE applies to old Google Cloud STT, NOT Gemini!
@@ -234,19 +262,20 @@ def synthesize_gemini(
         from server.utils.gemini_key_provider import get_gemini_api_key
         gemini_api_key = get_gemini_api_key()
         if not gemini_api_key:
-            logger.error(f"[TTS][GEMINI] GEMINI_API_KEY not set")
+            logger.error(f"[GEMINI_TTS] GEMINI_API_KEY not set")
             return None, "Gemini TTS unavailable"
         
         # 🔒 Security: Validate language against whitelist
         if language not in ALLOWED_TTS_LANGUAGES:
-            logger.warning(f"[TTS] Invalid language '{language}', falling back to he-IL")
+            logger.warning(f"[GEMINI_TTS] Invalid language '{language}', falling back to he-IL")
             language = "he-IL"
         
         # 🔥 CRITICAL: Ensure voice_id is lowercase (Gemini API requirement)
+        original_voice = voice_id
         voice_id = voice_id.lower() if voice_id else "pulcherrima"
         
-        # Log that Gemini TTS is enabled
-        logger.info(f"[VOICE] Gemini TTS enabled with voice={voice_id}")
+        # 🔥 Get TTS model from environment (separate from LLM model)
+        tts_model = os.getenv('GEMINI_TTS_MODEL', 'gemini-2.5-flash-preview-tts')
         
         # 🔥 Use Gemini Speech Generation with new google-genai SDK
         try:
@@ -254,14 +283,18 @@ def synthesize_gemini(
             from google.genai import types
             import struct
             
-            # 🔥 CRITICAL: Validate voice against closed list - must be a valid Gemini voice
-            from server.config.voice_catalog import get_voice_by_id, is_valid_voice
+            # 🔥 CRITICAL: Validate voice against allowlist - must be a valid Gemini voice
+            # Gemini TTS supports specific voices only. Using unsupported voice causes 400 errors.
+            from server.config.voice_catalog import get_voice_by_id, is_valid_voice, GEMINI_VOICES
+            
+            # Create allowlist of valid Gemini voices
+            valid_gemini_voices = [v['id'] for v in GEMINI_VOICES]
             
             if not is_valid_voice(voice_id, "gemini"):
                 default_voice = get_default_voice("gemini")
-                logger.error(
-                    f"[TTS][GEMINI] INVALID_VOICE: '{voice_id}' not in allowed list. "
-                    f"Falling back to default '{default_voice}'"
+                logger.warning(
+                    f"[GEMINI_TTS] voice '{original_voice}' (normalized: '{voice_id}') not supported -> using '{default_voice}'. "
+                    f"Valid voices: {', '.join(valid_gemini_voices[:10])}..."
                 )
                 voice_id = default_voice
             
@@ -274,55 +307,139 @@ def synthesize_gemini(
             if not client:
                 raise RuntimeError("Gemini client not available")
             
-            # 🔥 CRITICAL: Use gemini-2.5-flash-preview-tts model for TTS
-            # Generate speech using proper SDK with uppercase AUDIO
-            response = client.models.generate_content(
-                model="gemini-2.5-flash-preview-tts",
-                contents=text,
-                config=types.GenerateContentConfig(
-                    response_modalities=["AUDIO"],  # 🔥 UPPERCASE, not lowercase
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=voice_id
-                            )
+            # 🔥 ASSERTION + LOG: Verify TTS-only configuration BEFORE making API call
+            # This prevents 400 INVALID_ARGUMENT by ensuring we're in pure TTS mode
+            import time
+            
+            # Build config object first for inspection
+            tts_config = types.GenerateContentConfig(
+                response_modalities=["AUDIO"],  # 🔥 MUST be ["AUDIO"] only - no TEXT
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=voice_id
                         )
                     )
                 )
             )
             
-            # Extract PCM audio data from response
-            if not response or not response.candidates:
-                return None, "No audio generated from Gemini"
+            # 🔥 PRE-FLIGHT ASSERTIONS: Verify this is TTS-only path
+            assert hasattr(tts_config, 'response_modalities'), "Config missing response_modalities"
+            assert tts_config.response_modalities == ["AUDIO"], f"Wrong modalities: {tts_config.response_modalities}"
+            assert hasattr(tts_config, 'speech_config'), "Config missing speech_config"
+            assert tts_config.speech_config is not None, "speech_config is None"
             
-            # Get audio data from first candidate
+            # 🔥 DETAILED PRE-REQUEST LOG: Log EXACT configuration before API call
+            logger.info(
+                f"[GEMINI_TTS] PRE_REQUEST_ASSERTION: "
+                f"model={tts_model} (TTS_MODEL_ONLY), "
+                f"voice={voice_id}, "
+                f"text_len={len(text)}, "
+                f"response_modalities={tts_config.response_modalities}, "
+                f"has_speech_config={tts_config.speech_config is not None}, "
+                f"language={language}, "
+                f"speed={speed} "
+                f"[TTS_ONLY_PATH - NO_LLM_SHARING]"
+            )
+            
+            # 🔥 CRITICAL: This is TTS-ONLY path - NO sharing with LLM code
+            # No system instructions, no tools, no multi-modal mixing
+            request_start_ms = int(time.time() * 1000)
+            
+            response = client.models.generate_content(
+                model=tts_model,  # Dedicated TTS model
+                contents=text,     # Plain text only - no prompt engineering
+                config=tts_config  # Pure AUDIO config - verified above
+            )
+            
+            latency_ms = int(time.time() * 1000) - request_start_ms
+            
+            # 🔥 GUARD #1: Check response exists
+            if not response:
+                logger.error(
+                    f"[GEMINI_TTS] GUARD_FAILED: No response from API. "
+                    f"model={tts_model}, voice={voice_id}, text_len={len(text)}"
+                )
+                raise RuntimeError("No response from Gemini TTS API")
+            
+            # 🔥 GUARD #2: Check candidates exist
+            if not response.candidates or len(response.candidates) == 0:
+                logger.error(
+                    f"[GEMINI_TTS] GUARD_FAILED: No candidates in response. "
+                    f"model={tts_model}, voice={voice_id}, text_len={len(text)}, "
+                    f"response_keys={list(vars(response).keys()) if response else 'N/A'}"
+                )
+                raise RuntimeError("No candidates in Gemini TTS response - model may have generated text instead")
+            
+            # 🔥 GUARD #3: Extract audio data with detailed error logging
             audio_data = None
             try:
-                audio_data = response.candidates[0].content.parts[0].inline_data.data
+                candidate = response.candidates[0]
+                audio_data = candidate.content.parts[0].inline_data.data
             except (AttributeError, IndexError) as e:
-                logger.error(f"[TTS][GEMINI] Failed to extract audio: {e}")
-                return None, "No audio data in Gemini response"
+                logger.error(
+                    f"[GEMINI_TTS] GUARD_FAILED: Failed to extract audio data. "
+                    f"model={tts_model}, voice={voice_id}, text_len={len(text)}, "
+                    f"error={str(e)}, candidate_keys={list(vars(candidate).keys()) if 'candidate' in locals() else 'N/A'}"
+                )
+                raise RuntimeError(f"Failed to extract audio from response: {e}")
             
-            if not audio_data:
-                return None, "No audio data in Gemini response"
+            # 🔥 GUARD #4: Verify audio data is not empty
+            if not audio_data or len(audio_data) == 0:
+                logger.error(
+                    f"[GEMINI_TTS] GUARD_FAILED: Empty audio data. "
+                    f"model={tts_model}, voice={voice_id}, text_len={len(text)}, "
+                    f"audio_data={'None' if audio_data is None else f'{len(audio_data)} bytes'}"
+                )
+                raise RuntimeError("Empty audio data from Gemini TTS - model returned AUDIO but no bytes")
             
             # 🔥 Convert PCM data to WAV format for browser playback
             # Gemini returns raw PCM16 at 24kHz, we need to wrap it with WAV header
             wav_data = _create_wav_header(audio_data)
             
-            logger.info(f"Gemini TTS: Synthesized {len(wav_data)} bytes WAV with voice={voice_id}")
+            # 🔥 Success log with complete metrics
+            logger.info(
+                f"[GEMINI_TTS] request_ok bytes={len(wav_data)} latency_ms={latency_ms} "
+                f"model={tts_model} voice={voice_id} text_len={len(text)}"
+            )
+            
             return wav_data, "audio/wav"
             
         except ImportError as imp_err:
-            logger.error(f"[TTS][GEMINI] google-genai SDK not installed: {imp_err}")
+            logger.error(f"[GEMINI_TTS] google-genai SDK not installed: {imp_err}")
             return None, "Gemini SDK not available - please install google-genai"
+        except RuntimeError as runtime_err:
+            # RuntimeError raised by our guard clauses - already logged with details
+            logger.error(f"[GEMINI_TTS] Runtime error: {runtime_err}")
+            return None, f"Gemini TTS error: {str(runtime_err)}"
         except Exception as api_error:
-            logger.exception(f"[TTS][GEMINI] API error")
-            return None, f"Gemini TTS error: {str(api_error)}"
+            # Catch-all for API errors (400 INVALID_ARGUMENT, etc.)
+            error_msg = str(api_error)
+            logger.error(
+                f"[GEMINI_TTS] API_ERROR: {error_msg}. "
+                f"model={tts_model if 'tts_model' in locals() else 'unknown'}, "
+                f"voice={voice_id if 'voice_id' in locals() else 'unknown'}, "
+                f"text_len={len(text)}"
+            )
+            
+            # Check for common error patterns
+            if "INVALID_ARGUMENT" in error_msg or "400" in error_msg:
+                logger.error(
+                    f"[GEMINI_TTS] INVALID_ARGUMENT detected - model may be generating text instead of audio. "
+                    f"Verify: 1) response_modalities=['AUDIO'], 2) speech_config is set, 3) using TTS model"
+                )
+            
+            return None, f"Gemini TTS API error: {error_msg}"
         
     except Exception as e:
         # 🔒 Security: Log full error server-side, return generic message to client
-        logger.exception("[TTS][GEMINI] synthesis failed")
+        logger.error(
+            f"[GEMINI_TTS] synthesis_failed: {str(e)}. "
+            f"voice={voice_id if 'voice_id' in locals() else 'unknown'}, "
+            f"text_len={len(text)}"
+        )
+        import traceback
+        logger.error(f"[GEMINI_TTS] Traceback: {traceback.format_exc()}")
         return None, "TTS synthesis failed"
 
 
