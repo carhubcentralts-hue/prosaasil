@@ -5547,39 +5547,54 @@ def apply_migrations():
                 
                 # Step 1: Add started_at column with IF NOT EXISTS for idempotency
                 checkpoint("  → Adding started_at column to call_log (idempotent)...")
+                column_existed_before = check_column_exists('call_log', 'started_at')
                 exec_ddl(db.engine, """
                     ALTER TABLE call_log 
                     ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT NULL
                 """)
-                if not check_column_exists('call_log', 'started_at'):
-                    checkpoint("  ⚠️ started_at column may not have been added")
-                else:
-                    checkpoint("  ✅ started_at column ready on call_log")
+                column_exists_now = check_column_exists('call_log', 'started_at')
+                if column_exists_now:
+                    if column_existed_before:
+                        checkpoint("  ℹ️ started_at column already existed")
+                    else:
+                        checkpoint("  ✅ started_at column added successfully")
                     migrations_applied.append('109_call_log_started_at')
+                else:
+                    checkpoint("  ⚠️ started_at column failed to add")
                 
                 # Step 2: Add ended_at column with IF NOT EXISTS for idempotency
                 checkpoint("  → Adding ended_at column to call_log (idempotent)...")
+                column_existed_before = check_column_exists('call_log', 'ended_at')
                 exec_ddl(db.engine, """
                     ALTER TABLE call_log 
                     ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP DEFAULT NULL
                 """)
-                if not check_column_exists('call_log', 'ended_at'):
-                    checkpoint("  ⚠️ ended_at column may not have been added")
-                else:
-                    checkpoint("  ✅ ended_at column ready on call_log")
+                column_exists_now = check_column_exists('call_log', 'ended_at')
+                if column_exists_now:
+                    if column_existed_before:
+                        checkpoint("  ℹ️ ended_at column already existed")
+                    else:
+                        checkpoint("  ✅ ended_at column added successfully")
                     migrations_applied.append('109_call_log_ended_at')
+                else:
+                    checkpoint("  ⚠️ ended_at column failed to add")
                 
                 # Step 3: Add duration_sec column with IF NOT EXISTS for idempotency
                 checkpoint("  → Adding duration_sec column to call_log (idempotent)...")
+                column_existed_before = check_column_exists('call_log', 'duration_sec')
                 exec_ddl(db.engine, """
                     ALTER TABLE call_log 
                     ADD COLUMN IF NOT EXISTS duration_sec INTEGER DEFAULT NULL
                 """)
-                if not check_column_exists('call_log', 'duration_sec'):
-                    checkpoint("  ⚠️ duration_sec column may not have been added")
-                else:
-                    checkpoint("  ✅ duration_sec column ready on call_log")
+                column_exists_now = check_column_exists('call_log', 'duration_sec')
+                if column_exists_now:
+                    if column_existed_before:
+                        checkpoint("  ℹ️ duration_sec column already existed")
+                    else:
+                        checkpoint("  ✅ duration_sec column added successfully")
                     migrations_applied.append('109_call_log_duration_sec')
+                else:
+                    checkpoint("  ⚠️ duration_sec column failed to add")
                 
                 # 🔥 PRODUCTION-SAFE: Skip backfill in migration
                 # Backfill should run as a separate background job after system is up
