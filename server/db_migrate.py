@@ -5590,13 +5590,21 @@ def apply_migrations():
             try:
                 if not check_column_exists('call_log', 'summary_status'):
                     checkpoint("  → Adding summary_status column to call_log...")
+                    # Add column first
                     exec_ddl(db.engine, """
                         ALTER TABLE call_log 
-                        ADD COLUMN summary_status VARCHAR(32) DEFAULT NULL,
+                        ADD COLUMN summary_status VARCHAR(32) DEFAULT NULL
+                    """)
+                    checkpoint("  ✅ summary_status column added to call_log")
+                    
+                    # Add CHECK constraint separately for better compatibility
+                    checkpoint("  → Adding CHECK constraint to summary_status...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE call_log
                         ADD CONSTRAINT chk_call_log_summary_status 
                         CHECK (summary_status IN ('pending', 'processing', 'completed', 'failed'))
                     """)
-                    checkpoint("  ✅ summary_status column added to call_log with CHECK constraint")
+                    checkpoint("  ✅ CHECK constraint added to summary_status")
                     
                     # Mark existing calls with summaries as completed
                     checkpoint("  → Marking existing calls with summaries as 'completed'...")

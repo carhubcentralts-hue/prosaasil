@@ -5,6 +5,8 @@ This job processes call transcripts and generates summaries for long calls.
 Runs after transcription is complete and handles chunking for very long transcripts.
 """
 import logging
+import os
+import openai
 from datetime import datetime
 from server.app_factory import get_process_app
 from server.db import db
@@ -66,9 +68,6 @@ def summarize_transcript_chunk(chunk: str, chunk_index: int, total_chunks: int) 
         Summary text for the chunk
     """
     try:
-        import openai
-        import os
-        
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             logger.error("[SUMMARIZE] No OPENAI_API_KEY found")
@@ -117,9 +116,6 @@ def merge_chunk_summaries(chunk_summaries: list[str]) -> str:
         return chunk_summaries[0]
     
     try:
-        import openai
-        import os
-        
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             logger.error("[SUMMARIZE] No OPENAI_API_KEY found for merging")
@@ -265,20 +261,25 @@ def enqueue_summarize_call(call_sid: str, delay: int = 30):
     try:
         from redis import Redis
         from rq import Queue
-        import os
+        from datetime import timedelta
         
         redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
         redis_conn = Redis.from_url(redis_url)
         queue = Queue('default', connection=redis_conn)
         
-        job = queue.enqueue(
+        # Calculate execution time
+        from datetime import datetime, timedelta
+        scheduled_time = datetime.utcnow() + timedelta(seconds=delay)
+        
+        # Schedule the job for future execution
+        job = queue.enqueue_at(
+            scheduled_time,
             summarize_call,
             call_sid,
             job_timeout='10m',  # 10 minute timeout for long transcripts
             result_ttl=3600,  # Keep result for 1 hour
             failure_ttl=86400,  # Keep failures for 24 hours
             job_id=f"summarize_{call_sid}",  # Prevent duplicate jobs
-            at_front=False  # Normal priority
         )
         
         logger.info(f"[SUMMARIZE] Enqueued summarization for {call_sid} (job_id={job.id}, delay={delay}s)")
