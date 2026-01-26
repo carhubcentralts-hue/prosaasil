@@ -1891,6 +1891,11 @@ class MediaStreamHandler:
         self.realtime_audio_in_chunks = 0   # Count of audio chunks received from Twilio
         self.realtime_audio_out_chunks = 0  # Count of audio chunks sent to Twilio
         
+        # 🔥 CRITICAL FIX: Backpressure flag to prevent queue overflow during Gemini processing
+        # When True, media frames are dropped to prevent recv_queue from filling up
+        # Set to True before LLM/TTS processing, False after completion
+        self.is_processing_turn = False
+        
         # 🔥 SESSION LIFECYCLE GUARD: Atomic close protection
         self.closed = False
         self.close_lock = threading.Lock()
@@ -9981,6 +9986,21 @@ class MediaStreamHandler:
                     # This is the source of truth for "frames_in" - must happen here, not after filters
                     # Counter initialized in __init__ - direct increment (no getattr masking)
                     self.realtime_audio_in_chunks += 1
+                    
+                    # 🔥 CRITICAL FIX: Backpressure - drop media frames when processing turn
+                    # This prevents recv_queue overflow during Gemini LLM/TTS processing
+                    # Only drop media frames, not control events (start/stop)
+                    if getattr(self, 'is_processing_turn', False):
+                        # Track dropped frames for diagnostics
+                        if not hasattr(self, '_frames_dropped_by_processing'):
+                            self._frames_dropped_by_processing = 0
+                        self._frames_dropped_by_processing += 1
+                        
+                        # Log first few drops and then every 50 frames
+                        if self._frames_dropped_by_processing <= 3 or self._frames_dropped_by_processing % 50 == 0:
+                            logger.info(f"🛡️ [BACKPRESSURE] Dropping media frame during processing (total={self._frames_dropped_by_processing})")
+                        continue  # Skip processing this media frame
+                    
                     # 🔥 REMOVED: greeting_lock frame dropping - all frames are now processed
                     
                     b64 = evt["media"]["payload"]
@@ -15567,6 +15587,9 @@ class MediaStreamHandler:
     
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using AgentKit - REAL ACTIONS!"""
+        # 🔥 CRITICAL FIX: Initialize ai_response_dict at start to prevent UnboundLocalError
+        ai_response_dict = None
+        
         try:
             # ⚡ Phase 2C: Track turns and optimize first turn
             self.turn_count = getattr(self, 'turn_count', 0) + 1
@@ -15634,6 +15657,10 @@ class MediaStreamHandler:
             # ⚡ CRITICAL: Measure AI response time
             ai_start = time.time()
             
+            # 🔥 CRITICAL FIX: Set processing flag BEFORE AI call to enable backpressure
+            # This prevents recv_queue overflow during Gemini LLM/TTS processing
+            self.is_processing_turn = True
+            
             # ✅ FIX: Use Flask app singleton (CRITICAL - prevents app restart!)
             app = _get_flask_app()
             
@@ -15667,14 +15694,17 @@ class MediaStreamHandler:
                 # Simple string response from generate_response
                 tts_text = ai_response if ai_response and ai_response.strip() else "סליחה, לא הבנתי. אפשר לחזור?"
                 
-                # Save minimal metadata for analytics
-                self.last_agent_response_metadata = {
+                # 🔥 CRITICAL FIX: Set ai_response_dict for string response to prevent UnboundLocalError
+                ai_response_dict = {
                     "text": tts_text,
                     "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                     "actions": [],  # No actions for simple LLM response
                     "booking_successful": False,
                     "source": "gemini_llm"
                 }
+                
+                # Save minimal metadata for analytics
+                self.last_agent_response_metadata = ai_response_dict
             elif isinstance(ai_response, dict):
                 # Structured response (shouldn't happen with generate_response, but handle it)
                 ai_response_dict = {
@@ -15705,15 +15735,25 @@ class MediaStreamHandler:
                 tts_text = "סליחה, לא הבנתי. אפשר לחזור?"
             
             logger.info(f"✅ Extracted TTS text: {len(tts_text)} chars")
-            logger.info(f"   Metadata: {len(ai_response_dict.get('actions', []))} actions, booking={ai_response_dict.get('booking_successful', False)}")
+            # 🔥 CRITICAL FIX: Guard ai_response_dict access to prevent UnboundLocalError
+            if isinstance(ai_response_dict, dict):
+                logger.info(f"   Metadata: {len(ai_response_dict.get('actions', []))} actions, booking={ai_response_dict.get('booking_successful', False)}")
+            else:
+                logger.warning(f"⚠️ ai_response_dict not available - skipping metadata logging")
             
             logger.info(f"🤖 AGENT_RESPONSE: Generated {len(tts_text)} chars in {self.last_ai_time:.3f}s (business {business_id})")
             if DEBUG: logger.debug(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
+            
+            # 🔥 CRITICAL FIX: Clear processing flag after AI response complete
+            self.is_processing_turn = False
             
             # Return TTS text (string) for _speak_simple
             return tts_text
             
         except Exception as e:
+            # 🔥 CRITICAL FIX: Clear processing flag on exception
+            self.is_processing_turn = False
+            
             logger.error(f"❌ AI_SERVICE_ERROR: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
@@ -15756,11 +15796,16 @@ class MediaStreamHandler:
         logger.info(f"[GEMINI_TTS] Starting synthesis: {len(text)} chars, provider={ai_provider}")
         _orig_print(f"🔷 [GEMINI_TTS] Synthesizing {len(text)} chars...", flush=True)
         
+        # 🔥 CRITICAL FIX: Set processing flag during TTS to enable backpressure
+        # This prevents recv_queue overflow during Gemini TTS processing
+        self.is_processing_turn = True
+        
         try:
             # Get business settings for voice configuration
             business_id = getattr(self, 'business_id', None)
             if not business_id:
                 logger.error("[GEMINI_TTS] No business_id - cannot synthesize")
+                self.is_processing_turn = False
                 return None
             
             # Get voice settings from business
@@ -15770,6 +15815,7 @@ class MediaStreamHandler:
                 business = Business.query.get(business_id)
                 if not business:
                     logger.error(f"[GEMINI_TTS] Business {business_id} not found")
+                    self.is_processing_turn = False
                     return None
                 
                 voice_name = getattr(business, 'voice_name', None) or 'pulcherrima'
@@ -15789,6 +15835,7 @@ class MediaStreamHandler:
             
             if audio_bytes is None:
                 logger.error(f"[GEMINI_TTS] Synthesis failed: {content_type_or_error}")
+                self.is_processing_turn = False
                 return None
             
             logger.info(f"[GEMINI_TTS] Success: {len(audio_bytes)} bytes ({content_type_or_error})")
@@ -15811,17 +15858,25 @@ class MediaStreamHandler:
                     pcm16_8k = audioop.ratecv(pcm16_24k, 2, 1, 24000, 8000, None)[0]
                     logger.info(f"[GEMINI_TTS] Resampled to 8kHz: {len(pcm16_8k)} bytes")
                     _orig_print(f"🔄 [GEMINI_TTS] Resampled: {len(pcm16_24k)}B@24kHz → {len(pcm16_8k)}B@8kHz", flush=True)
+                    # 🔥 CRITICAL FIX: Clear processing flag after TTS complete
+                    self.is_processing_turn = False
                     return pcm16_8k
                 except Exception as resample_err:
                     logger.error(f"[GEMINI_TTS] Resample failed: {resample_err}")
                     _orig_print(f"❌ [GEMINI_TTS] Resample failed: {resample_err}", flush=True)
+                    # 🔥 CRITICAL FIX: Clear processing flag on error
+                    self.is_processing_turn = False
                     # Fallback: try using as-is (will sound wrong but better than silence)
                     return pcm16_24k
             else:
                 logger.warning(f"[GEMINI_TTS] Unexpected format - using as-is")
+                # 🔥 CRITICAL FIX: Clear processing flag before return
+                self.is_processing_turn = False
                 return audio_bytes
                 
         except Exception as e:
+            # 🔥 CRITICAL FIX: Clear processing flag on exception
+            self.is_processing_turn = False
             logger.error(f"[GEMINI_TTS] Error: {e}")
             import traceback
             traceback.print_exc()
