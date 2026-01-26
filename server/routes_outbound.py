@@ -2878,10 +2878,10 @@ def process_bulk_call_run(run_id: int):
                                 "lock_token": lock_token
                             })
                             
-                                log.error(f"[BulkCall] Lock token mismatch for job {next_job.id}, call may be duplicate")
-                                    # Call was created but we lost the lock - log warning but continue
-                                    # Twilio will handle the duplicate via their idempotency
-                                
+                            log.error(f"[BulkCall] Lock token mismatch for job {next_job.id}, call may be duplicate")
+                            # Call was created but we lost the lock - log warning but continue
+                            # Twilio will handle the duplicate via their idempotency
+                            
                             call_log.call_sid = call_sid
                             db.session.commit()
                             
