@@ -126,11 +126,6 @@ def serve_recording_file(call_sid):
     - 404 + JSON if file not found
     - 403 if call doesn't belong to user's tenant
     """
-    from flask import send_file, make_response, Response
-    from server.models_sql import CallLog
-    from server.routes_crm import get_business_id
-    import os
-    
     try:
         business_id = get_business_id()
         if not business_id:
@@ -148,8 +143,6 @@ def serve_recording_file(call_sid):
             return jsonify({"error": "Recording not found"}), 404
         
         # Check if file exists locally
-        from server.services.recording_service import check_local_recording_exists, _get_recordings_dir
-        
         if not check_local_recording_exists(call_sid):
             log.warning(f"Serve recording file: File not found on disk for call_sid={call_sid}")
             return jsonify({
