@@ -105,9 +105,6 @@ export function CallsPage() {
   const [directionFilter, setDirectionFilter] = useState('all');
   const [callDetails, setCallDetails] = useState<CallDetails | null>(null);
   const [downloadingRecording, setDownloadingRecording] = useState<string | null>(null);
-  const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
-  const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
-  const recordingUrlsRef = useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [editedTranscript, setEditedTranscript] = useState('');
   const [deletingCall, setDeletingCall] = useState<string | null>(null);
@@ -219,11 +216,6 @@ export function CallsPage() {
       setSelectedCall(call);
       setShowDetails(true);
       
-      // 🔥 FIX: Load recording blob for audio playback
-      if (call.hasRecording && call.sid) {
-        loadRecordingBlob(call.sid);
-      }
-      
       const response = await http.get(`/api/calls/${call.sid}/details`);
       
       if (response && typeof response === 'object' && 'success' in response && (response as any).success) {
@@ -294,76 +286,9 @@ export function CallsPage() {
   };
 
   // 🔥 FIX 502: Load recording with retry logic for async downloads
-  const loadRecordingBlob = async (callSid: string, retryCount = 0) => {
-    // Skip if already loaded or currently loading (check ref for source of truth)
-    if (recordingUrlsRef.current[callSid] || loadingRecording === callSid) return;
-    
-    const MAX_RETRIES = 10; // Max 10 retries (up to 20 seconds)
-    const RETRY_DELAY = 2000; // 2 seconds between retries
-    
-    setLoadingRecording(callSid);
-    try {
-      // 🔥 SECURITY: Add explicit_user_action parameter to prevent mass enqueue
-      const response = await fetch(`/api/recordings/${callSid}/stream?explicit_user_action=true`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'X-User-Action': 'play'  // 🔥 SECURITY: Add header for double protection
-        }
-      });
-      
-      // Handle 202 Accepted - recording is being prepared
-      if (response.status === 202) {
-        if (retryCount < MAX_RETRIES) {
-          console.log(`Recording is being prepared for ${callSid}, retrying in ${RETRY_DELAY/1000}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-          
-          // Retry after delay
-          setTimeout(() => {
-            setLoadingRecording(null); // Clear loading state before retry
-            loadRecordingBlob(callSid, retryCount + 1);
-          }, RETRY_DELAY);
-          return; // Keep loading state active
-        } else {
-          throw new Error('Recording preparation timed out. Please try again later.');
-        }
-      }
-      
-      // Handle 410 Gone - recording expired
-      if (response.status === 410) {
-        throw new Error('Recording has expired (older than 7 days)');
-      }
-      
-      // Handle other errors
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to load recording');
-      }
-      
-      // Success - load the blob
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      recordingUrlsRef.current[callSid] = url;  // Track in ref for cleanup
-      setRecordingUrls(prev => ({ ...prev, [callSid]: url }));
-    } catch (error) {
-      console.error('Error loading recording:', error);
-      alert('שגיאה בטעינת ההקלטה: ' + (error as Error).message);
-      // Don't set URL in ref on error - allow retry
-      setLoadingRecording(null);
-    }
-  };
-
-  // 🔥 FIX: Cleanup blob URLs when component unmounts
-  useEffect(() => {
-    return () => {
-      // Revoke all blob URLs to prevent memory leaks
-      Object.values(recordingUrlsRef.current).forEach(url => {
-        window.URL.revokeObjectURL(url);
-      });
-    };
-  }, []); // Only run on mount/unmount
-
-  // 🎯 FIX: Removed playRecording - replaced with inline audio player using authenticated download endpoint
-  // Audio is now played directly in the table using AudioPlayer component (same as LeadDetailPage)
+  // 🎯 Removed loadRecordingBlob - now using direct streaming via AudioPlayer
+  // AudioPlayer component uses /api/recordings/<call_sid>/stream endpoint
+  // with explicit_user_action=true for security and Range support
 
   // 🎯 REMOVED: Use centralized formatDuration from utils
   // const formatDuration = (seconds: number) => { ... }
@@ -967,20 +892,14 @@ export function CallsPage() {
                         הורד
                       </Button>
                     </div>
-                    {/* 🔥 FIX: Use AudioPlayer with authenticated blob URL */}
-                    {recordingUrls[selectedCall.sid] ? (
+                    {/* 🔥 FIX: Use AudioPlayer with direct streaming endpoint (no blob URLs) */}
+                    {selectedCall.hasRecording ? (
                       <AudioPlayer
-                        src={recordingUrls[selectedCall.sid]}
-                        loading={loadingRecording === selectedCall.sid}
+                        src={`/api/recordings/${selectedCall.sid}/stream`}
                       />
-                    ) : loadingRecording === selectedCall.sid ? (
-                      <div className="flex items-center justify-center py-4">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                        <span className="text-sm text-slate-500 mr-2">טוען הקלטה...</span>
-                      </div>
                     ) : (
-                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
+                      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <p className="text-sm text-gray-600">אין הקלטה זמינה</p>
                       </div>
                     )}
                   </div>
