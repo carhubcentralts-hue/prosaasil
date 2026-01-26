@@ -5527,106 +5527,18 @@ def apply_migrations():
         checkpoint("✅ Migration 108 complete: Broadcast cursor-based pagination support added")
         
         # ═══════════════════════════════════════════════════════════════════════
-        # Migration 109: Add started_at, ended_at, and duration_sec to call_log for reliable call duration tracking
+        # Migration 109: NO-OP (Backward Compatibility Mode)
         # ═══════════════════════════════════════════════════════════════════════
-        checkpoint("Migration 109: Adding started_at, ended_at, and duration_sec to call_log for reliable duration tracking")
-        
-        if check_table_exists('call_log'):
-            migration_success = True
-            try:
-                from sqlalchemy import text
-                
-                # 🔥 PRODUCTION-SAFE: Set timeouts for DDL operations
-                # - statement_timeout = 0: No timeout for migration DDL (safe when system is down)
-                # - lock_timeout = 5s: Fail fast if table is locked (shouldn't happen if migrations run first)
-                checkpoint("  → Setting production-safe timeouts for DDL operations...")
-                with db.engine.begin() as conn:
-                    conn.execute(text("SET statement_timeout = 0"))
-                    conn.execute(text("SET lock_timeout = '5s'"))
-                checkpoint("  ✅ Timeouts configured (statement_timeout=0, lock_timeout=5s)")
-                
-                # Step 1: Add started_at column with IF NOT EXISTS for idempotency
-                checkpoint("  → Adding started_at column to call_log (idempotent)...")
-                column_existed_before = check_column_exists('call_log', 'started_at')
-                exec_ddl(db.engine, """
-                    ALTER TABLE call_log 
-                    ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT NULL
-                """)
-                column_exists_now = check_column_exists('call_log', 'started_at')
-                if column_exists_now:
-                    if column_existed_before:
-                        checkpoint("  ℹ️ started_at column already existed")
-                    else:
-                        checkpoint("  ✅ started_at column added successfully")
-                    migrations_applied.append('109_call_log_started_at')
-                else:
-                    checkpoint("  ❌ started_at column failed to add")
-                    raise Exception("Failed to add started_at column to call_log")
-                
-                # Step 2: Add ended_at column with IF NOT EXISTS for idempotency
-                checkpoint("  → Adding ended_at column to call_log (idempotent)...")
-                column_existed_before = check_column_exists('call_log', 'ended_at')
-                exec_ddl(db.engine, """
-                    ALTER TABLE call_log 
-                    ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP DEFAULT NULL
-                """)
-                column_exists_now = check_column_exists('call_log', 'ended_at')
-                if column_exists_now:
-                    if column_existed_before:
-                        checkpoint("  ℹ️ ended_at column already existed")
-                    else:
-                        checkpoint("  ✅ ended_at column added successfully")
-                    migrations_applied.append('109_call_log_ended_at')
-                else:
-                    checkpoint("  ❌ ended_at column failed to add")
-                    raise Exception("Failed to add ended_at column to call_log")
-                
-                # Step 3: Add duration_sec column with IF NOT EXISTS for idempotency
-                checkpoint("  → Adding duration_sec column to call_log (idempotent)...")
-                column_existed_before = check_column_exists('call_log', 'duration_sec')
-                exec_ddl(db.engine, """
-                    ALTER TABLE call_log 
-                    ADD COLUMN IF NOT EXISTS duration_sec INTEGER DEFAULT NULL
-                """)
-                column_exists_now = check_column_exists('call_log', 'duration_sec')
-                if column_exists_now:
-                    if column_existed_before:
-                        checkpoint("  ℹ️ duration_sec column already existed")
-                    else:
-                        checkpoint("  ✅ duration_sec column added successfully")
-                    migrations_applied.append('109_call_log_duration_sec')
-                else:
-                    checkpoint("  ❌ duration_sec column failed to add")
-                    raise Exception("Failed to add duration_sec column to call_log")
-                
-                # 🔥 PRODUCTION-SAFE: Skip backfill in migration
-                # Backfill should run as a separate background job after system is up
-                # to avoid long-running locks on the call_log table during migration
-                checkpoint("  ℹ️ Backfill skipped - DDL complete, data migration deferred to background job")
-                checkpoint("  ℹ️ To backfill data, run a separate job or script after deployment")
-                
-            except Exception as e:
-                checkpoint(f"❌ Migration 109 failed: {e}")
-                logger.error(f"Migration 109 error: {e}", exc_info=True)
-                db.session.rollback()
-                migration_success = False
-                # 🔥 CRITICAL: Fail hard - stop all migrations and exit with error
-                # This ensures the migrate container exits with non-zero code
-                # and dependent services (API, worker, calls) don't start with broken schema
-                checkpoint("🚫 STOPPING: Migration 109 is critical - cannot continue with failed migration")
-                raise Exception(f"Critical migration 109 failed: {e}")
-        else:
-            checkpoint("  ℹ️ call_log table does not exist - skipping")
-        
-        # Only report success if migration actually succeeded
-        if migration_success:
-            checkpoint("✅ Migration 109 complete: Call duration tracking columns added (production-safe)")
-        else:
-            # Defensive programming path - should never execute as all failure scenarios 
-            # now raise exceptions immediately, but included as a safety net in case
-            # exception handling logic changes in the future
-            checkpoint("⚠️ Migration 109 incomplete - check logs for details")
-            raise Exception("Migration 109 failed but exception was not raised properly")
+        # 🔥 BACKWARD COMPATIBILITY: This migration is now a NO-OP to allow the system
+        # to work without started_at/ended_at/duration_sec columns.
+        # The system uses the existing columns from Migration 51:
+        #   - stream_started_at (instead of started_at)
+        #   - stream_ended_at (instead of ended_at)
+        #   - stream_duration_sec + duration (instead of duration_sec)
+        checkpoint("Migration 109: NO-OP (skipped - uses Migration 51 columns)")
+        checkpoint("  ℹ️ System uses stream_started_at/stream_ended_at from Migration 51")
+        checkpoint("  ℹ️ Columns started_at/ended_at/duration_sec are NOT created")
+        checkpoint("✅ Migration 109 complete: Skipped (backward compatibility mode)")
         
         # ═══════════════════════════════════════════════════════════════════════
         # Migration 110: Add summary_status to call_log for summary generation tracking
