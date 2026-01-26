@@ -92,11 +92,11 @@ def test_no_duplicate_columns_in_db_migrate():
     # Look for exact match: ADD COLUMN followed by exactly 'started_at' (not stream_started_at, dial_started_at)
     # Use word boundaries and check that it's not preceded by stream/dial/other prefixes
     for section_name, section in [("before Migration 109", before_109), ("after Migration 110", after_110)]:
-        # More precise pattern: look for 'started_at' that is NOT preceded by underscore or letter
-        if re.search(r'call_log.*ADD COLUMN[^;]*(?<![_a-z])started_at(?![_a-z])', section, re.IGNORECASE | re.DOTALL):
+        # More precise pattern: look for 'started_at' that is NOT preceded by underscore or letter (upper or lower)
+        if re.search(r'call_log.*ADD COLUMN[^;]*(?<![_a-zA-Z])started_at(?![_a-zA-Z])', section, re.IGNORECASE | re.DOTALL):
             lines = section.split('\n')
             for i, line in enumerate(lines):
-                if 'call_log' in line.lower() and re.search(r'(?<![_a-z])started_at(?![_a-z])', line, re.IGNORECASE):
+                if 'call_log' in line.lower() and re.search(r'(?<![_a-zA-Z])started_at(?![_a-zA-Z])', line, re.IGNORECASE):
                     print(f"  Warning: Found exact 'started_at' in {section_name}: {line.strip()[:80]}")
     
     print("✅ No obvious duplicate column definitions found")
