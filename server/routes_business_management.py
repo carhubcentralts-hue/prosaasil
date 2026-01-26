@@ -842,7 +842,9 @@ def get_current_business():
             # CRM Context-Aware Support: Customer service mode toggle
             "enable_customer_service": getattr(settings, 'enable_customer_service', False) if settings else False,
             # Assets Library AI Integration: Control whether AI can access assets tools
-            "assets_use_ai": getattr(settings, 'assets_use_ai', True) if settings else True
+            "assets_use_ai": getattr(settings, 'assets_use_ai', True) if settings else True,
+            # 🔥 BUILD 112: Flexible lead tabs configuration
+            "lead_tabs_config": getattr(business, 'lead_tabs_config', None)
         })
         
     except Exception as e:
@@ -1030,6 +1032,26 @@ def update_current_business_settings():
                 logger.info(f"🔄 Agent cache cleared for business {business_id} due to assets_use_ai change")
             except Exception as e:
                 logger.warning(f"⚠️ Failed to invalidate agent cache: {e}")
+        
+        # 🔥 BUILD 112: Flexible lead tabs configuration
+        if 'lead_tabs_config' in data:
+            tabs_config = data['lead_tabs_config']
+            # Validate structure if provided (should be None or dict with 'primary' and 'secondary' arrays)
+            if tabs_config is None:
+                business.lead_tabs_config = None  # Use defaults
+            elif isinstance(tabs_config, dict):
+                # Validate that primary and secondary are lists
+                if ('primary' in tabs_config and isinstance(tabs_config['primary'], list)) or \
+                   ('secondary' in tabs_config and isinstance(tabs_config['secondary'], list)):
+                    # Limit to max 3 primary tabs and 6 total tabs
+                    if 'primary' in tabs_config:
+                        tabs_config['primary'] = tabs_config['primary'][:3]
+                    if 'secondary' in tabs_config:
+                        tabs_config['secondary'] = tabs_config['secondary'][:3]
+                    business.lead_tabs_config = tabs_config
+                    logger.info(f"✅ Updated lead_tabs_config for business {business_id}")
+                else:
+                    logger.warning(f"⚠️ Invalid lead_tabs_config structure for business {business_id}")
             
         # Track who updated - 🔥 BUILD 186 FIX: Safely handle None values
         al_user = session.get('al_user') or {}
