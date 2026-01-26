@@ -1193,41 +1193,6 @@ def create_app():
                         except Exception:
                             pass
                         
-                        # Fix FAQ patterns
-                        try:
-                            from server.models_sql import FAQ
-                            import json
-                            
-                            def normalize_patterns_quick(payload):
-                                if payload is None or payload == "":
-                                    return []
-                                if isinstance(payload, list):
-                                    return [str(p).strip() for p in payload if p and str(p).strip()]
-                                if isinstance(payload, str):
-                                    try:
-                                        parsed = json.loads(payload.strip())
-                                        if isinstance(parsed, list):
-                                            return [str(p).strip() for p in parsed if p and str(p).strip()]
-                                    except:
-                                        pass
-                                return []
-                            
-                            faqs = FAQ.query.all()
-                            fixed_count = 0
-                            for faq in faqs:
-                                if not isinstance(faq.patterns_json, list):
-                                    normalized = normalize_patterns_quick(faq.patterns_json)
-                                    faq.patterns_json = normalized
-                                    fixed_count += 1
-                            
-                            if fixed_count > 0:
-                                db.session.commit()
-                                from server.services.faq_cache import faq_cache
-                                affected = set(faq.business_id for faq in faqs if faq.patterns_json)
-                                for bid in affected:
-                                    faq_cache.invalidate(bid)
-                        except Exception:
-                            pass
                 except Exception as e:
                     # 🔥 CRITICAL: DO NOT proceed if migrations fail
                     # This prevents workers from starting with invalid schema
