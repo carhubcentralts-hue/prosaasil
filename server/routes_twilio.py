@@ -28,6 +28,22 @@ from server.services.customer_intelligence import CustomerIntelligence
 # ✅ BUILD 96: Logger setup
 logger = logging.getLogger(__name__)
 
+# Helper function to create TwiML error response
+def create_twiml_error_response(message="אירעה שגיאה זמנית. אנא נסו שוב מאוחר יותר."):
+    """
+    Create a standard TwiML error response with Hebrew message
+    
+    Args:
+        message: Hebrew error message to speak to caller
+        
+    Returns:
+        Tuple of (twiml_string, status_code, headers)
+    """
+    vr = VoiceResponse()
+    vr.say(message, language="he-IL", voice="Google.he-IL-Wavenet-C")
+    vr.hangup()
+    return str(vr), 200, {"Content-Type": "text/xml"}
+
 # Call Status Constants - Max 32 chars (status field limit)
 CALL_STATUS_INITIATED = "initiated"
 CALL_STATUS_IN_PROGRESS = "in_progress"
@@ -513,27 +529,13 @@ def incoming_call():
             logger.error("   Returning TwiML error response instead of crashing")
             
             # Return graceful TwiML error instead of 500
-            vr = VoiceResponse()
-            vr.say(
-                "המערכת זמנית לא זמינה. אנא נסו שוב בעוד מספר דקות.",
-                language="he-IL",
-                voice="Google.he-IL-Wavenet-C"
-            )
-            vr.hangup()
-            return str(vr), 200, {"Content-Type": "text/xml"}
+            return create_twiml_error_response("המערכת זמנית לא זמינה. אנא נסו שוב בעוד מספר דקות.")
         except Exception as e:
             # Catch any other DB errors
             logger.error(f"❌ Unexpected database error in incoming_call: {e}", exc_info=True)
             
             # Return graceful TwiML error instead of 500
-            vr = VoiceResponse()
-            vr.say(
-                "אירעה שגיאה זמנית. אנא נסו שוב מאוחר יותר.",
-                language="he-IL",
-                voice="Google.he-IL-Wavenet-C"
-            )
-            vr.hangup()
-            return str(vr), 200, {"Content-Type": "text/xml"}
+            return create_twiml_error_response()
     
     # 🔥 P3-1: GLOBAL CAPACITY CHECK (before business-specific limits)
     # Check system-wide call capacity to prevent overload
