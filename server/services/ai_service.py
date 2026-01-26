@@ -338,6 +338,8 @@ class AIService:
         """Lazy load Gemini client when needed (uses singleton)"""
         if self._gemini_client is None:
             try:
+                # Import moved to top of google_clients.py for performance
+                # This just retrieves the singleton, no heavy imports here
                 from server.services.providers.google_clients import get_gemini_llm_client
                 
                 self._gemini_client = get_gemini_llm_client()

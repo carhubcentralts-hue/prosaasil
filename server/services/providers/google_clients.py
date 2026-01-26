@@ -6,6 +6,7 @@ Thread-safe singleton pattern for Google Cloud STT and Gemini clients.
 Prevents per-call/per-session client initialization to eliminate bottlenecks.
 
 🔥 CRITICAL: Functions NEVER return None - they throw detailed exceptions!
+🔥 PERFORMANCE: All imports at module level to avoid lazy loading during calls
 
 Usage:
     from server.services.providers.google_clients import (
@@ -37,10 +38,31 @@ import logging
 import threading
 from typing import Optional
 
+# 🔥 PERFORMANCE: Import heavy dependencies at module level (not during calls)
+# This ensures imports happen at server startup (warmup), not during first call
 try:
     import httpx
 except ImportError:
     httpx = None  # Will be checked when needed
+
+try:
+    from google import genai
+    _genai_available = True
+except ImportError:
+    genai = None
+    _genai_available = False
+
+try:
+    from google.cloud import speech
+    from google.oauth2 import service_account
+    _google_cloud_available = True
+except ImportError:
+    speech = None
+    service_account = None
+    _google_cloud_available = False
+
+# Import utilities at module level
+from server.utils.gemini_key_provider import get_gemini_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +141,10 @@ def get_stt_client():
             return None if _stt_client is False else _stt_client
         
         try:
-            from google.cloud import speech
-            from google.oauth2 import service_account
+            if not _google_cloud_available:
+                logger.error("Google Cloud libraries not installed (google-cloud-speech)")
+                _stt_client = False
+                return None
             
             credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
             if not credentials_path:
@@ -182,8 +206,11 @@ def get_gemini_llm_client():
             return _gemini_llm_client
         
         try:
-            from google import genai
-            from server.utils.gemini_key_provider import get_gemini_api_key
+            if not _genai_available:
+                error_msg = "Gemini LLM client initialization failed: google-genai library not installed"
+                logger.error(f"❌ {error_msg}")
+                _gemini_llm_client = False
+                raise RuntimeError(error_msg)
             
             # 🔥 DETAILED LOGGING: Log configuration before attempting init
             gemini_api_key = get_gemini_api_key()
@@ -264,8 +291,11 @@ def get_gemini_tts_client():
             return _gemini_tts_client
         
         try:
-            from google import genai
-            from server.utils.gemini_key_provider import get_gemini_api_key
+            if not _genai_available:
+                error_msg = "Gemini TTS client initialization failed: google-genai library not installed"
+                logger.error(f"❌ {error_msg}")
+                _gemini_tts_client = False
+                raise RuntimeError(error_msg)
             
             # 🔥 DETAILED LOGGING: Log configuration before attempting init
             gemini_api_key = get_gemini_api_key()
