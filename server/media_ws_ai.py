@@ -5,6 +5,7 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 🔥 CRITICAL: AI Provider Selection (NO FALLBACK, NO DUPLICATION)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 🔶 OpenAI Provider (ai_provider='openai'):
    - STT: OpenAI Realtime API (gpt-4o-transcribe) - built-in, NO Whisper
    - LLM: OpenAI GPT-4o via Realtime API
@@ -37,7 +38,8 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata
+"""
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata, uuid
 import builtins
 from dataclasses import dataclass
 from typing import Optional
@@ -3145,30 +3147,18 @@ class MediaStreamHandler:
             
             # 🔥 PROVIDER-SPECIFIC SESSION CONFIGURATION
             # OpenAI: Uses configure_session() to send session.update event
-            # Gemini: Uses update_config() during session (config was set at connect())
+            # Gemini: Configured during connect(), just mark as ready
             if ai_provider == 'gemini':
-                # Gemini Live API: Update configuration if needed
-                # Note: Gemini was configured during connect(), but we can update here if needed
-                try:
-                    # For Gemini, we update the config after connection
-                    await client.update_config(
-                        system_instructions=greeting_prompt,
-                        temperature=None  # Use default
-                    )
-                    _orig_print(f"✅ [GEMINI_CONFIG] Configuration updated successfully", flush=True)
-                    
-                    # Gemini doesn't emit session.updated, so we mark it as confirmed immediately
-                    self._session_config_confirmed = True
-                    self._session_config_event.set()
-                    dedup_result = True
-                    
-                except Exception as gemini_err:
-                    _orig_print(f"⚠️ [GEMINI_CONFIG] Update failed: {gemini_err} (continuing anyway)", flush=True)
-                    logger.warning(f"[GEMINI_CONFIG] Config update failed: {gemini_err}")
-                    # Mark as confirmed anyway - Gemini uses initial config from connect()
-                    self._session_config_confirmed = True
-                    self._session_config_event.set()
-                    dedup_result = True
+                # Gemini Live API: Configuration was passed during connect()
+                # Gemini doesn't support mid-session config updates and doesn't emit session.updated
+                # We mark it as confirmed immediately since config was set at connection time
+                _orig_print(f"✅ [GEMINI_CONFIG] Using configuration from connect() - marking as confirmed", flush=True)
+                logger.info(f"[GEMINI_CONFIG] Gemini was configured during connect(), marking session as ready")
+                
+                # Mark as confirmed immediately (no session.updated event from Gemini)
+                self._session_config_confirmed = True
+                self._session_config_event.set()
+                dedup_result = True
             else:
                 # OpenAI Realtime API: Call configure_session which has its own hash-based deduplication
                 # It will return True if sent or skipped (via dedup)
@@ -4556,15 +4546,18 @@ class MediaStreamHandler:
                 if _frames_sent == 0:
                     _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to {client_type} - transmission started", flush=True)
                 
-                # 🔥 UNIFIED AUDIO SENDING: Both providers use send_audio_chunk()
-                # OpenAI: client.send_audio_chunk() sends base64-encoded μ-law
-                # Gemini: client.send_audio() expects raw PCM16 bytes
+                # 🔥 UNIFIED AUDIO SENDING: Both providers use proper audio format
+                # OpenAI: client.send_audio_chunk() sends base64-encoded μ-law at 8kHz
+                # Gemini: client.send_audio() expects raw PCM16 bytes at 16kHz
                 if ai_provider == 'gemini':
-                    # Gemini expects PCM16, need to convert from μ-law
-                    pcm16_chunk = mulaw_to_pcm16_fast(audio_chunk)
-                    await client.send_audio(pcm16_chunk, end_of_turn=False)
+                    # Gemini expects PCM16 at 16kHz
+                    # Step 1: Convert μ-law (8kHz) to PCM16 (8kHz)
+                    pcm16_8k = mulaw_to_pcm16_fast(audio_chunk)
+                    # Step 2: Resample from 8kHz to 16kHz for Gemini
+                    pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
+                    await client.send_audio(pcm16_16k, end_of_turn=False)
                 else:
-                    # OpenAI takes μ-law directly
+                    # OpenAI takes μ-law directly at 8kHz
                     await client.send_audio_chunk(audio_chunk)
                 
                 # 🔥 BUILD 301: Enhanced pipeline status with stuck response detection
