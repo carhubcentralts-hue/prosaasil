@@ -31,6 +31,8 @@ import { StatusCell } from '../../shared/components/ui/StatusCell';
 import { StatusDropdownWithWebhook } from '../../shared/components/ui/StatusDropdownWithWebhook';
 import { AudioPlayer } from '../../shared/components/AudioPlayer';
 import { http } from '../../services/http';
+import { callsService } from '../../services/calls';
+import { QueueStatusCard } from './components/QueueStatusCard';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
 import { ProjectsListView } from './components/ProjectsListView';
 import { ProjectDetailView } from './components/ProjectDetailView';
@@ -185,11 +187,18 @@ export function OutboundCallsPage() {
   
   // Queue state
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
-  const [queueStatus, setQueueStatus] = useState<{
-    queued: number;
-    in_progress: number;
-    completed: number;
+  const [queueJobStatus, setQueueJobStatus] = useState<{
+    job_id: number;
+    status: string;
+    total: number;
+    processed: number;
+    success: number;
     failed: number;
+    in_progress: number;
+    queued: number;
+    progress_pct: number;
+    can_cancel: boolean;
+    cancel_requested: boolean;
   } | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null); // Store interval ID
 
@@ -328,7 +337,7 @@ export function OutboundCallsPage() {
   useEffect(() => {
     // 1. Reset all UI state to initial values (clean slate)
     setActiveRunId(null);
-    setQueueStatus(null);
+    setQueueJobStatus(null);
     setShowResults(false);
     setCallResults([]);
     
@@ -339,23 +348,18 @@ export function OutboundCallsPage() {
     // 3. Fetch active run status from server (single source of truth)
     const checkActiveRun = async () => {
       try {
-        const response = await http.get<{ active: boolean; run?: any }>('/api/outbound/bulk/active');
-        if (response.active && response.run) {
-          console.log('[OutboundCallsPage] ✅ Active run found on mount:', response.run);
-          setActiveRunId(response.run.run_id);
-          setQueueStatus({
-            queued: response.run.queued,
-            in_progress: response.run.in_progress,
-            completed: response.run.completed,
-            failed: response.run.failed
-          });
+        const activeQueue = await callsService.getActiveQueue();
+        if (activeQueue) {
+          console.log('[OutboundCallsPage] ✅ Active queue found on mount:', activeQueue);
+          setActiveRunId(activeQueue.job_id);
+          setQueueJobStatus(activeQueue);
           // Start polling for this run
-          startQueuePolling(response.run.run_id);
+          startQueuePolling(activeQueue.job_id);
         } else {
-          console.log('[OutboundCallsPage] ✅ No active run found - UI clean');
+          console.log('[OutboundCallsPage] ✅ No active queue found - UI clean');
         }
       } catch (error) {
-        console.error('[OutboundCallsPage] Failed to check active run:', error);
+        console.error('[OutboundCallsPage] Failed to check active queue:', error);
       }
     };
     
@@ -522,6 +526,20 @@ export function OutboundCallsPage() {
       if (data.run_id) {
         // Bulk queue started
         setActiveRunId(data.run_id);
+        // Set initial queue status from response
+        setQueueJobStatus({
+          job_id: data.run_id,
+          status: 'running',
+          total: data.queued || 0,
+          processed: 0,
+          success: 0,
+          failed: 0,
+          in_progress: 0,
+          queued: data.queued || 0,
+          progress_pct: 0,
+          can_cancel: true,
+          cancel_requested: false
+        });
         setShowResults(true);
         setCallResults([{
           lead_id: 0,
@@ -734,13 +752,8 @@ export function OutboundCallsPage() {
     // Start new polling - check every 5 seconds (per requirement)
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const status = await http.get(`/api/outbound/runs/${runId}`);
-        setQueueStatus({
-          queued: status.queued,
-          in_progress: status.in_progress,
-          completed: status.completed,
-          failed: status.failed
-        });
+        const status = await callsService.getQueueStatus(runId);
+        setQueueJobStatus(status);
         
         // Refetch recent calls to show new calls
         if (activeTab === 'recent') {
@@ -754,7 +767,7 @@ export function OutboundCallsPage() {
             pollIntervalRef.current = null;
           }
           setActiveRunId(null);
-          setQueueStatus(null);
+          setQueueJobStatus(null);
           refetchCounts();
           refetchRecentCalls();
         }
@@ -796,7 +809,7 @@ export function OutboundCallsPage() {
       
       // 🔥 FIX: Reset UI state IMMEDIATELY (don't wait for server)
       setActiveRunId(null);
-      setQueueStatus(null);
+      setQueueJobStatus(null);
       
       // 🔥 FIX: Invalidate ALL outbound-related queries to force refetch
       queryClient.invalidateQueries({ queryKey: ['/api/outbound_calls/counts'] });
@@ -818,6 +831,18 @@ export function OutboundCallsPage() {
       refetchRecentCalls();
     } catch (error) {
       console.error('Failed to stop queue:', error);
+    }
+  };
+
+  const handleCancelQueue = async () => {
+    if (!queueJobStatus) return;
+    
+    try {
+      await callsService.cancelQueue(queueJobStatus.job_id);
+      // Update local state to show canceling
+      setQueueJobStatus(prev => prev ? { ...prev, cancel_requested: true } : null);
+    } catch (error) {
+      console.error('Failed to cancel queue:', error);
     }
   };
 
@@ -1048,34 +1073,6 @@ export function OutboundCallsPage() {
         </div>
         
         <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">
-          {/* Stop Queue Button */}
-          {activeRunId && queueStatus && (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Loader2 className="h-4 w-4 animate-spin text-blue-600 flex-shrink-0" />
-                  <div className="text-xs sm:text-sm min-w-0">
-                    <div className="font-medium text-blue-900">תור פעיל</div>
-                    <div className="text-blue-600 truncate">
-                      בתור: {queueStatus.queued} | מתבצע: {queueStatus.in_progress} | הושלם: {queueStatus.completed}
-                      {queueStatus.failed > 0 && ` | נכשל: ${queueStatus.failed}`}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={handleStopQueue}
-                className="flex items-center justify-center gap-2 min-h-[44px] w-full sm:w-auto"
-                data-testid="button-stop-queue"
-              >
-                <StopCircle className="h-4 w-4" />
-                עצור תור
-              </Button>
-            </div>
-          )}
-          
           {/* View Mode Toggle */}
           {(activeTab === 'system' || activeTab === 'active' || activeTab === 'imported') && !showResults && (
             <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 w-full sm:w-auto">
@@ -1131,6 +1128,28 @@ export function OutboundCallsPage() {
           )}
         </div>
       </div>
+
+      {/* Queue Status Card */}
+      {queueJobStatus && (
+        <QueueStatusCard
+          jobId={queueJobStatus.job_id}
+          status={queueJobStatus.status}
+          total={queueJobStatus.total}
+          processed={queueJobStatus.processed}
+          success={queueJobStatus.success}
+          failed={queueJobStatus.failed}
+          inProgress={queueJobStatus.in_progress}
+          queued={queueJobStatus.queued}
+          progressPct={queueJobStatus.progress_pct}
+          canCancel={queueJobStatus.can_cancel}
+          cancelRequested={queueJobStatus.cancel_requested}
+          onCancel={handleCancelQueue}
+          onDismiss={() => {
+            setQueueJobStatus(null);
+            setActiveRunId(null);
+          }}
+        />
+      )}
 
       {/* Errors */}
       {(leadsError || countsError) && (
