@@ -546,6 +546,11 @@ def start_recording_worker(app):
                             else:
                                 logger.error(f"❌ [DOWNLOAD_ONLY] Max retries ({MAX_DOWNLOAD_RETRIES}) reached for {call_sid} - giving up")
                                 log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
+                                
+                                # 🔥 NEW: Mark as failed in Redis to stop frontend retries
+                                if business_id:
+                                    from server.recording_semaphore import mark_recording_failed
+                                    mark_recording_failed(business_id, call_sid, "Download failed after multiple retries")
                         
                         # 🔥 FIX: Mark as done and set flag to prevent double task_done()
                         RECORDING_QUEUE.task_done()

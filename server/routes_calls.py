@@ -375,6 +375,15 @@ def download_recording(call_sid):
                     "status": "queued",
                     "message": f"Recording queued (position {position}), please retry in a few seconds"
                 }), 202
+            elif status == "failed":
+                # 🔥 NEW: Return failed status to stop frontend retries
+                log.error(f"Download recording: Download failed for call_sid={call_sid}")
+                return jsonify({
+                    "success": False,
+                    "status": "failed",
+                    "error": info.get("error", "Download failed"),
+                    "message": "Recording download failed"
+                }), 500
             
             # 🔥 FIX: Always enqueue - let worker handle slot management
             # This prevents API from acquiring slots that get stuck if worker fails
@@ -486,6 +495,14 @@ def get_recording_status(call_sid):
                 "queue_length": info.get("queue_length"),
                 "message": f"Recording queued (position {info.get('position', '?')})"
             }), 200
+        elif status == "failed":
+            # 🔥 NEW: Return failed status to stop frontend retries
+            return jsonify({
+                "success": False,
+                "status": "failed",
+                "error": info.get("error", "Download failed"),
+                "message": "Recording download failed"
+            }), 500
         else:
             # Not in system - needs to be started
             return jsonify({
@@ -663,6 +680,15 @@ def stream_recording(call_sid):
                     "status": "queued",
                     "message": f"Recording queued (position {position}), please retry in a few seconds"
                 }), 202
+            elif status == "failed":
+                # 🔥 NEW: Return failed status to stop frontend retries
+                log.error(f"Stream recording: Download failed for call_sid={call_sid}")
+                return jsonify({
+                    "success": False,
+                    "status": "failed",
+                    "error": info.get("error", "Download failed"),
+                    "message": "Recording download failed"
+                }), 500
             
             # 🔥 FIX: Always enqueue - let worker handle slot management
             # This prevents API from acquiring slots that get stuck if worker fails
