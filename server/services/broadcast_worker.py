@@ -13,6 +13,7 @@ from server.db import db
 from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Business, Attachment
 from server.app_factory import get_process_app
 from server.services.attachment_service import get_attachment_service
+from server.services.whatsapp_send_service import send_message
 
 log = logging.getLogger(__name__)
 
@@ -124,18 +125,20 @@ class BroadcastWorker:
             return True
     
     def _process_recipient(self, recipient: WhatsAppBroadcastRecipient, idx: int, total: int):
-        """Send message to a single recipient with retries and backoff"""
-        from server.whatsapp_provider import get_whatsapp_service
+        """🎯 UNIFIED: Send message using unified send service (SSOT)
         
-        tenant_id = f"business_{self.broadcast.business_id}"
-        
+        This method now uses whatsapp_send_service.send_message() which is the
+        same path used by regular chat and lead sends. This ensures:
+        - Consistent phone normalization
+        - Same provider selection logic
+        - Same error handling
+        - No duplicate retries (retries=0 for broadcast context)
+        """
         # ✅ FIX: Structured logging per message
         log.info(f"[WA_SEND] broadcast_id={self.broadcast_id} recipient={idx}/{total} to={recipient.phone} status=sending")
         
+        # 🎯 FIX #4: Wrap in try/except to never kill entire job on single failure
         try:
-            # Get WhatsApp service
-            wa_service = get_whatsapp_service(tenant_id=tenant_id)
-            
             # Prepare message
             if self.broadcast.message_type == 'template':
                 # Template-based (Meta)
@@ -143,120 +146,115 @@ class BroadcastWorker:
                 log.warning(f"[WA_SEND] Template sending not yet implemented for recipient {recipient.id}")
                 recipient.status = 'failed'
                 recipient.error_message = 'Template sending not implemented'
-            else:
-                # Free text or media (Baileys)
-                text = self.broadcast.message_text
-                formatted_number = f"{recipient.phone}@s.whatsapp.net" if '@' not in recipient.phone else recipient.phone
-                
-                # Check if broadcast has media attachment
-                media_url = None
-                attachment_id = None
-                media_bytes = None
-                media_type = 'image'  # Default media type
-                media_filename = None
-                media_mimetype = None
-                
-                if self.broadcast.audience_filter and isinstance(self.broadcast.audience_filter, dict):
-                    media_url = self.broadcast.audience_filter.get('media_url')
-                    attachment_id = self.broadcast.audience_filter.get('attachment_id')
-                
-                # 🔥 FIX: For R2 storage, download bytes instead of relying on signed URLs
-                # Baileys can work with URLs, but bytes are more reliable (no URL expiration issues)
-                if attachment_id and not media_bytes:
-                    try:
-                        attachment = Attachment.query.get(attachment_id)
-                        if attachment and attachment.storage_path:
-                            attachment_service = get_attachment_service()
-                            media_filename, media_mimetype, media_bytes = attachment_service.open_file(
-                                storage_key=attachment.storage_path,
-                                filename=attachment.filename_original,
-                                mime_type=attachment.mime_type
-                            )
-                            
-                            # Determine media type from mime
-                            if media_mimetype:
-                                if media_mimetype.startswith('image/'):
-                                    media_type = 'image'
-                                elif media_mimetype.startswith('video/'):
-                                    media_type = 'video'
-                                elif media_mimetype.startswith('audio/'):
-                                    media_type = 'audio'
-                                else:
-                                    media_type = 'document'
-                            
-                            log.info(f"[WA_SEND] Loaded attachment bytes: {media_filename} ({len(media_bytes)} bytes, {media_type})")
-                    except Exception as e:
-                        log.error(f"[WA_SEND] Failed to load attachment bytes: {e}, falling back to URL")
-                        # Fall back to URL if bytes loading fails
-                
-                # ✅ FIX: Send with retries and exponential backoff (1s, 3s, 10s)
-                backoff_delays = [1, 3, 10]  # seconds
-                for attempt in range(self.max_retries):
-                    try:
-                        # ✅ FIX: Add timeout to prevent bottlenecks (8-12 seconds)
-                        if media_bytes:
-                            # 🔥 FIX: Send media as bytes (works with R2 storage)
-                            media_data = {
-                                'data': base64.b64encode(media_bytes).decode('utf-8'),
-                                'mimetype': media_mimetype or 'application/octet-stream',
-                                'filename': media_filename or 'attachment'
-                            }
-                            result = wa_service.send_message(
-                                formatted_number, 
-                                text or '', 
-                                tenant_id=tenant_id,
-                                media=media_data,
-                                media_type=media_type
-                            )
-                        elif media_url:
-                            # Send media message via URL with optional caption (legacy/fallback)
-                            result = wa_service.send_media(
-                                formatted_number,
-                                media_url,
-                                caption=text or '',
-                                tenant_id=tenant_id
-                            )
-                        else:
-                            # Send text message
-                            result = wa_service.send_message(formatted_number, text, tenant_id=tenant_id)
+                self.broadcast.failed_count += 1
+                db.session.commit()
+                return
+            
+            # Free text or media (Baileys or Meta based on business settings)
+            text = self.broadcast.message_text
+            
+            # Check if broadcast has media attachment
+            media_bytes = None
+            media_type = 'image'  # Default media type
+            media_filename = None
+            media_mimetype = None
+            attachment_id = None
+            
+            if self.broadcast.audience_filter and isinstance(self.broadcast.audience_filter, dict):
+                attachment_id = self.broadcast.audience_filter.get('attachment_id')
+            
+            # 🔥 FIX: For R2 storage, download bytes instead of relying on signed URLs
+            # Baileys can work with URLs, but bytes are more reliable (no URL expiration issues)
+            if attachment_id:
+                try:
+                    attachment = Attachment.query.get(attachment_id)
+                    if attachment and attachment.storage_path:
+                        attachment_service = get_attachment_service()
+                        media_filename, media_mimetype, media_bytes = attachment_service.open_file(
+                            storage_key=attachment.storage_path,
+                            filename=attachment.filename_original,
+                            mime_type=attachment.mime_type
+                        )
                         
-                        if result and result.get('status') in ['sent', 'queued', 'accepted']:
-                            recipient.status = 'sent'
-                            recipient.message_id = result.get('sid') or result.get('message_id')
-                            recipient.sent_at = datetime.utcnow()
-                            
-                            # Update counters
-                            self.broadcast.sent_count += 1
-                            
-                            log.info(f"✅ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} status=sent")
-                            break
-                        else:
-                            error = result.get('error', 'unknown') if result else 'no_result'
-                            if attempt == self.max_retries - 1:
-                                recipient.status = 'failed'
-                                recipient.error_message = f"Failed after {self.max_retries} attempts: {error}"
-                                self.broadcast.failed_count += 1
-                                log.error(f"❌ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} status=failed error={error}")
+                        # Determine media type from mime
+                        if media_mimetype:
+                            if media_mimetype.startswith('image/'):
+                                media_type = 'image'
+                            elif media_mimetype.startswith('video/'):
+                                media_type = 'video'
+                            elif media_mimetype.startswith('audio/'):
+                                media_type = 'audio'
                             else:
-                                # ✅ FIX: Exponential backoff
-                                delay = backoff_delays[attempt]
-                                log.warning(f"⚠️ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} attempt={attempt+1}/{self.max_retries} retry_in={delay}s")
-                                time.sleep(delay)
+                                media_type = 'document'
+                        
+                        log.info(f"[WA_SEND] Loaded attachment bytes: {media_filename} ({len(media_bytes)} bytes, {media_type})")
+                except Exception as e:
+                    log.error(f"[WA_SEND] Failed to load attachment bytes: {e}")
+                    # Continue without media
+            
+            # Prepare media dict if we have media bytes
+            media_dict = None
+            if media_bytes:
+                media_dict = {
+                    'data': base64.b64encode(media_bytes).decode('utf-8'),
+                    'mimetype': media_mimetype or 'application/octet-stream',
+                    'filename': media_filename or 'attachment'
+                }
+            
+            # 🎯 FIX #3: Single retry layer - broadcast_worker handles retries
+            # Send with retries=0 to disable provider-level retries
+            backoff_delays = [1, 3, 10]  # seconds
+            for attempt in range(self.max_retries):
+                try:
+                    # 🎯 UNIFIED: Use send_message() - same path as regular sends
+                    result = send_message(
+                        business_id=self.broadcast.business_id,
+                        to_phone=recipient.phone,
+                        text=text or '',
+                        media=media_dict,
+                        media_type=media_type if media_dict else None,
+                        context='broadcast',
+                        retries=0  # 🎯 FIX #3: No provider retries, broadcast_worker handles it
+                    )
                     
-                    except Exception as e:
+                    if result and result.get('status') in ['sent', 'queued', 'accepted']:
+                        recipient.status = 'sent'
+                        recipient.message_id = result.get('sid') or result.get('message_id')
+                        recipient.sent_at = datetime.utcnow()
+                        
+                        # Update counters
+                        self.broadcast.sent_count += 1
+                        
+                        log.info(f"✅ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} status=sent")
+                        break
+                    else:
+                        error = result.get('error', 'unknown') if result else 'no_result'
                         if attempt == self.max_retries - 1:
                             recipient.status = 'failed'
-                            recipient.error_message = str(e)[:500]
+                            recipient.error_message = f"Failed after {self.max_retries} attempts: {error}"
                             self.broadcast.failed_count += 1
-                            log.error(f"❌ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} status=failed exception={str(e)[:100]}")
+                            log.error(f"❌ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} status=failed error={error}")
                         else:
+                            # ✅ FIX: Exponential backoff
                             delay = backoff_delays[attempt]
-                            log.warning(f"⚠️ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} attempt={attempt+1}/{self.max_retries} exception={str(e)[:50]} retry_in={delay}s")
+                            log.warning(f"⚠️ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} attempt={attempt+1}/{self.max_retries} retry_in={delay}s")
                             time.sleep(delay)
+                
+                except Exception as e:
+                    if attempt == self.max_retries - 1:
+                        recipient.status = 'failed'
+                        recipient.error_message = str(e)[:500]
+                        self.broadcast.failed_count += 1
+                        log.error(f"❌ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} status=failed exception={str(e)[:100]}")
+                    else:
+                        delay = backoff_delays[attempt]
+                        log.warning(f"⚠️ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} attempt={attempt+1}/{self.max_retries} exception={str(e)[:50]} retry_in={delay}s")
+                        time.sleep(delay)
             
             db.session.commit()
             
         except Exception as e:
+            # 🎯 FIX #4: Continue-on-error - mark recipient as failed but NEVER raise
             log.error(f"❌ [WA_SEND] broadcast_id={self.broadcast_id} fatal_error processing recipient {recipient.id}: {e}")
             recipient.status = 'failed'
             recipient.error_message = str(e)[:500]

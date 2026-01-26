@@ -5498,6 +5498,32 @@ def apply_migrations():
         checkpoint("   🎯 WhatsApp broadcasts now support cancel_requested + progress tracking")
         checkpoint("   🎯 Receipt sync now supports cancel_requested")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 108: Add last_processed_recipient_id for broadcast cursor-based pagination
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 108: Adding last_processed_recipient_id for cursor-based broadcast pagination")
+        
+        if check_table_exists('whatsapp_broadcasts'):
+            try:
+                if not check_column_exists('whatsapp_broadcasts', 'last_processed_recipient_id'):
+                    checkpoint("  → Adding last_processed_recipient_id to whatsapp_broadcasts...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE whatsapp_broadcasts 
+                        ADD COLUMN last_processed_recipient_id INTEGER DEFAULT 0
+                    """)
+                    checkpoint("  ✅ last_processed_recipient_id added to whatsapp_broadcasts")
+                    migrations_applied.append('108_broadcast_cursor_pagination')
+                else:
+                    checkpoint("  ℹ️ last_processed_recipient_id already exists on whatsapp_broadcasts")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 108 (broadcast cursor) failed: {e}")
+                logger.error(f"Migration 108 broadcast cursor error: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ whatsapp_broadcasts table does not exist - skipping")
+        
+        checkpoint("✅ Migration 108 complete: Broadcast cursor-based pagination support added")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
