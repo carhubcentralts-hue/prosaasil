@@ -233,17 +233,11 @@ def get_gemini_llm_client():
             # Validate API key using helper function
             _validate_gemini_api_key(gemini_api_key, env_var_used)
             
-            # 🔥 Initialize with timeout configuration (connect=2s, read=10s)
-            if httpx is not None:
-                http_client = httpx.Client(
-                    timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0)
-                )
-                _gemini_llm_client = genai.Client(api_key=gemini_api_key, http_options={'client': http_client})
-                logger.info(f"✅ Gemini LLM client initialized (singleton) - model={llm_model}, timeout=10s")
-            else:
-                # Fallback without timeout if httpx not available
-                _gemini_llm_client = genai.Client(api_key=gemini_api_key)
-                logger.warning(f"⚠️ Gemini LLM client initialized without timeout (httpx not available) - model={llm_model}")
+            # 🔥 Initialize client without http_options (SDK doesn't support 'client' field)
+            # Note: The google-genai SDK doesn't accept http_options={'client': ...}
+            # Timeout configuration should be handled differently if needed in the future
+            _gemini_llm_client = genai.Client(api_key=gemini_api_key)
+            logger.info(f"✅ Gemini LLM client initialized (singleton) - model={llm_model}")
             
             return _gemini_llm_client
             
@@ -318,17 +312,11 @@ def get_gemini_tts_client():
             # Validate API key using helper function
             _validate_gemini_api_key(gemini_api_key, env_var_used)
             
-            # 🔥 Initialize with timeout configuration (connect=2s, read=10s)
-            if httpx is not None:
-                http_client = httpx.Client(
-                    timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0)
-                )
-                _gemini_tts_client = genai.Client(api_key=gemini_api_key, http_options={'client': http_client})
-                logger.info(f"✅ Gemini TTS client initialized (singleton) - model={tts_model}, timeout=10s")
-            else:
-                # Fallback without timeout if httpx not available
-                _gemini_tts_client = genai.Client(api_key=gemini_api_key)
-                logger.warning(f"⚠️ Gemini TTS client initialized without timeout (httpx not available) - model={tts_model}")
+            # 🔥 Initialize client without http_options (SDK doesn't support 'client' field)
+            # Note: The google-genai SDK doesn't accept http_options={'client': ...}
+            # Timeout configuration should be handled differently if needed in the future
+            _gemini_tts_client = genai.Client(api_key=gemini_api_key)
+            logger.info(f"✅ Gemini TTS client initialized (singleton) - model={tts_model}")
             
             return _gemini_tts_client
             
