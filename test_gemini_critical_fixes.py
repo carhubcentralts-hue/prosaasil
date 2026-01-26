@@ -157,14 +157,18 @@ def test_gemini_tts_flag_management():
     
     # Count flag clears in _hebrew_tts function
     flag_clear_count = 0
+    found_finally = False
     for i in range(hebrew_tts_start, hebrew_tts_end):
         if 'self.is_processing_turn = False' in lines[i]:
             flag_clear_count += 1
+        if 'finally:' in lines[i]:
+            found_finally = True
     
-    if flag_clear_count >= 3:  # Should be cleared in success paths and error paths
-        print(f"✓ is_processing_turn flag is cleared in {flag_clear_count} places in TTS")
+    # With finally block, we should have exactly 1 flag clear in the finally block
+    if flag_clear_count >= 1 and found_finally:
+        print(f"✓ is_processing_turn flag is cleared in finally block (found={flag_clear_count} clears, has_finally={found_finally})")
     else:
-        print(f"❌ is_processing_turn flag only cleared {flag_clear_count} times (expected >= 3)")
+        print(f"❌ is_processing_turn flag not properly cleared (found={flag_clear_count} clears, has_finally={found_finally})")
         return False
     
     print("\n" + "=" * 60)

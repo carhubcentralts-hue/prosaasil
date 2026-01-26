@@ -15661,99 +15661,97 @@ class MediaStreamHandler:
             # This prevents recv_queue overflow during Gemini LLM/TTS processing
             self.is_processing_turn = True
             
-            # ✅ FIX: Use Flask app singleton (CRITICAL - prevents app restart!)
-            app = _get_flask_app()
-            
-            with app.app_context():
-                # 🔥 ARCHITECTURE CHANGE: Phone calls use simple LLM (no AgentKit)
-                # AgentKit is too heavy for real-time telephony
-                # Use direct Gemini LLM → OpenAI Tools flow instead
-                ai_service = AIService()
+            try:
+                # ✅ FIX: Use Flask app singleton (CRITICAL - prevents app restart!)
+                app = _get_flask_app()
                 
-                # 🔥 BUILD 118: Use customer_phone (includes DTMF) instead of caller_phone (None)!
-                # customer_phone is set in line 2467 and includes DTMF phone if available
-                logger.debug(f"\n📞 DEBUG: customer_phone from context = '{customer_phone}'")
-                logger.info(f"   phone_number (caller) = '{getattr(self, 'phone_number', 'None')}'")
-                logger.info(f"   customer_phone_dtmf = '{getattr(self, 'customer_phone_dtmf', 'None')}'")
+                with app.app_context():
+                    # 🔥 ARCHITECTURE CHANGE: Phone calls use simple LLM (no AgentKit)
+                    # AgentKit is too heavy for real-time telephony
+                    # Use direct Gemini LLM → OpenAI Tools flow instead
+                    ai_service = AIService()
+                    
+                    # 🔥 BUILD 118: Use customer_phone (includes DTMF) instead of caller_phone (None)!
+                    # customer_phone is set in line 2467 and includes DTMF phone if available
+                    logger.debug(f"\n📞 DEBUG: customer_phone from context = '{customer_phone}'")
+                    logger.info(f"   phone_number (caller) = '{getattr(self, 'phone_number', 'None')}'")
+                    logger.info(f"   customer_phone_dtmf = '{getattr(self, 'customer_phone_dtmf', 'None')}'")
+                    
+                    # 🔥 Use simple generate_response for phone calls (not AgentKit)
+                    ai_response = ai_service.generate_response(
+                        message=hebrew_text,
+                        business_id=int(business_id),
+                        context=context,
+                        channel='calls',  # ✅ Use 'calls' prompt for phone calls
+                        is_first_turn=is_first_turn  # ⚡ Phase 2C: Optimize first turn!
+                    )
                 
-                # 🔥 Use simple generate_response for phone calls (not AgentKit)
-                ai_response = ai_service.generate_response(
-                    message=hebrew_text,
-                    business_id=int(business_id),
-                    context=context,
-                    channel='calls',  # ✅ Use 'calls' prompt for phone calls
-                    is_first_turn=is_first_turn  # ⚡ Phase 2C: Optimize first turn!
-                )
-            
-            # ⚡ CRITICAL: Save AI timing for TOTAL_LATENCY calculation
-            self.last_ai_time = time.time() - ai_start
-            
-            # 🔥 SIMPLIFIED: For phone calls, generate_response returns simple string
-            # No complex AgentKit metadata, just the response text
-            if isinstance(ai_response, str):
-                # Simple string response from generate_response
-                tts_text = ai_response if ai_response and ai_response.strip() else "סליחה, לא הבנתי. אפשר לחזור?"
+                # ⚡ CRITICAL: Save AI timing for TOTAL_LATENCY calculation
+                self.last_ai_time = time.time() - ai_start
                 
-                # 🔥 CRITICAL FIX: Set ai_response_dict for string response to prevent UnboundLocalError
-                ai_response_dict = {
-                    "text": tts_text,
-                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                    "actions": [],  # No actions for simple LLM response
-                    "booking_successful": False,
-                    "source": "gemini_llm"
-                }
-                
-                # Save minimal metadata for analytics
-                self.last_agent_response_metadata = ai_response_dict
-            elif isinstance(ai_response, dict):
-                # Structured response (shouldn't happen with generate_response, but handle it)
-                ai_response_dict = {
-                    "text": ai_response.get("text", ""),
-                    "usage": ai_response.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}),
-                    "actions": ai_response.get("actions", []),
-                    "booking_successful": ai_response.get("booking_successful", False),
-                    "error": ai_response.get("error"),
-                    "source": ai_response.get("source", "gemini_llm")
-                }
-                self.last_agent_response_metadata = ai_response_dict
-                tts_text = ai_response_dict.get('text', '')
-            else:
-                # Defensive: shouldn't happen
-                logger.error(f"❌ Unexpected response type: {type(ai_response).__name__}")
-                tts_text = "סליחה, לא הבנתי. אפשר לחזור?"
-                self.last_agent_response_metadata = {
-                    "text": tts_text,
-                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                    "actions": [],
-                    "booking_successful": False,
-                    "source": "error_fallback"
-                }
+                # 🔥 SIMPLIFIED: For phone calls, generate_response returns simple string
+                # No complex AgentKit metadata, just the response text
+                if isinstance(ai_response, str):
+                    # Simple string response from generate_response
+                    tts_text = ai_response if ai_response and ai_response.strip() else "סליחה, לא הבנתי. אפשר לחזור?"
+                    
+                    # 🔥 CRITICAL FIX: Set ai_response_dict for string response to prevent UnboundLocalError
+                    ai_response_dict = {
+                        "text": tts_text,
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "actions": [],  # No actions for simple LLM response
+                        "booking_successful": False,
+                        "source": "gemini_llm"
+                    }
+                    
+                    # Save minimal metadata for analytics
+                    self.last_agent_response_metadata = ai_response_dict
+                elif isinstance(ai_response, dict):
+                    # Structured response (shouldn't happen with generate_response, but handle it)
+                    ai_response_dict = {
+                        "text": ai_response.get("text", ""),
+                        "usage": ai_response.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}),
+                        "actions": ai_response.get("actions", []),
+                        "booking_successful": ai_response.get("booking_successful", False),
+                        "error": ai_response.get("error"),
+                        "source": ai_response.get("source", "gemini_llm")
+                    }
+                    self.last_agent_response_metadata = ai_response_dict
+                    tts_text = ai_response_dict.get('text', '')
+                else:
+                    # Defensive: shouldn't happen
+                    logger.error(f"❌ Unexpected response type: {type(ai_response).__name__}")
+                    tts_text = "סליחה, לא הבנתי. אפשר לחזור?"
+                    self.last_agent_response_metadata = {
+                        "text": tts_text,
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "actions": [],
+                        "booking_successful": False,
+                        "source": "error_fallback"
+                    }
 
-            
-            if not tts_text or not tts_text.strip():
-                logger.error(f"❌ EMPTY TTS TEXT - using fallback")
-                tts_text = "סליחה, לא הבנתי. אפשר לחזור?"
-            
-            logger.info(f"✅ Extracted TTS text: {len(tts_text)} chars")
-            # 🔥 CRITICAL FIX: Guard ai_response_dict access to prevent UnboundLocalError
-            if isinstance(ai_response_dict, dict):
-                logger.info(f"   Metadata: {len(ai_response_dict.get('actions', []))} actions, booking={ai_response_dict.get('booking_successful', False)}")
-            else:
-                logger.warning(f"⚠️ ai_response_dict not available - skipping metadata logging")
-            
-            logger.info(f"🤖 AGENT_RESPONSE: Generated {len(tts_text)} chars in {self.last_ai_time:.3f}s (business {business_id})")
-            if DEBUG: logger.debug(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
-            
-            # 🔥 CRITICAL FIX: Clear processing flag after AI response complete
-            self.is_processing_turn = False
-            
-            # Return TTS text (string) for _speak_simple
-            return tts_text
+                
+                if not tts_text or not tts_text.strip():
+                    logger.error(f"❌ EMPTY TTS TEXT - using fallback")
+                    tts_text = "סליחה, לא הבנתי. אפשר לחזור?"
+                
+                logger.info(f"✅ Extracted TTS text: {len(tts_text)} chars")
+                # 🔥 CRITICAL FIX: Guard ai_response_dict access to prevent UnboundLocalError
+                if isinstance(ai_response_dict, dict):
+                    logger.info(f"   Metadata: {len(ai_response_dict.get('actions', []))} actions, booking={ai_response_dict.get('booking_successful', False)}")
+                else:
+                    logger.warning(f"⚠️ ai_response_dict not available - skipping metadata logging")
+                
+                logger.info(f"🤖 AGENT_RESPONSE: Generated {len(tts_text)} chars in {self.last_ai_time:.3f}s (business {business_id})")
+                if DEBUG: logger.debug(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
+                
+                # Return TTS text (string) for _speak_simple
+                return tts_text
+            finally:
+                # 🔥 CRITICAL FIX: Clear processing flag in finally to ensure it's always cleared
+                self.is_processing_turn = False
             
         except Exception as e:
-            # 🔥 CRITICAL FIX: Clear processing flag on exception
-            self.is_processing_turn = False
-            
             logger.error(f"❌ AI_SERVICE_ERROR: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
@@ -15805,7 +15803,6 @@ class MediaStreamHandler:
             business_id = getattr(self, 'business_id', None)
             if not business_id:
                 logger.error("[GEMINI_TTS] No business_id - cannot synthesize")
-                self.is_processing_turn = False
                 return None
             
             # Get voice settings from business
@@ -15815,7 +15812,6 @@ class MediaStreamHandler:
                 business = Business.query.get(business_id)
                 if not business:
                     logger.error(f"[GEMINI_TTS] Business {business_id} not found")
-                    self.is_processing_turn = False
                     return None
                 
                 voice_name = getattr(business, 'voice_name', None) or 'pulcherrima'
@@ -15835,7 +15831,6 @@ class MediaStreamHandler:
             
             if audio_bytes is None:
                 logger.error(f"[GEMINI_TTS] Synthesis failed: {content_type_or_error}")
-                self.is_processing_turn = False
                 return None
             
             logger.info(f"[GEMINI_TTS] Success: {len(audio_bytes)} bytes ({content_type_or_error})")
@@ -15858,29 +15853,24 @@ class MediaStreamHandler:
                     pcm16_8k = audioop.ratecv(pcm16_24k, 2, 1, 24000, 8000, None)[0]
                     logger.info(f"[GEMINI_TTS] Resampled to 8kHz: {len(pcm16_8k)} bytes")
                     _orig_print(f"🔄 [GEMINI_TTS] Resampled: {len(pcm16_24k)}B@24kHz → {len(pcm16_8k)}B@8kHz", flush=True)
-                    # 🔥 CRITICAL FIX: Clear processing flag after TTS complete
-                    self.is_processing_turn = False
                     return pcm16_8k
                 except Exception as resample_err:
                     logger.error(f"[GEMINI_TTS] Resample failed: {resample_err}")
                     _orig_print(f"❌ [GEMINI_TTS] Resample failed: {resample_err}", flush=True)
-                    # 🔥 CRITICAL FIX: Clear processing flag on error
-                    self.is_processing_turn = False
                     # Fallback: try using as-is (will sound wrong but better than silence)
                     return pcm16_24k
             else:
                 logger.warning(f"[GEMINI_TTS] Unexpected format - using as-is")
-                # 🔥 CRITICAL FIX: Clear processing flag before return
-                self.is_processing_turn = False
                 return audio_bytes
                 
         except Exception as e:
-            # 🔥 CRITICAL FIX: Clear processing flag on exception
-            self.is_processing_turn = False
             logger.error(f"[GEMINI_TTS] Error: {e}")
             import traceback
             traceback.print_exc()
             return None
+        finally:
+            # 🔥 CRITICAL FIX: Clear processing flag in finally to ensure it's always cleared
+            self.is_processing_turn = False
     
     def _flush_tx_queue(self):
         """
