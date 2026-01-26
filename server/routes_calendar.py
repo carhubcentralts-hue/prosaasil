@@ -673,18 +673,25 @@ def get_calendar_stats():
         week_start = today - timedelta(days=today.weekday())
         month_start = today.replace(day=1)
         
+        # 🔥 PERFORMANCE FIX: Convert to datetime ranges for efficient index usage
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
+        week_start_dt = datetime.combine(week_start, datetime.min.time())
+        month_start_dt = datetime.combine(month_start, datetime.min.time())
+        
         # Calculate stats
         stats = {
             'today': query.filter(
-                db.func.date(Appointment.start_time) == today
+                Appointment.start_time >= today_start,
+                Appointment.start_time <= today_end
             ).count(),
             
             'this_week': query.filter(
-                db.func.date(Appointment.start_time) >= week_start
+                Appointment.start_time >= week_start_dt
             ).count(),
             
             'this_month': query.filter(
-                db.func.date(Appointment.start_time) >= month_start
+                Appointment.start_time >= month_start_dt
             ).count(),
             
             'scheduled': query.filter(Appointment.status == 'scheduled').count(),

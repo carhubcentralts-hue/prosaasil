@@ -258,10 +258,11 @@ def dashboard_stats():
         query_start = time.time()
         try:
             # Count distinct phone numbers that had conversations in date range
+            # 🔥 PERFORMANCE FIX: Use range-based queries instead of date() function for index efficiency
             whatsapp_in_range = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
                 WhatsAppMessage.business_id == tenant_id,
-                db.func.date(WhatsAppMessage.created_at) >= date_start,
-                db.func.date(WhatsAppMessage.created_at) <= date_end
+                WhatsAppMessage.created_at >= date_start_dt,
+                WhatsAppMessage.created_at <= date_end_dt
             ).scalar() or 0
             query_time = (time.time() - query_start) * 1000
             if query_time > 1000:
@@ -434,11 +435,15 @@ def dashboard_activity():
         
         # 🔥 BUILD 171: Wrap each query with error handling
         # BUILD 135: Get recent WhatsApp messages - FILTERED by tenant_id and date
+        # 🔥 PERFORMANCE FIX: Use range-based queries instead of date() function for index efficiency
         try:
+            date_start_dt = datetime.combine(date_start, datetime.min.time())
+            date_end_dt = datetime.combine(date_end, datetime.max.time())
+            
             recent_whatsapp = WhatsAppMessage.query.filter(
                 WhatsAppMessage.business_id == tenant_id,
-                db.func.date(WhatsAppMessage.created_at) >= date_start,
-                db.func.date(WhatsAppMessage.created_at) <= date_end
+                WhatsAppMessage.created_at >= date_start_dt,
+                WhatsAppMessage.created_at <= date_end_dt
             ).order_by(
                 WhatsAppMessage.created_at.desc()
             ).limit(20).all()
@@ -448,11 +453,12 @@ def dashboard_activity():
             recent_whatsapp = []
         
         # BUILD 135: Get recent calls - FILTERED by tenant_id and date
+        # 🔥 PERFORMANCE FIX: Already using datetime objects from above
         try:
             recent_calls = CallLog.query.filter(
                 CallLog.business_id == tenant_id,
-                db.func.date(CallLog.created_at) >= date_start,
-                db.func.date(CallLog.created_at) <= date_end
+                CallLog.created_at >= date_start_dt,
+                CallLog.created_at <= date_end_dt
             ).order_by(
                 CallLog.created_at.desc()
             ).limit(20).all()
@@ -545,8 +551,12 @@ def admin_stats():
         total_leads = Customer.query.count()
         
         today = datetime.utcnow().date()
+        # 🔥 PERFORMANCE FIX: Use range-based queries instead of date() function for index efficiency
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
         leads_today = Customer.query.filter(
-            db.func.date(Customer.created_at) == today
+            Customer.created_at >= today_start,
+            Customer.created_at <= today_end
         ).count()
         
         # Active leads (mock - customers with recent activity)
