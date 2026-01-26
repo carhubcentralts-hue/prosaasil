@@ -5,6 +5,7 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 🔥 CRITICAL: AI Provider Selection (NO FALLBACK, NO DUPLICATION)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 🔶 OpenAI Provider (ai_provider='openai'):
    - STT: OpenAI Realtime API (gpt-4o-transcribe) - built-in, NO Whisper
    - LLM: OpenAI GPT-4o via Realtime API
@@ -14,19 +15,16 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
    - NO batch processing, NO Whisper, NO duplication
 
 🔷 Gemini Provider (ai_provider='gemini'):
-   - STT: OpenAI Whisper API (whisper-1)
-   - LLM: Google Gemini API (gemini-2.0-flash-exp)
-   - TTS: Google Gemini Native Speech
-   - Pipeline: Batch processing (STT → LLM → TTS)
-   - Requires: OPENAI_API_KEY (for Whisper), GEMINI_API_KEY (for LLM/TTS)
-   - NO Google Cloud STT, NO duplication
+   - STT: Gemini Live API (built-in speech recognition)
+   - LLM: Google Gemini Live API (gemini-2.0-flash-exp)
+   - TTS: Gemini Live API (native audio output)
+   - Pipeline: Bidirectional real-time streaming (SAME as OpenAI)
+   - Requires: GEMINI_API_KEY
+   - NO batch processing, NO generate_content(), NO separate TTS
 
 🔑 KEY CONFIGURATION:
    - OpenAI: OPENAI_API_KEY (for Realtime API)
-   - Gemini: 
-     ├─ Whisper STT: Uses OPENAI_API_KEY
-     ├─ Gemini LLM: Uses GEMINI_API_KEY
-     └─ Gemini TTS: Uses GEMINI_API_KEY
+   - Gemini: GEMINI_API_KEY (for Live API - STT/LLM/TTS all-in-one)
 
 🚫 NO FALLBACK BETWEEN PROVIDERS:
    - If ai_provider='openai' → ONLY OpenAI (no Gemini fallback)
@@ -35,12 +33,13 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
    
 🚫 NO TRANSCRIPTION DUPLICATION:
    - OpenAI: Uses Realtime API only (no batch STT)
-   - Gemini: Uses Whisper STT only (no Google Cloud STT)
-   - Each provider has ONE transcription path
+   - Gemini: Uses Live API only (no Whisper, no Google Cloud STT)
+   - Each provider has ONE transcription path (realtime streaming)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata
+"""
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata, uuid
 import builtins
 from dataclasses import dataclass
 from typing import Optional
@@ -3060,20 +3059,29 @@ class MediaStreamHandler:
     
     async def _run_realtime_mode_async(self):
         """
-        🚀 OpenAI Realtime API - Async main loop with PARALLEL startup
+        🚀 Realtime API - Async main loop with PARALLEL startup
         
-        Handles bidirectional audio streaming:
-        1. Connect to OpenAI IMMEDIATELY (parallel with DB query)
+        Handles bidirectional audio streaming for both OpenAI and Gemini:
+        1. Connect to provider IMMEDIATELY (parallel with DB query)
         2. Wait for business info from main thread
         3. Configure session and trigger greeting
         4. Stream audio bidirectionally
         """
+        # Import both clients
         from server.services.openai_realtime_client import OpenAIRealtimeClient
+        from server.services.gemini_realtime_client import GeminiRealtimeClient
         from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
         # Note: realtime_prompt_builder imported inside try block at line ~1527
         
-        _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
-        logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
+        # Determine which provider to use
+        ai_provider = getattr(self, '_ai_provider', 'openai')
+        
+        if ai_provider == 'gemini':
+            _orig_print(f"🚀 [GEMINI_LIVE] Async loop starting - connecting to Gemini Live API IMMEDIATELY", flush=True)
+            logger.debug(f"[GEMINI_LIVE] _run_realtime_mode_async STARTED for call {self.call_sid}")
+        else:
+            _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
+            logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
         # Helper function for session configuration (used for initial config and retry)
         async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=None, tool_choice="auto", force=False, send_reason="initial"):
@@ -3133,36 +3141,51 @@ class MediaStreamHandler:
             _orig_print(
                 f"[SESSION_SEND] send_reason={send_reason} force={force} "
                 f"hash_before={hash_before} hash_after={hash_after} "
-                f"len={len(greeting_prompt)}",
+                f"len={len(greeting_prompt)} provider={ai_provider}",
                 flush=True
             )
             
-            # Call configure_session which has its own hash-based deduplication
-            # It will return True if sent or skipped (via dedup)
-            dedup_result = await client.configure_session(
-                instructions=greeting_prompt,
-                voice=call_voice,
-                input_audio_format="g711_ulaw",
-                output_audio_format="g711_ulaw",
-                auto_create_response=not manual_turns,
-                vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.85) - reduced false positives
-                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (600ms) - optimal for Hebrew
-                # 🔥 CRITICAL FIX: Remove temperature=0.0 - let configure_session use default 0.6
-                # OpenAI Realtime API requires temperature >= 0.6 (decimal_below_min_value error)
-                # The configure_session method now handles clamping automatically
-                max_tokens=greeting_max_tokens,
-                # 🔥 PRODUCTION STT QUALITY: Neutral transcription prompt for Hebrew
-                # Per OpenAI best practices: Keep prompt simple and neutral
-                # Don't instruct model to skip/omit - let VAD threshold handle false triggers
-                transcription_prompt=(
-                    # EN: "Accurate transcription in Israeli Hebrew. Transcribe only what was actually said."
-                    "תמלול מדויק בעברית ישראלית. "
-                    "תמלל רק מה שנאמר בפועל."
-                ),
-                tools=tools,  # 🔥 NEW: Include tools in first session.update
-                tool_choice=tool_choice if tools else None,  # Only set if tools exist
-                force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
-            )
+            # 🔥 PROVIDER-SPECIFIC SESSION CONFIGURATION
+            # OpenAI: Uses configure_session() to send session.update event
+            # Gemini: Configured during connect(), just mark as ready
+            if ai_provider == 'gemini':
+                # Gemini Live API: Configuration was passed during connect()
+                # Gemini doesn't support mid-session config updates and doesn't emit session.updated
+                # We mark it as confirmed immediately since config was set at connection time
+                _orig_print(f"✅ [GEMINI_CONFIG] Using configuration from connect() - marking as confirmed", flush=True)
+                logger.info(f"[GEMINI_CONFIG] Gemini was configured during connect(), marking session as ready")
+                
+                # Mark as confirmed immediately (no session.updated event from Gemini)
+                self._session_config_confirmed = True
+                self._session_config_event.set()
+                dedup_result = True
+            else:
+                # OpenAI Realtime API: Call configure_session which has its own hash-based deduplication
+                # It will return True if sent or skipped (via dedup)
+                dedup_result = await client.configure_session(
+                    instructions=greeting_prompt,
+                    voice=call_voice,
+                    input_audio_format="g711_ulaw",
+                    output_audio_format="g711_ulaw",
+                    auto_create_response=not manual_turns,
+                    vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.85) - reduced false positives
+                    silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (600ms) - optimal for Hebrew
+                    # 🔥 CRITICAL FIX: Remove temperature=0.0 - let configure_session use default 0.6
+                    # OpenAI Realtime API requires temperature >= 0.6 (decimal_below_min_value error)
+                    # The configure_session method now handles clamping automatically
+                    max_tokens=greeting_max_tokens,
+                    # 🔥 PRODUCTION STT QUALITY: Neutral transcription prompt for Hebrew
+                    # Per OpenAI best practices: Keep prompt simple and neutral
+                    # Don't instruct model to skip/omit - let VAD threshold handle false triggers
+                    transcription_prompt=(
+                        # EN: "Accurate transcription in Israeli Hebrew. Transcribe only what was actually said."
+                        "תמלול מדויק בעברית ישראלית. "
+                        "תמלל רק מה שנאמר בפועל."
+                    ),
+                    tools=tools,  # 🔥 NEW: Include tools in first session.update
+                    tool_choice=tool_choice if tools else None,  # Only set if tools exist
+                    force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
+                )
             
             # 🔒 CHECK 2: Log if deduplication skipped the send
             # Note: configure_session returns True whether it sent or skipped
@@ -3190,40 +3213,67 @@ class MediaStreamHandler:
             t_start = time.time()
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 REALTIME STABILITY: OpenAI connection with SINGLE timeout
+            # 🔥 REALTIME STABILITY: Provider connection with SINGLE timeout
             # ═══════════════════════════════════════════════════════════════════════
             # NOTE: client.connect() already has internal retry (3 attempts with exponential backoff)
             # We only add a timeout wrapper to prevent infinite hangs - NO external retry loop!
             # Total internal retry time: ~7s (1s + 2s + 4s backoff)
             # ═══════════════════════════════════════════════════════════════════════
-            logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
-            client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
+            
+            if ai_provider == 'gemini':
+                logger.info(f"[CALL DEBUG] Creating Gemini Live client")
+                client = GeminiRealtimeClient()
+                client_type = "GEMINI_LIVE"
+            else:
+                logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
+                client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
+                client_type = "OPENAI"
+                
             t_client = time.time()
             if DEBUG: logger.debug(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
             t_connect_start = time.time()
-            _orig_print(f"🔌 [REALTIME] Connecting to OpenAI (internal retry: 3 attempts)...", flush=True)
+            _orig_print(f"🔌 [{client_type}] Connecting to provider (internal retry: 3 attempts)...", flush=True)
             
             try:
                 # 🔥 FIX #3: Increased timeout to 8s and max_retries to 3 for better reliability
                 # Timeout: 8s covers internal retries (1s + 2s + 4s + margin)
                 # max_retries=3 gives more chances to connect (was 2)
-                await asyncio.wait_for(client.connect(max_retries=3, backoff_base=0.5), timeout=8.0)
+                #
+                # 🔥 GEMINI CONFIGURATION: Pass system_instructions, temperature, voice_id at connection
+                # Both providers now configure session during connect() - unified approach!
+                if ai_provider == 'gemini':
+                    # Gemini Live API: Pass configuration directly to connect()
+                    # The greeting_prompt will be set after business info is ready
+                    await asyncio.wait_for(
+                        client.connect(
+                            system_instructions=None,  # Will be set later via session config
+                            temperature=None,  # Will use default (0.6)
+                            voice_id=None,  # Will be set later based on business settings
+                            max_retries=3,
+                            backoff_base=0.5
+                        ),
+                        timeout=8.0
+                    )
+                else:
+                    # OpenAI Realtime API: Simple connection (config sent separately via session.update)
+                    await asyncio.wait_for(client.connect(max_retries=3, backoff_base=0.5), timeout=8.0)
+                
                 connect_ms = (time.time() - t_connect_start) * 1000
                 self._openai_connect_attempts = 1
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (max_retries=3)", flush=True)
+                _orig_print(f"✅ [{client_type}] Connected in {connect_ms:.0f}ms (max_retries=3)", flush=True)
                 
             except asyncio.TimeoutError:
                 connect_ms = (time.time() - t_connect_start) * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms", flush=True)
-                logger.error(f"[REALTIME] OpenAI connection timeout after {connect_ms:.0f}ms")
+                _orig_print(f"⚠️ [{client_type}] CONNECT_TIMEOUT after {connect_ms:.0f}ms", flush=True)
+                logger.error(f"[{client_type}] Connection timeout after {connect_ms:.0f}ms")
                 
                 self.realtime_failed = True
-                self._realtime_failure_reason = "OPENAI_CONNECT_TIMEOUT"
-                logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT")
-                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
+                self._realtime_failure_reason = f"{client_type}_CONNECT_TIMEOUT"
+                logger.debug(f"[METRICS] REALTIME_TIMINGS: connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
+                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
                 return
                 
             except Exception as connect_err:
@@ -3233,33 +3283,37 @@ class MediaStreamHandler:
                 # 🔥 FIX #3: Enhanced error logging with full traceback for diagnostics
                 import traceback
                 error_details = traceback.format_exc()
-                _orig_print(f"❌ [REALTIME] OpenAI connect error: {connect_err}", flush=True)
-                _orig_print(f"❌ [REALTIME] Error type: {type(connect_err).__name__}", flush=True)
-                _orig_print(f"❌ [REALTIME] Full traceback:\n{error_details}", flush=True)
-                logger.error(f"[REALTIME] OpenAI connection error: {connect_err}")
-                logger.error(f"[REALTIME] Full error details:\n{error_details}")
+                _orig_print(f"❌ [{client_type}] connect error: {connect_err}", flush=True)
+                _orig_print(f"❌ [{client_type}] Error type: {type(connect_err).__name__}", flush=True)
+                _orig_print(f"❌ [{client_type}] Full traceback:\n{error_details}", flush=True)
+                logger.error(f"[{client_type}] Connection error: {connect_err}")
+                logger.error(f"[{client_type}] Full error details:\n{error_details}")
                 
                 self.realtime_failed = True
-                self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
-                logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
+                self._realtime_failure_reason = f"{client_type}_CONNECT_ERROR: {type(connect_err).__name__}"
+                logger.debug(f"[METRICS] REALTIME_TIMINGS: connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
                 
                 # 🔥 FIX #3: Log call context for debugging
-                _orig_print(f"📊 [REALTIME] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}", flush=True)
+                _orig_print(f"📊 [{client_type}] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}", flush=True)
                 return
             
             t_connected = time.time()
             
             # Warn if connection is slow (>1.5s is too slow for good UX)
             if connect_ms > 1500:
-                logger.warning(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
-            if DEBUG: logger.debug(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
+                logger.warning(f"⚠️ [PARALLEL] SLOW {client_type} connection: {connect_ms:.0f}ms (target: <1000ms)")
+            if DEBUG: logger.debug(f"⏱️ [PARALLEL] {client_type} connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
             
             self.realtime_client = client
             
-            is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
-            cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
-            logger.debug("[REALTIME] Connected")
+            # Cost info only applies to OpenAI
+            if ai_provider == 'openai':
+                is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
+                cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
+                logger.debug(f"[REALTIME] Connected ({cost_info})")
+            else:
+                logger.debug(f"[{client_type}] Connected")
             
             # 🚀 PARALLEL STEP 2: Wait briefly for business info (do NOT block greeting)
             logger.info(f"⏳ [PARALLEL] Waiting for business info from DB query...")
@@ -4490,9 +4544,23 @@ class MediaStreamHandler:
                 
                 # 🔥 Log first frame sent after gate opens
                 if _frames_sent == 0:
-                    _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to OpenAI - transmission started", flush=True)
+                    _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to {client_type} - transmission started", flush=True)
                 
-                await client.send_audio_chunk(audio_chunk)
+                # 🔥 UNIFIED AUDIO SENDING: Both providers use proper audio format
+                # OpenAI: client.send_audio_chunk() sends base64-encoded μ-law at 8kHz
+                # Gemini: client.send_audio() expects raw PCM16 bytes at 16kHz
+                if ai_provider == 'gemini':
+                    # ✅ AUDIO VALIDATION A: Input to Gemini (Twilio → Gemini)
+                    # Gemini expects PCM16 at 16kHz, mono
+                    # Step 1: Convert μ-law 8kHz (160 samples/20ms) to PCM16 8kHz (320 bytes/20ms)
+                    pcm16_8k = mulaw_to_pcm16_fast(audio_chunk)
+                    # Step 2: Resample from 8kHz to 16kHz for Gemini (320→640 bytes/20ms)
+                    # audioop.ratecv preserves 20ms frame duration by doubling samples
+                    pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
+                    await client.send_audio(pcm16_16k, end_of_turn=False)
+                else:
+                    # OpenAI takes μ-law directly at 8kHz (160 bytes/20ms)
+                    await client.send_audio_chunk(audio_chunk)
                 
                 # 🔥 BUILD 301: Enhanced pipeline status with stuck response detection
                 now = time.time()
@@ -4563,6 +4631,155 @@ class MediaStreamHandler:
         self._usage_guard_seconds = time.time() - _call_start_time
         self._usage_guard_limit_hit = _limit_exceeded
         logger.info(f"📤 [REALTIME] Audio sender ended (frames={_total_frames_sent}, seconds={self._usage_guard_seconds:.1f})")
+    
+    def _normalize_gemini_event(self, gemini_event: dict) -> dict:
+        """
+        Normalize Gemini Live API events to OpenAI Realtime API format
+        
+        Gemini event structure:
+        - {'type': 'audio', 'data': bytes, 'mime_type': 'audio/pcm'}
+        - {'type': 'text', 'data': str}
+        - {'type': 'turn_complete', 'data': None}
+        - {'type': 'interrupted', 'data': None}
+        - {'type': 'setup_complete', 'data': None}
+        - {'type': 'function_call', 'data': tool_call_object}
+        
+        OpenAI event structure:
+        - {'type': 'response.audio.delta', 'delta': base64_str}
+        - {'type': 'response.audio_transcript.delta', 'delta': str}
+        - {'type': 'response.done', 'response': {...}}
+        - {'type': 'response.cancelled', ...}
+        - {'type': 'session.updated', 'session': {...}}
+        
+        Returns:
+            Normalized event in OpenAI format, or None to skip
+        """
+        gemini_type = gemini_event.get('type')
+        
+        if gemini_type == 'setup_complete':
+            # Gemini setup_complete → OpenAI session.updated
+            return {
+                'type': 'session.updated',
+                'session': {
+                    'id': 'gemini_session',
+                    'model': 'gemini-2.0-flash-exp',
+                    'modalities': ['text', 'audio'],
+                    'instructions': '',  # Already set during connect()
+                    'voice': getattr(self, '_call_voice', 'alloy'),
+                    'input_audio_format': 'g711_ulaw',
+                    'output_audio_format': 'g711_ulaw',
+                    'input_audio_transcription': {
+                        'model': 'gemini-live-transcribe',
+                        'language': 'he'
+                    },
+                    'turn_detection': {
+                        'type': 'server_vad',
+                        'threshold': 0.85,
+                        'silence_duration_ms': 600
+                    }
+                }
+            }
+        
+        elif gemini_type == 'audio':
+            # Gemini audio → OpenAI response.audio.delta
+            audio_bytes = gemini_event.get('data', b'')
+            
+            # 🔥 GEMINI FIX: Create a response.created event on first audio
+            # Gemini doesn't send response.created, so we synthesize one
+            if not getattr(self, 'active_response_id', None) or not getattr(self, '_gemini_response_created', False):
+                # Generate a synthetic response ID
+                import uuid
+                response_id = f"gemini_resp_{uuid.uuid4().hex[:16]}"
+                self.active_response_id = response_id
+                self.active_response_status = "in_progress"
+                self.cancel_in_flight = False
+                self._gemini_response_created = True
+                
+                # Log synthetic response creation
+                logger.info(f"[GEMINI] Synthesized response.created: {response_id[:20]}...")
+            
+            # Gemini returns PCM16 at 24kHz, need to convert to μ-law at 8kHz
+            try:
+                import audioop
+                import base64
+                # ✅ AUDIO VALIDATION B: Output from Gemini (Gemini → Twilio)
+                # Gemini outputs PCM16 at 24kHz, we need μ-law at 8kHz for Twilio
+                # Step 1: Resample from 24kHz to 8kHz (3:1 ratio - reduces samples by 66%)
+                # audioop.ratecv handles this correctly, preserving audio quality
+                pcm16_8k = audioop.ratecv(audio_bytes, 2, 1, 24000, 8000, None)[0]
+                # Step 2: Convert PCM16 to μ-law (320 bytes PCM16 → 160 bytes μ-law = 20ms frame)
+                mulaw_bytes = audioop.lin2ulaw(pcm16_8k, 2)
+                # Step 3: Encode to base64 for OpenAI-compatible format
+                # This creates proper 20ms frames (160 samples at 8kHz = 160 bytes μ-law)
+                audio_b64 = base64.b64encode(mulaw_bytes).decode('utf-8')
+                
+                return {
+                    'type': 'response.audio.delta',
+                    'delta': audio_b64,
+                    'response_id': getattr(self, 'active_response_id', 'gemini_response')
+                }
+            except Exception as e:
+                logger.error(f"[GEMINI_NORMALIZE] Audio conversion failed: {e}")
+                return None
+        
+        elif gemini_type == 'text':
+            # Gemini text → OpenAI response.audio_transcript.delta
+            text = gemini_event.get('data', '')
+            
+            # 🔥 GEMINI FIX: Create a response.created event on first text/audio
+            # Gemini doesn't send response.created, so we synthesize one
+            if not getattr(self, 'active_response_id', None) or not getattr(self, '_gemini_response_created', False):
+                # Generate a synthetic response ID
+                import uuid
+                response_id = f"gemini_resp_{uuid.uuid4().hex[:16]}"
+                self.active_response_id = response_id
+                self.active_response_status = "in_progress"
+                self.cancel_in_flight = False
+                self._gemini_response_created = True
+                
+                # Log synthetic response creation
+                logger.info(f"[GEMINI] Synthesized response.created: {response_id[:20]}...")
+            
+            return {
+                'type': 'response.audio_transcript.delta',
+                'delta': text,
+                'response_id': getattr(self, 'active_response_id', 'gemini_response')
+            }
+        
+        elif gemini_type == 'turn_complete':
+            # Gemini turn_complete → OpenAI response.done
+            # Reset the response created flag for next turn
+            self._gemini_response_created = False
+            
+            return {
+                'type': 'response.done',
+                'response': {
+                    'id': getattr(self, 'active_response_id', 'gemini_response'),
+                    'status': 'completed',
+                    'output': [],
+                    'status_details': {}
+                }
+            }
+        
+        elif gemini_type == 'interrupted':
+            # Gemini interrupted → OpenAI response.cancelled
+            return {
+                'type': 'response.cancelled',
+                'response_id': getattr(self, 'active_response_id', 'gemini_response')
+            }
+        
+        elif gemini_type == 'function_call':
+            # Gemini function_call → OpenAI response.function_call_arguments.done
+            tool_call_data = gemini_event.get('data', {})
+            return {
+                'type': 'response.function_call_arguments.done',
+                'function_call': tool_call_data
+            }
+        
+        else:
+            # Unknown event type - pass through as-is
+            logger.debug(f"[GEMINI_NORMALIZE] Unknown event type: {gemini_type}")
+            return gemini_event
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # ✅ NO QUEUE FLUSH: Removed per requirements - no flush on barge-in
@@ -4847,7 +5064,22 @@ class MediaStreamHandler:
                 flush=True
             )
             
-            await _client.send_event({"type": "response.create"})
+            # 🔥 PROVIDER-SPECIFIC RESPONSE TRIGGERING
+            # OpenAI: Send response.create event (explicit trigger)
+            # Gemini: NO-OP - Gemini auto-responds on turn end (no explicit trigger needed)
+            # This is THE gate that prevents double responses and ensures parity
+            ai_provider = getattr(self, '_ai_provider', 'openai')
+            
+            if ai_provider == 'gemini':
+                # 🔷 GEMINI AUTO-RESPONSE GATE (Critical for parity!)
+                # Gemini Live API automatically responds when user finishes speaking
+                # There is NO response.create equivalent - Gemini handles turn-taking internally
+                # Calling trigger_response() for Gemini is a NO-OP by design
+                logger.info(f"🎯 [GEMINI] Auto-response mode - no explicit trigger needed ({reason})")
+                # Return True to indicate "response will come" but no API call needed
+            else:
+                # OpenAI Realtime API: Send explicit response.create event
+                await _client.send_event({"type": "response.create"})
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
             self._response_create_count += 1
@@ -5099,16 +5331,34 @@ class MediaStreamHandler:
         logger.info(f"📝 [REALTIME] Text sender ended")
     
     async def _realtime_audio_receiver(self, client):
-        """Receive audio and events from Realtime API"""
-        logger.info(f"📥 [REALTIME] Audio receiver started")
+        """
+        Receive audio and events from Realtime API (OpenAI or Gemini)
+        
+        🔥 UNIFIED EVENT HANDLING: Both providers stream events through recv_events()
+        - OpenAI: Emits response.audio.delta, session.updated, etc.
+        - Gemini: Emits audio, text, turn_complete, interrupted, etc.
+        
+        This function normalizes both providers' events into a common structure.
+        """
+        # Determine provider
+        ai_provider = getattr(self, '_ai_provider', 'openai')
+        logger.info(f"📥 [{ai_provider.upper()}] Audio receiver started")
         
         # 🔥 CRITICAL: Signal that RX loop is ready to receive events
         # This ensures session.update is sent ONLY after recv_events() is listening
         self._recv_loop_started = True
-        _orig_print(f"🎯 [RX_LOOP] recv_events() loop is now ACTIVE and listening", flush=True)
+        _orig_print(f"🎯 [RX_LOOP] recv_events() loop is now ACTIVE and listening ({ai_provider})", flush=True)
         
         try:
             async for event in client.recv_events():
+                # 🔥 GEMINI EVENT NORMALIZATION: Convert Gemini events to OpenAI format
+                # Gemini returns: {'type': 'audio'|'text'|'turn_complete'|'interrupted'|'setup_complete', 'data': ...}
+                # We need to normalize to OpenAI format for unified handling
+                if ai_provider == 'gemini':
+                    event = self._normalize_gemini_event(event)
+                    if event is None:
+                        continue  # Skip events that don't need processing
+                
                 event_type = event.get("type", "")
                 
                 # ═══════════════════════════════════════════════════════════════════════
@@ -9851,9 +10101,10 @@ class MediaStreamHandler:
                             _orig_print(f"🎯 [CALL_ROUTING] provider={ai_provider} voice={voice_name}", flush=True)
                             
                             # 🔥 CRITICAL: Decide which pipeline to use based on ai_provider
-                            # - OpenAI: Use Realtime API (bidirectional audio streaming)
-                            # - Gemini: Use STT → LLM → TTS pipeline (no Realtime)
-                            use_realtime_for_this_call = (ai_provider == 'openai')
+                            # - OpenAI: Use OpenAI Realtime API (bidirectional audio streaming)
+                            # - Gemini: Use Gemini Live API (bidirectional audio streaming) 
+                            # Both providers now use realtime streaming!
+                            use_realtime_for_this_call = True  # ✅ Both OpenAI and Gemini use realtime
                             self._use_realtime_for_call = use_realtime_for_this_call
                             
                             # 🔥 CRITICAL: Set USE_REALTIME_API flag for this handler instance
@@ -9861,8 +10112,8 @@ class MediaStreamHandler:
                             self._USE_REALTIME_API_OVERRIDE = use_realtime_for_this_call
                             
                             if ai_provider == 'gemini':
-                                logger.info(f"[GEMINI_PIPELINE] Call will use Gemini: STT (Whisper) → LLM (Gemini) → TTS (Gemini)")
-                                _orig_print(f"🔷 [GEMINI_PIPELINE] starting", flush=True)
+                                logger.info(f"[GEMINI_LIVE] Call will use Gemini Live API (realtime audio streaming)")
+                                _orig_print(f"🔷 [GEMINI_LIVE] Realtime streaming enabled", flush=True)
                             else:
                                 logger.info(f"[OPENAI_PIPELINE] Call will use OpenAI Realtime API")
                             
@@ -9890,7 +10141,11 @@ class MediaStreamHandler:
                             logger.debug(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
                             t_realtime_start = time.time()
                             delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
-                            _orig_print(f"🚀 [REALTIME] Starting OpenAI at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
+                            
+                            if ai_provider == 'gemini':
+                                _orig_print(f"🚀 [GEMINI_LIVE] Starting Gemini Live API at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
+                            else:
+                                _orig_print(f"🚀 [REALTIME] Starting OpenAI at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
                             
                             logger.debug(f"[REALTIME] Creating realtime thread...")
                             self.realtime_thread = threading.Thread(
@@ -9917,14 +10172,6 @@ class MediaStreamHandler:
                             else:
                                 logger.warning(f"[REALTIME] Audio out thread already started - skipping duplicate start")
                             logger.debug(f"[REALTIME] Both realtime threads started successfully!")
-                        elif not use_realtime:
-                            # 🔷 GEMINI PIPELINE: Use STT → LLM → TTS (not Realtime API)
-                            logger.info(f"[GEMINI_PIPELINE] Initializing Gemini pipeline for call {self.call_sid}")
-                            _orig_print(f"🔷 [GEMINI_PIPELINE] Not using OpenAI Realtime (provider=gemini)", flush=True)
-                            
-                            # 🔥 Gemini uses batch Whisper STT, not streaming
-                            # No initialization needed - Whisper called on-demand per utterance
-                            logger.info("✅ [GEMINI_PIPELINE] Will use Whisper STT (batch mode) for Gemini calls")
                         else:
                             logger.warning(f"[CALL_ROUTING] AI service thread NOT started! use_realtime={use_realtime}, realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                         if not hasattr(self, 'bot_speaks_first'):
@@ -11775,14 +12022,15 @@ class MediaStreamHandler:
 
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
         """
-        🔥 STT Routing based on ai_provider - NO FALLBACK, NO DUPLICATION:
-        - OpenAI provider: NEVER CALLED - Uses OpenAI Realtime API (gpt-4o-transcribe built-in)
-        - Gemini provider: Uses Whisper STT (OpenAI's Whisper API)
+        🔥 STT Routing - DEPRECATED FOR REALTIME MODE
         
-        This function is ONLY used for Gemini pipeline (when use_realtime=False).
-        OpenAI always uses Realtime API which handles STT internally.
+        This function should NEVER be called when using realtime mode (both OpenAI and Gemini).
+        - OpenAI provider: Uses OpenAI Realtime API (gpt-4o-transcribe built-in)
+        - Gemini provider: Uses Gemini Live API (native transcription built-in)
         
-        🚫 NO FALLBACK: If provider is misconfigured or keys missing, FAIL with clear error.
+        If this function is called, it indicates a bug in the call flow.
+        
+        🚫 NO FALLBACK: Both providers MUST use realtime mode.
         """
         # 🚀 CRITICAL: Check per-call override (set based on ai_provider)
         use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
@@ -11790,22 +12038,16 @@ class MediaStreamHandler:
         # Get ai_provider from handler instance
         ai_provider = getattr(self, '_ai_provider', 'openai')
         
-        # 🔥 GUARD: Prevent Gemini from using realtime path - this is a critical bug
-        if ai_provider == 'gemini' and use_realtime_for_this_call:
-            logger.error("❌ BUG: Gemini cannot use realtime - provider routing is broken!")
-            raise RuntimeError("BUG: Gemini cannot use realtime. Check provider routing in START event handler.")
-        
-        # 🚀 CRITICAL: OpenAI NEVER uses this function - it uses Realtime API
+        # 🔥 CRITICAL: Both providers MUST use realtime - if STT is called, it's a bug
         if use_realtime_for_this_call:
-            logger.warning("⚠️ _hebrew_stt called with use_realtime=True - this should not happen!")
-            return ""
+            error_msg = f"BUG: _hebrew_stt() called in realtime mode (provider={ai_provider}). Realtime API handles STT internally - this function should never be called."
+            logger.error(f"❌ [STT_ERROR] {error_msg}")
+            raise RuntimeError(error_msg)
         
-        # 🚫 CRITICAL: OpenAI should NEVER reach here - only Gemini uses this path
-        if ai_provider == 'openai':
-            logger.error("❌ [STT_ERROR] OpenAI provider reached batch STT - this is a bug! OpenAI should use Realtime API only.")
-            raise Exception("OpenAI should use Realtime API for STT, not batch processing")
-        
-        # 🔷 From this point, we're ONLY handling Gemini provider
+        # 🔥 NON-REALTIME: Should never happen - both providers must use realtime
+        error_msg = f"BUG: _hebrew_stt() called in non-realtime mode (provider={ai_provider}). All providers must use realtime streaming."
+        logger.error(f"❌ [STT_ERROR] {error_msg}")
+        raise RuntimeError(error_msg)
         if ai_provider != 'gemini':
             logger.error(f"❌ [STT_ERROR] Unknown provider '{ai_provider}' - only 'openai' and 'gemini' are supported")
             raise Exception(f"Unknown ai_provider: {ai_provider}")
@@ -15927,111 +16169,32 @@ class MediaStreamHandler:
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """
-        Hebrew TTS synthesis - supports OpenAI Realtime API and Gemini TTS
+        Hebrew TTS synthesis - DISABLED in realtime mode
         
-        - OpenAI Realtime: Returns None (handled natively by Realtime API)
-        - Gemini: Uses Gemini TTS API to generate audio with HTTP-level timeout
+        🔥 REALTIME MODE: Both OpenAI and Gemini use native streaming audio
+        - OpenAI Realtime: Audio generated by Realtime API (no TTS call needed)
+        - Gemini Live: Audio generated by Live API (no TTS call needed)
         
-        🔥 FIX: HTTP-level timeout (connect=2s, read=10s) prevents hanging requests
-        Timeout is enforced at HTTP transport layer, not at Future level
+        This method should NEVER be called in realtime mode.
+        If called, it indicates a bug in the call flow.
         """
         # 🔥 Check per-call override first (set based on ai_provider)
         use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
         ai_provider = getattr(self, '_ai_provider', 'unknown')
         
-        logger.info(f"[GEMINI_TTS] _hebrew_tts called: provider={ai_provider}, use_realtime={use_realtime_for_this_call}, text_len={len(text)}")
+        logger.error(f"[TTS] ❌ _hebrew_tts called: provider={ai_provider}, use_realtime={use_realtime_for_this_call}, text_len={len(text)}")
         
-        # 🚀 REALTIME API: Skip TTS - OpenAI Realtime generates audio natively
+        # 🚀 REALTIME API: MUST NOT be called - raise exception to catch bugs
         if use_realtime_for_this_call:
-            logger.info(f"[GEMINI_TTS] Skipping TTS - OpenAI Realtime handles it")
-            return None
+            error_msg = f"BUG: _hebrew_tts() called in realtime mode (provider={ai_provider}). Realtime API generates audio directly - TTS should never be called."
+            logger.error(f"[TTS] {error_msg}")
+            raise RuntimeError(error_msg)
         
-        # 🔷 GEMINI TTS: Use Gemini for text-to-speech
-        logger.info(f"[GEMINI_TTS] Starting synthesis: {len(text)} chars, provider={ai_provider}")
-        _orig_print(f"🔷 [GEMINI_TTS] Synthesizing {len(text)} chars...", flush=True)
-        
-        # 🔥 CRITICAL FIX: Set processing flag during TTS to enable backpressure
-        # This prevents recv_queue overflow during Gemini TTS processing
-        self.is_processing_turn = True
-        
-        try:
-            # Get business settings for voice configuration
-            business_id = getattr(self, 'business_id', None)
-            if not business_id:
-                logger.error("[GEMINI_TTS] No business_id - cannot synthesize")
-                return None
-            
-            # Get voice settings from business
-            app = _get_flask_app()
-            with app.app_context():
-                from server.models_sql import Business
-                business = Business.query.get(business_id)
-                if not business:
-                    logger.error(f"[GEMINI_TTS] Business {business_id} not found")
-                    return None
-                
-                voice_name = getattr(business, 'voice_name', None) or 'pulcherrima'
-                speed = float(getattr(business, 'tts_speed', 1.0) or 1.0)
-                language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
-            
-            # 🔥 Call TTS provider directly - timeout handled at HTTP layer
-            # HTTP client configured with connect=2s, read=10s in google_clients.py
-            from server.services import tts_provider
-            
-            try:
-                audio_bytes, content_type_or_error = tts_provider.synthesize(
-                    text=text,
-                    provider='gemini',
-                    voice_id=voice_name,
-                    language=language,
-                    speed=speed
-                )
-            except Exception as e:
-                logger.error(f"[GEMINI_TTS] Synthesis exception: {e}")
-                return None
-            
-            if audio_bytes is None:
-                logger.error(f"[GEMINI_TTS] Synthesis failed: {content_type_or_error}")
-                return None
-            
-            logger.info(f"[GEMINI_TTS] Success: {len(audio_bytes)} bytes ({content_type_or_error})")
-            _orig_print(f"✅ [GEMINI_TTS] Generated {len(audio_bytes)} bytes", flush=True)
-            
-            # 🔥 CRITICAL: Convert WAV to PCM16 8kHz for Twilio
-            # Gemini returns WAV format at 24kHz, but we need raw PCM16 at 8kHz
-            # Steps: Extract PCM16 from WAV → Resample to 8kHz → Return
-            if len(audio_bytes) > 44 and audio_bytes[:4] == b'RIFF':
-                pcm16_24k = audio_bytes[44:]  # Skip WAV header (Gemini uses 24kHz)
-                logger.info(f"[GEMINI_TTS] Extracted PCM16 24kHz: {len(pcm16_24k)} bytes")
-                
-                # 🔥 Resample from 24kHz to 8kHz for Twilio
-                # Note: audioop.ratecv() is a simple linear resampler. For production,
-                # consider using scipy.signal.resample() with proper anti-aliasing filtering
-                # to prevent aliasing artifacts. However, for phone calls (narrowband),
-                # simple resampling is usually acceptable.
-                try:
-                    # Resample: 24000Hz → 8000Hz (ratio 3:1)
-                    pcm16_8k = audioop.ratecv(pcm16_24k, 2, 1, 24000, 8000, None)[0]
-                    logger.info(f"[GEMINI_TTS] Resampled to 8kHz: {len(pcm16_8k)} bytes")
-                    _orig_print(f"🔄 [GEMINI_TTS] Resampled: {len(pcm16_24k)}B@24kHz → {len(pcm16_8k)}B@8kHz", flush=True)
-                    return pcm16_8k
-                except Exception as resample_err:
-                    logger.error(f"[GEMINI_TTS] Resample failed: {resample_err}")
-                    _orig_print(f"❌ [GEMINI_TTS] Resample failed: {resample_err}", flush=True)
-                    # Fallback: try using as-is (will sound wrong but better than silence)
-                    return pcm16_24k
-            else:
-                logger.warning(f"[GEMINI_TTS] Unexpected format - using as-is")
-                return audio_bytes
-                
-        except Exception as e:
-            logger.error(f"[GEMINI_TTS] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-        finally:
-            # 🔥 CRITICAL FIX: Clear processing flag in finally to ensure it's always cleared
-            self.is_processing_turn = False
+        # 🔥 NON-REALTIME FALLBACK: This should never happen in production
+        # Both providers MUST use realtime mode
+        error_msg = f"BUG: _hebrew_tts() called in non-realtime mode (provider={ai_provider}). All providers must use realtime streaming."
+        logger.error(f"[TTS] {error_msg}")
+        raise RuntimeError(error_msg)
     
     def _flush_tx_queue(self):
         """
