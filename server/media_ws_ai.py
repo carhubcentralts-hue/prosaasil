@@ -10966,46 +10966,11 @@ class MediaStreamHandler:
             # Processing new user input")
             
             # 3. FAQ Fast-Path - Voice calls only (≤200 chars)
-            # ⚡ Try FAQ matching BEFORE calling AgentKit for instant responses
-            faq_match = None
-            faq_start_time = time.time()
-            if len(text) <= 200:  # Only short queries
-                try:
-                    from server.services.faq_engine import match_faq
-                    business_id = getattr(self, 'business_id', None)
-                    if business_id:
-                        faq_match = match_faq(business_id, text, channel="voice")
-                except Exception as e:
-                    logger.error(f"⚠️ [FAQ_ERROR] {e}")
+            # 🔥 REMOVED: FAQ Fast-Path completely removed per architecture requirements
+            # Phone calls now use simple Gemini LLM → OpenAI Tools flow
+            # No FAQ matching, no embeddings, no cache lookups
             
-            # If FAQ matched - respond immediately and skip AgentKit!
-            if faq_match:
-                faq_ms = (time.time() - faq_start_time) * 1000
-                logger.info(f"🚀 [FAQ_HIT] biz={getattr(self, 'business_id', '?')} intent={faq_match['intent_key']} score={faq_match['score']:.3f} method={faq_match['method']} ms={faq_ms:.0f}ms")
-                reply = faq_match['answer']
-                
-                # Track as FAQ turn (no Agent SDK call)
-                logger.info(f"🤖 [FAQ_RESPONSE] {reply[:100]}... (skipped Agent)")
-                
-                # Speak the FAQ answer and return to listening
-                if reply and reply.strip():
-                    self.conversation_history.append({
-                        'user': text,
-                        'bot': reply
-                    })
-                    self._speak_simple(reply)
-                
-                # Return to LISTEN state
-                self.state = STATE_LISTEN
-                self.processing = False
-                logger.info(f"✅ [FAQ_COMPLETE] Returned to LISTEN (total: {(time.time() - faq_start_time)*1000:.0f}ms)")
-                return
-            else:
-                # FAQ miss - proceed to AgentKit
-                faq_ms = (time.time() - faq_start_time) * 1000
-                logger.info(f"⏭️ [FAQ_MISS] No match found (search took {faq_ms:.0f}ms) → proceeding to AgentKit")
-            
-            # No FAQ match - proceed with AgentKit (normal flow)
+            # Proceed with Agent/LLM (normal flow)
             ai_processing_start = time.time()
             
             # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!
