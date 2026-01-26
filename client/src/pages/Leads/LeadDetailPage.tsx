@@ -1287,16 +1287,12 @@ function MergedWhatsAppTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsAp
         message: customMessage
       };
 
-      if (attachmentId) {
-        payload.attachment_id = attachmentId;
-      }
 
       await http.post('/api/whatsapp/send', payload);
       
       setSuccess('ההודעה נשלחה בהצלחה!');
       setCustomMessage('');
       setSelectedTemplateId(null);
-      setAttachmentId(null);
       
       setTimeout(() => setSuccess(null), 5000);
     } catch (err: any) {
