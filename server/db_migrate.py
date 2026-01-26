@@ -5534,103 +5534,73 @@ def apply_migrations():
         if check_table_exists('call_log'):
             migration_success = True
             try:
-                # Step 1: Add started_at column if missing
-                if not check_column_exists('call_log', 'started_at'):
-                    checkpoint("  → Adding started_at column to call_log...")
-                    exec_ddl(db.engine, """
-                        ALTER TABLE call_log 
-                        ADD COLUMN started_at TIMESTAMP DEFAULT NULL
-                    """)
-                    checkpoint("  ✅ started_at column added to call_log")
+                from sqlalchemy import text
+                
+                # 🔥 PRODUCTION-SAFE: Set timeouts for DDL operations
+                # - statement_timeout = 0: No timeout for migration DDL (safe when system is down)
+                # - lock_timeout = 5s: Fail fast if table is locked (shouldn't happen if migrations run first)
+                checkpoint("  → Setting production-safe timeouts for DDL operations...")
+                with db.engine.begin() as conn:
+                    conn.execute(text("SET statement_timeout = 0"))
+                    conn.execute(text("SET lock_timeout = '5s'"))
+                checkpoint("  ✅ Timeouts configured (statement_timeout=0, lock_timeout=5s)")
+                
+                # Step 1: Add started_at column with IF NOT EXISTS for idempotency
+                checkpoint("  → Adding started_at column to call_log (idempotent)...")
+                column_existed_before = check_column_exists('call_log', 'started_at')
+                exec_ddl(db.engine, """
+                    ALTER TABLE call_log 
+                    ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT NULL
+                """)
+                column_exists_now = check_column_exists('call_log', 'started_at')
+                if column_exists_now:
+                    if column_existed_before:
+                        checkpoint("  ℹ️ started_at column already existed")
+                    else:
+                        checkpoint("  ✅ started_at column added successfully")
                     migrations_applied.append('109_call_log_started_at')
                 else:
-                    checkpoint("  ℹ️ started_at already exists on call_log")
+                    checkpoint("  ⚠️ started_at column failed to add")
                 
-                # Step 2: Add ended_at column if missing
-                if not check_column_exists('call_log', 'ended_at'):
-                    checkpoint("  → Adding ended_at column to call_log...")
-                    exec_ddl(db.engine, """
-                        ALTER TABLE call_log 
-                        ADD COLUMN ended_at TIMESTAMP DEFAULT NULL
-                    """)
-                    checkpoint("  ✅ ended_at column added to call_log")
+                # Step 2: Add ended_at column with IF NOT EXISTS for idempotency
+                checkpoint("  → Adding ended_at column to call_log (idempotent)...")
+                column_existed_before = check_column_exists('call_log', 'ended_at')
+                exec_ddl(db.engine, """
+                    ALTER TABLE call_log 
+                    ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP DEFAULT NULL
+                """)
+                column_exists_now = check_column_exists('call_log', 'ended_at')
+                if column_exists_now:
+                    if column_existed_before:
+                        checkpoint("  ℹ️ ended_at column already existed")
+                    else:
+                        checkpoint("  ✅ ended_at column added successfully")
                     migrations_applied.append('109_call_log_ended_at')
                 else:
-                    checkpoint("  ℹ️ ended_at already exists on call_log")
+                    checkpoint("  ⚠️ ended_at column failed to add")
                 
-                # Step 3: Add duration_sec column if missing
-                duration_sec_is_new = not check_column_exists('call_log', 'duration_sec')
-                if duration_sec_is_new:
-                    checkpoint("  → Adding duration_sec column to call_log...")
-                    exec_ddl(db.engine, """
-                        ALTER TABLE call_log 
-                        ADD COLUMN duration_sec INTEGER DEFAULT NULL
-                    """)
-                    checkpoint("  ✅ duration_sec column added to call_log")
+                # Step 3: Add duration_sec column with IF NOT EXISTS for idempotency
+                checkpoint("  → Adding duration_sec column to call_log (idempotent)...")
+                column_existed_before = check_column_exists('call_log', 'duration_sec')
+                exec_ddl(db.engine, """
+                    ALTER TABLE call_log 
+                    ADD COLUMN IF NOT EXISTS duration_sec INTEGER DEFAULT NULL
+                """)
+                column_exists_now = check_column_exists('call_log', 'duration_sec')
+                if column_exists_now:
+                    if column_existed_before:
+                        checkpoint("  ℹ️ duration_sec column already existed")
+                    else:
+                        checkpoint("  ✅ duration_sec column added successfully")
                     migrations_applied.append('109_call_log_duration_sec')
-                    
-                    # Backfill duration_sec from existing data (only on first creation)
-                    # 🔥 PERFORMANCE: Use batched updates to avoid long locks on large tables
-                    checkpoint("  → Backfilling duration_sec from existing data in batches...")
-                    from sqlalchemy import text
-                    
-                    # First, try to backfill from the 'duration' field (existing Twilio duration)
-                    # Do this in batches to avoid long-running transactions and locks
-                    batch_size = 5000
-                    total_updated_from_duration = 0
-                    
-                    while True:
-                        result = db.session.execute(text("""
-                            UPDATE call_log 
-                            SET duration_sec = duration
-                            WHERE id IN (
-                                SELECT id FROM call_log
-                                WHERE duration IS NOT NULL 
-                                  AND duration > 0 
-                                  AND duration_sec IS NULL
-                                LIMIT :batch_size
-                            )
-                        """), {"batch_size": batch_size})
-                        rows_updated = result.rowcount
-                        total_updated_from_duration += rows_updated
-                        db.session.commit()  # Commit each batch
-                        
-                        checkpoint(f"    Batch complete: {rows_updated} rows updated (total: {total_updated_from_duration})")
-                        
-                        if rows_updated < batch_size:
-                            break  # No more rows to update
-                    
-                    checkpoint(f"  ✅ Backfilled {total_updated_from_duration} rows from 'duration' field")
-                    
-                    # Then, calculate from started_at and ended_at for rows that still don't have duration_sec
-                    total_updated_from_timestamps = 0
-                    
-                    while True:
-                        result = db.session.execute(text("""
-                            UPDATE call_log 
-                            SET duration_sec = EXTRACT(EPOCH FROM (ended_at - started_at))::INTEGER
-                            WHERE id IN (
-                                SELECT id FROM call_log
-                                WHERE started_at IS NOT NULL 
-                                  AND ended_at IS NOT NULL 
-                                  AND ended_at > started_at
-                                  AND duration_sec IS NULL
-                                LIMIT :batch_size
-                            )
-                        """), {"batch_size": batch_size})
-                        rows_updated = result.rowcount
-                        total_updated_from_timestamps += rows_updated
-                        db.session.commit()  # Commit each batch
-                        
-                        checkpoint(f"    Batch complete: {rows_updated} rows updated (total: {total_updated_from_timestamps})")
-                        
-                        if rows_updated < batch_size:
-                            break  # No more rows to update
-                    
-                    checkpoint(f"  ✅ Calculated {total_updated_from_timestamps} rows from started_at/ended_at")
-                    checkpoint("  ✅ Backfill complete")
                 else:
-                    checkpoint("  ℹ️ duration_sec already exists on call_log")
+                    checkpoint("  ⚠️ duration_sec column failed to add")
+                
+                # 🔥 PRODUCTION-SAFE: Skip backfill in migration
+                # Backfill should run as a separate background job after system is up
+                # to avoid long-running locks on the call_log table during migration
+                checkpoint("  ℹ️ Backfill skipped - DDL complete, data migration deferred to background job")
+                checkpoint("  ℹ️ To backfill data, run a separate job or script after deployment")
                 
             except Exception as e:
                 checkpoint(f"❌ Migration 109 failed: {e}")
@@ -5642,7 +5612,7 @@ def apply_migrations():
         
         # Only report success if migration actually succeeded
         if migration_success:
-            checkpoint("✅ Migration 109 complete: Call duration tracking enhanced")
+            checkpoint("✅ Migration 109 complete: Call duration tracking columns added (production-safe)")
         else:
             checkpoint("⚠️ Migration 109 incomplete - check logs for details")
         
