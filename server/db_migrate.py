@@ -5560,7 +5560,8 @@ def apply_migrations():
                         checkpoint("  ✅ started_at column added successfully")
                     migrations_applied.append('109_call_log_started_at')
                 else:
-                    checkpoint("  ⚠️ started_at column failed to add")
+                    checkpoint("  ❌ started_at column failed to add")
+                    raise Exception("Failed to add started_at column to call_log")
                 
                 # Step 2: Add ended_at column with IF NOT EXISTS for idempotency
                 checkpoint("  → Adding ended_at column to call_log (idempotent)...")
@@ -5577,7 +5578,8 @@ def apply_migrations():
                         checkpoint("  ✅ ended_at column added successfully")
                     migrations_applied.append('109_call_log_ended_at')
                 else:
-                    checkpoint("  ⚠️ ended_at column failed to add")
+                    checkpoint("  ❌ ended_at column failed to add")
+                    raise Exception("Failed to add ended_at column to call_log")
                 
                 # Step 3: Add duration_sec column with IF NOT EXISTS for idempotency
                 checkpoint("  → Adding duration_sec column to call_log (idempotent)...")
@@ -5594,7 +5596,8 @@ def apply_migrations():
                         checkpoint("  ✅ duration_sec column added successfully")
                     migrations_applied.append('109_call_log_duration_sec')
                 else:
-                    checkpoint("  ⚠️ duration_sec column failed to add")
+                    checkpoint("  ❌ duration_sec column failed to add")
+                    raise Exception("Failed to add duration_sec column to call_log")
                 
                 # 🔥 PRODUCTION-SAFE: Skip backfill in migration
                 # Backfill should run as a separate background job after system is up
@@ -5607,6 +5610,11 @@ def apply_migrations():
                 logger.error(f"Migration 109 error: {e}", exc_info=True)
                 db.session.rollback()
                 migration_success = False
+                # 🔥 CRITICAL: Fail hard - stop all migrations and exit with error
+                # This ensures the migrate container exits with non-zero code
+                # and dependent services (API, worker, calls) don't start with broken schema
+                checkpoint("🚫 STOPPING: Migration 109 is critical - cannot continue with failed migration")
+                raise Exception(f"Critical migration 109 failed: {e}")
         else:
             checkpoint("  ℹ️ call_log table does not exist - skipping")
         
@@ -5614,7 +5622,11 @@ def apply_migrations():
         if migration_success:
             checkpoint("✅ Migration 109 complete: Call duration tracking columns added (production-safe)")
         else:
+            # Defensive programming path - should never execute as all failure scenarios 
+            # now raise exceptions immediately, but included as a safety net in case
+            # exception handling logic changes in the future
             checkpoint("⚠️ Migration 109 incomplete - check logs for details")
+            raise Exception("Migration 109 failed but exception was not raised properly")
         
         # ═══════════════════════════════════════════════════════════════════════
         # Migration 110: Add summary_status to call_log for summary generation tracking
