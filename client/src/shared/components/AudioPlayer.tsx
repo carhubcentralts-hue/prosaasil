@@ -17,6 +17,27 @@ const PLAYBACK_SPEED_KEY = 'audioPlaybackRate';
 // Key: recording URL, Value: timestamp of last preparation request
 const globalPreparationCache = new Map<string, number>();
 const PREPARATION_COOLDOWN_MS = 30000; // 30 seconds cooldown between preparation requests
+const CACHE_CLEANUP_INTERVAL_MS = 60000; // Clean up cache every 60 seconds
+
+// 🔥 FIX: Periodic cleanup to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  const entriesToDelete: string[] = [];
+  
+  // Find expired entries
+  globalPreparationCache.forEach((timestamp, url) => {
+    if (now - timestamp > PREPARATION_COOLDOWN_MS) {
+      entriesToDelete.push(url);
+    }
+  });
+  
+  // Remove expired entries
+  entriesToDelete.forEach(url => globalPreparationCache.delete(url));
+  
+  if (entriesToDelete.length > 0) {
+    console.log(`[AudioPlayer] Cleaned ${entriesToDelete.length} expired cache entries`);
+  }
+}, CACHE_CLEANUP_INTERVAL_MS);
 
 /**
  * AudioPlayer with Playback Speed Controls and Async Recording Support
@@ -123,9 +144,16 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       const lastPreparation = globalPreparationCache.get(streamUrl);
       
       if (lastPreparation && (now - lastPreparation) < PREPARATION_COOLDOWN_MS) {
-        // Another instance triggered this recently, just start polling
-        console.log(`[AudioPlayer] Skipping duplicate preparation for ${streamUrl} (cooldown active)`);
-        pollRecordingStatus(statusUrl, 0);
+        // Another instance triggered this recently
+        // Instead of making request, just start polling to wait for result
+        const remainingMs = PREPARATION_COOLDOWN_MS - (now - lastPreparation);
+        console.log(`[AudioPlayer] Skipping duplicate preparation for ${streamUrl} (${Math.ceil(remainingMs / 1000)}s cooldown remaining)`);
+        
+        // 🔥 FIX: Don't immediately poll - wait a bit first to avoid server load
+        // The other instance is likely already polling
+        setTimeout(() => {
+          pollRecordingStatus(statusUrl, 0);
+        }, Math.min(5000, remainingMs)); // Wait 5 seconds or until cooldown expires
         return;
       }
       
