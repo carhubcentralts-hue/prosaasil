@@ -1,32 +1,55 @@
 # Migration 109 Deployment Guide
 
 ## Overview
-This guide explains how to deploy the production-safe fixes for Migration 109.
+This guide explains the production-safe implementation for Migration 109, including the critical fix for failure handling.
 
 ## Problem
-Migration 109 was failing because it attempted to ALTER TABLE `call_log` while the system was running, causing:
-- Lock contention (Postgres couldn't acquire exclusive lock)
-- Statement timeout errors
-- Migration failures in production
+Migration 109 was experiencing two issues:
+1. **Lock contention**: Attempting to ALTER TABLE `call_log` while the system was running caused timeouts
+2. **Silent failures**: When migration failed, the system would continue and report "Migration completed successfully", leading to `UndefinedColumn` errors when applications started
 
 ## Solution
-We've implemented a production-safe migration pattern:
+We've implemented a production-safe migration pattern with fail-hard error handling:
 
 ### 1. Migration 109 Changes (db_migrate.py)
 - ✅ Added `IF NOT EXISTS` to all ALTER TABLE statements for idempotency
 - ✅ Set `statement_timeout = 0` (no timeout for DDL when system is down)
 - ✅ Set `lock_timeout = '5s'` (fail fast if table is locked - shouldn't happen)
 - ✅ Removed heavy backfill operations from migration (deferred to background job)
+- ✅ **NEW: Fail-hard error handling** - Migration raises exception on ANY failure
+- ✅ **NEW: Column existence validation** - Fails if columns don't exist after DDL
+- ✅ **NEW: Exit code 1 on failure** - Docker won't start dependent services
 
 ### 2. Docker Compose Changes
 - ✅ Added dedicated `migrate` service that runs once before all other services
 - ✅ Set `restart: "no"` for migrate service (runs once and exits)
 - ✅ All services (api, calls, worker) depend on `migrate` completing successfully
-- ✅ Disabled `RUN_MIGRATIONS_ON_START` in API service
+- ✅ Disabled `RUN_MIGRATIONS_ON_START` in all services except migrate
 
 ### 3. Production Docker Compose Changes
 - ✅ Same pattern applied to docker-compose.prod.yml
 - ✅ Uses Dockerfile.backend.light for production
+
+## Key Fix: Fail-Hard Error Handling
+
+**Before the fix:**
+```
+❌ Migration 109 failed: statement timeout
+⚠️ Migration 109 incomplete - check logs for details
+Migration 110: Adding summary_status...
+✅ Migration completed successfully!
+Exit code: 0  ← Docker thinks migration succeeded
+```
+
+**After the fix:**
+```
+❌ Migration 109 failed: statement timeout
+🚫 STOPPING: Migration 109 is critical - cannot continue with failed migration
+❌ MIGRATION FAILED: Critical migration 109 failed: statement timeout
+Exit code: 1  ← Docker will NOT start dependent services
+```
+
+This ensures that if Migration 109 fails for ANY reason (timeout, lock, partial success), the migrate container exits with code 1 and dependent services won't start with broken schema.
 
 ## Deployment Steps
 
@@ -74,6 +97,60 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 # Check logs
 docker compose -f docker-compose.yml -f docker-compose.prod.yml logs migrate
 ```
+
+## Verification
+
+After deployment, verify that migration 109 completed successfully:
+
+```sql
+-- Check that columns were added
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name = 'call_log'
+AND column_name IN ('started_at','ended_at','duration_sec');
+
+-- Should return 3 rows
+```
+
+Expected output:
+```
+ column_name  
+--------------
+ started_at
+ ended_at
+ duration_sec
+```
+
+## What Changed in the Fix
+
+### Investigation Findings:
+1. ✅ **No duplicates found** - Migration 109 columns are defined only once
+2. ✅ **Already idempotent** - Uses `IF NOT EXISTS` (can be run multiple times safely)
+3. ✅ **Only migrate service runs migrations** - All other services have `RUN_MIGRATIONS=0`
+4. ❌ **Bug found: Silent failures** - Migration could fail but system would continue
+
+### The Fix:
+- **Fail-hard on DDL errors**: If `exec_ddl` throws exception, migration immediately stops
+- **Fail-hard on validation**: If columns don't exist after DDL, migration immediately stops
+- **Fail-hard on partial success**: If any of the 3 columns fails to add, migration stops
+- **Exception propagation**: Exceptions bubble up to `if __name__ == '__main__'` which calls `sys.exit(1)`
+
+### Why This Matters:
+Without fail-hard logic, the system could:
+1. Fail Migration 109 (timeout, lock, etc.)
+2. Continue to Migration 110, 111...
+3. Print "✅ Migration completed successfully!"
+4. Exit with code 0
+5. Docker starts all services
+6. Application fails with `UndefinedColumn: column call_log.started_at does not exist`
+
+With fail-hard logic:
+1. Fail Migration 109
+2. Raise exception immediately
+3. Print "❌ MIGRATION FAILED"
+4. Exit with code 1
+5. Docker does NOT start dependent services
+6. System stays down until migration is fixed
 
 ## Verification
 
