@@ -674,6 +674,11 @@ def create_app():
         app.register_blueprint(push_bp)
         app.logger.info("✅ Push Notifications blueprint registered")
         
+        # Recording Management - /api/recordings/*
+        from server.routes_recordings import recordings_bp
+        app.register_blueprint(recordings_bp)
+        app.logger.info("✅ Recording Management blueprint registered")
+        
     except Exception as e:
         app.logger.error(f"❌ CRITICAL: Failed to register essential API blueprints: {e}")
         import traceback

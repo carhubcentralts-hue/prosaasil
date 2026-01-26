@@ -9370,7 +9370,47 @@ class MediaStreamHandler:
                             if call_log.status in ['initiated', 'ringing', 'in-progress', 'queued', 'in_progress']:
                                 call_log.status = 'ended'
                                 _orig_print(f"   ✅ Updated status='ended' for {self.call_sid}", flush=True)
+                            
                             db.session.commit()
+                            
+                            # 🔥 SEMAPHORE: Release outbound call slot if this was a bulk call
+                            # This MUST happen after commit to ensure status is saved
+                            from server.models_sql import OutboundCallJob
+                            from server.services.outbound_semaphore import release_slot
+                            
+                            # Check if this call was part of a bulk outbound run
+                            outbound_job = OutboundCallJob.query.filter_by(
+                                twilio_call_sid=self.call_sid
+                            ).first()
+                            
+                            if outbound_job and outbound_job.status not in ['completed', 'failed']:
+                                # Determine if this was successful or failed
+                                # Consider 'ended' as completed if call lasted reasonable time
+                                if call_log.call_status in ['completed', 'ended']:
+                                    outbound_job.status = "completed"
+                                else:
+                                    outbound_job.status = "failed"
+                                    outbound_job.error_message = f"Call ended with status: {call_log.call_status}"
+                                
+                                outbound_job.completed_at = datetime.utcnow()
+                                
+                                # Update run counters
+                                if outbound_job.run:
+                                    outbound_job.run.in_progress_count = max(0, outbound_job.run.in_progress_count - 1)
+                                    if outbound_job.status == "completed":
+                                        outbound_job.run.completed_count += 1
+                                    else:
+                                        outbound_job.run.failed_count += 1
+                                
+                                db.session.commit()
+                                
+                                # Release semaphore slot
+                                next_job_id = release_slot(call_log.business_id, outbound_job.id)
+                                _orig_print(f"   ✅ Released outbound semaphore slot for job {outbound_job.id}", flush=True)
+                                
+                                if next_job_id:
+                                    _orig_print(f"   ➡️ Next job {next_job_id} can now proceed", flush=True)
+                            
                             _orig_print(f"   ✅ Call status updated in database", flush=True)
                         else:
                             _orig_print(f"   ⚠️ No CallLog found for {self.call_sid}", flush=True)
@@ -16145,6 +16185,38 @@ class MediaStreamHandler:
                             call_log.recording_sid = self._recording_sid
                             if DEBUG:
                                 logger.info(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
+                        
+                        db.session.commit()
+                        
+                        # 🔥 SEMAPHORE: Release outbound call slot if this was a bulk call
+                        # This MUST happen after commit to ensure job status is saved
+                        from server.models_sql import OutboundCallJob
+                        from server.services.outbound_semaphore import release_slot
+                        
+                        # Check if this call was part of a bulk outbound run
+                        outbound_job = OutboundCallJob.query.filter_by(
+                            twilio_call_sid=self.call_sid
+                        ).first()
+                        
+                        if outbound_job:
+                            # Update job status to completed
+                            if outbound_job.status != "completed":
+                                outbound_job.status = "completed"
+                                outbound_job.completed_at = datetime.utcnow()
+                                
+                                # Update run counters
+                                if outbound_job.run:
+                                    outbound_job.run.in_progress_count = max(0, outbound_job.run.in_progress_count - 1)
+                                    outbound_job.run.completed_count += 1
+                                    db.session.commit()
+                            
+                            # Release semaphore slot
+                            next_job_id = release_slot(call_log.business_id, outbound_job.id)
+                            
+                            if next_job_id:
+                                logger.info(f"[OUTBOUND_SEM] Released slot for job {outbound_job.id}, next job {next_job_id} can proceed")
+                            else:
+                                logger.info(f"[OUTBOUND_SEM] Released slot for job {outbound_job.id}, no jobs waiting")
                         
                         # 🔥 NEW: Update appointment with transcript and summary
                         try:

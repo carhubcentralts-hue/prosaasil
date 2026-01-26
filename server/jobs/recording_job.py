@@ -1,131 +1,136 @@
 """
 Recording download and transcription job for RQ worker.
 
-This replaces the in-memory RECORDING_QUEUE with proper Redis-backed RQ jobs.
+This replaces the Thread-based RECORDING_QUEUE with proper Redis-backed RQ jobs.
+Uses RecordingRun model as single source of truth for job state.
 """
 import logging
 import time
+from datetime import datetime
 from server.app_factory import get_process_app
 from server.db import db
 
 logger = logging.getLogger(__name__)
 
-def process_recording_download_job(call_sid, recording_url, business_id, from_number="", to_number="", recording_sid=None):
+
+def process_recording_rq_job(run_id: int):
     """
-    RQ job function for downloading recordings (priority for UI playback).
+    RQ Worker job - processes a single recording run
     
-    This function runs in the RQ worker process with proper app context.
-    It replaces the threading-based RECORDING_QUEUE system.
+    This is the NEW unified job function that handles both download-only
+    and full processing based on RecordingRun.job_type.
     
     Args:
-        call_sid: Twilio call SID
-        recording_url: URL to download recording from
-        business_id: Business ID for slot management
-        from_number: Caller phone number  
-        to_number: Callee phone number
-        recording_sid: Twilio recording SID (optional)
-    
+        run_id: RecordingRun.id to process
+        
     Returns:
         dict: Job result with success status
     """
     app = get_process_app()
     
     with app.app_context():
-        logger.info(f"🎯 [RQ_RECORDING] Download job picked: call_sid={call_sid} business_id={business_id}")
+        from server.models_sql import RecordingRun
+        from server.services.recording_semaphore import acquire_slot, release_slot
+        
+        # Load RecordingRun from DB
+        run = RecordingRun.query.get(run_id)
+        if not run:
+            logger.error(f"❌ [RQ_RECORDING] RecordingRun {run_id} not found")
+            return {"success": False, "error": "run_not_found"}
+        
+        # Check cancel_requested before starting
+        if run.cancel_requested:
+            logger.info(f"⚠️ [RQ_RECORDING] Run {run_id} cancelled before start")
+            run.status = 'cancelled'
+            run.completed_at = datetime.utcnow()
+            db.session.commit()
+            return {"success": False, "error": "cancelled"}
+        
+        logger.info(f"🎯 [RQ_RECORDING] Job picked: run_id={run_id} call_sid={run.call_sid} business_id={run.business_id} job_type={run.job_type}")
         
         # 🔥 IDEMPOTENCY: Early exit if file already exists
-        # This handles race conditions where multiple jobs might have been enqueued
         from server.services.recording_service import check_local_recording_exists
-        if check_local_recording_exists(call_sid):
-            logger.info(f"✅ [RQ_RECORDING] File already cached for {call_sid} - skipping download")
-            return {"success": True, "call_sid": call_sid, "cached": True}
+        if check_local_recording_exists(run.call_sid):
+            logger.info(f"✅ [RQ_RECORDING] File already cached for {run.call_sid} - marking complete")
+            run.status = 'completed'
+            run.completed_at = datetime.utcnow()
+            db.session.commit()
+            return {"success": True, "call_sid": run.call_sid, "cached": True}
         
         slot_acquired = False
         try:
-            # Acquire slot for business (prevents overwhelming Twilio API)
-            from server.recording_semaphore import try_acquire_slot, release_slot
+            # Acquire Redis semaphore slot (3 concurrent per business)
+            acquired, status = acquire_slot(run.business_id, run_id)
+            if not acquired:
+                logger.warning(f"⚠️ [RQ_RECORDING] No slot available for business {run.business_id}, status={status}")
+                # RQ will retry automatically
+                raise Exception(f"No slot available: {status}")
             
-            if business_id:
-                acquired, status = try_acquire_slot(business_id, call_sid)
-                if not acquired:
-                    logger.warning(f"⚠️ [RQ_RECORDING] No slot available for business {business_id}")
-                    # RQ will retry automatically
-                    raise Exception(f"No slot available: {status}")
-                
-                slot_acquired = True
-                logger.info(f"✅ [RQ_RECORDING] Slot acquired: business_id={business_id}")
+            slot_acquired = True
+            logger.info(f"✅ [RQ_RECORDING] Slot acquired: run_id={run_id} business_id={run.business_id}")
             
-            # Download recording
-            from server.tasks_recording import download_recording_only
+            # Update run.status = 'running', run.started_at = now()
+            run.status = 'running'
+            run.started_at = datetime.utcnow()
+            db.session.commit()
             
+            # Check cancel_requested again after acquiring slot
+            if run.cancel_requested:
+                logger.info(f"⚠️ [RQ_RECORDING] Run {run_id} cancelled after slot acquired")
+                run.status = 'cancelled'
+                run.completed_at = datetime.utcnow()
+                db.session.commit()
+                return {"success": False, "error": "cancelled"}
+            
+            # Process based on job_type
             start_time = time.time()
-            success = download_recording_only(call_sid, recording_url)
+            success = False
+            
+            if run.job_type == 'download':
+                # Download only (for UI playback)
+                from server.tasks_recording import download_recording_only
+                success = download_recording_only(run.call_sid, run.recording_url)
+            else:
+                # Full processing (download + transcription)
+                from server.tasks_recording import process_recording_async
+                form_data = {
+                    "CallSid": run.call_sid,
+                    "RecordingUrl": run.recording_url,
+                    "From": "",
+                    "To": "",
+                }
+                success = process_recording_async(form_data)
+            
             duration_ms = int((time.time() - start_time) * 1000)
             
+            # Update run.status = 'completed', run.completed_at = now()
             if success:
-                logger.info(f"✅ [RQ_RECORDING] Downloaded: call_sid={call_sid} duration_ms={duration_ms}")
-                return {"success": True, "call_sid": call_sid, "duration_ms": duration_ms}
+                run.status = 'completed'
+                run.completed_at = datetime.utcnow()
+                db.session.commit()
+                logger.info(f"✅ [RQ_RECORDING] Complete: run_id={run_id} call_sid={run.call_sid} duration_ms={duration_ms}")
+                return {"success": True, "run_id": run_id, "duration_ms": duration_ms}
             else:
-                logger.error(f"❌ [RQ_RECORDING] Download failed: call_sid={call_sid}")
-                # Let RQ retry
-                raise Exception("Download failed")
-        
-        except Exception as e:
-            logger.error(f"❌ [RQ_RECORDING] Job error: {e}")
-            raise
-        
-        finally:
-            # Always release slot
-            if slot_acquired and business_id:
-                from server.recording_semaphore import release_slot
-                release_slot(business_id, call_sid)
-                logger.info(f"🔓 [RQ_RECORDING] Slot released: business_id={business_id}")
-
-
-def process_recording_full_job(call_sid, recording_url, business_id, from_number="", to_number=""):
-    """
-    RQ job function for full recording processing (download + transcription).
-    
-    Args:
-        call_sid: Twilio call SID
-        recording_url: URL to download recording from
-        business_id: Business ID
-        from_number: Caller phone number
-        to_number: Callee phone number
-    
-    Returns:
-        dict: Job result with success status
-    """
-    app = get_process_app()
-    
-    with app.app_context():
-        logger.info(f"🎧 [RQ_RECORDING] Full processing job picked: call_sid={call_sid}")
-        
-        # 🔥 IDEMPOTENCY: Early exit if file already exists and transcribed
-        from server.services.recording_service import check_local_recording_exists
-        if check_local_recording_exists(call_sid):
-            logger.info(f"✅ [RQ_RECORDING] File already cached for {call_sid} - skipping full processing")
-            return {"success": True, "call_sid": call_sid, "cached": True}
-        
-        try:
-            from server.tasks_recording import process_recording_async
-            
-            form_data = {
-                "CallSid": call_sid,
-                "RecordingUrl": recording_url,
-                "From": from_number,
-                "To": to_number,
-            }
-            
-            success = process_recording_async(form_data)
-            
-            if success:
-                logger.info(f"✅ [RQ_RECORDING] Full processing complete: call_sid={call_sid}")
-                return {"success": True, "call_sid": call_sid}
-            else:
-                logger.error(f"❌ [RQ_RECORDING] Full processing failed: call_sid={call_sid}")
+                run.status = 'failed'
+                run.error_message = 'Processing failed'
+                run.completed_at = datetime.utcnow()
+                db.session.commit()
+                logger.error(f"❌ [RQ_RECORDING] Failed: run_id={run_id} call_sid={run.call_sid}")
                 raise Exception("Processing failed")
         
         except Exception as e:
-            logger.error(f"❌ [RQ_RECORDING] Full processing error: {e}")
+            # Update run with error
+            run.status = 'failed'
+            run.error_message = str(e)[:500]  # Limit length
+            run.completed_at = datetime.utcnow()
+            run.retry_count += 1
+            db.session.commit()
+            
+            logger.error(f"❌ [RQ_RECORDING] Job error: run_id={run_id} error={e}")
             raise
+        
+        finally:
+            # Release semaphore in finally block
+            if slot_acquired:
+                release_slot(run.business_id, run_id)
+                logger.info(f"🔓 [RQ_RECORDING] Slot released: run_id={run_id} business_id={run.business_id}")

@@ -63,6 +63,55 @@ class CallsService {
   getRecordingUrl(sid: string): string {
     return `/api/calls/${sid}/recording`;
   }
+
+  // Outbound Queue Management
+  async getQueueStatus(jobId: number): Promise<{
+    job_id: number;
+    status: string;
+    total: number;
+    processed: number;
+    success: number;
+    failed: number;
+    in_progress: number;
+    queued: number;
+    progress_pct: number;
+    can_cancel: boolean;
+    cancel_requested: boolean;
+    created_at: string | null;
+    completed_at: string | null;
+  }> {
+    return http.get(`/api/outbound_calls/jobs/${jobId}/status`);
+  }
+
+  async cancelQueue(jobId: number): Promise<{ success: boolean; message: string }> {
+    return http.post(`/api/outbound_calls/jobs/${jobId}/cancel`, {});
+  }
+
+  async getActiveQueue(): Promise<{
+    job_id: number;
+    status: string;
+    total: number;
+    processed: number;
+    success: number;
+    failed: number;
+    in_progress: number;
+    queued: number;
+    progress_pct: number;
+    can_cancel: boolean;
+    cancel_requested: boolean;
+    created_at: string | null;
+    completed_at: string | null;
+  } | null> {
+    try {
+      return await http.get('/api/outbound_calls/jobs/active');
+    } catch (error: any) {
+      // 404 means no active queue - return null
+      if (error?.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
 }
 
 export const callsService = new CallsService();
