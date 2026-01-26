@@ -14,18 +14,17 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
    - NO batch processing, NO Whisper, NO duplication
 
 🔷 Gemini Provider (ai_provider='gemini'):
-   - STT: Google Cloud Speech-to-Text API (google.cloud.speech)
-         ⚠️ This is Google Cloud Speech API, NOT Gemini STT API!
+   - STT: OpenAI Whisper API (whisper-1)
    - LLM: Google Gemini API (gemini-2.0-flash-exp)
    - TTS: Google Gemini Native Speech
    - Pipeline: Batch processing (STT → LLM → TTS)
-   - Requires: GEMINI_API_KEY (same key for all services)
-   - NO Whisper, NO duplication
+   - Requires: OPENAI_API_KEY (for Whisper), GEMINI_API_KEY (for LLM/TTS)
+   - NO Google Cloud STT, NO duplication
 
 🔑 KEY CONFIGURATION:
-   - OpenAI: OPENAI_API_KEY
-   - Gemini (ALL services): GEMINI_API_KEY
-     ├─ Google Cloud Speech-to-Text: Uses GEMINI_API_KEY
+   - OpenAI: OPENAI_API_KEY (for Realtime API)
+   - Gemini: 
+     ├─ Whisper STT: Uses OPENAI_API_KEY
      ├─ Gemini LLM: Uses GEMINI_API_KEY
      └─ Gemini TTS: Uses GEMINI_API_KEY
 
@@ -36,7 +35,7 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
    
 🚫 NO TRANSCRIPTION DUPLICATION:
    - OpenAI: Uses Realtime API only (no batch STT)
-   - Gemini: Uses Google Cloud STT only (no Whisper)
+   - Gemini: Uses Whisper STT only (no Google Cloud STT)
    - Each provider has ONE transcription path
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -11640,7 +11639,7 @@ class MediaStreamHandler:
         """
         🔥 STT Routing based on ai_provider - NO FALLBACK, NO DUPLICATION:
         - OpenAI provider: NEVER CALLED - Uses OpenAI Realtime API (gpt-4o-transcribe built-in)
-        - Gemini provider: Uses Google Cloud Speech-to-Text (NOT Gemini STT API)
+        - Gemini provider: Uses Whisper STT (OpenAI's Whisper API)
         
         This function is ONLY used for Gemini pipeline (when use_realtime=False).
         OpenAI always uses Realtime API which handles STT internally.
@@ -11720,26 +11719,106 @@ class MediaStreamHandler:
             except Exception as numpy_error:
                 logger.error(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
             
-            # 🔷 GEMINI: Use Google Cloud Speech-to-Text API with GEMINI_API_KEY
-            # Note: This is Google Cloud Speech-to-Text (google.cloud.speech), NOT Gemini STT API
-            logger.info(f"[STT_ROUTING] provider=gemini -> google_cloud_speech_api (auth: GEMINI_API_KEY)")
+            # 🔷 GEMINI: Use Whisper STT (OpenAI's Whisper API)
+            # This avoids dependency on Google Cloud STT
+            logger.info(f"[STT_ROUTING] provider=gemini -> whisper_api (auth: OPENAI_API_KEY)")
             
-            # 🚫 NO FALLBACK: Check if GEMINI_API_KEY is available
-            from server.utils.gemini_key_provider import get_gemini_api_key
-            gemini_api_key = get_gemini_api_key()
-            if not gemini_api_key:
+            # 🚫 NO FALLBACK: Check if OpenAI client is available
+            from server.services.lazy_services import get_openai_client
+            client = get_openai_client()
+            if not client:
                 error_msg = (
-                    "Google Cloud Speech-to-Text unavailable: GEMINI_API_KEY not configured. "
-                    "Set GEMINI_API_KEY environment variable for Google Cloud STT, Gemini LLM, and Gemini TTS."
+                    "Whisper STT unavailable: OPENAI_API_KEY not configured. "
+                    "Set OPENAI_API_KEY environment variable for Whisper STT (used by Gemini pipeline)."
                 )
                 logger.error(f"❌ [CONFIG] {error_msg}")
                 raise Exception(error_msg)
             
-            # Use Google Cloud Speech-to-Text for Gemini provider with GEMINI_API_KEY - NO FALLBACK TO WHISPER
-            return self._google_stt_batch(pcm16_8k)
+            # Use Whisper STT for Gemini provider - NO FALLBACK
+            return self._whisper_stt_for_gemini(pcm16_8k)
                 
         except Exception as e:
             logger.error(f"❌ STT_ERROR: {e}")
+            return ""
+    
+    def _whisper_stt_for_gemini(self, pcm16_8k: bytes) -> str:
+        """
+        🔷 Whisper STT for Gemini Provider
+        
+        Uses OpenAI's Whisper API for speech-to-text transcription when using Gemini provider.
+        This avoids dependency on Google Cloud Speech-to-Text API.
+        """
+        try:
+            logger.info(f"🔄 [WHISPER_GEMINI] Processing {len(pcm16_8k)} bytes with Whisper STT")
+            
+            from server.services.lazy_services import get_openai_client
+            client = get_openai_client()
+            if not client:
+                logger.error("❌ OpenAI client not available for Whisper STT")
+                return ""
+            
+            # Resample to 16kHz for Whisper
+            import audioop
+            pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
+            logger.info(f"🔄 RESAMPLED: {len(pcm16_8k)} bytes @ 8kHz → {len(pcm16_16k)} bytes @ 16kHz")
+            
+            # Create WAV file for Whisper
+            import tempfile
+            import wave
+            import os
+            
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                with wave.open(temp_wav.name, 'wb') as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(16000)
+                    wav_file.writeframes(pcm16_16k)
+                
+                with open(temp_wav.name, 'rb') as audio_file:
+                    # Call Whisper API
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="he",  # Hebrew language
+                        prompt="זוהי שיחת טלפון בעברית. תמלל רק דיבור ברור. אם אין דיבור ברור - החזר ריק.",
+                        temperature=0.0  # Maximum accuracy
+                    )
+            
+            os.unlink(temp_wav.name)
+            
+            result = transcript.text.strip()
+            
+            # Basic validation
+            if not result or len(result) < 2:
+                logger.info("✅ [WHISPER_GEMINI] Empty/minimal result")
+                return ""
+            
+            # Filter out common hallucinations
+            import re
+            hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', result))
+            english_chars = len(re.findall(r'[a-zA-Z]', result))
+            
+            # If no Hebrew at all and has English - likely hallucination
+            if hebrew_chars == 0 and english_chars > 3:
+                logger.info(f"🚫 [WHISPER_GEMINI] Pure English result '{result}' - blocking hallucination")
+                return ""
+            
+            # Block noise hallucinations
+            noise_hallucinations = [
+                "uh", "eh", "mmm", "hmm", "אה", "הממ", "אמ", "הא",
+                ".", "..", "...", "-", "—", " "
+            ]
+            if result.lower().strip() in noise_hallucinations:
+                logger.info(f"🚫 [WHISPER_GEMINI] Noise hallucination '{result}' - blocking")
+                return ""
+            
+            logger.info(f"✅ [WHISPER_GEMINI] Transcription success: '{result}'")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ [WHISPER_GEMINI] Error: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
     
     def _whisper_fallback_validated(self, pcm16_8k: bytes) -> str:
@@ -11992,13 +12071,13 @@ class MediaStreamHandler:
         """
         🔥 DEPRECATED: This should NEVER be called!
         
-        - OpenAI: Uses Realtime API (not Whisper)
-        - Gemini: Uses Google STT (not Whisper)
+        - OpenAI: Uses Realtime API (not batch Whisper)
+        - Gemini: Uses Whisper STT directly (not this fallback)
         
         If this is called, it's a bug in the routing logic.
         """
         logger.error("❌ [BUG] _whisper_fallback called - this should never happen with current routing!")
-        logger.error("❌ OpenAI should use Realtime API, Gemini should use Google STT")
+        logger.error("❌ OpenAI should use Realtime API, Gemini should use Whisper STT directly")
         raise Exception("Whisper fallback called incorrectly - check STT routing logic")
     
     def _load_business_prompts(self, channel: str = 'calls') -> str:
