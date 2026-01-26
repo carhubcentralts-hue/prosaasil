@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File, Send, FileSignature, MoreHorizontal, ClipboardList, FolderOpen } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
@@ -17,32 +17,30 @@ import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
 import { useStatuses, LeadStatus } from '../../features/statuses/hooks';
 import { getStatusColor, getStatusLabel } from '../../shared/utils/status';
+import { useLeadTabsConfig } from './hooks/useLeadTabsConfig';
 
 interface LeadDetailPageProps {}
 
-// Primary tabs - always visible (3 maximum per requirements)
-const PRIMARY_TABS = [
-  { key: 'activity', label: 'פעילות', icon: Activity },  // Unified Timeline
-  { key: 'reminders', label: 'משימות', icon: ClipboardList },
-  { key: 'documents', label: 'מסמכים', icon: FolderOpen },  // Contracts + Notes with files
+// 🔥 ALL AVAILABLE TABS - can be configured per business
+const ALL_AVAILABLE_TABS = [
+  { key: 'activity', label: 'פעילות', icon: Activity, description: 'ציר זמן של כל הפעילויות' },
+  { key: 'reminders', label: 'משימות', icon: ClipboardList, description: 'משימות ותזכורות' },
+  { key: 'documents', label: 'מסמכים', icon: FolderOpen, description: 'חוזים והערות עם קבצים' },
+  { key: 'overview', label: 'סקירה', icon: User, description: 'פרטי הליד' },
+  { key: 'whatsapp', label: 'וואטסאפ', icon: MessageSquare, description: 'שליחת הודעות וסיכום שיחות' },
+  { key: 'calls', label: 'שיחות טלפון', icon: Phone, description: 'היסטוריית שיחות' },
+  { key: 'email', label: 'מייל', icon: Mail, description: 'שליחת מיילים' },
+  { key: 'contracts', label: 'חוזים', icon: FileSignature, description: 'ניהול חוזים' },
+  { key: 'appointments', label: 'פגישות', icon: Calendar, description: 'פגישות מתוזמנות' },
+  { key: 'ai_notes', label: 'שירות לקוחות AI', icon: Phone, description: 'הערות AI' },
+  { key: 'notes', label: 'הערות חופשיות', icon: FileText, description: 'הערות ידניות' },
 ] as const;
 
-// Secondary tabs - shown in "More" dropdown
-const SECONDARY_TABS = [
-  { key: 'overview', label: 'סקירה', icon: User },
-  { key: 'whatsapp', label: 'וואטסאפ', icon: MessageSquare },  // 🔥 MERGED: Combined conversation + template
-  { key: 'calls', label: 'שיחות טלפון', icon: Phone },
-  { key: 'email', label: 'מייל', icon: Mail },
-  { key: 'contracts', label: 'חוזים', icon: FileSignature },
-  { key: 'appointments', label: 'פגישות', icon: Calendar },
-  { key: 'ai_notes', label: 'שירות לקוחות AI', icon: Phone },
-  { key: 'notes', label: 'הערות חופשיות', icon: FileText },
-] as const;
+// Default configuration if not set
+const DEFAULT_PRIMARY_TABS = ['activity', 'reminders', 'documents'];
+const DEFAULT_SECONDARY_TABS = ['overview', 'whatsapp', 'calls', 'email', 'contracts', 'appointments', 'ai_notes', 'notes'];
 
-// All tabs combined for backward compatibility
-const ALL_TABS = [...PRIMARY_TABS, ...SECONDARY_TABS] as const;
-
-type TabKey = typeof PRIMARY_TABS[number]['key'] | typeof SECONDARY_TABS[number]['key'];
+type TabKey = typeof ALL_AVAILABLE_TABS[number]['key'];
 
 export default function LeadDetailPage({}: LeadDetailPageProps) {
   const { id } = useParams<{ id: string }>();
@@ -136,6 +134,27 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   
   // Status management - use shared hook for consistent statuses
   const { statuses, refreshStatuses } = useStatuses();
+  
+  // 🔥 NEW: Dynamic tabs configuration
+  const { tabsConfig, loading: loadingTabsConfig } = useLeadTabsConfig();
+  
+  // Calculate primary and secondary tabs based on configuration
+  const { primaryTabs, secondaryTabs } = useMemo(() => {
+    const primaryKeys = tabsConfig?.primary || DEFAULT_PRIMARY_TABS;
+    const secondaryKeys = tabsConfig?.secondary || DEFAULT_SECONDARY_TABS;
+    
+    const primary = primaryKeys
+      .map(key => ALL_AVAILABLE_TABS.find(tab => tab.key === key))
+      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined)
+      .slice(0, 3); // Max 3 primary tabs
+    
+    const secondary = secondaryKeys
+      .map(key => ALL_AVAILABLE_TABS.find(tab => tab.key === key))
+      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined)
+      .slice(0, 3); // Max 3 secondary tabs
+    
+    return { primaryTabs: primary, secondaryTabs: secondary };
+  }, [tabsConfig]);
   
   // Data for each tab
   const [activities, setActivities] = useState<LeadActivity[]>([]);
@@ -445,13 +464,13 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           <div className="flex items-center justify-between gap-3 py-3">
             {/* Primary Tabs - Segmented Control */}
             <div className="flex items-center bg-gray-100 rounded-lg p-1 flex-1 max-w-md">
-              {PRIMARY_TABS.map((tab) => {
+              {primaryTabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.key;
                 return (
                   <button
                     key={tab.key}
-                    onClick={() => setActiveTab(tab.key)}
+                    onClick={() => setActiveTab(tab.key as TabKey)}
                     className={`
                       flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-md text-sm font-medium transition-all
                       min-h-[44px]
@@ -476,7 +495,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 className={`
                   flex items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all
                   min-h-[44px] border
-                  ${SECONDARY_TABS.some(t => t.key === activeTab)
+                  ${secondaryTabs.some(t => t.key === activeTab)
                     ? 'bg-blue-50 text-blue-600 border-blue-200'
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                   }
@@ -490,14 +509,14 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               
               {moreMenuOpen && (
                 <div className="absolute left-0 lg:right-0 lg:left-auto top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 min-w-[200px] max-h-[300px] overflow-y-auto">
-                  {SECONDARY_TABS.map((tab) => {
+                  {secondaryTabs.map((tab) => {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.key;
                     return (
                       <button
                         key={tab.key}
                         onClick={() => {
-                          setActiveTab(tab.key);
+                          setActiveTab(tab.key as TabKey);
                           setMoreMenuOpen(false);
                         }}
                         className={`
