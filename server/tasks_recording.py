@@ -515,7 +515,8 @@ def start_recording_worker(app):
                                 local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
                                 if os.path.exists(local_path):
                                     file_size = os.path.getsize(local_path)
-                                    logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} path={local_path} bytes={file_size} duration_ms={download_duration_ms}")
+                                    # Log filename only, not full path for security
+                                    logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} file={call_sid}.mp3 bytes={file_size} duration_ms={download_duration_ms}")
                                 else:
                                     logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} duration_ms={download_duration_ms}")
                             except Exception:
@@ -654,7 +655,9 @@ def start_recording_worker(app):
                 # 🔥 DB RESILIENCE: DB error - log and continue with next job
                 from server.utils.db_health import log_db_error
                 log_db_error(e, context="recording_worker")
-                logger.error(f"❌ [WORKER_JOB_FAILED] call_sid={job.get('call_sid', 'unknown')} reason=db_error error={str(e)[:100]}")
+                # Sanitize error message to avoid leaking sensitive DB info
+                error_type = type(e).__name__
+                logger.error(f"❌ [WORKER_JOB_FAILED] call_sid={job.get('call_sid', 'unknown')} reason=db_error type={error_type}")
                 
                 # Rollback to clean up session
                 try:
@@ -669,7 +672,10 @@ def start_recording_worker(app):
             except Exception as e:
                 # 🔥 DB RESILIENCE: Any other error - log and continue
                 log.error(f"[OFFLINE_STT] Worker error: {e}")
-                logger.error(f"❌ [WORKER_JOB_FAILED] call_sid={job.get('call_sid', 'unknown')} reason=exception error={str(e)[:100]}")
+                # Sanitize error message to avoid leaking sensitive info
+                error_type = type(e).__name__
+                error_msg = str(e)[:50]  # Limit length
+                logger.error(f"❌ [WORKER_JOB_FAILED] call_sid={job.get('call_sid', 'unknown')} reason=exception type={error_type} msg={error_msg}")
                 import traceback
                 traceback.print_exc()
                 

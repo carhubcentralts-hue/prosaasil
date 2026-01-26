@@ -168,6 +168,7 @@ def apply_migrations():
     # This ensures only ONE process runs migrations at a time
     LOCK_ID = 1234567890
     LOCK_WAIT_SECONDS = int(os.getenv("MIGRATION_LOCK_WAIT_SECONDS", "30"))
+    STATEMENT_TIMEOUT = os.getenv("MIGRATION_STATEMENT_TIMEOUT", "120s")
     
     checkpoint("Acquiring PostgreSQL advisory lock for migrations...")
     from sqlalchemy import text
@@ -177,8 +178,8 @@ def apply_migrations():
         # 🔥 CRITICAL: Set statement_timeout locally for this connection
         # This prevents the database from killing our lock acquisition attempts
         conn = db.session.connection()
-        conn.execute(text("SET LOCAL statement_timeout = '120s'"))
-        checkpoint("✅ Set statement_timeout to 120s for migration connection")
+        conn.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+        checkpoint(f"✅ Set statement_timeout to {STATEMENT_TIMEOUT} for migration connection")
         
         # 🔥 NEW: Try to acquire lock with retry loop
         start_time = time.time()
@@ -5373,9 +5374,8 @@ def apply_migrations():
     finally:
         if lock_acquired:
             try:
-                # Use the same LOCK_ID constant defined above
-                LOCK_ID = 1234567890
-                db.session.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": LOCK_ID})
+                # Release lock using the same LOCK_ID (1234567890)
+                db.session.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": 1234567890})
                 checkpoint("✅ Released migration lock")
             except Exception as e:
                 checkpoint(f"⚠️ Failed to release migration lock: {e}")
