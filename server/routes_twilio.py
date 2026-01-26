@@ -485,24 +485,55 @@ def incoming_call():
     # ✅ BUILD 100: זיהוי business לפי to_number - חיפוש ישיר ב-Business.phone_e164 (העמודה האמיתית!)
     from server.models_sql import Business
     from sqlalchemy import or_
+    import sqlalchemy.exc
     
     business_id = None
     if to_number:
-        normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
-        business = Business.query.filter(
-            or_(
-                Business.phone_e164 == to_number,
-                Business.phone_e164 == normalized_phone
-            )
-        ).first()
-        
-        if business:
-            business_id = business.id
-        else:
-            # Fallback: עסק פעיל ראשון
-            business = Business.query.filter_by(is_active=True).first()
+        try:
+            normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+            business = Business.query.filter(
+                or_(
+                    Business.phone_e164 == to_number,
+                    Business.phone_e164 == normalized_phone
+                )
+            ).first()
+            
             if business:
                 business_id = business.id
+            else:
+                # Fallback: עסק פעיל ראשון
+                business = Business.query.filter_by(is_active=True).first()
+                if business:
+                    business_id = business.id
+        except sqlalchemy.exc.ProgrammingError as e:
+            # 🔥 DB SCHEMA ERROR PROTECTION: Handle missing columns gracefully
+            # This prevents Twilio webhook crashes when DB schema is not up to date
+            logger.error(f"❌ Database schema error in incoming_call: {e}")
+            logger.error("   This usually means migrations haven't run yet or schema is out of sync")
+            logger.error("   Returning TwiML error response instead of crashing")
+            
+            # Return graceful TwiML error instead of 500
+            vr = VoiceResponse()
+            vr.say(
+                "המערכת זמנית לא זמינה. אנא נסו שוב בעוד מספר דקות.",
+                language="he-IL",
+                voice="Google.he-IL-Wavenet-C"
+            )
+            vr.hangup()
+            return str(vr), 200, {"Content-Type": "text/xml"}
+        except Exception as e:
+            # Catch any other DB errors
+            logger.error(f"❌ Unexpected database error in incoming_call: {e}", exc_info=True)
+            
+            # Return graceful TwiML error instead of 500
+            vr = VoiceResponse()
+            vr.say(
+                "אירעה שגיאה זמנית. אנא נסו שוב מאוחר יותר.",
+                language="he-IL",
+                voice="Google.he-IL-Wavenet-C"
+            )
+            vr.hangup()
+            return str(vr), 200, {"Content-Type": "text/xml"}
     
     # 🔥 P3-1: GLOBAL CAPACITY CHECK (before business-specific limits)
     # Check system-wide call capacity to prevent overload

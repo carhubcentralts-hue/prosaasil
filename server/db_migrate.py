@@ -138,15 +138,6 @@ def apply_migrations():
     import os
     import time
     
-    # 🔥 CRITICAL: Check RUN_MIGRATIONS env var - migrations should only run in designated container
-    run_migrations = os.getenv('RUN_MIGRATIONS', '0')
-    if run_migrations != '1':
-        checkpoint("=" * 80)
-        checkpoint("🚫 MIGRATIONS_DISABLED: RUN_MIGRATIONS is not set to '1'")
-        checkpoint("   Migrations are disabled for this service")
-        checkpoint("=" * 80)
-        return 'skip'  # Return 'skip' to indicate migrations were disabled
-    
     # 🔥 CRITICAL: Hard gate - workers must NEVER run migrations
     # Migrations should only run once during API startup, not on every job
     service_role = os.getenv('SERVICE_ROLE', '').lower()
@@ -157,10 +148,21 @@ def apply_migrations():
         checkpoint("🚫 MIGRATIONS_SKIPPED: service_role=worker")
         checkpoint("   Workers use existing schema - migrations run only in API")
         checkpoint("=" * 80)
-        return []
+        return 'skip'  # Return 'skip' to indicate migrations were skipped
+    
+    # 🔥 AUTOMATIC MIGRATIONS: When apply_migrations() is called by the API server,
+    # it should run automatically. The RUN_MIGRATIONS env var is optional for backwards
+    # compatibility but not required. Migrations run by default when called.
+    run_migrations = os.getenv('RUN_MIGRATIONS', '1')  # Default to '1' (enabled)
+    if run_migrations != '1':
+        checkpoint("=" * 80)
+        checkpoint("🚫 MIGRATIONS_DISABLED: RUN_MIGRATIONS explicitly set to disable")
+        checkpoint("   Set RUN_MIGRATIONS=1 to enable migrations")
+        checkpoint("=" * 80)
+        return 'skip'  # Return 'skip' to indicate migrations were disabled
     
     checkpoint("Starting apply_migrations()")
-    checkpoint(f"  SERVICE_ROLE: {service_role or 'not set'}")
+    checkpoint(f"  SERVICE_ROLE: {service_role or 'not set (API server)'}")
     migrations_applied = []
     
     # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock with retry
@@ -5626,16 +5628,16 @@ def apply_migrations():
         if check_table_exists('business'):
             try:
                 if not check_column_exists('business', 'lead_tabs_config'):
-                    checkpoint("  → Adding lead_tabs_config JSON column...")
+                    checkpoint("  → Adding lead_tabs_config JSONB column with default empty object...")
                     exec_ddl(db.engine, """
                         ALTER TABLE business 
-                        ADD COLUMN lead_tabs_config JSON DEFAULT NULL
+                        ADD COLUMN IF NOT EXISTS lead_tabs_config JSONB NOT NULL DEFAULT '{}'::jsonb
                     """)
                     exec_ddl(db.engine, """
                         COMMENT ON COLUMN business.lead_tabs_config IS 
-                        'Flexible tab configuration for lead detail page. JSON object with primary and secondary tab arrays. Max 3 primary + 3 secondary (6 total). Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes'
+                        'Flexible tab configuration for lead detail page. JSONB object with primary and secondary tab arrays. Max 3 primary + 3 secondary (6 total). Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes'
                     """)
-                    checkpoint("  ✅ Column lead_tabs_config added to business table")
+                    checkpoint("  ✅ Column lead_tabs_config added to business table with JSONB type")
                     migrations_applied.append('112_lead_tabs_config')
                 else:
                     checkpoint("  ℹ️ Column lead_tabs_config already exists")

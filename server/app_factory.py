@@ -119,6 +119,21 @@ def ensure_db_ready(app, max_retries=10, retry_delay=2.0):
                             continue
                         return False
                     
+                    # Test 4: Check critical columns exist (like lead_tabs_config)
+                    # This prevents queries from failing with UndefinedColumn error
+                    result = db.session.execute(text(
+                        "SELECT 1 FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() "
+                        "AND table_name = :table_name "
+                        "AND column_name = :column_name"
+                    ), {"table_name": "business", "column_name": "lead_tabs_config"})
+                    if not result.fetchone():
+                        logger.error("❌ Critical column 'business.lead_tabs_config' not found")
+                        logger.error("   Migrations need to run! Set RUN_MIGRATIONS=1 or run migrations manually")
+                        logger.error("   System will attempt to continue but queries may fail")
+                        # Don't return False here - let schema validation handle it
+                        # But log clearly so the issue is visible
+                    
                     db.session.rollback()  # Clean up
                     
                     # All checks passed - set flag (already inside lock)

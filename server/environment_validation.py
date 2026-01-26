@@ -29,6 +29,7 @@ CRITICAL_COLUMNS = {
     ],
     'business': [
         'voice_id',  # Required for per-business voice selection in Realtime API
+        'lead_tabs_config',  # Required for flexible lead tabs configuration
     ],
     'users': [
         'push_enabled',  # Required for push notification preferences (routes_push.py)
