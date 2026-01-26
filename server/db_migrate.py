@@ -168,7 +168,9 @@ def apply_migrations():
     # This ensures only ONE process runs migrations at a time
     LOCK_ID = 1234567890
     LOCK_WAIT_SECONDS = int(os.getenv("MIGRATION_LOCK_WAIT_SECONDS", "30"))
-    STATEMENT_TIMEOUT = os.getenv("MIGRATION_STATEMENT_TIMEOUT", "120s")
+    # 🔥 PERFORMANCE: Set to '0' (unlimited) for migrations to avoid timeouts on large tables
+    # Can be overridden with MIGRATION_STATEMENT_TIMEOUT env var if needed
+    STATEMENT_TIMEOUT = os.getenv("MIGRATION_STATEMENT_TIMEOUT", "0")
     
     checkpoint("Acquiring PostgreSQL advisory lock for migrations...")
     from sqlalchemy import text
@@ -5568,33 +5570,64 @@ def apply_migrations():
                     migrations_applied.append('109_call_log_duration_sec')
                     
                     # Backfill duration_sec from existing data (only on first creation)
-                    checkpoint("  → Backfilling duration_sec from existing data...")
+                    # 🔥 PERFORMANCE: Use batched updates to avoid long locks on large tables
+                    checkpoint("  → Backfilling duration_sec from existing data in batches...")
                     from sqlalchemy import text
                     
                     # First, try to backfill from the 'duration' field (existing Twilio duration)
-                    result = db.session.execute(text("""
-                        UPDATE call_log 
-                        SET duration_sec = duration
-                        WHERE duration IS NOT NULL 
-                          AND duration > 0 
-                          AND duration_sec IS NULL
-                    """))
-                    updated_from_duration = result.rowcount
-                    checkpoint(f"  ✅ Backfilled {updated_from_duration} rows from 'duration' field")
+                    # Do this in batches to avoid long-running transactions and locks
+                    batch_size = 5000
+                    total_updated_from_duration = 0
+                    
+                    while True:
+                        result = db.session.execute(text("""
+                            UPDATE call_log 
+                            SET duration_sec = duration
+                            WHERE id IN (
+                                SELECT id FROM call_log
+                                WHERE duration IS NOT NULL 
+                                  AND duration > 0 
+                                  AND duration_sec IS NULL
+                                LIMIT :batch_size
+                            )
+                        """), {"batch_size": batch_size})
+                        rows_updated = result.rowcount
+                        total_updated_from_duration += rows_updated
+                        db.session.commit()  # Commit each batch
+                        
+                        checkpoint(f"    Batch complete: {rows_updated} rows updated (total: {total_updated_from_duration})")
+                        
+                        if rows_updated < batch_size:
+                            break  # No more rows to update
+                    
+                    checkpoint(f"  ✅ Backfilled {total_updated_from_duration} rows from 'duration' field")
                     
                     # Then, calculate from started_at and ended_at for rows that still don't have duration_sec
-                    result = db.session.execute(text("""
-                        UPDATE call_log 
-                        SET duration_sec = EXTRACT(EPOCH FROM (ended_at - started_at))::INTEGER
-                        WHERE started_at IS NOT NULL 
-                          AND ended_at IS NOT NULL 
-                          AND ended_at > started_at
-                          AND duration_sec IS NULL
-                    """))
-                    updated_from_timestamps = result.rowcount
-                    checkpoint(f"  ✅ Calculated {updated_from_timestamps} rows from started_at/ended_at")
+                    total_updated_from_timestamps = 0
                     
-                    db.session.commit()
+                    while True:
+                        result = db.session.execute(text("""
+                            UPDATE call_log 
+                            SET duration_sec = EXTRACT(EPOCH FROM (ended_at - started_at))::INTEGER
+                            WHERE id IN (
+                                SELECT id FROM call_log
+                                WHERE started_at IS NOT NULL 
+                                  AND ended_at IS NOT NULL 
+                                  AND ended_at > started_at
+                                  AND duration_sec IS NULL
+                                LIMIT :batch_size
+                            )
+                        """), {"batch_size": batch_size})
+                        rows_updated = result.rowcount
+                        total_updated_from_timestamps += rows_updated
+                        db.session.commit()  # Commit each batch
+                        
+                        checkpoint(f"    Batch complete: {rows_updated} rows updated (total: {total_updated_from_timestamps})")
+                        
+                        if rows_updated < batch_size:
+                            break  # No more rows to update
+                    
+                    checkpoint(f"  ✅ Calculated {total_updated_from_timestamps} rows from started_at/ended_at")
                     checkpoint("  ✅ Backfill complete")
                 else:
                     checkpoint("  ℹ️ duration_sec already exists on call_log")
@@ -5664,6 +5697,32 @@ def apply_migrations():
             checkpoint("  ℹ️ call_log table does not exist - skipping")
         
         checkpoint("✅ Migration 110 complete: Summary tracking system ready")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 111: Add composite index on (business_id, created_at) for efficient date range queries
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 111: Adding composite index on call_log(business_id, created_at)")
+        
+        if check_table_exists('call_log'):
+            try:
+                if not check_index_exists('idx_call_log_business_created'):
+                    checkpoint("  → Creating composite index idx_call_log_business_created...")
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_call_log_business_created 
+                        ON call_log(business_id, created_at)
+                    """)
+                    checkpoint("  ✅ Composite index idx_call_log_business_created created")
+                    migrations_applied.append('111_call_log_business_created_index')
+                else:
+                    checkpoint("  ℹ️ Index idx_call_log_business_created already exists")
+            except Exception as e:
+                checkpoint(f"❌ Migration 111 (composite index) failed: {e}")
+                logger.error(f"Migration 111 index error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ call_log table does not exist - skipping")
+        
+        checkpoint("✅ Migration 111 complete: Dashboard query performance optimized")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:

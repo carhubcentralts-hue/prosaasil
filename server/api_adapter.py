@@ -212,12 +212,18 @@ def dashboard_stats():
         
         # 🔥 BUILD 171: Wrap each query in try-except for better error isolation
         # 🔥 FIX: Add timing for each query to identify slow ones
+        # 🔥 PERFORMANCE FIX: Use range-based queries instead of date() function for index efficiency
         query_start = time.time()
         try:
+            # Convert date range to datetime range for proper comparison
+            # This allows the database to use indexes on created_at efficiently
+            date_start_dt = datetime.combine(date_start, datetime.min.time())
+            date_end_dt = datetime.combine(date_end, datetime.max.time())
+            
             calls_in_range = CallLog.query.filter(
                 CallLog.business_id == tenant_id,
-                db.func.date(CallLog.created_at) >= date_start,
-                db.func.date(CallLog.created_at) <= date_end
+                CallLog.created_at >= date_start_dt,
+                CallLog.created_at <= date_end_dt
             ).count()
             query_time = (time.time() - query_start) * 1000
             if query_time > 1000:  # Log if > 1s

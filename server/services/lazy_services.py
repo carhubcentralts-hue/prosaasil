@@ -118,6 +118,33 @@ def warmup_services_async():
         logger.info("  🚫 Google STT warmup SKIPPED (DISABLE_GOOGLE=true)")
         log.info("WARMUP_STT_SKIPPED")
         
+        # 🔥 Warmup Gemini clients (LLM + TTS) to catch initialization errors at startup
+        logger.info("  🔥 Warming Gemini LLM client...")
+        try:
+            from server.services.providers.google_clients import get_gemini_llm_client
+            gemini_llm = get_gemini_llm_client()
+            logger.info("    ✅ Gemini LLM client ready")
+            log.info("WARMUP_GEMINI_LLM_OK")
+        except RuntimeError as e:
+            logger.warning(f"    ⚠️ Gemini LLM client not available: {e}")
+            log.warning(f"WARMUP_GEMINI_LLM_ERR: {e}")
+        except Exception as e:
+            logger.error(f"    ❌ Gemini LLM client failed: {e}")
+            log.error(f"WARMUP_GEMINI_LLM_EXCEPTION: {e}")
+        
+        logger.info("  🔥 Warming Gemini TTS client...")
+        try:
+            from server.services.providers.google_clients import get_gemini_tts_client
+            gemini_tts = get_gemini_tts_client()
+            logger.info("    ✅ Gemini TTS client ready")
+            log.info("WARMUP_GEMINI_TTS_OK")
+        except RuntimeError as e:
+            logger.warning(f"    ⚠️ Gemini TTS client not available: {e}")
+            log.warning(f"WARMUP_GEMINI_TTS_ERR: {e}")
+        except Exception as e:
+            logger.error(f"    ❌ Gemini TTS client failed: {e}")
+            log.error(f"WARMUP_GEMINI_TTS_EXCEPTION: {e}")
+        
         # 🔥 CRITICAL: Warmup Agent Kit to avoid first-call latency
         # Can be disabled with DISABLE_AGENT_WARMUP=1 if schema issues occur
         if disable_agent_warmup:
