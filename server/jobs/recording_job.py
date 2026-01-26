@@ -33,6 +33,13 @@ def process_recording_download_job(call_sid, recording_url, business_id, from_nu
     with app.app_context():
         logger.info(f"🎯 [RQ_RECORDING] Download job picked: call_sid={call_sid} business_id={business_id}")
         
+        # 🔥 IDEMPOTENCY: Early exit if file already exists
+        # This handles race conditions where multiple jobs might have been enqueued
+        from server.services.recording_service import check_local_recording_exists
+        if check_local_recording_exists(call_sid):
+            logger.info(f"✅ [RQ_RECORDING] File already cached for {call_sid} - skipping download")
+            return {"success": True, "call_sid": call_sid, "cached": True}
+        
         slot_acquired = False
         try:
             # Acquire slot for business (prevents overwhelming Twilio API)
@@ -93,6 +100,12 @@ def process_recording_full_job(call_sid, recording_url, business_id, from_number
     
     with app.app_context():
         logger.info(f"🎧 [RQ_RECORDING] Full processing job picked: call_sid={call_sid}")
+        
+        # 🔥 IDEMPOTENCY: Early exit if file already exists and transcribed
+        from server.services.recording_service import check_local_recording_exists
+        if check_local_recording_exists(call_sid):
+            logger.info(f"✅ [RQ_RECORDING] File already cached for {call_sid} - skipping full processing")
+            return {"success": True, "call_sid": call_sid, "cached": True}
         
         try:
             from server.tasks_recording import process_recording_async

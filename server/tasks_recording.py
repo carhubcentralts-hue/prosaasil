@@ -232,12 +232,26 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
     
     try:
         redis_conn = redis.from_url(REDIS_URL)
+        
+        # 🔥 IDEMPOTENCY: Redis NX key to prevent duplicate enqueues
+        # For full jobs, use longer TTL (300s = 5min) since processing takes longer
+        job_key = f"job:full:{business_id}:{call_sid}"
+        try:
+            acquired = redis_conn.set(job_key, "enqueued", nx=True, ex=300)
+            if not acquired:
+                ttl = redis_conn.ttl(job_key)
+                log.info(f"[OFFLINE_STT] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
+                logger.info(f"🔒 [RQ] Duplicate full job blocked: call_sid={call_sid}")
+                return
+        except Exception as e:
+            logger.warning(f"[OFFLINE_STT] Redis dedup error for {call_sid}: {e} - proceeding anyway")
+        
         queue = Queue('recordings', connection=redis_conn)
         
         # Import job function
         from server.jobs.recording_job import process_recording_full_job
         
-        # Enqueue to RQ
+        # Enqueue to RQ with millisecond precision for uniqueness
         rq_job = queue.enqueue(
             process_recording_full_job,
             call_sid=call_sid,
@@ -246,7 +260,7 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
             from_number=from_number,
             to_number=to_number,
             job_timeout='30m',
-            job_id=f"recording_full_{call_sid}_{int(time.time())}",
+            job_id=f"recording_full_{call_sid}_{int(time.time()*1000)}",  # Millisecond precision
             retry=3  # RQ will retry up to 3 times
         )
         
@@ -300,12 +314,32 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     
     try:
         redis_conn = redis.from_url(REDIS_URL)
+        
+        # 🔥 IDEMPOTENCY: Redis NX key to prevent duplicate enqueues
+        # Short TTL (120s) to prevent blocking, but long enough to prevent double-clicks
+        job_key = f"job:download:{business_id}:{call_sid}"
+        try:
+            # NX = only set if not exists (atomic operation)
+            acquired = redis_conn.set(job_key, "enqueued", nx=True, ex=120)
+            if not acquired:
+                # Job already enqueued recently - skip duplicate
+                ttl = redis_conn.ttl(job_key)
+                log.info(f"[DOWNLOAD_ONLY] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
+                logger.info(f"🔒 [RQ] Duplicate enqueue blocked: call_sid={call_sid} (already queued)")
+                return False
+            else:
+                log.debug(f"[DOWNLOAD_ONLY] ✅ Job lock acquired for {call_sid}")
+        except Exception as e:
+            logger.warning(f"[DOWNLOAD_ONLY] Redis dedup error for {call_sid}: {e} - proceeding anyway")
+            # Continue on Redis error (fail-open)
+        
         queue = Queue('recordings', connection=redis_conn)
         
         # Import job function
         from server.jobs.recording_job import process_recording_download_job
         
         # Enqueue to RQ with retry
+        # Use millisecond precision in job_id for better uniqueness
         rq_job = queue.enqueue(
             process_recording_download_job,
             call_sid=call_sid,
@@ -315,7 +349,7 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
             to_number=to_number,
             recording_sid=recording_sid,
             job_timeout='10m',
-            job_id=f"recording_download_{call_sid}_{int(time.time())}",
+            job_id=f"recording_download_{call_sid}_{int(time.time()*1000)}",  # Millisecond precision
             retry=3,  # RQ will retry up to 3 times
             failure_ttl=3600  # Keep failed jobs for 1 hour for debugging
         )
