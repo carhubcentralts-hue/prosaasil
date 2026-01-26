@@ -1740,7 +1740,7 @@ def _handle_failed_call(call_log, call_status, db):
 
 def save_call_status(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
     """
-    שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout - BUILD 106
+    🔥 FIX: Enqueue call status update to RQ instead of Thread (prevents NameError: Thread not defined)
     
     Args:
         call_sid: Twilio Call SID
@@ -1750,12 +1750,29 @@ def save_call_status(call_sid, status, duration=0, direction="inbound", twilio_d
         twilio_direction: Original Twilio direction value
         parent_call_sid: Parent call SID if this is a child leg
     """
-    thread = Thread(target=save_call_status_async, 
-                   args=(call_sid, status, duration, direction, twilio_direction, parent_call_sid))
-    thread.daemon = True
-    thread.start()
-    log.info("Call status queued for update: %s -> %s (duration=%s, twilio_direction=%s)", 
-            call_sid, status, duration, twilio_direction)
+    try:
+        import redis
+        from rq import Queue
+        
+        # Connect to Redis
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        redis_conn = redis.from_url(redis_url)
+        
+        # Create RQ queue for call status updates
+        queue = Queue('call_status', connection=redis_conn, default_timeout=300)
+        
+        # Enqueue the status update job
+        job = queue.enqueue(
+            'server.tasks_recording.save_call_status_async',
+            call_sid, status, duration, direction, twilio_direction, parent_call_sid
+        )
+        
+        log.info("Call status queued for update via RQ: %s -> %s (duration=%s, twilio_direction=%s, job_id=%s)", 
+                call_sid, status, duration, twilio_direction, job.id if job else 'N/A')
+    except Exception as e:
+        # Fallback: If RQ fails, run synchronously to avoid losing the update
+        log.warning(f"Failed to enqueue call status via RQ: {e}. Running synchronously.")
+        save_call_status_async(call_sid, status, duration, direction, twilio_direction, parent_call_sid)
 
 def save_call_status_async(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
     """

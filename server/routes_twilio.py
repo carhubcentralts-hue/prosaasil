@@ -697,15 +697,10 @@ def incoming_call():
             name=f"PromptBuild-{call_sid[:8]}"
         ).start()
     
-    # 🎙️ NEW: Start recording from second 0 (background, non-blocking)
-    # Recording will capture the ENTIRE call including AI greeting
-    if call_sid:
-        threading.Thread(
-            target=_start_recording_from_second_zero,
-            args=(call_sid, from_number, to_number),
-            daemon=True,
-            name=f"RecordingStart-{call_sid[:8]}"
-        ).start()
+    # 🎙️ REMOVED: Recording start moved to in-progress status callback
+    # This prevents "Requested resource is not eligible for recording" errors
+    # Recording is now triggered in call_status webhook when status="in-progress"
+    # See routes_twilio.py call_status() handler for the new implementation
     
     # === יצירה אוטומטית של ליד (ברקע) - Non-blocking ===
     # 🔥 GREETING OPTIMIZATION: Lead creation happens in background - doesn't block TwiML response
@@ -874,15 +869,10 @@ def outbound_call():
             name=f"PromptBuildOut-{call_sid[:8]}"
         ).start()
     
-    # 🎙️ NEW: Start recording from second 0 (background, non-blocking)
-    # Recording will capture the ENTIRE outbound call including AI greeting
-    if call_sid:
-        threading.Thread(
-            target=_start_recording_from_second_zero,
-            args=(call_sid, from_number, to_number),
-            daemon=True,
-            name=f"RecordingStart-{call_sid[:8]}"
-        ).start()
+    # 🎙️ REMOVED: Recording start moved to in-progress status callback
+    # This prevents "Requested resource is not eligible for recording" errors
+    # Recording is now triggered in call_status webhook when status="in-progress"
+    # See routes_twilio.py call_status() handler for the new implementation
     
     t1 = time.time()
     twiml_ms = int((t1 - t0) * 1000)
@@ -1354,6 +1344,29 @@ def call_status():
             "twilio_direction": twilio_direction,
             "parent_call_sid": parent_call_sid
         })
+        
+        # 🔥 FIX ISSUE #5: Start recording when call is "in-progress" (not in TwiML phase)
+        # This prevents "Requested resource is not eligible for recording" errors
+        if call_status_val == "in-progress" and call_sid:
+            # Check if recording hasn't been started yet for this call
+            try:
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                if call_log and not call_log.recording_sid:
+                    # Get phone numbers for the recording job
+                    from_num = call_log.from_number or ""
+                    to_num = call_log.to_number or ""
+                    
+                    # Start recording in background thread (non-blocking)
+                    threading.Thread(
+                        target=_start_recording_from_second_zero,
+                        args=(call_sid, from_num, to_num),
+                        daemon=True,
+                        name=f"RecordingStart-InProgress-{call_sid[:8]}"
+                    ).start()
+                    logger.info(f"🎙️ [CALL_STATUS] Started recording for in-progress call {call_sid}")
+            except Exception as rec_err:
+                logger.warning(f"Failed to start recording for in-progress call {call_sid}: {rec_err}")
+        
         if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled", "ended"]:
             # 🔥 P3-1: Release capacity slot on terminal call status
             try:
