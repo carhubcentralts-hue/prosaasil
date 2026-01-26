@@ -5557,15 +5557,17 @@ def apply_migrations():
                     checkpoint("  ℹ️ ended_at already exists on call_log")
                 
                 # Step 3: Add duration_sec column if missing
-                if not check_column_exists('call_log', 'duration_sec'):
+                duration_sec_is_new = not check_column_exists('call_log', 'duration_sec')
+                if duration_sec_is_new:
                     checkpoint("  → Adding duration_sec column to call_log...")
                     exec_ddl(db.engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN duration_sec INTEGER DEFAULT NULL
                     """)
                     checkpoint("  ✅ duration_sec column added to call_log")
+                    migrations_applied.append('109_call_log_duration_sec')
                     
-                    # Backfill duration_sec from existing data
+                    # Backfill duration_sec from existing data (only on first creation)
                     checkpoint("  → Backfilling duration_sec from existing data...")
                     from sqlalchemy import text
                     
@@ -5594,7 +5596,6 @@ def apply_migrations():
                     
                     db.session.commit()
                     checkpoint("  ✅ Backfill complete")
-                    migrations_applied.append('109_call_log_duration_sec')
                 else:
                     checkpoint("  ℹ️ duration_sec already exists on call_log")
                 
@@ -5605,7 +5606,6 @@ def apply_migrations():
                 migration_success = False
         else:
             checkpoint("  ℹ️ call_log table does not exist - skipping")
-            migration_success = True
         
         # Only report success if migration actually succeeded
         if migration_success:
