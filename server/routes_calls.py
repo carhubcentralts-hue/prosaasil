@@ -391,7 +391,8 @@ def download_recording(call_sid):
             log.debug(f"Download recording: Enqueuing download for call_sid={call_sid}")
             
             # Enqueue download job - worker will acquire slot and release in finally
-            job_enqueued = enqueue_recording_download_only(
+            # 🔥 CRITICAL FIX: Returns (success, reason) tuple to distinguish dedup from errors
+            job_success, reason = enqueue_recording_download_only(
                 call_sid=call_sid,
                 recording_url=call.recording_url,
                 recording_sid=call.recording_sid,
@@ -400,14 +401,24 @@ def download_recording(call_sid):
                 to_number=call.to_number or ""
             )
             
-            if not job_enqueued:
-                # Job was not enqueued (file cached or duplicate)
-                logger.info(f"🔧 [API DOWNLOAD] Job not enqueued for {call_sid} (dedup hit)")
-                return jsonify({
-                    "success": True,
-                    "status": "ready",
-                    "message": "Recording is ready"
-                }), 200
+            # 🔥 CRITICAL FIX: Distinguish between dedup/cached (OK) vs error (FAIL)
+            if not job_success:
+                if reason == "error":
+                    # Enqueue failed - return error to prevent infinite retry loop
+                    logger.error(f"❌ [API DOWNLOAD] Failed to enqueue job for {call_sid}")
+                    return jsonify({
+                        "success": False,
+                        "status": "error",
+                        "message": "Failed to enqueue recording download"
+                    }), 500
+                else:
+                    # Job was not enqueued (file cached or duplicate) - this is OK
+                    logger.info(f"🔧 [API DOWNLOAD] Job not enqueued for {call_sid} (reason: {reason})")
+                    return jsonify({
+                        "success": True,
+                        "status": "ready",
+                        "message": "Recording is ready"
+                    }), 200
             
             return jsonify({
                 "success": True,
@@ -696,7 +707,8 @@ def stream_recording(call_sid):
             log.debug(f"Stream recording: Enqueuing download for call_sid={call_sid}")
             
             # Enqueue download job - worker will acquire slot and release in finally
-            job_enqueued = enqueue_recording_download_only(
+            # 🔥 CRITICAL FIX: Returns (success, reason) tuple to distinguish dedup from errors
+            job_success, reason = enqueue_recording_download_only(
                 call_sid=call_sid,
                 recording_url=call.recording_url,
                 recording_sid=call.recording_sid,
@@ -705,14 +717,24 @@ def stream_recording(call_sid):
                 to_number=call.to_number or ""
             )
             
-            if not job_enqueued:
-                # Job was not enqueued (file cached or duplicate)
-                logger.info(f"🔧 [API STREAM] Job not enqueued for {call_sid} (dedup hit)")
-                return jsonify({
-                    "success": True,
-                    "status": "ready",
-                    "message": "Recording is ready"
-                }), 200
+            # 🔥 CRITICAL FIX: Distinguish between dedup/cached (OK) vs error (FAIL)
+            if not job_success:
+                if reason == "error":
+                    # Enqueue failed - return error to prevent infinite retry loop
+                    logger.error(f"❌ [API STREAM] Failed to enqueue job for {call_sid}")
+                    return jsonify({
+                        "success": False,
+                        "status": "error",
+                        "message": "Failed to enqueue recording download"
+                    }), 500
+                else:
+                    # Job was not enqueued (file cached or duplicate) - this is OK
+                    logger.info(f"🔧 [API STREAM] Job not enqueued for {call_sid} (reason: {reason})")
+                    return jsonify({
+                        "success": True,
+                        "status": "ready",
+                        "message": "Recording is ready"
+                    }), 200
             
             return jsonify({
                 "success": True,
