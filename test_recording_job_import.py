@@ -59,20 +59,27 @@ def test_enqueue_parameters_match():
     """Verify that enqueue call parameters match function signature"""
     with open('server/tasks_recording.py', 'r') as f:
         content = f.read()
+        tree = ast.parse(content)
     
-    # Find the enqueue call
-    enqueue_start = content.find('queue.enqueue(\n            process_recording_download_job,')
-    if enqueue_start == -1:
-        raise AssertionError("enqueue call not found")
+    # Find the enqueue call by looking for queue.enqueue with process_recording_download_job
+    found_params = []
     
-    # Extract the parameters section
-    enqueue_section = content[enqueue_start:enqueue_start + 500]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            # Check if this is queue.enqueue call
+            if isinstance(node.func, ast.Attribute) and node.func.attr == 'enqueue':
+                # Check if first argument is process_recording_download_job
+                if node.args and isinstance(node.args[0], ast.Name):
+                    if node.args[0].id == 'process_recording_download_job':
+                        # Extract keyword arguments
+                        for kw in node.keywords:
+                            if kw.arg in ['call_sid', 'recording_url', 'business_id', 'from_number', 'to_number', 'recording_sid']:
+                                found_params.append(kw.arg)
     
-    # Check for expected parameters
-    expected_params = ['call_sid=', 'recording_url=', 'business_id=', 'from_number=', 'to_number=', 'recording_sid=']
+    expected_params = ['call_sid', 'recording_url', 'business_id', 'from_number', 'to_number', 'recording_sid']
     
-    for param in expected_params:
-        assert param in enqueue_section, f"Parameter {param} not found in enqueue call"
+    assert set(found_params) == set(expected_params), \
+        f"Parameter mismatch. Expected {expected_params}, found {found_params}"
     
     print(f"✅ Enqueue parameters match: {expected_params}")
 
