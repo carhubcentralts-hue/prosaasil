@@ -120,14 +120,29 @@ def enqueue_recording_rq(call_sid, recording_url, business_id, job_type='downloa
                 ttl = redis_conn.ttl(job_key)
                 log.info(f"[OFFLINE_STT] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
                 logger.info(f"🔒 [RQ] Duplicate full job blocked: call_sid={call_sid}")
-                return
+                return None
             else:
                 log.debug(f"[OFFLINE_STT] ✅ No existing job lock for {call_sid}, proceeding with enqueue")
         except Exception as e:
             logger.warning(f"[OFFLINE_STT] Redis dedup check error for {call_sid}: {e} - proceeding anyway")
         
+        # Create RecordingRun entry for tracking
+        app = get_process_app()
+        with app.app_context():
+            run = RecordingRun(
+                business_id=business_id,
+                call_sid=call_sid,
+                recording_sid=recording_sid,
+                recording_url=recording_url,
+                job_type=job_type,
+                status='queued'
+            )
+            db.session.add(run)
+            db.session.commit()
+            run_id = run.id
+            logger.info(f"🎯 [RQ_ENQUEUE] Created RecordingRun {run_id} for call_sid={call_sid} job_type={job_type}")
+        
         # Enqueue RQ job with run_id
-        redis_conn = redis.from_url(REDIS_URL)
         queue = Queue('recordings', connection=redis_conn)
         
         # Import job function
@@ -151,14 +166,17 @@ def enqueue_recording_rq(call_sid, recording_url, business_id, job_type='downloa
         except Exception as e:
             logger.warning(f"[OFFLINE_STT] Failed to set dedup key for {call_sid}: {e} - continuing anyway")
         
-        if retry_count == 0:
-            log.info(f"[OFFLINE_STT] Recording job enqueued (RQ): {call_sid} → RQ job {rq_job.id}")
-        else:
-            log.info(f"[OFFLINE_STT] Recording job retry {retry_count} (RQ): {call_sid}")
+        log.info(f"[OFFLINE_STT] Recording job enqueued (RQ): {call_sid} → RQ job {rq_job.id}")
+        logger.info(f"✅ [RQ] Enqueued {job_type} job: call_sid={call_sid} run_id={run_id} → RQ job {rq_job.id}")
+        
+        return run_id
         
     except Exception as e:
         logger.error(f"❌ Failed to enqueue full recording job to RQ: {e}")
+        import traceback
+        logger.error(f"Stack trace:\n{traceback.format_exc()}")
         # 🔥 CRITICAL FIX: Don't set dedup key on failure
+        return None
 
 
 def enqueue_recording_download_only(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0, recording_sid=None):
@@ -266,10 +284,43 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         return (True, "enqueued")
         
     except Exception as e:
+        # Log full exception with stack trace for debugging
+        import traceback
         logger.error(f"❌ Failed to enqueue recording job to RQ: {e}")
+        logger.error(f"Stack trace:\n{traceback.format_exc()}")
         # 🔥 CRITICAL FIX: Don't set dedup key on failure - return error status
         # Caller should return HTTP 500 instead of pretending it's a dedup hit
         return (False, "error")
+
+def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0, recording_sid=None):
+    """
+    Enqueue recording job for full processing (download + transcription).
+    
+    This is a wrapper function that delegates to enqueue_recording_rq with job_type='full'.
+    Used by routes_twilio.py and other legacy callers that expect this function.
+    
+    Args:
+        call_sid: Twilio Call SID
+        recording_url: URL to download recording from
+        business_id: Business ID for the call
+        from_number: Caller phone number (optional)
+        to_number: Called phone number (optional)
+        retry_count: Number of retries (0 = first attempt)
+        recording_sid: Twilio Recording SID (optional)
+    
+    Returns:
+        int: RecordingRun.id if job was created, None if skipped
+    """
+    logger.info(f"📤 [RECORDING] Enqueuing full processing job for call_sid={call_sid}")
+    return enqueue_recording_rq(
+        call_sid=call_sid,
+        recording_url=recording_url,
+        business_id=business_id,
+        job_type='full',  # Full processing: download + transcription
+        from_number=from_number,
+        to_number=to_number,
+        recording_sid=recording_sid
+    )
 
 def enqueue_recording(form_data):
     """Legacy wrapper - converts form_data to new queue format"""

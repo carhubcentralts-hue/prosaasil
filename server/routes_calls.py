@@ -409,7 +409,9 @@ def download_recording(call_sid):
                     return jsonify({
                         "success": False,
                         "status": "error",
-                        "message": "Failed to enqueue recording download"
+                        "error_code": "RQ_ENQUEUE_FAILED",
+                        "message": "Failed to enqueue recording download - backend issue",
+                        "details": "The server could not queue the recording job. Check server logs."
                     }), 500
                 else:
                     # Job was not enqueued (file cached or duplicate) - this is OK
@@ -725,7 +727,9 @@ def stream_recording(call_sid):
                     return jsonify({
                         "success": False,
                         "status": "error",
-                        "message": "Failed to enqueue recording download"
+                        "error_code": "RQ_ENQUEUE_FAILED",
+                        "message": "Failed to enqueue recording stream - backend issue",
+                        "details": "The server could not queue the recording job. Check server logs."
                     }), 500
                 else:
                     # Job was not enqueued (file cached or duplicate) - this is OK

@@ -13,6 +13,54 @@ from server.db import db
 logger = logging.getLogger(__name__)
 
 
+def process_recording_download_job(call_sid, recording_url, business_id, from_number="", to_number="", recording_sid=None):
+    """
+    RQ Worker job - wrapper for download-only jobs (legacy compatibility).
+    
+    This function creates a RecordingRun and then delegates to process_recording_rq_job.
+    Used by enqueue_recording_download_only() which passes individual parameters.
+    
+    Args:
+        call_sid: Twilio Call SID
+        recording_url: URL to recording file
+        business_id: Business ID for slot management
+        from_number: Caller phone number (optional)
+        to_number: Called phone number (optional)
+        recording_sid: Twilio recording SID (optional)
+        
+    Returns:
+        dict: Job result with success status
+    """
+    app = get_process_app()
+    
+    with app.app_context():
+        from server.models_sql import RecordingRun
+        from server.db import db
+        
+        # Create RecordingRun entry for tracking
+        try:
+            run = RecordingRun(
+                business_id=business_id,
+                call_sid=call_sid,
+                recording_sid=recording_sid,
+                recording_url=recording_url,
+                job_type='download',
+                status='queued'
+            )
+            db.session.add(run)
+            db.session.commit()
+            
+            logger.info(f"🎯 [RQ_RECORDING] Created RecordingRun {run.id} for call_sid={call_sid}")
+            
+            # Delegate to unified processing function
+            return process_recording_rq_job(run.id)
+            
+        except Exception as e:
+            logger.error(f"❌ [RQ_RECORDING] Failed to create RecordingRun for {call_sid}: {e}")
+            db.session.rollback()
+            return {"success": False, "error": str(e)}
+
+
 def process_recording_rq_job(run_id: int):
     """
     RQ Worker job - processes a single recording run
