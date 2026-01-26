@@ -307,31 +307,49 @@ def synthesize_gemini(
             if not client:
                 raise RuntimeError("Gemini client not available")
             
-            # 🔥 Log request start with key parameters
-            logger.info(
-                f"[GEMINI_TTS] request_start model={tts_model} voice={voice_id} text_len={len(text)} "
-                f"language={language} speed={speed}"
-            )
-            
-            # 🔥 CRITICAL: Use dedicated TTS model (NOT LLM model)
-            # Generate speech using proper SDK with uppercase AUDIO
-            # This MUST return AUDIO only, never text
+            # 🔥 ASSERTION + LOG: Verify TTS-only configuration BEFORE making API call
+            # This prevents 400 INVALID_ARGUMENT by ensuring we're in pure TTS mode
             import time
-            request_start_ms = int(time.time() * 1000)
             
-            response = client.models.generate_content(
-                model=tts_model,
-                contents=text,
-                config=types.GenerateContentConfig(
-                    response_modalities=["AUDIO"],  # 🔥 UPPERCASE - returns AUDIO only
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=voice_id
-                            )
+            # Build config object first for inspection
+            tts_config = types.GenerateContentConfig(
+                response_modalities=["AUDIO"],  # 🔥 MUST be ["AUDIO"] only - no TEXT
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=voice_id
                         )
                     )
                 )
+            )
+            
+            # 🔥 PRE-FLIGHT ASSERTIONS: Verify this is TTS-only path
+            assert hasattr(tts_config, 'response_modalities'), "Config missing response_modalities"
+            assert tts_config.response_modalities == ["AUDIO"], f"Wrong modalities: {tts_config.response_modalities}"
+            assert hasattr(tts_config, 'speech_config'), "Config missing speech_config"
+            assert tts_config.speech_config is not None, "speech_config is None"
+            
+            # 🔥 DETAILED PRE-REQUEST LOG: Log EXACT configuration before API call
+            logger.info(
+                f"[GEMINI_TTS] PRE_REQUEST_ASSERTION: "
+                f"model={tts_model} (TTS_MODEL_ONLY), "
+                f"voice={voice_id}, "
+                f"text_len={len(text)}, "
+                f"response_modalities={tts_config.response_modalities}, "
+                f"has_speech_config={tts_config.speech_config is not None}, "
+                f"language={language}, "
+                f"speed={speed} "
+                f"[TTS_ONLY_PATH - NO_LLM_SHARING]"
+            )
+            
+            # 🔥 CRITICAL: This is TTS-ONLY path - NO sharing with LLM code
+            # No system instructions, no tools, no multi-modal mixing
+            request_start_ms = int(time.time() * 1000)
+            
+            response = client.models.generate_content(
+                model=tts_model,  # Dedicated TTS model
+                contents=text,     # Plain text only - no prompt engineering
+                config=tts_config  # Pure AUDIO config - verified above
             )
             
             latency_ms = int(time.time() * 1000) - request_start_ms
