@@ -350,9 +350,10 @@ def download_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - use semaphore system for queue management
-            # 🔥 NEW: Per-business 3-concurrent limit with Redis queue
-            from server.recording_semaphore import try_acquire_slot, check_status
+            # File doesn't exist locally - enqueue download job (NO SLOT ACQUISITION IN API)
+            # 🔥 FIX: API never acquires slots, just enqueues. Worker acquires/releases slots.
+            from server.recording_semaphore import check_status
+            from server.tasks_recording import enqueue_recording_download_only
             
             # Check current status first (dedup + queue position)
             status, info = check_status(business_id, call_sid)
@@ -375,52 +376,35 @@ def download_recording(call_sid):
                     "message": f"Recording queued (position {position}), please retry in a few seconds"
                 }), 202
             
-            # Try to acquire a slot (or add to queue)
-            acquired, slot_status = try_acquire_slot(business_id, call_sid)
+            # 🔥 FIX: Always enqueue - let worker handle slot management
+            # This prevents API from acquiring slots that get stuck if worker fails
+            logger.info(f"📤 [API DOWNLOAD] Enqueuing download for {call_sid} (worker will acquire slot)")
+            log.debug(f"Download recording: Enqueuing download for call_sid={call_sid}")
             
-            if acquired:
-                # Slot acquired! Enqueue download job - WORKER will do the actual download
-                logger.info(f"📤 [API DOWNLOAD] Slot acquired for {call_sid} - enqueuing to WORKER queue")
-                log.debug(f"Download recording: Slot acquired for call_sid={call_sid}, enqueuing download")
-                
-                from server.tasks_recording import enqueue_recording_download_only
-                from server.recording_semaphore import release_slot
-                
-                # 🔥 CRITICAL: Check if job was actually enqueued
-                # If not (dedup hit), we must release the slot immediately
-                job_enqueued = enqueue_recording_download_only(
-                    call_sid=call_sid,
-                    recording_url=call.recording_url,
-                    recording_sid=call.recording_sid,  # 🔥 NEW: Pass recording_sid for better logging
-                    business_id=business_id,
-                    from_number=call.from_number or "",
-                    to_number=call.to_number or ""
-                )
-                
-                if not job_enqueued:
-                    # Job was not enqueued (file cached or duplicate) - release slot immediately
-                    logger.info(f"🔧 [API DOWNLOAD] Job not enqueued for {call_sid} (dedup hit) - releasing slot")
-                    release_slot(business_id, call_sid)
-                    # File should be available now, return to caller
-                    return jsonify({
-                        "success": True,
-                        "status": "ready",
-                        "message": "Recording is ready"
-                    }), 200
-                
+            # Enqueue download job - worker will acquire slot and release in finally
+            job_enqueued = enqueue_recording_download_only(
+                call_sid=call_sid,
+                recording_url=call.recording_url,
+                recording_sid=call.recording_sid,
+                business_id=business_id,
+                from_number=call.from_number or "",
+                to_number=call.to_number or ""
+            )
+            
+            if not job_enqueued:
+                # Job was not enqueued (file cached or duplicate)
+                logger.info(f"🔧 [API DOWNLOAD] Job not enqueued for {call_sid} (dedup hit)")
                 return jsonify({
                     "success": True,
-                    "status": "queued",
-                    "message": "Recording download started, please retry in a few seconds"
-                }), 202
-            else:
-                # Added to queue
-                log.debug(f"Download recording: Call {call_sid} added to queue, status={slot_status}")
-                return jsonify({
-                    "success": True,
-                    "status": slot_status,
-                    "message": "Recording queued for download, please retry in a few seconds"
-                }), 202
+                    "status": "ready",
+                    "message": "Recording is ready"
+                }), 200
+            
+            return jsonify({
+                "success": True,
+                "status": "queued",
+                "message": "Recording queued for download, please retry in a few seconds"
+            }), 202
         
     except Exception as e:
         log.error(f"Error downloading recording: {e}")
@@ -654,9 +638,10 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - use semaphore system for queue management
-            # 🔥 NEW: Per-business 3-concurrent limit with Redis queue
-            from server.recording_semaphore import try_acquire_slot, check_status
+            # File doesn't exist locally - enqueue download job (NO SLOT ACQUISITION IN API)
+            # 🔥 FIX: API never acquires slots, just enqueues. Worker acquires/releases slots.
+            from server.recording_semaphore import check_status
+            from server.tasks_recording import enqueue_recording_download_only
             
             # Check current status first (dedup + queue position)
             status, info = check_status(business_id, call_sid)
@@ -679,69 +664,35 @@ def stream_recording(call_sid):
                     "message": f"Recording queued (position {position}), please retry in a few seconds"
                 }), 202
             
-            # Try to acquire a slot (or add to queue)
-            acquired, slot_status = try_acquire_slot(business_id, call_sid)
+            # 🔥 FIX: Always enqueue - let worker handle slot management
+            # This prevents API from acquiring slots that get stuck if worker fails
+            logger.info(f"📤 [API STREAM] Enqueuing stream for {call_sid} (worker will acquire slot)")
+            log.debug(f"Stream recording: Enqueuing download for call_sid={call_sid}")
             
-            if acquired:
-                # Slot acquired! Enqueue download job - WORKER will do the actual download
-                logger.info(f"📤 [API] Slot acquired for {call_sid} - enqueuing to WORKER queue")
-                log.debug(f"Stream recording: Slot acquired for call_sid={call_sid}, enqueuing download")
-                
-                from server.tasks_recording import enqueue_recording_download_only
-                from server.recording_semaphore import release_slot
-                
-                # 🔥 CRITICAL: Check if job was actually enqueued
-                # If not (dedup hit), we must release the slot immediately
-                job_enqueued = enqueue_recording_download_only(
-                    call_sid=call_sid,
-                    recording_url=call.recording_url,
-                    recording_sid=call.recording_sid,  # 🔥 NEW: Pass recording_sid for better logging
-                    business_id=business_id,
-                    from_number=call.from_number or "",
-                    to_number=call.to_number or ""
-                )
-                
-                if not job_enqueued:
-                    # Job was not enqueued (file cached or duplicate) - release slot immediately
-                    logger.info(f"🔧 [API] Job not enqueued for {call_sid} (dedup hit) - releasing slot")
-                    release_slot(business_id, call_sid)
-                    # File should be available now, return to caller
-                    return jsonify({
-                        "success": True,
-                        "status": "ready",
-                        "message": "Recording is ready"
-                    }), 200
-                
+            # Enqueue download job - worker will acquire slot and release in finally
+            job_enqueued = enqueue_recording_download_only(
+                call_sid=call_sid,
+                recording_url=call.recording_url,
+                recording_sid=call.recording_sid,
+                business_id=business_id,
+                from_number=call.from_number or "",
+                to_number=call.to_number or ""
+            )
+            
+            if not job_enqueued:
+                # Job was not enqueued (file cached or duplicate)
+                logger.info(f"🔧 [API STREAM] Job not enqueued for {call_sid} (dedup hit)")
                 return jsonify({
                     "success": True,
-                    "status": "processing",
-                    "message": "Recording is being prepared, please retry in a few seconds"
-                }), 202
-            else:
-                # Added to queue (slots full)
-                if slot_status == "queued":
-                    logger.info(f"⏸️ [API] All slots busy - {call_sid} added to queue")
-                    log.debug(f"Stream recording: Call {call_sid} added to queue (all slots busy)")
-                    return jsonify({
-                        "success": True,
-                        "status": "queued",
-                        "message": "Recording queued, please retry in a few seconds"
-                    }), 202
-                elif slot_status == "inflight" or slot_status == "already_queued":
-                    # Duplicate request
-                    logger.debug(f"🔄 [API] Duplicate request for {call_sid} - already {slot_status}")
-                    return jsonify({
-                        "success": True,
-                        "status": "processing",
-                        "message": "Recording is being prepared, please retry in a few seconds"
-                    }), 202
-                else:
-                    # Fallback
-                    return jsonify({
-                        "success": True,
-                        "status": "processing",
-                        "message": "Recording is being prepared, please retry in a few seconds"
-                    }), 202
+                    "status": "ready",
+                    "message": "Recording is ready"
+                }), 200
+            
+            return jsonify({
+                "success": True,
+                "status": "processing",
+                "message": "Recording is being prepared, please retry in a few seconds"
+            }), 202
         
     except Exception as e:
         log.error(f"Error streaming recording for {call_sid}: {e}")
