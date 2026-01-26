@@ -5290,6 +5290,55 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ background_jobs table does not exist - skipping")
         
+        # ============================================================================
+        # Migration 104: Update background_jobs CHECK constraint for all job types
+        # ============================================================================
+        # Purpose: Allow all current job types in background_jobs table
+        # - delete_receipts_all (existing)
+        # - delete_leads (NEW - bulk lead deletion)
+        # - update_leads (NEW - bulk lead updates)
+        # - delete_imported_leads (NEW - cleanup imported leads)
+        # - enqueue_outbound_calls (NEW - bulk outbound call scheduling)
+        # - broadcast (NEW - WhatsApp broadcast operations)
+        # This fixes: IntegrityError when creating delete_leads/update_leads jobs
+        checkpoint("Migration 104: Updating background_jobs job_type constraint")
+        
+        if check_table_exists('background_jobs'):
+            from sqlalchemy import text
+            try:
+                # Drop old constraint and create new one with all job types
+                checkpoint("  → Dropping old chk_job_type constraint...")
+                db.session.execute(text("""
+                    ALTER TABLE background_jobs 
+                    DROP CONSTRAINT IF EXISTS chk_job_type
+                """))
+                
+                checkpoint("  → Creating updated chk_job_type constraint with all job types...")
+                db.session.execute(text("""
+                    ALTER TABLE background_jobs
+                    ADD CONSTRAINT chk_job_type
+                    CHECK (job_type IN (
+                        'delete_receipts_all',
+                        'delete_leads',
+                        'update_leads',
+                        'delete_imported_leads',
+                        'enqueue_outbound_calls',
+                        'broadcast'
+                    ))
+                """))
+                
+                migrations_applied.append("update_background_jobs_job_type_constraint")
+                checkpoint("✅ Migration 104 complete: job_type constraint updated")
+                checkpoint("   🔒 Idempotent: Safe to run multiple times")
+                checkpoint("   ✅ Allowed job types: delete_receipts_all, delete_leads, update_leads, delete_imported_leads, enqueue_outbound_calls, broadcast")
+                
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 104 failed: {e}")
+                logger.error(f"Migration 104 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ background_jobs table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
