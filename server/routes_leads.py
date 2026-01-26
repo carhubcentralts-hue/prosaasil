@@ -1553,7 +1553,25 @@ def bulk_delete_leads():
             'processed_ids': []
         })
         db.session.add(bg_job)
-        db.session.commit()
+        
+        # Commit with error handling for constraint violations
+        try:
+            db.session.commit()
+        except Exception as commit_error:
+            db.session.rollback()
+            # Check if this is a constraint violation on job_type
+            error_msg = str(commit_error).lower()
+            if 'chk_job_type' in error_msg or 'job_type' in error_msg:
+                log.error(f"❌ Database constraint error: job_type 'delete_leads' not allowed")
+                log.error(f"   This requires a database migration to update the chk_job_type constraint")
+                log.error(f"   Run migrations to add 'delete_leads' to allowed job types")
+                return jsonify({
+                    "error": "Database migration required for bulk delete feature",
+                    "details": "The background_jobs table constraint needs to be updated. Contact administrator.",
+                    "success": False
+                }), 503
+            # Re-raise other errors
+            raise
         
         # Enqueue to RQ maintenance queue
         REDIS_URL = os.getenv('REDIS_URL')
@@ -1691,7 +1709,25 @@ def bulk_update_leads():
             'processed_ids': []
         })
         db.session.add(bg_job)
-        db.session.commit()
+        
+        # Commit with error handling for constraint violations
+        try:
+            db.session.commit()
+        except Exception as commit_error:
+            db.session.rollback()
+            # Check if this is a constraint violation on job_type
+            error_msg = str(commit_error).lower()
+            if 'chk_job_type' in error_msg or 'job_type' in error_msg:
+                log.error(f"❌ Database constraint error: job_type 'update_leads' not allowed")
+                log.error(f"   This requires a database migration to update the chk_job_type constraint")
+                log.error(f"   Run migrations to add 'update_leads' to allowed job types")
+                return jsonify({
+                    "error": "Database migration required for bulk update feature",
+                    "details": "The background_jobs table constraint needs to be updated. Contact administrator.",
+                    "success": False
+                }), 503
+            # Re-raise other errors
+            raise
         
         # Enqueue to RQ maintenance queue
         REDIS_URL = os.getenv('REDIS_URL')

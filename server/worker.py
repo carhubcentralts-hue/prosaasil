@@ -286,6 +286,19 @@ def main():
         heartbeat_thread.start()
         logger.info("✅ Heartbeat monitoring started (logs every 30s)")
         
+        # 🚨 CRITICAL NOTE: Recording worker thread NOT started here
+        # REASON: RECORDING_QUEUE is queue.Queue() (in-memory), NOT Redis!
+        # IN-MEMORY QUEUES DON'T WORK ACROSS CONTAINERS:
+        #   - API container enqueues to its memory
+        #   - Worker container has separate memory
+        #   - Jobs never consumed = infinite loop
+        # 
+        # SOLUTION: Convert recording jobs to use RQ (Redis Queue)
+        # See: CRITICAL_RECORDING_QUEUE_ARCHITECTURE.md
+        # 
+        # When converted to RQ, worker will automatically process 'recordings' queue
+        # because it's already in RQ_QUEUES configuration.
+        
         # Start worker
         try:
             worker.work(

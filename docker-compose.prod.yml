@@ -103,6 +103,7 @@ services:
     environment:
       FLASK_ENV: production
       RUN_MIGRATIONS_ON_START: 0
+      RUN_MIGRATIONS: "0"
       PRODUCTION: ${PRODUCTION:-1}
       RQ_QUEUES: high,default,low,receipts,receipts_sync,maintenance,recordings,broadcasts
       # 🔥 SCHEDULERS: Enable schedulers only in worker to prevent duplicate cleanup logs
@@ -161,6 +162,7 @@ services:
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
       RUN_MIGRATIONS_ON_START: 1
+      RUN_MIGRATIONS: "1"
       PRODUCTION: ${PRODUCTION:-1}
       ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
       ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
@@ -249,6 +251,7 @@ services:
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
       RUN_MIGRATIONS_ON_START: 0
+      RUN_MIGRATIONS: "0"
       PRODUCTION: ${PRODUCTION:-1}
       ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
       ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}

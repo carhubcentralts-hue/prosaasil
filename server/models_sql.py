@@ -1815,5 +1815,12 @@ class BackgroundJob(db.Model):
         db.Index('idx_background_jobs_business_type_status', 'business_id', 'job_type', 'status'),
         db.Index('idx_background_jobs_created_at', 'created_at'),
         db.CheckConstraint("status IN ('queued', 'running', 'paused', 'completed', 'failed', 'cancelled')", name='chk_job_status'),
-        db.CheckConstraint("job_type IN ('delete_receipts_all')", name='chk_job_type'),
+        db.CheckConstraint("""job_type IN (
+            'delete_receipts_all',
+            'delete_leads', 
+            'update_leads',
+            'delete_imported_leads',
+            'enqueue_outbound_calls',
+            'broadcast'
+        )""", name='chk_job_type'),
     )

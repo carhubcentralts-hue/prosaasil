@@ -200,7 +200,11 @@ def _should_enqueue_download(call_sid: str, business_id: int, job_type: str = "d
     return True, "ok"
 
 def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0):
-    """Enqueue recording job for background processing
+    """
+    🔥 UPDATED: Enqueue full recording job (download + transcription) to RQ.
+    
+    WHY: In-memory queue.Queue() doesn't work across containers.
+    SOLUTION: Use RQ (Redis Queue) which is shared across all containers.
     
     Args:
         call_sid: Twilio call SID
@@ -209,46 +213,76 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         from_number: Caller phone number
         to_number: Called phone number
         retry_count: Current retry attempt (0-2 allowed, max 3 attempts total)
-    
-    🔥 NEW: Rate limiting removed - now using semaphore system for UI-triggered downloads
-    This function is for webhook-triggered background processing only
     """
-    # 🔥 REMOVED: rate_limit check - only applies to UI-triggered downloads
+    import os
+    import redis
+    from rq import Queue
     
     # Basic deduplication: Check if file already cached
     from server.services.recording_service import check_local_recording_exists
     if check_local_recording_exists(call_sid):
         log.debug(f"[OFFLINE_STT] File already cached for {call_sid}")
-        return  # Don't enqueue
+        return
     
-    # Enqueue full processing job (download + transcribe)
-    RECORDING_QUEUE.put({
-        "call_sid": call_sid,
-        "recording_url": recording_url,
-        "business_id": business_id,
-        "from_number": from_number,
-        "to_number": to_number,
-        "retry_count": retry_count,
-        "type": "full"  # Full processing (download + transcribe)
-    })
+    # Get Redis connection
+    REDIS_URL = os.getenv('REDIS_URL')
+    if not REDIS_URL:
+        logger.error("❌ REDIS_URL not set - cannot enqueue recording job")
+        return
     
-    if retry_count == 0:
-        log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
-    else:
-        log.info(f"[OFFLINE_STT] Recording job retry {retry_count}: {call_sid}")
+    try:
+        redis_conn = redis.from_url(REDIS_URL)
+        
+        # 🔥 IDEMPOTENCY: Redis NX key to prevent duplicate enqueues
+        # For full jobs, use longer TTL (300s = 5min) since processing takes longer
+        job_key = f"job:full:{business_id}:{call_sid}"
+        try:
+            acquired = redis_conn.set(job_key, "enqueued", nx=True, ex=300)
+            if not acquired:
+                ttl = redis_conn.ttl(job_key)
+                log.info(f"[OFFLINE_STT] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
+                logger.info(f"🔒 [RQ] Duplicate full job blocked: call_sid={call_sid}")
+                return
+        except Exception as e:
+            logger.warning(f"[OFFLINE_STT] Redis dedup error for {call_sid}: {e} - proceeding anyway")
+        
+        queue = Queue('recordings', connection=redis_conn)
+        
+        # Import job function
+        from server.jobs.recording_job import process_recording_full_job
+        
+        # Enqueue to RQ with millisecond precision for uniqueness
+        rq_job = queue.enqueue(
+            process_recording_full_job,
+            call_sid=call_sid,
+            recording_url=recording_url,
+            business_id=business_id,
+            from_number=from_number,
+            to_number=to_number,
+            job_timeout='30m',
+            job_id=f"recording_full_{call_sid}_{int(time.time()*1000)}",  # Millisecond precision
+            retry=3  # RQ will retry up to 3 times
+        )
+        
+        if retry_count == 0:
+            log.info(f"[OFFLINE_STT] Recording job enqueued (RQ): {call_sid} → RQ job {rq_job.id}")
+        else:
+            log.info(f"[OFFLINE_STT] Recording job retry {retry_count} (RQ): {call_sid}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to enqueue full recording job to RQ: {e}")
 
 
 def enqueue_recording_download_only(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0, recording_sid=None):
     """
-    🔥 FIX: Enqueue PRIORITY job to download recording (without transcription)
-    Used by UI when user clicks "play" to get recording ASAP
+    🔥 UPDATED: Enqueue recording download job to RQ (Redis Queue) instead of in-memory queue.
     
-    This creates a high-priority job that only downloads the file, skipping transcription.
-    Transcription will happen later via the normal webhook flow.
+    WHY: In-memory queue.Queue() doesn't work across containers:
+    - API container enqueues to its memory
+    - Worker container has separate memory
+    - Jobs never consumed = infinite loop
     
-    ⚠️ CRITICAL: This function is called AFTER a semaphore slot is acquired in the API.
-    If this function decides NOT to enqueue a job, it MUST release the slot!
-    Otherwise the slot is lost forever → active=3/3 stuck permanently.
+    SOLUTION: Use RQ (Redis Queue) which is shared across all containers.
     
     Args:
         call_sid: Twilio Call SID (CA...)
@@ -257,67 +291,81 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         from_number: Caller phone number
         to_number: Called phone number
         retry_count: Number of retries (0 = first attempt)
-        recording_sid: Twilio Recording SID (RE...) - optional but recommended for better logging
+        recording_sid: Twilio Recording SID (RE...) - optional
     
     Returns:
         bool: True if job was enqueued, False if skipped (caller should release slot)
     """
+    import os
+    import redis
+    from rq import Queue
+    
     # Basic deduplication: Check if file already cached
-    # 🔥 CRITICAL: If file exists, don't enqueue BUT caller must release slot!
     from server.services.recording_service import check_local_recording_exists
     if check_local_recording_exists(call_sid):
         log.debug(f"[DOWNLOAD_ONLY] File already cached for {call_sid}")
-        # Return False so caller knows to release slot
         return False
     
-    # 🔥 NEW: Job-level deduplication using Redis
-    # Prevent duplicate jobs in RECORDING_QUEUE even after slot acquired
-    if REDIS_DEDUP_ENABLED and _redis_client:
+    # Get Redis connection
+    REDIS_URL = os.getenv('REDIS_URL')
+    if not REDIS_URL:
+        logger.error("❌ REDIS_URL not set - cannot enqueue recording job")
+        return False
+    
+    try:
+        redis_conn = redis.from_url(REDIS_URL)
+        
+        # 🔥 IDEMPOTENCY: Redis NX key to prevent duplicate enqueues
+        # Short TTL (120s) to prevent blocking, but long enough to prevent double-clicks
+        job_key = f"job:download:{business_id}:{call_sid}"
         try:
-            job_key = f"job:download:{business_id}:{call_sid}"
-            # Try to set key with 120-second expiry (short TTL to prevent blocking on failures)
-            # Rule: Dedup = prevents spam (short), Status = source of truth (long)
             # NX = only set if not exists (atomic operation)
-            acquired = _redis_client.set(job_key, "enqueued", nx=True, ex=120)
-            
+            acquired = redis_conn.set(job_key, "enqueued", nx=True, ex=120)
             if not acquired:
-                # Job already enqueued - skip duplicate
-                # 🔥 CRITICAL: Return False so caller releases slot
-                ttl = _redis_client.ttl(job_key)
+                # Job already enqueued recently - skip duplicate
+                ttl = redis_conn.ttl(job_key)
                 log.info(f"[DOWNLOAD_ONLY] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
+                logger.info(f"🔒 [RQ] Duplicate enqueue blocked: call_sid={call_sid} (already queued)")
                 return False
             else:
                 log.debug(f"[DOWNLOAD_ONLY] ✅ Job lock acquired for {call_sid}")
         except Exception as e:
-            logger.error(f"[DOWNLOAD_ONLY] Redis job dedup error for {call_sid}: {e}")
+            logger.warning(f"[DOWNLOAD_ONLY] Redis dedup error for {call_sid}: {e} - proceeding anyway")
             # Continue on Redis error (fail-open)
-    
-    # Enqueue download job
-    job_data = {
-        "call_sid": call_sid,
-        "recording_url": recording_url,
-        "recording_sid": recording_sid,  # 🔥 NEW: Include recording_sid for better logging
-        "business_id": business_id,
-        "from_number": from_number,
-        "to_number": to_number,
-        "retry_count": retry_count,
-        "type": "download_only"  # Just download, skip transcription
-    }
-    RECORDING_QUEUE.put(job_data)
-    
-    # 🔥 NEW: Log with both call_sid and recording_sid for clarity
-    if retry_count == 0:
+        
+        queue = Queue('recordings', connection=redis_conn)
+        
+        # Import job function
+        from server.jobs.recording_job import process_recording_download_job
+        
+        # Enqueue to RQ with retry
+        # Use millisecond precision in job_id for better uniqueness
+        rq_job = queue.enqueue(
+            process_recording_download_job,
+            call_sid=call_sid,
+            recording_url=recording_url,
+            business_id=business_id,
+            from_number=from_number,
+            to_number=to_number,
+            recording_sid=recording_sid,
+            job_timeout='10m',
+            job_id=f"recording_download_{call_sid}_{int(time.time()*1000)}",  # Millisecond precision
+            retry=3,  # RQ will retry up to 3 times
+            failure_ttl=3600  # Keep failed jobs for 1 hour for debugging
+        )
+        
+        logger.info(f"✅ [RQ] Recording download job enqueued: call_sid={call_sid} → RQ job {rq_job.id}")
+        
         if recording_sid:
-            log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued: call_sid={call_sid} recording_sid={recording_sid}")
+            log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued (RQ): call_sid={call_sid} recording_sid={recording_sid}")
         else:
-            log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued: call_sid={call_sid} (recording_sid unknown)")
-    else:
-        if recording_sid:
-            log.info(f"[DOWNLOAD_ONLY] Retry {retry_count} enqueued: call_sid={call_sid} recording_sid={recording_sid}")
-        else:
-            log.info(f"[DOWNLOAD_ONLY] Retry {retry_count} enqueued: call_sid={call_sid}")
-    
-    return True  # Job was enqueued successfully
+            log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued (RQ): call_sid={call_sid}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to enqueue recording job to RQ: {e}")
+        return False
 
 def enqueue_recording(form_data):
     """Legacy wrapper - converts form_data to new queue format"""
@@ -425,6 +473,9 @@ def start_recording_worker(app):
                 # Block until a job is available
                 job = RECORDING_QUEUE.get()
                 
+                # 🔥 NEW: WORKER_PICKED log - comprehensive job details
+                logger.info(f"🎯 [WORKER_PICKED] job_type={job.get('type', 'full')} call_sid={job.get('call_sid')} business_id={job.get('business_id')} recording_sid={job.get('recording_sid', 'unknown')} retry={job.get('retry_count', 0)}")
+                
                 call_sid = job["call_sid"]
                 recording_url = job["recording_url"]
                 recording_sid = job.get("recording_sid")  # 🔥 NEW: Extract recording_sid from job
@@ -453,7 +504,7 @@ def start_recording_worker(app):
                     
                     if acquired:
                         slot_acquired = True
-                        logger.info(f"🎯 [WORKER] Slot acquired for {call_sid} business_id={business_id}")
+                        logger.info(f"✅ [WORKER_SLOT_ACQUIRED] call_sid={call_sid} business_id={business_id}")
                     else:
                         # No slot available - re-enqueue with exponential backoff and move on
                         # Backoff: 2s, 5s, 10s, 20s, 40s (max ~2 minutes total)
@@ -505,18 +556,19 @@ def start_recording_worker(app):
                         
                         if success:
                             download_result = "success"
-                            # 🔥 NEW: [DOWNLOAD_OK] log with size and duration
+                            # 🔥 NEW: [WORKER_DOWNLOAD_DONE] log with size and duration
                             try:
                                 from server.services.recording_service import check_local_recording_exists, _get_recordings_dir
                                 recordings_dir = _get_recordings_dir()
                                 local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
                                 if os.path.exists(local_path):
                                     file_size = os.path.getsize(local_path)
-                                    logger.info(f"✅ [DOWNLOAD_OK] call_sid={call_sid} size={file_size} bytes duration={download_duration_ms}ms")
+                                    # Log filename only, not full path for security
+                                    logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} file={call_sid}.mp3 bytes={file_size} duration_ms={download_duration_ms}")
                                 else:
-                                    logger.info(f"✅ [DOWNLOAD_OK] call_sid={call_sid} duration={download_duration_ms}ms")
+                                    logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} duration_ms={download_duration_ms}")
                             except Exception:
-                                logger.info(f"✅ [DOWNLOAD_OK] call_sid={call_sid} duration={download_duration_ms}ms")
+                                logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} duration_ms={download_duration_ms}")
                             
                             logger.info(f"✅ [WORKER] Recording downloaded for {call_sid}")
                             log.info(f"[WORKER DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
@@ -604,7 +656,7 @@ def start_recording_worker(app):
                     if job_type == "download_only" and slot_acquired and business_id:
                         # 🔥 FIX: Log with reason for easier debugging
                         reason = download_result if 'download_result' in locals() else 'exception'
-                        logger.info(f"🔧 [WORKER] Releasing slot for {call_sid} in business {business_id} (reason={reason})")
+                        logger.info(f"🔓 [WORKER_RELEASE_SLOT] call_sid={call_sid} business_id={business_id} reason={reason}")
                         next_call_sid = release_slot(business_id, call_sid)
                         
                         # 🔥 NEW: [RECORDING_SLOT_RELEASED] log with active/queue metrics and reason
@@ -651,7 +703,9 @@ def start_recording_worker(app):
                 # 🔥 DB RESILIENCE: DB error - log and continue with next job
                 from server.utils.db_health import log_db_error
                 log_db_error(e, context="recording_worker")
-                logger.error(f"🔴 [OFFLINE_STT] DB error processing {job.get('call_sid', 'unknown')} - skipping")
+                # Sanitize error message to avoid leaking sensitive DB info
+                error_type = type(e).__name__
+                logger.error(f"❌ [WORKER_JOB_FAILED] call_sid={job.get('call_sid', 'unknown')} reason=db_error type={error_type}")
                 
                 # Rollback to clean up session
                 try:
@@ -666,7 +720,10 @@ def start_recording_worker(app):
             except Exception as e:
                 # 🔥 DB RESILIENCE: Any other error - log and continue
                 log.error(f"[OFFLINE_STT] Worker error: {e}")
-                logger.error(f"❌ [OFFLINE_STT] Error processing {job.get('call_sid', 'unknown')}: {e}")
+                # Sanitize error message to avoid leaking sensitive info
+                error_type = type(e).__name__
+                error_msg = str(e)[:50]  # Limit length
+                logger.error(f"❌ [WORKER_JOB_FAILED] call_sid={job.get('call_sid', 'unknown')} reason=exception type={error_type} msg={error_msg}")
                 import traceback
                 traceback.print_exc()
                 

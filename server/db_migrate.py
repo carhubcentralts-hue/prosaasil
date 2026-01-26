@@ -136,6 +136,16 @@ def apply_migrations():
     in API service during startup.
     """
     import os
+    import time
+    
+    # 🔥 CRITICAL: Check RUN_MIGRATIONS env var - migrations should only run in designated container
+    run_migrations = os.getenv('RUN_MIGRATIONS', '0')
+    if run_migrations != '1':
+        checkpoint("=" * 80)
+        checkpoint("🚫 MIGRATIONS_DISABLED: RUN_MIGRATIONS is not set to '1'")
+        checkpoint("   Migrations are disabled for this service")
+        checkpoint("=" * 80)
+        return 'skip'  # Return 'skip' to indicate migrations were disabled
     
     # 🔥 CRITICAL: Hard gate - workers must NEVER run migrations
     # Migrations should only run once during API startup, not on every job
@@ -153,28 +163,53 @@ def apply_migrations():
     checkpoint(f"  SERVICE_ROLE: {service_role or 'not set'}")
     migrations_applied = []
     
-    # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock
+    # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock with retry
     # Lock ID: 1234567890 (arbitrary unique integer)
     # This ensures only ONE process runs migrations at a time
+    LOCK_ID = 1234567890
+    LOCK_WAIT_SECONDS = int(os.getenv("MIGRATION_LOCK_WAIT_SECONDS", "30"))
+    STATEMENT_TIMEOUT = os.getenv("MIGRATION_STATEMENT_TIMEOUT", "120s")
+    
     checkpoint("Acquiring PostgreSQL advisory lock for migrations...")
     from sqlalchemy import text
     lock_acquired = False
+    
     try:
-        # Try to acquire lock (non-blocking)
-        result = db.session.execute(text("SELECT pg_try_advisory_lock(1234567890)"))
-        lock_acquired = result.scalar()
+        # 🔥 CRITICAL: Set statement_timeout locally for this connection
+        # This prevents the database from killing our lock acquisition attempts
+        conn = db.session.connection()
+        conn.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+        checkpoint(f"✅ Set statement_timeout to {STATEMENT_TIMEOUT} for migration connection")
+        
+        # 🔥 NEW: Try to acquire lock with retry loop
+        start_time = time.time()
+        while time.time() - start_time < LOCK_WAIT_SECONDS:
+            result = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": LOCK_ID})
+            lock_acquired = result.scalar()
+            
+            if lock_acquired:
+                checkpoint("✅ Acquired migration lock")
+                break
+            
+            # Not acquired yet - wait and retry
+            elapsed = int(time.time() - start_time)
+            checkpoint(f"⚠️ Lock not available, retrying... (elapsed: {elapsed}s / {LOCK_WAIT_SECONDS}s)")
+            time.sleep(1)
         
         if not lock_acquired:
-            checkpoint("⚠️ Another process is running migrations - waiting...")
-            # Block until lock is available
-            db.session.execute(text("SELECT pg_advisory_lock(1234567890)"))
-            lock_acquired = True
-            checkpoint("✅ Acquired migration lock after waiting")
-        else:
-            checkpoint("✅ Acquired migration lock immediately")
+            # Could not acquire lock in time - skip migrations gracefully
+            checkpoint("=" * 80)
+            checkpoint("⚠️ MIGRATION CHECKPOINT: Could not acquire lock in time -> skipping migrations")
+            checkpoint(f"   Waited {LOCK_WAIT_SECONDS}s but another process is running migrations")
+            checkpoint("   This is SAFE - migrations will run in another container")
+            checkpoint("=" * 80)
+            return 'skip'  # Return 'skip' to indicate migrations were skipped
+            
     except Exception as e:
         checkpoint(f"❌ Failed to acquire migration lock: {e}")
-        raise
+        # Don't crash the system - log and skip migrations
+        checkpoint("⚠️ Migration lock acquisition failed -> skipping migrations")
+        return 'skip'
     
     try:
         checkpoint("Checking if database is completely empty...")
@@ -5255,6 +5290,55 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ background_jobs table does not exist - skipping")
         
+        # ============================================================================
+        # Migration 104: Update background_jobs CHECK constraint for all job types
+        # ============================================================================
+        # Purpose: Allow all current job types in background_jobs table
+        # - delete_receipts_all (existing)
+        # - delete_leads (NEW - bulk lead deletion)
+        # - update_leads (NEW - bulk lead updates)
+        # - delete_imported_leads (NEW - cleanup imported leads)
+        # - enqueue_outbound_calls (NEW - bulk outbound call scheduling)
+        # - broadcast (NEW - WhatsApp broadcast operations)
+        # This fixes: IntegrityError when creating delete_leads/update_leads jobs
+        checkpoint("Migration 104: Updating background_jobs job_type constraint")
+        
+        if check_table_exists('background_jobs'):
+            from sqlalchemy import text
+            try:
+                # Drop old constraint and create new one with all job types
+                checkpoint("  → Dropping old chk_job_type constraint...")
+                db.session.execute(text("""
+                    ALTER TABLE background_jobs 
+                    DROP CONSTRAINT IF EXISTS chk_job_type
+                """))
+                
+                checkpoint("  → Creating updated chk_job_type constraint with all job types...")
+                db.session.execute(text("""
+                    ALTER TABLE background_jobs
+                    ADD CONSTRAINT chk_job_type
+                    CHECK (job_type IN (
+                        'delete_receipts_all',
+                        'delete_leads',
+                        'update_leads',
+                        'delete_imported_leads',
+                        'enqueue_outbound_calls',
+                        'broadcast'
+                    ))
+                """))
+                
+                migrations_applied.append("update_background_jobs_job_type_constraint")
+                checkpoint("✅ Migration 104 complete: job_type constraint updated")
+                checkpoint("   🔒 Idempotent: Safe to run multiple times")
+                checkpoint("   ✅ Allowed job types: delete_receipts_all, delete_leads, update_leads, delete_imported_leads, enqueue_outbound_calls, broadcast")
+                
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 104 failed: {e}")
+                logger.error(f"Migration 104 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ background_jobs table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
@@ -5339,7 +5423,8 @@ def apply_migrations():
     finally:
         if lock_acquired:
             try:
-                db.session.execute(text("SELECT pg_advisory_unlock(1234567890)"))
+                # Release lock using the same LOCK_ID (1234567890)
+                db.session.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": 1234567890})
                 checkpoint("✅ Released migration lock")
             except Exception as e:
                 checkpoint(f"⚠️ Failed to release migration lock: {e}")
