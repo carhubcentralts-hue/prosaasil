@@ -2034,6 +2034,11 @@ class MediaStreamHandler:
         self._last_overflow_log = 0.0  # For throttled logging
         self._audio_gap_recovery_active = False  # 🔥 BUILD 181: Gap recovery state
         
+        # 🔥 FIX: TTS Worker - runs TTS in separate thread to never block receive_loop
+        self.tts_queue = queue.Queue(maxsize=5)  # TTS requests queue
+        self.tts_worker_thread = threading.Thread(target=self._tts_worker_loop, daemon=True, name="TTS-Worker")
+        self.tts_worker_running = False
+        
         # ═══════════════════════════════════════════════════════════════════════════
         # 🎯 TASK 0.1: Log AUDIO_CONFIG at startup (Master QA - Single Source of Truth)
         # ═══════════════════════════════════════════════════════════════════════════
@@ -9258,6 +9263,15 @@ class MediaStreamHandler:
                 _orig_print(f"   [3/8] Stopping timers and watchdogs...", flush=True)
             # (Add any timer cleanup here if needed)
             
+            # 🔥 FIX: Stop TTS worker thread
+            if hasattr(self, 'tts_worker_running') and self.tts_worker_running:
+                self.tts_worker_running = False
+                # Signal TTS worker to stop
+                try:
+                    self.tts_queue.put_nowait({"type": "end"})
+                except:
+                    pass
+            
             # STEP 4: Close OpenAI connection
             if not DEBUG:
                 _orig_print(f"   [4/8] Closing OpenAI connection...", flush=True)
@@ -9308,6 +9322,18 @@ class MediaStreamHandler:
             # STEP 5.5: Join background threads (realtime_audio_out_loop, etc.)
             if not DEBUG:
                 _orig_print(f"   [5.5/8] Joining background threads...", flush=True)
+            
+            # 🔥 FIX: Wait for TTS worker to finish
+            if hasattr(self, 'tts_worker_thread') and self.tts_worker_thread.is_alive():
+                try:
+                    self.tts_worker_thread.join(timeout=1.0)
+                    if self.tts_worker_thread.is_alive():
+                        _orig_print(f"   ⚠️ TTS worker still alive after timeout", flush=True)
+                    else:
+                        _orig_print(f"   ✅ TTS worker stopped", flush=True)
+                except Exception as e:
+                    _orig_print(f"   ⚠️ Error joining TTS worker: {e}", flush=True)
+            
             if hasattr(self, 'background_threads') and self.background_threads:
                 for thread in self.background_threads:
                     if thread and thread.is_alive():
@@ -9323,21 +9349,23 @@ class MediaStreamHandler:
             if not DEBUG:
                 _orig_print(f"   [6/8] Closing Twilio WebSocket...", flush=True)
             try:
-                if hasattr(self.ws, 'close') and not self._ws_closed:
-                    # 🔥 FIX: Check if websocket is still open before closing
-                    # For Starlette/FastAPI, check client_state if available
-                    can_close = True
-                    if hasattr(self.ws, 'client_state'):
-                        from starlette.websockets import WebSocketState
-                        if self.ws.client_state != WebSocketState.CONNECTED:
-                            can_close = False
-                            if DEBUG:
-                                _orig_print(f"   [DEBUG] WebSocket already disconnected (state={self.ws.client_state})", flush=True)
-                    
-                    if can_close:
-                        self.ws.close()
-                        self._ws_closed = True
-                        _orig_print(f"   ✅ WebSocket closed", flush=True)
+                # 🔥 FIX: Use lock to prevent double close
+                with self.close_lock:
+                    if hasattr(self.ws, 'close') and not self._ws_closed:
+                        # 🔥 FIX: Check if websocket is still open before closing
+                        # For Starlette/FastAPI, check client_state if available
+                        can_close = True
+                        if hasattr(self.ws, 'client_state'):
+                            from starlette.websockets import WebSocketState
+                            if self.ws.client_state != WebSocketState.CONNECTED:
+                                can_close = False
+                                if DEBUG:
+                                    _orig_print(f"   [DEBUG] WebSocket already disconnected (state={self.ws.client_state})", flush=True)
+                        
+                        if can_close:
+                            self.ws.close()
+                            self._ws_closed = True
+                            _orig_print(f"   ✅ WebSocket closed", flush=True)
             except Exception as e:
                 error_msg = str(e).lower()
                 # 🔥 FIX: Expected conditions when client disconnects - log as DEBUG only
@@ -9983,6 +10011,17 @@ class MediaStreamHandler:
                             _orig_print(f"🚀 [TX_LOOP] Started TX thread (streamSid={'SET' if self.stream_sid else 'MISSING'}, thread_id={self.tx_thread.ident})", flush=True)
                     else:
                         _orig_print(f"⚠️ [TX_GUARD] TX loop already running - skipping duplicate start", flush=True)
+                    
+                    # 🔥 FIX: Start TTS worker thread
+                    if not self.tts_worker_running:
+                        if self.tts_worker_thread.is_alive():
+                            _orig_print(f"⚠️ [TTS_GUARD] TTS worker already running - skipping start", flush=True)
+                        else:
+                            self.tts_worker_running = True
+                            self.tts_worker_thread.start()
+                            _orig_print(f"🚀 [TTS_WORKER] Started TTS worker thread", flush=True)
+                    else:
+                        _orig_print(f"⚠️ [TTS_GUARD] TTS worker already running - skipping duplicate start", flush=True)
                     
                     # 🔥 STEP 3: Store greeting and signal event (OpenAI thread is waiting!)
                     # 🔥 Check per-call override (set based on ai_provider)
@@ -11280,38 +11319,70 @@ class MediaStreamHandler:
             # This code should never run when USE_REALTIME_API=True
             
             ai_provider = getattr(self, '_ai_provider', 'unknown')
-            logger.info(f"[TTS] Calling _hebrew_tts: provider={ai_provider}, text_len={len(text)}")
-            _orig_print(f"🎤 [TTS] Generating audio for {len(text)} chars (provider={ai_provider})", flush=True)
+            logger.info(f"[TTS] Queueing TTS request: provider={ai_provider}, text_len={len(text)}")
+            _orig_print(f"🎤 [TTS] Queueing audio generation for {len(text)} chars (provider={ai_provider})", flush=True)
             
-            tts_audio = self._hebrew_tts(text)
-            tts_generation_time = time.time() - tts_start
-            if DEBUG: logger.debug(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
+            # 🔥 FIX: Use TTS worker queue - never blocks receive_loop
+            result_queue = queue.Queue(maxsize=1)
+            tts_request = {
+                "text": text,
+                "result_queue": result_queue,
+                "timeout": 8  # 8 second timeout for TTS
+            }
             
-            if tts_audio and len(tts_audio) > 1000:
-                logger.info(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
-                _orig_print(f"✅ [TTS] Got {len(tts_audio)} bytes, sending to Twilio...", flush=True)
-                send_start = time.time()
-                self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
-                send_time = time.time() - send_start
-                logger.info(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission complete)")
-                _orig_print(f"✅ [TTS] Audio sent in {send_time:.3f}s", flush=True)
+            try:
+                # Put request in queue (non-blocking with timeout)
+                self.tts_queue.put(tts_request, timeout=1.0)
+                _orig_print(f"✅ [TTS] Request queued, waiting for result...", flush=True)
                 
-                # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
-                if eou_saved:
-                    turn_latency = send_start - eou_saved
-                    total_latency = time.time() - eou_saved
-                    stt_time = getattr(self, 'last_stt_time', 0.0)
-                    ai_time = getattr(self, 'last_ai_time', 0.0)
+                # Wait for result with timeout (max 10s total including TTS processing)
+                result = result_queue.get(timeout=10.0)
+                tts_generation_time = time.time() - tts_start
+                
+                if result.get("success"):
+                    tts_audio = result.get("audio")
+                    if DEBUG: logger.debug(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
                     
-                    if DEBUG: logger.debug(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
-                    if DEBUG: logger.debug(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
-                    logger.info(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
+                    if tts_audio and len(tts_audio) > 1000:
+                        logger.info(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
+                        _orig_print(f"✅ [TTS] Got {len(tts_audio)} bytes, sending to Twilio...", flush=True)
+                        send_start = time.time()
+                        self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
+                        send_time = time.time() - send_start
+                        logger.info(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission complete)")
+                        _orig_print(f"✅ [TTS] Audio sent in {send_time:.3f}s", flush=True)
+                        
+                        # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
+                        if eou_saved:
+                            turn_latency = send_start - eou_saved
+                            total_latency = time.time() - eou_saved
+                            stt_time = getattr(self, 'last_stt_time', 0.0)
+                            ai_time = getattr(self, 'last_ai_time', 0.0)
+                            
+                            if DEBUG: logger.debug(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
+                            if DEBUG: logger.debug(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
+                            logger.info(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
+                            
+                            # Clear for next measurement
+                            if hasattr(self, 'eou_timestamp'):
+                                delattr(self, 'eou_timestamp')
+                    else:
+                        logger.error("🔊 TTS returned no audio - sending beep")
+                        self._send_beep(800)
+                        self._finalize_speaking()
+                else:
+                    # TTS failed in worker
+                    error = result.get("error", "unknown")
+                    logger.error(f"🔊 TTS FAILED in worker: {error}")
+                    self._send_beep(800)
+                    self._finalize_speaking()
                     
-                    # Clear for next measurement
-                    if hasattr(self, 'eou_timestamp'):
-                        delattr(self, 'eou_timestamp')
-            else:
-                logger.error("🔊 TTS FAILED - sending beep")
+            except queue.Full:
+                logger.error("🔊 TTS queue full - too many pending requests")
+                self._send_beep(800)
+                self._finalize_speaking()
+            except queue.Empty:
+                logger.error(f"🔊 TTS timeout after {time.time() - tts_start:.1f}s - no response from worker")
                 self._send_beep(800)
                 self._finalize_speaking()
         except Exception as e:
@@ -15999,8 +16070,9 @@ class MediaStreamHandler:
         """
         ✅ ZERO LOGS INSIDE: Clean TX loop - take frame, send to Twilio, sleep 20ms
         
-        NO LOGS, NO WATCHDOGS, NO STALL RECOVERY, NO FLUSH
-        Only: get frame → send → sleep
+        🔥 FIX: Enhanced with resilience guards
+        - Don't exit prematurely if frames are still being generated
+        - Guard against closed session before sending
         """
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
         _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
@@ -16009,18 +16081,39 @@ class MediaStreamHandler:
         next_deadline = time.monotonic()
         frames_sent_total = 0
         _first_frame_sent = False
+        idle_count = 0  # Track consecutive empty checks
+        MAX_IDLE_BEFORE_EXIT = 10  # Allow 5 seconds of idle (10 * 0.5s timeout)
         
         # Pre-format event templates (outside loop to avoid json.dumps inside)
         clear_event_template = {"event": "clear", "streamSid": self.stream_sid}
         
         try:
             while self.tx_running or not self.tx_q.empty():
+                # 🔥 FIX: Don't exit if session is active and might receive more audio
+                if not self.tx_running and self.tx_q.empty():
+                    idle_count += 1
+                    if idle_count >= MAX_IDLE_BEFORE_EXIT:
+                        break
+                else:
+                    idle_count = 0  # Reset on any activity
+                
+                # 🔥 FIX: Guard against sending after session closed
+                if self.closed or self._ws_closed:
+                    _orig_print(f"[TX_LOOP] Session closed - draining remaining {self.tx_q.qsize()} frames and exiting", flush=True)
+                    # Drain queue but don't send
+                    while not self.tx_q.empty():
+                        try:
+                            self.tx_q.get_nowait()
+                        except:
+                            break
+                    break
+                
                 # Get frame
                 try:
                     item = self.tx_q.get(timeout=0.5)
                 except queue.Empty:
                     if not self.tx_running:
-                        break
+                        continue
                     continue
                 
                 if item.get("type") == "end":
@@ -16077,7 +16170,64 @@ class MediaStreamHandler:
             _orig_print(f"[TX_CRASH] {tx_loop_error}", flush=True)
             raise
         finally:
+            # 🔥 FIX: Log warning if no frames sent despite audio being generated
+            if frames_sent_total == 0 and hasattr(self, '_first_audio_sent') and not self._first_audio_sent:
+                _orig_print(f"⚠️ [TX_WARNING] frames_sent=0 - possible premature close or audio not reaching queue", flush=True)
             _orig_print(f"[AUDIO_TX_LOOP] exiting (frames_sent={frames_sent_total}, call_sid={call_sid_short})", flush=True)
+    
+    def _tts_worker_loop(self):
+        """
+        🔥 FIX: TTS Worker - runs in separate thread, never blocks receive_loop
+        
+        Processes TTS requests from tts_queue asynchronously.
+        Each request contains text and a result_queue where audio will be placed.
+        """
+        call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
+        _orig_print(f"[TTS_WORKER] started (call_sid={call_sid_short})", flush=True)
+        
+        while self.tts_worker_running or not self.tts_queue.empty():
+            try:
+                # Get TTS request with timeout
+                request = self.tts_queue.get(timeout=0.5)
+            except queue.Empty:
+                if not self.tts_worker_running:
+                    break
+                continue
+            
+            if request.get("type") == "end":
+                break
+            
+            text = request.get("text")
+            result_queue = request.get("result_queue")
+            timeout_seconds = request.get("timeout", 8)  # Default 8s timeout
+            
+            if not text or not result_queue:
+                continue
+            
+            # Run TTS with timeout
+            try:
+                start_time = time.time()
+                ai_provider = getattr(self, '_ai_provider', 'unknown')
+                _orig_print(f"🎤 [TTS_WORKER] Processing: {len(text)} chars (provider={ai_provider})", flush=True)
+                
+                # Call actual TTS function (with existing timeout wrapper)
+                audio_bytes = self._hebrew_tts(text)
+                
+                elapsed = time.time() - start_time
+                
+                if audio_bytes and len(audio_bytes) > 1000:
+                    result_queue.put({"success": True, "audio": audio_bytes, "elapsed": elapsed})
+                    _orig_print(f"✅ [TTS_WORKER] Success: {len(audio_bytes)} bytes in {elapsed:.2f}s", flush=True)
+                else:
+                    result_queue.put({"success": False, "error": "TTS returned no audio", "elapsed": elapsed})
+                    _orig_print(f"❌ [TTS_WORKER] Failed after {elapsed:.2f}s", flush=True)
+                    
+            except Exception as e:
+                elapsed = time.time() - start_time
+                result_queue.put({"success": False, "error": str(e), "elapsed": elapsed})
+                _orig_print(f"❌ [TTS_WORKER] Exception: {e}", flush=True)
+        
+        _orig_print(f"[TTS_WORKER] exiting (call_sid={call_sid_short})", flush=True)
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
