@@ -16,6 +16,7 @@ import threading
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.exc import OperationalError, DisconnectionError
+from rq import Retry  # 🔥 FIX: Import Retry for proper RQ retry handling
 
 # 🔒 Import Lead model at top level for efficient access
 from server.models_sql import CallLog, Business, Lead, BusinessTopic
@@ -233,18 +234,22 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
     try:
         redis_conn = redis.from_url(REDIS_URL)
         
-        # 🔥 IDEMPOTENCY: Redis NX key to prevent duplicate enqueues
+        # 🔥 IDEMPOTENCY: Check Redis key to prevent duplicate enqueues
+        # BUT DON'T SET IT YET - only set after successful enqueue
         # For full jobs, use longer TTL (300s = 5min) since processing takes longer
         job_key = f"job:full:{business_id}:{call_sid}"
         try:
-            acquired = redis_conn.set(job_key, "enqueued", nx=True, ex=300)
-            if not acquired:
+            # Check if already enqueued (dedup check)
+            existing_job_value = redis_conn.get(job_key)
+            if existing_job_value:
                 ttl = redis_conn.ttl(job_key)
                 log.info(f"[OFFLINE_STT] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
                 logger.info(f"🔒 [RQ] Duplicate full job blocked: call_sid={call_sid}")
                 return
+            else:
+                log.debug(f"[OFFLINE_STT] ✅ No existing job lock for {call_sid}, proceeding with enqueue")
         except Exception as e:
-            logger.warning(f"[OFFLINE_STT] Redis dedup error for {call_sid}: {e} - proceeding anyway")
+            logger.warning(f"[OFFLINE_STT] Redis dedup check error for {call_sid}: {e} - proceeding anyway")
         
         queue = Queue('recordings', connection=redis_conn)
         
@@ -252,6 +257,7 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         from server.jobs.recording_job import process_recording_full_job
         
         # Enqueue to RQ with millisecond precision for uniqueness
+        # 🔥 FIX: Use Retry(max=3) instead of retry=3 to prevent 'int' object has no attribute 'max' error
         rq_job = queue.enqueue(
             process_recording_full_job,
             call_sid=call_sid,
@@ -261,8 +267,16 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
             to_number=to_number,
             job_timeout='30m',
             job_id=f"recording_full_{call_sid}_{int(time.time()*1000)}",  # Millisecond precision
-            retry=3  # RQ will retry up to 3 times
+            retry=Retry(max=3)  # 🔥 FIX: RQ expects Retry object, not int
         )
+        
+        # 🔥 CRITICAL FIX: Only set dedup key AFTER successful enqueue
+        # This prevents the "dedup hit" lie when enqueue fails
+        try:
+            redis_conn.set(job_key, "enqueued", ex=300)
+            log.debug(f"[OFFLINE_STT] ✅ Job lock set for {call_sid} after successful enqueue")
+        except Exception as e:
+            logger.warning(f"[OFFLINE_STT] Failed to set dedup key for {call_sid}: {e} - continuing anyway")
         
         if retry_count == 0:
             log.info(f"[OFFLINE_STT] Recording job enqueued (RQ): {call_sid} → RQ job {rq_job.id}")
@@ -271,6 +285,7 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         
     except Exception as e:
         logger.error(f"❌ Failed to enqueue full recording job to RQ: {e}")
+        # 🔥 CRITICAL FIX: Don't set dedup key on failure
 
 
 def enqueue_recording_download_only(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0, recording_sid=None):
@@ -294,7 +309,11 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         recording_sid: Twilio Recording SID (RE...) - optional
     
     Returns:
-        bool: True if job was enqueued, False if skipped (caller should release slot)
+        tuple: (success: bool, reason: str)
+            - (True, "enqueued") if job was enqueued successfully
+            - (False, "cached") if file already exists locally
+            - (False, "duplicate") if job already enqueued (dedup hit)
+            - (False, "error") if enqueue failed (Redis/RQ error)
     """
     import os
     import redis
@@ -304,33 +323,34 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     from server.services.recording_service import check_local_recording_exists
     if check_local_recording_exists(call_sid):
         log.debug(f"[DOWNLOAD_ONLY] File already cached for {call_sid}")
-        return False
+        return (False, "cached")
     
     # Get Redis connection
     REDIS_URL = os.getenv('REDIS_URL')
     if not REDIS_URL:
         logger.error("❌ REDIS_URL not set - cannot enqueue recording job")
-        return False
+        return (False, "error")
     
     try:
         redis_conn = redis.from_url(REDIS_URL)
         
-        # 🔥 IDEMPOTENCY: Redis NX key to prevent duplicate enqueues
+        # 🔥 IDEMPOTENCY: Check Redis NX key to prevent duplicate enqueues
+        # BUT DON'T SET IT YET - only set after successful enqueue
         # Short TTL (120s) to prevent blocking, but long enough to prevent double-clicks
         job_key = f"job:download:{business_id}:{call_sid}"
         try:
-            # NX = only set if not exists (atomic operation)
-            acquired = redis_conn.set(job_key, "enqueued", nx=True, ex=120)
-            if not acquired:
+            # Check if already enqueued (dedup check)
+            existing_job_value = redis_conn.get(job_key)
+            if existing_job_value:
                 # Job already enqueued recently - skip duplicate
                 ttl = redis_conn.ttl(job_key)
                 log.info(f"[DOWNLOAD_ONLY] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
                 logger.info(f"🔒 [RQ] Duplicate enqueue blocked: call_sid={call_sid} (already queued)")
-                return False
+                return (False, "duplicate")
             else:
-                log.debug(f"[DOWNLOAD_ONLY] ✅ Job lock acquired for {call_sid}")
+                log.debug(f"[DOWNLOAD_ONLY] ✅ No existing job lock for {call_sid}, proceeding with enqueue")
         except Exception as e:
-            logger.warning(f"[DOWNLOAD_ONLY] Redis dedup error for {call_sid}: {e} - proceeding anyway")
+            logger.warning(f"[DOWNLOAD_ONLY] Redis dedup check error for {call_sid}: {e} - proceeding anyway")
             # Continue on Redis error (fail-open)
         
         queue = Queue('recordings', connection=redis_conn)
@@ -340,6 +360,7 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         
         # Enqueue to RQ with retry
         # Use millisecond precision in job_id for better uniqueness
+        # 🔥 FIX: Use Retry(max=3) instead of retry=3 to prevent 'int' object has no attribute 'max' error
         rq_job = queue.enqueue(
             process_recording_download_job,
             call_sid=call_sid,
@@ -350,9 +371,17 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
             recording_sid=recording_sid,
             job_timeout='10m',
             job_id=f"recording_download_{call_sid}_{int(time.time()*1000)}",  # Millisecond precision
-            retry=3,  # RQ will retry up to 3 times
+            retry=Retry(max=3),  # 🔥 FIX: RQ expects Retry object, not int
             failure_ttl=3600  # Keep failed jobs for 1 hour for debugging
         )
+        
+        # 🔥 CRITICAL FIX: Only set dedup key AFTER successful enqueue
+        # This prevents the "dedup hit" lie when enqueue fails
+        try:
+            redis_conn.set(job_key, "enqueued", ex=120)
+            log.debug(f"[DOWNLOAD_ONLY] ✅ Job lock set for {call_sid} after successful enqueue")
+        except Exception as e:
+            logger.warning(f"[DOWNLOAD_ONLY] Failed to set dedup key for {call_sid}: {e} - continuing anyway")
         
         logger.info(f"✅ [RQ] Recording download job enqueued: call_sid={call_sid} → RQ job {rq_job.id}")
         
@@ -361,11 +390,13 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         else:
             log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued (RQ): call_sid={call_sid}")
         
-        return True
+        return (True, "enqueued")
         
     except Exception as e:
         logger.error(f"❌ Failed to enqueue recording job to RQ: {e}")
-        return False
+        # 🔥 CRITICAL FIX: Don't set dedup key on failure - return error status
+        # Caller should return HTTP 500 instead of pretending it's a dedup hit
+        return (False, "error")
 
 def enqueue_recording(form_data):
     """Legacy wrapper - converts form_data to new queue format"""
