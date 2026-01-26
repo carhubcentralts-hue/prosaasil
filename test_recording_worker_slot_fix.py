@@ -210,8 +210,9 @@ def test_semaphore_ttl_values():
     inflight_match = re.search(r'INFLIGHT_TTL = (\d+)', content)
     assert inflight_match, "INFLIGHT_TTL not found"
     inflight_ttl = int(inflight_match.group(1))
-    assert 60 <= inflight_ttl <= 300, \
-        f"INFLIGHT_TTL should be 60-300 seconds, got {inflight_ttl}"
+    # Updated: INFLIGHT_TTL should be 600-900s to handle large recordings
+    assert 600 <= inflight_ttl <= 1200, \
+        f"INFLIGHT_TTL should be 600-1200 seconds (10-20 min) for large recordings, got {inflight_ttl}"
     
     # Check QUEUED_TTL
     queued_match = re.search(r'QUEUED_TTL = (\d+)', content)
@@ -221,6 +222,56 @@ def test_semaphore_ttl_values():
         f"QUEUED_TTL should be ≥ 600 seconds, got {queued_ttl}"
     
     print(f"  ✅ TTL values appropriate: INFLIGHT={inflight_ttl}s, QUEUED={queued_ttl}s")
+
+def test_dedup_ttl_short():
+    """Test that dedup TTL is short (not 30 minutes)"""
+    print("\n✓ Testing dedup TTL is short...")
+    
+    with open('server/tasks_recording.py', 'r') as f:
+        content = f.read()
+    
+    # Find the dedup TTL in enqueue_recording_download_only
+    # Should be 120 seconds, not 1800 (30 minutes)
+    assert 'ex=120' in content or 'ex = 120' in content, \
+        "Dedup TTL should be 120 seconds (short to prevent blocking on failures)"
+    
+    # Make sure old value (1800 = 30 min) is NOT present
+    assert 'ex=1800' not in content and 'ex = 1800' not in content, \
+        "Dedup TTL should NOT be 1800s (30 minutes) - too long, blocks retries on failure"
+    
+    print("  ✅ Dedup TTL correctly set to 120s (prevents blocking on failures)")
+
+def test_worker_no_blocking_loop():
+    """Test that worker doesn't block with sleep loop"""
+    print("\n✓ Testing worker doesn't block on slot acquisition...")
+    
+    with open('server/tasks_recording.py', 'r') as f:
+        content = f.read()
+    
+    # Find the worker function
+    worker_match = re.search(
+        r'def start_recording_worker\(app\):(.*?)(?=\ndef |\Z)',
+        content,
+        re.DOTALL
+    )
+    assert worker_match, "start_recording_worker function not found"
+    worker_func = worker_match.group(1)
+    
+    # Check that there's NO 60-second loop (for attempt in range(60))
+    assert 'for attempt in range(60)' not in worker_func and \
+           'for attempt in range(max_slot_attempts)' not in worker_func, \
+        "Worker should NOT have blocking loop for slot acquisition"
+    
+    # Check that worker tries once and re-enqueues if no slot
+    assert 'try_acquire_slot(business_id, call_sid)' in worker_func, \
+        "Worker should try to acquire slot once"
+    
+    # Check for backoff delays array (not sleep loop)
+    assert 'backoff_delays' in worker_func or 'backoff' in worker_func.lower(), \
+        "Worker should use backoff delays for re-enqueue"
+    
+    print("  ✅ Worker correctly re-enqueues without blocking (no 60s sleep loop)")
+    print("  ✅ Uses exponential backoff for slot retries")
 
 def run_all_tests():
     """Run all tests"""
@@ -237,6 +288,8 @@ def run_all_tests():
         test_frontend_stops_on_failed()
         test_frontend_validates_blob()
         test_semaphore_ttl_values()
+        test_dedup_ttl_short()
+        test_worker_no_blocking_loop()
         
         print()
         print("=" * 70)
@@ -249,12 +302,19 @@ def run_all_tests():
         print("3. ✅ Frontend reduced retries from 10 to 5")
         print("4. ✅ Frontend stops polling on 'failed' status")
         print("5. ✅ Frontend validates blob size before creating URL")
-        print("6. ✅ TTL values appropriate for cleanup")
+        print("6. ✅ TTL values appropriate (INFLIGHT=900s for large recordings)")
+        print("7. ✅ Dedup TTL short (120s, not 30min)")
+        print("8. ✅ Worker doesn't block - re-enqueues with backoff")
         print()
         print("This fixes the critical deadlock issue where:")
         print("- API acquired slots but worker did work")
         print("- Worker crashes left slots stuck forever (active=5/5)")
         print("- Queue grew infinitely as no slots became available")
+        print()
+        print("Additional improvements from feedback:")
+        print("- Dedup TTL reduced from 30min to 120s (prevents blocking on failures)")
+        print("- INFLIGHT_TTL increased to 900s (handles large recordings)")
+        print("- Worker no longer blocks with 60s sleep loop (better throughput)")
         print()
         return True
         

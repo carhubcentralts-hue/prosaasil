@@ -22,7 +22,7 @@ log = logging.getLogger("recording_semaphore")
 MAX_SLOTS_PER_BUSINESS = 5
 
 # TTL values
-INFLIGHT_TTL = 120  # 120 seconds - prevents double-clicks
+INFLIGHT_TTL = 900  # 15 minutes - must be > max download time for large recordings
 QUEUED_TTL = 1200  # 20 minutes - prevents re-adding to queue
 
 # Redis client (initialized in init_redis)

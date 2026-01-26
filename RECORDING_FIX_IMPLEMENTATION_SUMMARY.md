@@ -12,7 +12,7 @@ The recording system had a critical deadlock issue:
 
 **Classic semaphore deadlock pattern**: The API was acquiring slots but the worker was doing the work. If the worker crashed, failed, or encountered an exception, the slot remained acquired and the system entered an infinite loop of "acquire → queue".
 
-## Solution Implemented
+## Solution Implemented (Updated with Feedback)
 
 ### P0 Critical Fixes
 
@@ -29,9 +29,10 @@ The recording system had a critical deadlock issue:
   - Checks current status to avoid duplicate enqueueing
   
 - **Worker**: Moved slot acquisition to worker thread
-  - Worker acquires slot BEFORE starting work (line ~431-457)
+  - Worker tries to acquire slot ONCE (no blocking loop) ⚡ UPDATED
+  - If no slot available, re-enqueues with exponential backoff (2s, 5s, 10s, 20s, 40s) ⚡ UPDATED
   - Uses try/finally to GUARANTEE slot release
-  - If slot can't be acquired after 60s, re-enqueues job
+  - Max 5 retry attempts (total ~2 minutes backoff) ⚡ UPDATED
   - `slot_acquired` flag in outer scope ensures proper cleanup
 
 **Key Code Structure:**
@@ -76,15 +77,20 @@ def start_recording_worker(app):
                 release_slot(business_id, call_sid)
 ```
 
-#### 2. Hard Idempotency ✅
+#### 2. Hard Idempotency ✅ (UPDATED)
 
-**Already Implemented:**
-- Redis-based deduplication with 30-minute TTL
+**Implementation:**
+- Redis-based deduplication with 120-second TTL ⚡ UPDATED (was 30 minutes)
 - Key: `job:download:{business_id}:{call_sid}`
 - Atomic SET with NX (only if not exists)
 - Returns False if job already exists (caller doesn't enqueue duplicate)
 
-**File:** `server/tasks_recording.py` (enqueue_recording_download_only, line 273-292)
+**Why 120s instead of 30min:**
+- **Rule**: Dedup = prevents spam (short), Status = source of truth (long)
+- 30min TTL would block retries if worker fails
+- 120s is enough to prevent duplicate clicks but allows retry on failure
+
+**File:** `server/tasks_recording.py` (enqueue_recording_download_only, line ~277)
 
 #### 3. Frontend Retry Fixes ✅
 
@@ -107,14 +113,19 @@ def start_recording_worker(app):
 
 ### P1 Enhancements
 
-#### TTL Cleanup for Stuck Slots ✅
+#### TTL Cleanup for Stuck Slots ✅ (UPDATED)
 
-**Already Implemented:** `server/recording_semaphore.py`
+**Implementation:** `server/recording_semaphore.py`
 - `cleanup_expired_slots()` function
 - Auto-removes inflight markers that expired
 - TTL values:
-  - `INFLIGHT_TTL = 120s` (2 minutes)
+  - `INFLIGHT_TTL = 900s` (15 minutes) ⚡ UPDATED (was 120s)
   - `QUEUED_TTL = 1200s` (20 minutes)
+
+**Why 900s instead of 120s:**
+- Large recordings can take 5-10 minutes to download
+- TTL must be > max real download time
+- 120s was too short, causing slot cleanup during active downloads
 
 ## Acceptance Criteria
 

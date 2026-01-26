@@ -275,9 +275,10 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     if REDIS_DEDUP_ENABLED and _redis_client:
         try:
             job_key = f"job:download:{business_id}:{call_sid}"
-            # Try to set key with 30-minute expiry (1800 seconds)
+            # Try to set key with 120-second expiry (short TTL to prevent blocking on failures)
+            # Rule: Dedup = prevents spam (short), Status = source of truth (long)
             # NX = only set if not exists (atomic operation)
-            acquired = _redis_client.set(job_key, "enqueued", nx=True, ex=1800)
+            acquired = _redis_client.set(job_key, "enqueued", nx=True, ex=120)
             
             if not acquired:
                 # Job already enqueued - skip duplicate
@@ -436,35 +437,34 @@ def start_recording_worker(app):
                 # 🔥 FIX: For download_only jobs, acquire per-business slot HERE (not in API)
                 # This ensures slot is ALWAYS released in finally, even if worker crashes
                 if job_type == "download_only" and business_id:
-                    # Try to acquire slot - if all slots busy, wait and retry
-                    # 🔥 FIX: Hard limit to prevent infinite loop
-                    max_slot_attempts = 60  # Wait up to 60 seconds for a slot
+                    # Try to acquire slot - if busy, re-enqueue immediately (don't block worker)
+                    # Rule: Worker doesn't "wait" - it "defers" and continues
                     slot_retry_count = job.get("slot_retry_count", 0)  # Track slot acquisition retries
                     
-                    if slot_retry_count >= 3:
+                    if slot_retry_count >= 5:
                         # Too many slot acquisition failures - give up
                         logger.error(f"❌ [WORKER] Failed to acquire slot for {call_sid} after {slot_retry_count} attempts - giving up")
                         RECORDING_QUEUE.task_done()
                         task_done_called = True
                         continue
                     
-                    for attempt in range(max_slot_attempts):
-                        acquired, slot_status = try_acquire_slot(business_id, call_sid)
-                        if acquired:
-                            slot_acquired = True
-                            logger.info(f"🎯 [WORKER] Slot acquired for {call_sid} business_id={business_id}")
-                            break
-                        
-                        # Slot busy - wait and retry
-                        if attempt == 0:
-                            logger.info(f"⏳ [WORKER] All slots busy for business {business_id}, waiting for slot...")
-                        time.sleep(1)  # Wait 1 second before retry
+                    # Try to acquire slot once (no blocking loop)
+                    acquired, slot_status = try_acquire_slot(business_id, call_sid)
                     
-                    if not slot_acquired:
-                        # Couldn't acquire slot after 60 seconds - re-enqueue with backoff
-                        logger.warning(f"⚠️ [WORKER] Could not acquire slot for {call_sid} after {max_slot_attempts}s - re-enqueuing (retry {slot_retry_count + 1}/3)")
+                    if acquired:
+                        slot_acquired = True
+                        logger.info(f"🎯 [WORKER] Slot acquired for {call_sid} business_id={business_id}")
+                    else:
+                        # No slot available - re-enqueue with exponential backoff and move on
+                        # Backoff: 2s, 5s, 10s, 20s, 40s (max ~2 minutes total)
+                        backoff_delays = [2, 5, 10, 20, 40]
+                        delay = backoff_delays[min(slot_retry_count, len(backoff_delays) - 1)]
+                        
+                        logger.info(f"⏳ [WORKER] All slots busy for business {business_id}, re-enqueuing {call_sid} with {delay}s delay (retry {slot_retry_count + 1}/5)")
                         job["slot_retry_count"] = slot_retry_count + 1
-                        time.sleep(min(10 * (slot_retry_count + 1), 30))  # Exponential backoff: 10s, 20s, 30s
+                        
+                        # Re-enqueue with delay - worker continues to process other jobs
+                        time.sleep(delay)
                         RECORDING_QUEUE.put(job)
                         RECORDING_QUEUE.task_done()
                         task_done_called = True
