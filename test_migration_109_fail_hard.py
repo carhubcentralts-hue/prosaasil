@@ -62,7 +62,12 @@ def test_no_duplicate_columns_in_db_migrate():
     to the call_log table in the migration file.
     """
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/db_migrate.py', 'r') as f:
+    import os
+    # Get path relative to this file
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    db_migrate_path = os.path.join(current_dir, 'server', 'db_migrate.py')
+    
+    with open(db_migrate_path, 'r') as f:
         content = f.read()
     
     # Find Migration 109 section
@@ -82,22 +87,17 @@ def test_no_duplicate_columns_in_db_migrate():
     after_110 = content[migration_110_start:]
     
     # Simple check: look for patterns that would indicate duplicate column additions
-    # We're looking for "call_log" followed by "started_at" (not stream_started_at or dial_started_at)
     import re
     
-    # Check for started_at in call_log context (excluding stream_started_at, dial_started_at)
-    # This is a conservative check - looking for exact column name
+    # Look for exact match: ADD COLUMN followed by exactly 'started_at' (not stream_started_at, dial_started_at)
+    # Use word boundaries and check that it's not preceded by stream/dial/other prefixes
     for section_name, section in [("before Migration 109", before_109), ("after Migration 110", after_110)]:
-        # Look for ADD COLUMN with these exact column names
-        if re.search(r'call_log.*ADD COLUMN.*\bstarted_at\b(?!.*stream|dial)', section, re.IGNORECASE | re.DOTALL):
-            # But exclude stream_started_at and dial_started_at
-            if 'stream_started_at' not in section and 'dial_started_at' not in section:
-                # Found potential duplicate - check more carefully
-                lines = section.split('\n')
-                for i, line in enumerate(lines):
-                    if 'call_log' in line.lower() and 'started_at' in line.lower():
-                        if 'stream' not in line.lower() and 'dial' not in line.lower():
-                            print(f"  Warning: Found 'started_at' in {section_name} at line context: {line[:80]}")
+        # More precise pattern: look for 'started_at' that is NOT preceded by underscore or letter
+        if re.search(r'call_log.*ADD COLUMN[^;]*(?<![_a-z])started_at(?![_a-z])', section, re.IGNORECASE | re.DOTALL):
+            lines = section.split('\n')
+            for i, line in enumerate(lines):
+                if 'call_log' in line.lower() and re.search(r'(?<![_a-z])started_at(?![_a-z])', line, re.IGNORECASE):
+                    print(f"  Warning: Found exact 'started_at' in {section_name}: {line.strip()[:80]}")
     
     print("✅ No obvious duplicate column definitions found")
     print("   (Migration 109 has started_at, ended_at, duration_sec)")
@@ -107,7 +107,12 @@ def test_no_duplicate_columns_in_db_migrate():
 def test_migration_109_if_not_exists():
     """Verify that Migration 109 uses IF NOT EXISTS for idempotency"""
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/db_migrate.py', 'r') as f:
+    import os
+    # Get path relative to this file
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    db_migrate_path = os.path.join(current_dir, 'server', 'db_migrate.py')
+    
+    with open(db_migrate_path, 'r') as f:
         content = f.read()
     
     # Find Migration 109 section

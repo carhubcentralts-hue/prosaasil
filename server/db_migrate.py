@@ -5622,7 +5622,8 @@ def apply_migrations():
         if migration_success:
             checkpoint("✅ Migration 109 complete: Call duration tracking columns added (production-safe)")
         else:
-            # This should never be reached now due to the raise above, but keeping for safety
+            # Dead code path - keeping for defensive programming in case exception handling changes
+            # All failure paths now explicitly raise exceptions, so this should never execute
             checkpoint("⚠️ Migration 109 incomplete - check logs for details")
             raise Exception("Migration 109 failed but exception was not raised properly")
         
