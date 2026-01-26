@@ -21,8 +21,12 @@ data_api = Blueprint('data_api', __name__)
 def admin_kpis_calls():
     """Get calls count for today"""
     today = datetime.utcnow().date()
+    # 🔥 PERFORMANCE FIX: Use range-based queries instead of date() function for index efficiency
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
     count = CallLog.query.filter(
-        db.func.date(CallLog.created_at) == today
+        CallLog.created_at >= today_start,
+        CallLog.created_at <= today_end
     ).count()
     return str(count)
 
@@ -31,8 +35,12 @@ def admin_kpis_calls():
 def admin_kpis_whatsapp():
     """Get WhatsApp messages count for today"""
     today = datetime.utcnow().date()
+    # 🔥 PERFORMANCE FIX: Use range-based queries instead of date() function for index efficiency
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
     count = WhatsAppMessage.query.filter(
-        db.func.date(WhatsAppMessage.created_at) == today
+        WhatsAppMessage.created_at >= today_start,
+        WhatsAppMessage.created_at <= today_end
     ).count()
     return str(count)
 
