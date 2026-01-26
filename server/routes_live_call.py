@@ -194,12 +194,13 @@ def live_call_chat():
             try:
                 from google import genai
                 from google.genai import types
-                from server.services.providers.google_clients import get_gemini_client
+                from server.services.providers.google_clients import get_gemini_llm_client
                 
-                client = get_gemini_client()
-                if not client:
-                    logger.error(f"[LIVE_CALL][CHAT] Gemini client not available")
-                    return jsonify({'error': 'Gemini LLM unavailable - client initialization failed'}), 503
+                try:
+                    client = get_gemini_llm_client()
+                except RuntimeError as init_error:
+                    logger.error(f"[LIVE_CALL][CHAT] Gemini LLM client initialization failed: {init_error}")
+                    return jsonify({'error': f'Gemini LLM unavailable: {str(init_error)}'}), 503
                 
                 logger.info(f"[LIVE_CALL][CHAT] Using Gemini LLM (singleton) for business={business_id}")
                 
@@ -228,6 +229,9 @@ def live_call_chat():
                 # Gemini response has .text attribute for simple text generation
                 ai_response = response.text.strip() if hasattr(response, 'text') else str(response).strip()
                 
+            except RuntimeError as init_error:
+                # Client initialization error - already logged above
+                return jsonify({'error': f'Gemini LLM unavailable: {str(init_error)}'}), 503
             except Exception as gemini_err:
                 logger.error(f"[LIVE_CALL][CHAT] Gemini error: {gemini_err}")
                 return jsonify({'error': 'Gemini LLM processing failed'}), 500

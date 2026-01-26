@@ -338,15 +338,12 @@ class AIService:
         """Lazy load Gemini client when needed (uses singleton)"""
         if self._gemini_client is None:
             try:
-                from server.services.providers.google_clients import get_gemini_client
+                from server.services.providers.google_clients import get_gemini_llm_client
                 
-                self._gemini_client = get_gemini_client()
-                if not self._gemini_client:
-                    raise ValueError("Gemini client initialization failed")
-                
-                logger.info(f"✅ Gemini client (singleton) ready for business={self.business_id}")
-            except Exception as e:
-                logger.error(f"❌ Failed to get Gemini client: {e}")
+                self._gemini_client = get_gemini_llm_client()
+                logger.info(f"✅ Gemini LLM client (singleton) ready for business={self.business_id}")
+            except RuntimeError as init_error:
+                logger.error(f"❌ Failed to get Gemini LLM client: {init_error}")
                 raise
         return self._gemini_client
     

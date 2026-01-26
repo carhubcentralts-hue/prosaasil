@@ -302,10 +302,12 @@ def synthesize_gemini(
             speed = max(0.25, min(4.0, speed))
             
             # Get Gemini client (singleton - no per-call creation)
-            from server.services.providers.google_clients import get_gemini_client
-            client = get_gemini_client()
-            if not client:
-                raise RuntimeError("Gemini client not available")
+            from server.services.providers.google_clients import get_gemini_tts_client
+            try:
+                client = get_gemini_tts_client()
+            except RuntimeError as init_error:
+                logger.error(f"[GEMINI_TTS] Client initialization failed: {init_error}")
+                return None, f"Gemini TTS unavailable: {str(init_error)}"
             
             # 🔥 ASSERTION + LOG: Verify TTS-only configuration BEFORE making API call
             # This prevents 400 INVALID_ARGUMENT by ensuring we're in pure TTS mode
