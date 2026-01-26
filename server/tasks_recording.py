@@ -1740,7 +1740,10 @@ def _handle_failed_call(call_log, call_status, db):
 
 def save_call_status(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
     """
-    🔥 FIX: Enqueue call status update to RQ instead of Thread (prevents NameError: Thread not defined)
+    🔥 NEW: Synchronous write-through for call status updates (no Thread, no RQ delay)
+    
+    The duration and status update is O(1) DB operation - no need for async worker.
+    This ensures timestamps and duration are written immediately without delay.
     
     Args:
         call_sid: Twilio Call SID
@@ -1751,28 +1754,15 @@ def save_call_status(call_sid, status, duration=0, direction="inbound", twilio_d
         parent_call_sid: Parent call SID if this is a child leg
     """
     try:
-        import redis
-        from rq import Queue
-        
-        # Connect to Redis
-        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-        redis_conn = redis.from_url(redis_url)
-        
-        # Create RQ queue for call status updates
-        queue = Queue('call_status', connection=redis_conn, default_timeout=300)
-        
-        # Enqueue the status update job
-        job = queue.enqueue(
-            'server.tasks_recording.save_call_status_async',
-            call_sid, status, duration, direction, twilio_direction, parent_call_sid
-        )
-        
-        log.info("Call status queued for update via RQ: %s -> %s (duration=%s, twilio_direction=%s, job_id=%s)", 
-                call_sid, status, duration, twilio_direction, job.id if job else 'N/A')
-    except Exception as e:
-        # Fallback: If RQ fails, run synchronously to avoid losing the update
-        log.warning(f"Failed to enqueue call status via RQ: {e}. Running synchronously.")
+        # 🔥 CRITICAL: Write-through synchronously for accurate duration tracking
+        # Duration update is fast (single UPDATE) and must be immediate
         save_call_status_async(call_sid, status, duration, direction, twilio_direction, parent_call_sid)
+        log.info("Call status updated synchronously: %s -> %s (duration=%s, twilio_direction=%s)", 
+                call_sid, status, duration, twilio_direction)
+    except Exception as e:
+        log.error(f"Failed to update call status for {call_sid}: {e}")
+        # Re-raise to ensure we know about failures
+        raise
 
 def save_call_status_async(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
     """
@@ -1789,6 +1779,8 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound", tw
         twilio_direction: Original Twilio direction value
         parent_call_sid: Parent call SID if this is a child leg
     """
+    from datetime import datetime
+    
     try:
         # שימוש ב-PostgreSQL דרך SQLAlchemy במקום SQLite
         from server.app_factory import get_process_app
@@ -1811,9 +1803,37 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound", tw
                 
                 log.info(f"🔄 [CALL_STATUS] Updating call_sid={call_sid}: status '{old_status}' → '{status}', call_status '{old_call_status}' → '{status}'")
                 
+                # 🔥 NEW DURATION SSOT: Set started_at if not set and call is starting
+                if not call_log.started_at and status in ["ringing", "in-progress", "answered"]:
+                    call_log.started_at = datetime.utcnow()
+                    log.info(f"🕐 [DURATION] Set started_at for call_sid={call_sid}")
+                
+                # 🔥 NEW DURATION SSOT: Set ended_at when call completes
+                calculate_duration_from_timestamps = False
+                if not call_log.ended_at and status in ["completed", "busy", "no-answer", "failed", "canceled", "ended"]:
+                    now = datetime.utcnow()
+                    call_log.ended_at = now
+                    log.info(f"🕐 [DURATION] Set ended_at for call_sid={call_sid}")
+                    
+                    # Calculate duration from timestamps if Twilio CallDuration is missing/0
+                    if duration == 0 or duration < (call_log.duration or 0):
+                        if call_log.started_at and isinstance(call_log.started_at, datetime):
+                            # Calculate duration from timestamps
+                            calculated_duration = int((now - call_log.started_at).total_seconds())
+                            if calculated_duration > 0:
+                                call_log.duration = max(calculated_duration, call_log.duration or 0)
+                                log.info(f"🔢 [DURATION] Calculated duration from timestamps: {calculated_duration}s for call_sid={call_sid}")
+                        elif call_log.created_at:
+                            # Fallback: use created_at as started_at estimate
+                            calculated_duration = int((now - call_log.created_at).total_seconds())
+                            if calculated_duration > 0:
+                                call_log.duration = max(calculated_duration, call_log.duration or 0)
+                                log.info(f"🔢 [DURATION] Calculated duration from created_at (fallback): {calculated_duration}s for call_sid={call_sid}")
+                
                 # ✅ Only update duration if provided and greater than current
                 if duration > 0 and duration > (call_log.duration or 0):
                     call_log.duration = duration
+                    log.info(f"🔢 [DURATION] Updated duration from Twilio CallDuration: {duration}s for call_sid={call_sid}")
                 
                 # 🔥 CRITICAL: Smart direction update logic
                 # Allow upgrading from "unknown" to real value, but never overwrite real value with None
