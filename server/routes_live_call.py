@@ -194,15 +194,14 @@ def live_call_chat():
             try:
                 from google import genai
                 from google.genai import types
-                from server.utils.gemini_key_provider import get_gemini_api_key
+                from server.services.providers.google_clients import get_gemini_client
                 
-                gemini_api_key = get_gemini_api_key()
-                if not gemini_api_key:
-                    logger.error(f"[LIVE_CALL][CHAT] Gemini requested but GEMINI_API_KEY not set")
-                    return jsonify({'error': 'Gemini LLM unavailable - API key not configured'}), 503
+                client = get_gemini_client()
+                if not client:
+                    logger.error(f"[LIVE_CALL][CHAT] Gemini client not available")
+                    return jsonify({'error': 'Gemini LLM unavailable - client initialization failed'}), 503
                 
-                logger.info(f"[LIVE_CALL][CHAT] Using Gemini LLM for business={business_id}")
-                client = genai.Client(api_key=gemini_api_key)
+                logger.info(f"[LIVE_CALL][CHAT] Using Gemini LLM (singleton) for business={business_id}")
                 
                 # Convert messages to Gemini format
                 # Combine system and conversation into a single prompt

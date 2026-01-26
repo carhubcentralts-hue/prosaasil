@@ -11922,25 +11922,22 @@ class MediaStreamHandler:
                 wav_file.setframerate(16000)
                 wav_file.writeframes(pcm16_16k)
             
-            # Initialize Google Cloud Speech-to-Text client with explicit service account credentials
+            # Initialize Google Cloud Speech-to-Text client (singleton)
             # 🔑 CRITICAL: Uses GOOGLE_APPLICATION_CREDENTIALS for authentication
             # This is Google Cloud Speech-to-Text API (google.cloud.speech), NOT Gemini STT API
             try:
-                credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-                if not credentials_path:
-                    error_msg = "GOOGLE_APPLICATION_CREDENTIALS environment variable is not set"
+                from server.services.providers.google_clients import get_stt_client
+                
+                client = get_stt_client()
+                if not client:
+                    error_msg = "Google Cloud STT client not available - check DISABLE_GOOGLE and GOOGLE_APPLICATION_CREDENTIALS"
                     logger.error(f"❌ [GOOGLE_CLOUD_STT] {error_msg}")
                     raise Exception(error_msg)
                 
-                # Load credentials from service account file
-                credentials = service_account.Credentials.from_service_account_file(
-                    credentials_path
-                )
-                client = speech.SpeechClient(credentials=credentials)
-                logger.info(f"✅ [GOOGLE_CLOUD_STT] Google Cloud Speech-to-Text client initialized with service account from {credentials_path}")
+                logger.info(f"✅ [GOOGLE_CLOUD_STT] Using singleton Google Cloud Speech-to-Text client")
                 
             except Exception as client_err:
-                logger.error(f"❌ [GOOGLE_CLOUD_STT] Failed to initialize Google Cloud Speech-to-Text client: {client_err}")
+                logger.error(f"❌ [GOOGLE_CLOUD_STT] Failed to get Google Cloud Speech-to-Text client: {client_err}")
                 raise
             
             # Read audio file
