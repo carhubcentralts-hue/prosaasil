@@ -87,6 +87,25 @@ services:
       - prosaas-net
 
   # ===========================================
+  # Migration Service - Production Configuration
+  # Runs DB migrations BEFORE any services start
+  # ===========================================
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.light
+    environment:
+      FLASK_ENV: production
+      # 🔥 LOGGING - Production mode (minimal logs)
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # ===========================================
   # Disable local database in production
   # (Use managed DB like Railway, Supabase, Neon, etc.)
   # ===========================================
@@ -134,6 +153,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       prosaas-api:
         condition: service_healthy
     deploy:
@@ -161,8 +182,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-      RUN_MIGRATIONS_ON_START: 1
-      RUN_MIGRATIONS: "1"
+      # 🔥 MIGRATIONS - Disabled since migrate service handles it
+      RUN_MIGRATIONS_ON_START: 0
+      RUN_MIGRATIONS: "0"
       PRODUCTION: ${PRODUCTION:-1}
       ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
       ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
@@ -209,6 +231,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5000/health"]
       interval: 10s
@@ -308,6 +332,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
       interval: 30s

@@ -53,6 +53,34 @@ services:
       - prosaas-net
 
   # ===========================================
+  # Migration Service - Runs DB migrations BEFORE any services start
+  # This ensures migrations complete successfully before the application comes up
+  # ===========================================
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: "no"  # Run once and exit
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      # 🔥 MIGRATION MODE: Skip application startup, only run migrations
+      MIGRATION_MODE: "1"
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    command: ["python", "-m", "server.db_migrate"]
+    networks:
+      - prosaas-net
+
+  # ===========================================
   # Backend API Service
   # No external port exposure
   # In production, use prosaas-api and prosaas-calls via --profile prod instead
@@ -188,6 +216,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       prosaas-api:
         condition: service_healthy
     healthcheck:
@@ -303,9 +333,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-      # 🔥 MIGRATIONS - Run on container startup (ONLY API RUNS MIGRATIONS)
-      RUN_MIGRATIONS_ON_START: 1
-      RUN_MIGRATIONS: "1"
+      # 🔥 MIGRATIONS - Disabled since migrate service handles it
+      RUN_MIGRATIONS_ON_START: 0
+      RUN_MIGRATIONS: "0"
       # 🔥 ATTACHMENT STORAGE - R2 Configuration
       PRODUCTION: ${PRODUCTION:-0}
       ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-local}
@@ -341,6 +371,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s
@@ -411,6 +443,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
       interval: 30s
