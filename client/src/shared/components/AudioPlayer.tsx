@@ -20,9 +20,9 @@ const PLAYBACK_SPEED_KEY = 'audioPlaybackRate';
  * - 1x, 1.5x, 2x playback speed toggle buttons
  * - Persists speed preference in localStorage
  * - Applies speed automatically on load
- * - 🔥 NEW: Direct streaming from /api/recordings/file/<call_sid> with Range support
- * - 🔥 FIX: No blob URLs - uses native browser streaming for stability
- * - 🔥 FIX: Handles 404/waiting with retry logic for recordings being downloaded
+ * - 🔥 Uses /api/recordings/<call_sid>/stream endpoint for authenticated playback
+ * - 🔥 Handles 202 Accepted (download in progress) with retry logic
+ * - 🔥 Adds explicit_user_action=true for security
  */
 export function AudioPlayer({ src, loading = false, className = '' }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -43,36 +43,29 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     return delays[Math.min(retryCount, delays.length - 1)];
   };
 
-  // 🔥 NEW: Extract call_sid from URL to convert to /file endpoint
-  const extractCallSidFromUrl = (url: string): string | null => {
-    // Match: /api/recordings/<call_sid>/stream or /api/calls/<call_sid>/download
-    const match = url.match(/\/api\/(?:recordings|calls)\/([A-Z0-9a-z]+)\//);
-    return match ? match[1] : null;
-  };
-
-  // 🔥 NEW: Check if recording file is ready on server
-  const checkRecordingReady = async (fileUrl: string, currentRetry = 0): Promise<boolean> => {
+  // 🔥 Check if recording is ready on server
+  const checkRecordingReady = async (streamUrl: string, currentRetry = 0): Promise<boolean> => {
     try {
-      const response = await fetch(fileUrl, {
-        method: 'HEAD', // Just check if file exists without downloading
+      const response = await fetch(streamUrl, {
+        method: 'HEAD', // Just check if ready without downloading
         credentials: 'include'
       });
 
-      if (response.ok) {
-        // File is ready!
+      if (response.ok || response.status === 206) {
+        // Recording is ready (200 OK or 206 Partial Content)
         return true;
       }
 
-      if (response.status === 404 && currentRetry < MAX_RETRIES) {
-        // File not ready yet, retry with backoff
+      if (response.status === 202 && currentRetry < MAX_RETRIES) {
+        // 202 Accepted - recording is being prepared, retry with backoff
         const delay = getRetryDelay(currentRetry);
-        console.log(`[AudioPlayer] Recording not ready, retrying in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
+        console.log(`[AudioPlayer] Recording not ready (202), retrying in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
         setRetryCount(currentRetry + 1);
         setPreparingRecording(true);
         
         return new Promise((resolve) => {
           retryTimeoutRef.current = setTimeout(async () => {
-            const ready = await checkRecordingReady(fileUrl, currentRetry + 1);
+            const ready = await checkRecordingReady(streamUrl, currentRetry + 1);
             resolve(ready);
           }, delay);
         });
@@ -131,29 +124,22 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
           return;
         }
 
-        // Extract call_sid and convert to /file endpoint
-        const callSid = extractCallSidFromUrl(src);
-        if (!callSid) {
-          console.error('[AudioPlayer] Could not extract call_sid from URL:', src);
-          setErrorMessage('שגיאה בכתובת ההקלטה');
-          setIsLoading(false);
-          return;
-        }
-
-        // Use /file endpoint for direct streaming with Range support
-        const fileUrl = `/api/recordings/file/${callSid}`;
+        // For /stream URLs, add explicit_user_action parameter for security
+        const streamUrl = src.includes('?') 
+          ? `${src}&explicit_user_action=true`
+          : `${src}?explicit_user_action=true`;
         
-        // Check if file is ready (with retry logic)
-        const isReady = await checkRecordingReady(fileUrl, 0);
+        // Check if recording is ready (with retry logic)
+        const isReady = await checkRecordingReady(streamUrl, 0);
         
         if (isReady) {
-          // File is ready - set URL for direct streaming
-          setStreamUrl(fileUrl);
+          // Recording is ready - use stream URL directly
+          setStreamUrl(streamUrl);
           setPreparingRecording(false);
           setIsLoading(false);
-          console.log(`[AudioPlayer] Streaming directly from: ${fileUrl}`);
+          console.log(`[AudioPlayer] Streaming from: ${streamUrl}`);
         } else {
-          // File not available after retries
+          // Recording not available after retries
           setErrorMessage('ההקלטה לא זמינה. אנא נסה שוב מאוחר יותר.');
           setPreparingRecording(false);
           setIsLoading(false);

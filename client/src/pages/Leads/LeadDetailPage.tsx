@@ -1281,8 +1281,9 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   };
 
   // 🔥 FIX: Load recording as blob with authentication when call is expanded
-  // 🔥 FIX: Removed loadRecordingBlob - now using direct streaming via AudioPlayer
-  // AudioPlayer component handles /api/recordings/<call_sid>/stream → /api/recordings/file/<call_sid>
+  // 🔥 Removed loadRecordingBlob - now using direct streaming via AudioPlayer
+  // AudioPlayer component uses /api/recordings/<call_sid>/stream endpoint
+  // with explicit_user_action=true for security and Range support
 
   // Toggle call expansion
   const handleToggleExpand = (callId: string, hasRecording: boolean) => {

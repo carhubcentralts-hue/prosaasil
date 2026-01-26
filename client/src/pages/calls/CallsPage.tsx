@@ -286,9 +286,9 @@ export function CallsPage() {
   };
 
   // 🔥 FIX 502: Load recording with retry logic for async downloads
-  // 🎯 FIX: Removed loadRecordingBlob - now using direct streaming via AudioPlayer
-  // AudioPlayer component handles /api/recordings/<call_sid>/stream → /api/recordings/file/<call_sid>
-  // No more blob URLs - uses native browser streaming with Range support
+  // 🎯 Removed loadRecordingBlob - now using direct streaming via AudioPlayer
+  // AudioPlayer component uses /api/recordings/<call_sid>/stream endpoint
+  // with explicit_user_action=true for security and Range support
 
   // 🎯 REMOVED: Use centralized formatDuration from utils
   // const formatDuration = (seconds: number) => { ... }
