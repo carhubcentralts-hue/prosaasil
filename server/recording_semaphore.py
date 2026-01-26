@@ -22,7 +22,7 @@ log = logging.getLogger("recording_semaphore")
 MAX_SLOTS_PER_BUSINESS = 5
 
 # TTL values
-INFLIGHT_TTL = 120  # 120 seconds - prevents double-clicks
+INFLIGHT_TTL = 900  # 15 minutes - must be > max download time for large recordings
 QUEUED_TTL = 1200  # 20 minutes - prevents re-adding to queue
 
 # Redis client (initialized in init_redis)
@@ -282,12 +282,20 @@ def check_status(business_id: int, call_sid: str) -> Tuple[str, dict]:
         (status, info)
         - ("processing", {...}) - Download in progress
         - ("queued", {...}) - Waiting in queue
+        - ("failed", {...}) - Download failed after retries
         - ("unknown", {...}) - Not found in system
     """
     if not REDIS_ENABLED or not _redis_client:
         return "unknown", {}
     
     try:
+        # Check if failed (highest priority - stop retries)
+        failed_key = f"rec_failed:{business_id}:{call_sid}"
+        if _redis_client.exists(failed_key):
+            ttl = _redis_client.ttl(failed_key)
+            error_msg = _redis_client.get(failed_key) or "Download failed"
+            return "failed", {"ttl": ttl, "error": error_msg}
+        
         # Check if inflight
         inflight_key = f"rec_inflight:{business_id}:{call_sid}"
         if _redis_client.exists(inflight_key):
@@ -307,6 +315,35 @@ def check_status(business_id: int, call_sid: str) -> Tuple[str, dict]:
     except Exception as e:
         logger.error(f"[RECORDING_SEM] Error checking status: {e}")
         return "unknown", {}
+
+
+def mark_recording_failed(business_id: int, call_sid: str, error_msg: str = "Download failed") -> None:
+    """
+    Mark a recording as failed in Redis with 1-hour TTL.
+    
+    This prevents the frontend from retrying indefinitely and provides
+    clear feedback that the download has permanently failed.
+    
+    Args:
+        business_id: Business ID
+        call_sid: Call SID
+        error_msg: Error message to store
+    """
+    if not REDIS_ENABLED or not _redis_client:
+        return
+    
+    try:
+        failed_key = f"rec_failed:{business_id}:{call_sid}"
+        # Store failed status for 1 hour - long enough to prevent retries but not forever
+        _redis_client.setex(failed_key, 3600, error_msg)
+        logger.info(f"🚫 [RECORDING_SEM] Marked {call_sid} as failed: {error_msg}")
+        
+        # Also delete the dedup key to allow fresh retry after 1 hour if user wants
+        dedup_key = f"job:download:{business_id}:{call_sid}"
+        _redis_client.delete(dedup_key)
+        
+    except Exception as e:
+        logger.error(f"[RECORDING_SEM] Error marking failed: {e}")
 
 
 def cleanup_expired_slots(business_id: int) -> int:

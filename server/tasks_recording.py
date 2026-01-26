@@ -275,9 +275,10 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     if REDIS_DEDUP_ENABLED and _redis_client:
         try:
             job_key = f"job:download:{business_id}:{call_sid}"
-            # Try to set key with 30-minute expiry (1800 seconds)
+            # Try to set key with 120-second expiry (short TTL to prevent blocking on failures)
+            # Rule: Dedup = prevents spam (short), Status = source of truth (long)
             # NX = only set if not exists (atomic operation)
-            acquired = _redis_client.set(job_key, "enqueued", nx=True, ex=1800)
+            acquired = _redis_client.set(job_key, "enqueued", nx=True, ex=120)
             
             if not acquired:
                 # Job already enqueued - skip duplicate
@@ -412,9 +413,14 @@ def start_recording_worker(app):
     MAX_RETRIES = 2  # 0-indexed, so 0, 1, 2 = 3 total attempts (HARD LIMIT)
     MAX_DOWNLOAD_RETRIES = 2  # Separate limit for download-only jobs
     
+    # 🔥 FIX: Import semaphore functions at function level (not in loop)
+    from server.recording_semaphore import try_acquire_slot, release_slot, _redis_client, REDIS_ENABLED, MAX_SLOTS_PER_BUSINESS
+    from server.models_sql import CallLog
+    
     with app.app_context():
         while True:
             task_done_called = False  # 🔥 FIX: Track if we already called task_done()
+            slot_acquired = False  # 🔥 FIX: Track if slot was acquired (must be in outer scope for finally)
             try:
                 # Block until a job is available
                 job = RECORDING_QUEUE.get()
@@ -428,8 +434,43 @@ def start_recording_worker(app):
                 retry_count = job.get("retry_count", 0)
                 job_type = job.get("type", "full")  # 🔥 NEW: "full" or "download_only"
                 
-                # 🔥 FIX: Acquire semaphore to limit concurrent downloads
-                # This prevents too many parallel downloads from overwhelming the system
+                # 🔥 FIX: For download_only jobs, acquire per-business slot HERE (not in API)
+                # This ensures slot is ALWAYS released in finally, even if worker crashes
+                if job_type == "download_only" and business_id:
+                    # Try to acquire slot - if busy, re-enqueue immediately (don't block worker)
+                    # Rule: Worker doesn't "wait" - it "defers" and continues
+                    slot_retry_count = job.get("slot_retry_count", 0)  # Track slot acquisition retries
+                    
+                    if slot_retry_count >= 5:
+                        # Too many slot acquisition failures - give up
+                        logger.error(f"❌ [WORKER] Failed to acquire slot for {call_sid} after {slot_retry_count} attempts - giving up")
+                        RECORDING_QUEUE.task_done()
+                        task_done_called = True
+                        continue
+                    
+                    # Try to acquire slot once (no blocking loop)
+                    acquired, slot_status = try_acquire_slot(business_id, call_sid)
+                    
+                    if acquired:
+                        slot_acquired = True
+                        logger.info(f"🎯 [WORKER] Slot acquired for {call_sid} business_id={business_id}")
+                    else:
+                        # No slot available - re-enqueue with exponential backoff and move on
+                        # Backoff: 2s, 5s, 10s, 20s, 40s (max ~2 minutes total)
+                        backoff_delays = [2, 5, 10, 20, 40]
+                        delay = backoff_delays[min(slot_retry_count, len(backoff_delays) - 1)]
+                        
+                        logger.info(f"⏳ [WORKER] All slots busy for business {business_id}, re-enqueuing {call_sid} with {delay}s delay (retry {slot_retry_count + 1}/5)")
+                        job["slot_retry_count"] = slot_retry_count + 1
+                        
+                        # Re-enqueue with delay - worker continues to process other jobs
+                        time.sleep(delay)
+                        RECORDING_QUEUE.put(job)
+                        RECORDING_QUEUE.task_done()
+                        task_done_called = True
+                        continue  # Skip to next job
+                
+                # 🔥 OLD: Global semaphore for overall concurrency (keep for backward compat)
                 log.debug(f"[RECORDING] Waiting for download slot (max {MAX_CONCURRENT_DOWNLOADS} concurrent)...")
                 _download_semaphore.acquire()
                 
@@ -505,6 +546,11 @@ def start_recording_worker(app):
                             else:
                                 logger.error(f"❌ [DOWNLOAD_ONLY] Max retries ({MAX_DOWNLOAD_RETRIES}) reached for {call_sid} - giving up")
                                 log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
+                                
+                                # 🔥 NEW: Mark as failed in Redis to stop frontend retries
+                                if business_id:
+                                    from server.recording_semaphore import mark_recording_failed
+                                    mark_recording_failed(business_id, call_sid, "Download failed after multiple retries")
                         
                         # 🔥 FIX: Mark as done and set flag to prevent double task_done()
                         RECORDING_QUEUE.task_done()
@@ -553,12 +599,9 @@ def start_recording_worker(app):
                             log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
                 
                 finally:
-                    # 🔥 WORKER: Release semaphore slot and process next from queue
-                    # This runs in WORKER container, not API!
-                    if job_type == "download_only":
-                        # Release slot and get next from queue (ATOMIC operation)
-                        from server.recording_semaphore import release_slot
-                        
+                    # 🔥 WORKER: ALWAYS release per-business slot if acquired
+                    # This is CRITICAL - must happen even if worker crashes/exceptions
+                    if job_type == "download_only" and slot_acquired and business_id:
                         # 🔥 FIX: Log with reason for easier debugging
                         reason = download_result if 'download_result' in locals() else 'exception'
                         logger.info(f"🔧 [WORKER] Releasing slot for {call_sid} in business {business_id} (reason={reason})")
@@ -566,7 +609,6 @@ def start_recording_worker(app):
                         
                         # 🔥 NEW: [RECORDING_SLOT_RELEASED] log with active/queue metrics and reason
                         try:
-                            from server.recording_semaphore import _redis_client, REDIS_ENABLED
                             if REDIS_ENABLED and _redis_client:
                                 slots_key = f"rec_slots:{business_id}"
                                 queue_key = f"rec_queue:{business_id}"
@@ -583,7 +625,6 @@ def start_recording_worker(app):
                         if next_call_sid:
                             # Get call info for next job
                             try:
-                                from server.models_sql import CallLog
                                 next_call = CallLog.query.filter_by(call_sid=next_call_sid).first()
                                 if next_call and next_call.recording_url:
                                     logger.info(f"🔧 [WORKER] Processing next from queue: {next_call_sid}")

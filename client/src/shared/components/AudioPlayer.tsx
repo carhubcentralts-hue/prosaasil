@@ -74,11 +74,11 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const lastSrcRef = useRef<string>(''); // 🔥 FIX: Track last src to prevent duplicate processing
 
   // 🔥 PERFORMANCE FIX: Reduced retry limit and improved backoff
-  const MAX_RETRIES = 10; // Reduced from 20 to prevent excessive polling
+  const MAX_RETRIES = 5; // Reduced from 10 to 5 to prevent excessive polling
   const getRetryDelay = (retryCount: number) => {
-    // Exponential backoff: 3s → 5s → 8s → 12s → 20s → 30s (capped)
-    // Total max wait time: ~2 minutes before giving up
-    const delays = [3000, 5000, 8000, 12000, 20000, 30000];
+    // Exponential backoff: 3s → 5s → 8s → 12s → 20s (capped)
+    // Total max wait time: ~48s before giving up
+    const delays = [3000, 5000, 8000, 12000, 20000];
     return delays[Math.min(retryCount, delays.length - 1)];
   };
 
@@ -105,6 +105,11 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         const streamUrl = statusUrl.replace('/status', '/stream');
         await loadRecordingDirect(streamUrl);
         return;
+      }
+      
+      if (data.status === 'failed') {
+        // 🔥 FIX: Stop polling on failed status
+        throw new Error(data.message || 'הכנת ההקלטה נכשלה');
       }
       
       if (data.status === 'processing' || data.status === 'queued') {
@@ -206,6 +211,12 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         if (response.status === 200) {
           // Got the file immediately!
           const blob = await response.blob();
+          
+          // 🔥 FIX: Verify blob is not empty before creating URL
+          if (!blob || blob.size === 0) {
+            throw new Error('ההקלטה ריקה או לא זמינה');
+          }
+          
           const blobUrl = window.URL.createObjectURL(blob);
           setBlobUrl(blobUrl);
           setPreparingRecording(false);
@@ -269,8 +280,20 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         throw new Error(errorData.error || 'שגיאה בטעינת ההקלטה');
       }
 
+      // 🔥 FIX: Check content length - don't create blob if empty
+      const contentLength = response.headers.get('content-length');
+      if (contentLength && parseInt(contentLength) === 0) {
+        throw new Error('ההקלטה ריקה או לא זמינה');
+      }
+
       // Success - load the blob
       const blob = await response.blob();
+      
+      // 🔥 FIX: Verify blob is not empty
+      if (!blob || blob.size === 0) {
+        throw new Error('ההקלטה ריקה או לא זמינה');
+      }
+      
       const blobUrl = window.URL.createObjectURL(blob);
       setBlobUrl(blobUrl);
       setPreparingRecording(false);
