@@ -4550,14 +4550,16 @@ class MediaStreamHandler:
                 # OpenAI: client.send_audio_chunk() sends base64-encoded μ-law at 8kHz
                 # Gemini: client.send_audio() expects raw PCM16 bytes at 16kHz
                 if ai_provider == 'gemini':
-                    # Gemini expects PCM16 at 16kHz
-                    # Step 1: Convert μ-law (8kHz) to PCM16 (8kHz)
+                    # ✅ AUDIO VALIDATION A: Input to Gemini (Twilio → Gemini)
+                    # Gemini expects PCM16 at 16kHz, mono
+                    # Step 1: Convert μ-law 8kHz (160 samples/20ms) to PCM16 8kHz (320 bytes/20ms)
                     pcm16_8k = mulaw_to_pcm16_fast(audio_chunk)
-                    # Step 2: Resample from 8kHz to 16kHz for Gemini
+                    # Step 2: Resample from 8kHz to 16kHz for Gemini (320→640 bytes/20ms)
+                    # audioop.ratecv preserves 20ms frame duration by doubling samples
                     pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
                     await client.send_audio(pcm16_16k, end_of_turn=False)
                 else:
-                    # OpenAI takes μ-law directly at 8kHz
+                    # OpenAI takes μ-law directly at 8kHz (160 bytes/20ms)
                     await client.send_audio_chunk(audio_chunk)
                 
                 # 🔥 BUILD 301: Enhanced pipeline status with stuck response detection
@@ -4700,11 +4702,15 @@ class MediaStreamHandler:
             try:
                 import audioop
                 import base64
-                # Resample from 24kHz to 8kHz
+                # ✅ AUDIO VALIDATION B: Output from Gemini (Gemini → Twilio)
+                # Gemini outputs PCM16 at 24kHz, we need μ-law at 8kHz for Twilio
+                # Step 1: Resample from 24kHz to 8kHz (3:1 ratio - reduces samples by 66%)
+                # audioop.ratecv handles this correctly, preserving audio quality
                 pcm16_8k = audioop.ratecv(audio_bytes, 2, 1, 24000, 8000, None)[0]
-                # Convert to μ-law
+                # Step 2: Convert PCM16 to μ-law (320 bytes PCM16 → 160 bytes μ-law = 20ms frame)
                 mulaw_bytes = audioop.lin2ulaw(pcm16_8k, 2)
-                # Encode to base64 for OpenAI format
+                # Step 3: Encode to base64 for OpenAI-compatible format
+                # This creates proper 20ms frames (160 samples at 8kHz = 160 bytes μ-law)
                 audio_b64 = base64.b64encode(mulaw_bytes).decode('utf-8')
                 
                 return {
@@ -5059,17 +5065,18 @@ class MediaStreamHandler:
             )
             
             # 🔥 PROVIDER-SPECIFIC RESPONSE TRIGGERING
-            # OpenAI: Send response.create event
-            # Gemini: Just end the current turn (Gemini auto-responds when we call send_audio with end_of_turn=True)
+            # OpenAI: Send response.create event (explicit trigger)
+            # Gemini: NO-OP - Gemini auto-responds on turn end (no explicit trigger needed)
+            # This is THE gate that prevents double responses and ensures parity
             ai_provider = getattr(self, '_ai_provider', 'openai')
             
             if ai_provider == 'gemini':
-                # Gemini Live API: No explicit response.create event
-                # Gemini automatically responds when we send end_of_turn=True with the last audio chunk
-                # Or when the user finishes speaking (turn detection)
-                # For now, we just log that response should come
-                logger.info(f"🎯 [GEMINI] Response will be generated on next turn end ({reason})")
-                # No API call needed - Gemini handles this automatically
+                # 🔷 GEMINI AUTO-RESPONSE GATE (Critical for parity!)
+                # Gemini Live API automatically responds when user finishes speaking
+                # There is NO response.create equivalent - Gemini handles turn-taking internally
+                # Calling trigger_response() for Gemini is a NO-OP by design
+                logger.info(f"🎯 [GEMINI] Auto-response mode - no explicit trigger needed ({reason})")
+                # Return True to indicate "response will come" but no API call needed
             else:
                 # OpenAI Realtime API: Send explicit response.create event
                 await _client.send_event({"type": "response.create"})
@@ -12015,14 +12022,15 @@ class MediaStreamHandler:
 
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
         """
-        🔥 STT Routing based on ai_provider - NO FALLBACK, NO DUPLICATION:
-        - OpenAI provider: NEVER CALLED - Uses OpenAI Realtime API (gpt-4o-transcribe built-in)
-        - Gemini provider: Uses Whisper STT (OpenAI's Whisper API)
+        🔥 STT Routing - DEPRECATED FOR REALTIME MODE
         
-        This function is ONLY used for Gemini pipeline (when use_realtime=False).
-        OpenAI always uses Realtime API which handles STT internally.
+        This function should NEVER be called when using realtime mode (both OpenAI and Gemini).
+        - OpenAI provider: Uses OpenAI Realtime API (gpt-4o-transcribe built-in)
+        - Gemini provider: Uses Gemini Live API (native transcription built-in)
         
-        🚫 NO FALLBACK: If provider is misconfigured or keys missing, FAIL with clear error.
+        If this function is called, it indicates a bug in the call flow.
+        
+        🚫 NO FALLBACK: Both providers MUST use realtime mode.
         """
         # 🚀 CRITICAL: Check per-call override (set based on ai_provider)
         use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
@@ -12030,22 +12038,16 @@ class MediaStreamHandler:
         # Get ai_provider from handler instance
         ai_provider = getattr(self, '_ai_provider', 'openai')
         
-        # 🔥 GUARD: Prevent Gemini from using realtime path - this is a critical bug
-        if ai_provider == 'gemini' and use_realtime_for_this_call:
-            logger.error("❌ BUG: Gemini cannot use realtime - provider routing is broken!")
-            raise RuntimeError("BUG: Gemini cannot use realtime. Check provider routing in START event handler.")
-        
-        # 🚀 CRITICAL: OpenAI NEVER uses this function - it uses Realtime API
+        # 🔥 CRITICAL: Both providers MUST use realtime - if STT is called, it's a bug
         if use_realtime_for_this_call:
-            logger.warning("⚠️ _hebrew_stt called with use_realtime=True - this should not happen!")
-            return ""
+            error_msg = f"BUG: _hebrew_stt() called in realtime mode (provider={ai_provider}). Realtime API handles STT internally - this function should never be called."
+            logger.error(f"❌ [STT_ERROR] {error_msg}")
+            raise RuntimeError(error_msg)
         
-        # 🚫 CRITICAL: OpenAI should NEVER reach here - only Gemini uses this path
-        if ai_provider == 'openai':
-            logger.error("❌ [STT_ERROR] OpenAI provider reached batch STT - this is a bug! OpenAI should use Realtime API only.")
-            raise Exception("OpenAI should use Realtime API for STT, not batch processing")
-        
-        # 🔷 From this point, we're ONLY handling Gemini provider
+        # 🔥 NON-REALTIME: Should never happen - both providers must use realtime
+        error_msg = f"BUG: _hebrew_stt() called in non-realtime mode (provider={ai_provider}). All providers must use realtime streaming."
+        logger.error(f"❌ [STT_ERROR] {error_msg}")
+        raise RuntimeError(error_msg)
         if ai_provider != 'gemini':
             logger.error(f"❌ [STT_ERROR] Unknown provider '{ai_provider}' - only 'openai' and 'gemini' are supported")
             raise Exception(f"Unknown ai_provider: {ai_provider}")
@@ -16167,33 +16169,32 @@ class MediaStreamHandler:
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """
-        Hebrew TTS synthesis - ONLY for legacy/non-realtime mode
+        Hebrew TTS synthesis - DISABLED in realtime mode
         
         🔥 REALTIME MODE: Both OpenAI and Gemini use native streaming audio
         - OpenAI Realtime: Audio generated by Realtime API (no TTS call needed)
         - Gemini Live: Audio generated by Live API (no TTS call needed)
         
-        This method should ONLY be called in non-realtime fallback scenarios.
+        This method should NEVER be called in realtime mode.
+        If called, it indicates a bug in the call flow.
         """
         # 🔥 Check per-call override first (set based on ai_provider)
         use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
         ai_provider = getattr(self, '_ai_provider', 'unknown')
         
-        logger.info(f"[TTS] _hebrew_tts called: provider={ai_provider}, use_realtime={use_realtime_for_this_call}, text_len={len(text)}")
+        logger.error(f"[TTS] ❌ _hebrew_tts called: provider={ai_provider}, use_realtime={use_realtime_for_this_call}, text_len={len(text)}")
         
-        # 🚀 REALTIME API: Skip TTS - Both providers generate audio natively
+        # 🚀 REALTIME API: MUST NOT be called - raise exception to catch bugs
         if use_realtime_for_this_call:
-            logger.info(f"[TTS] Skipping TTS - {ai_provider} Realtime handles it")
-            return None
+            error_msg = f"BUG: _hebrew_tts() called in realtime mode (provider={ai_provider}). Realtime API generates audio directly - TTS should never be called."
+            logger.error(f"[TTS] {error_msg}")
+            raise RuntimeError(error_msg)
         
-        # 🔥 NON-REALTIME FALLBACK: This should rarely happen
-        # If we get here, something went wrong with realtime mode
-        logger.error(f"[TTS] UNEXPECTED: _hebrew_tts called in non-realtime mode (provider={ai_provider})")
-        logger.error(f"[TTS] Realtime streaming should handle all audio - this is a fallback path")
-        
-        # Return None to prevent any TTS processing
-        # The call should have failed earlier if realtime wasn't available
-        return None
+        # 🔥 NON-REALTIME FALLBACK: This should never happen in production
+        # Both providers MUST use realtime mode
+        error_msg = f"BUG: _hebrew_tts() called in non-realtime mode (provider={ai_provider}). All providers must use realtime streaming."
+        logger.error(f"[TTS] {error_msg}")
+        raise RuntimeError(error_msg)
     
     def _flush_tx_queue(self):
         """
