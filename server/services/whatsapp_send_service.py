@@ -88,9 +88,6 @@ def send_message(
     try:
         normalized_jid, source = normalize_whatsapp_to(
             to=to_phone,
-            lead_phone=None,
-            lead_reply_jid=None,
-            lead_id=None,
             business_id=business_id
         )
         logger.info(f"[WA-SEND-SERVICE] business_id={business_id} to={to_phone} → jid={normalized_jid} source={source} context={context}")
@@ -221,16 +218,35 @@ def _send_via_meta(
     media_type: Optional[str] = None,
     context: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Send message via Meta WhatsApp Business API"""
+    """Send message via Meta WhatsApp Business API
+    
+    Note: Meta API expects different media format than Baileys.
+    This implementation needs to be completed when Meta media support is needed.
+    """
     from server.services.meta_whatsapp_client import MetaWhatsAppClient
     
     client = MetaWhatsAppClient(business_id=business.id)
     
     # Send text or media
     if media and media_type:
-        # Media message
-        # Note: Meta client expects different format, may need adaptation
-        return client.send_media(to, media.get('url', ''), text)
+        # TODO: Meta media implementation
+        # Meta API requires different format:
+        # - For URLs: Pass media URL directly
+        # - For uploads: Use media upload API first, then send media_id
+        # Current implementation is placeholder
+        logger.warning(f"[WA-SEND-SERVICE] Meta media not fully implemented yet")
+        
+        # If media has 'url' key, try sending via URL
+        if 'url' in media:
+            return client.send_media(to, media['url'], text)
+        else:
+            # base64 data needs to be uploaded first via Meta API
+            logger.error(f"[WA-SEND-SERVICE] Meta doesn't support base64 media directly")
+            return {
+                "status": "error",
+                "error": "Meta provider requires media URL, not base64 data",
+                "provider": "meta"
+            }
     else:
         # Text message
         return client.send_message(to, text)

@@ -13,6 +13,7 @@ from server.db import db
 from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Business, Attachment
 from server.app_factory import get_process_app
 from server.services.attachment_service import get_attachment_service
+from server.services.whatsapp_send_service import send_message
 
 log = logging.getLogger(__name__)
 
@@ -133,8 +134,6 @@ class BroadcastWorker:
         - Same error handling
         - No duplicate retries (retries=0 for broadcast context)
         """
-        from server.services.whatsapp_send_service import send_message
-        
         # ✅ FIX: Structured logging per message
         log.info(f"[WA_SEND] broadcast_id={self.broadcast_id} recipient={idx}/{total} to={recipient.phone} status=sending")
         
