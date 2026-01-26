@@ -266,7 +266,10 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         return (True, "enqueued")
         
     except Exception as e:
+        # Log full exception with stack trace for debugging
+        import traceback
         logger.error(f"❌ Failed to enqueue recording job to RQ: {e}")
+        logger.error(f"Stack trace:\n{traceback.format_exc()}")
         # 🔥 CRITICAL FIX: Don't set dedup key on failure - return error status
         # Caller should return HTTP 500 instead of pretending it's a dedup hit
         return (False, "error")
