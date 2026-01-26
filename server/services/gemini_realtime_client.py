@@ -130,6 +130,7 @@ class GeminiRealtimeClient:
         
         self.model = model or GEMINI_LIVE_MODEL
         self.session = None
+        self._session_cm = None  # Store context manager for proper cleanup
         self.client = None
         self._connected = False
         
@@ -193,14 +194,22 @@ class GeminiRealtimeClient:
         
         last_error = None
         for attempt in range(1, max_retries + 1):
+            cm = None
             try:
-                # Connect to Live API
-                self.session = await self.client.aio.live.connect(
+                # Connect to Live API - create context manager
+                cm = self.client.aio.live.connect(
                     model=self.model,
                     config=config
                 )
                 
+                # Manually enter the context manager
+                session = await cm.__aenter__()
+                
+                # Store both for later cleanup
+                self._session_cm = cm
+                self.session = session
                 self._connected = True
+                
                 logger.debug(f"[GEMINI_LIVE] Connected (attempt {attempt}/{max_retries})")
                 logger.info(f"🟢 GEMINI_LIVE_WS_OPEN model={self.model}")
                 _orig_print(f"🟢 [GEMINI_LIVE] Connected: {self.model}", flush=True)
@@ -209,6 +218,13 @@ class GeminiRealtimeClient:
                 
             except Exception as e:
                 last_error = e
+                # Clean up context manager if we failed after creating it
+                if cm:
+                    try:
+                        await cm.__aexit__(None, None, None)
+                    except Exception:
+                        pass  # Ignore cleanup errors
+                
                 if attempt < max_retries:
                     delay = backoff_base * (2 ** (attempt - 1))
                     logger.warning(f"[GEMINI_LIVE] Connection attempt {attempt} failed: {e}, retrying in {delay:.1f}s")
@@ -220,10 +236,10 @@ class GeminiRealtimeClient:
     
     async def disconnect(self, reason: str = "normal"):
         """Close Live API session and cleanup"""
-        if self.session:
+        if self._session_cm:
             try:
-                # Close the session context
-                await self.session.__aexit__(None, None, None)
+                # Close the context manager properly
+                await self._session_cm.__aexit__(None, None, None)
                 logger.debug("✅ Gemini Live session closed cleanly")
                 logger.info(f"🔴 GEMINI_LIVE_WS_CLOSED reason={reason}")
                 _orig_print(f"🔴 [GEMINI_LIVE] Disconnected: {reason}", flush=True)
@@ -231,9 +247,15 @@ class GeminiRealtimeClient:
                 logger.warning(f"⚠️ Error during disconnect: {e}")
                 logger.error(f"🔴 GEMINI_LIVE_WS_CLOSED reason=error:{e}")
             finally:
+                self._session_cm = None
                 self.session = None
                 self._connected = False
                 logger.debug("🔌 Disconnected from Gemini Live API")
+        elif self.session:
+            # Fallback cleanup if only session exists
+            logger.warning("⚠️ Cleaning up session without context manager")
+            self.session = None
+            self._connected = False
     
     async def send_audio(self, audio_bytes: bytes, end_of_turn: bool = False):
         """

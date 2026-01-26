@@ -3202,6 +3202,11 @@ class MediaStreamHandler:
         client = None
         call_start_time = time.time()
         
+        # 🔥 FIX: Initialize variables with safe defaults to prevent UnboundLocalError in exception handlers
+        business_id_safe = getattr(self, 'business_id', None) or "unknown"
+        call_direction = getattr(self, 'call_direction', 'unknown')
+        full_prompt = None
+        
         # 🔥 REMOVED: Counters now initialized in __init__ (line ~1806)
         # self.realtime_audio_in_chunks = 0
         # self.realtime_audio_out_chunks = 0
