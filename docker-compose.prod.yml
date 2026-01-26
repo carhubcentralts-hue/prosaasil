@@ -107,6 +107,8 @@ services:
       RQ_QUEUES: high,default,low,receipts,receipts_sync,maintenance,recordings,broadcasts
       # 🔥 SCHEDULERS: Enable schedulers only in worker to prevent duplicate cleanup logs
       ENABLE_SCHEDULERS: "true"
+      # 🔥 GOOGLE STT - Service Account Credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
@@ -115,6 +117,9 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp
+    volumes:
+      # 🔥 GOOGLE STT - Mount service account JSON (read-only)
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -171,6 +176,8 @@ services:
       DISABLE_TTS_WARMUP: ${DISABLE_TTS_WARMUP:-false}
       # 🔥 SCHEDULERS: Disable schedulers in API service (only worker should run them)
       ENABLE_SCHEDULERS: "false"
+      # 🔥 GOOGLE STT - Service Account Credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
@@ -194,6 +201,9 @@ services:
       - attempts:2
     expose:
       - "5000"
+    volumes:
+      # 🔥 GOOGLE STT - Mount service account JSON (read-only)
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -257,6 +267,8 @@ services:
       DISABLE_TTS_WARMUP: ${DISABLE_TTS_WARMUP:-false}
       # 🔥 SCHEDULERS: Disable schedulers in calls service (only worker should run them)
       ENABLE_SCHEDULERS: "false"
+      # 🔥 GOOGLE STT - Service Account Credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
@@ -288,6 +300,8 @@ services:
       - "5050"
     volumes:
       - recordings_data:/app/server/recordings
+      # 🔥 GOOGLE STT - Mount service account JSON (read-only)
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
     depends_on:
       redis:
         condition: service_healthy
