@@ -1141,8 +1141,17 @@ def recording_status():
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 
                 if call_log:
+                    # 🔥 FIX: Convert .json URL to .mp3 media URL before saving
+                    # Twilio sends .json by default which returns metadata, not audio
+                    # Players need actual audio file URL (.mp3 or .wav)
+                    media_url = recording_url
+                    if media_url and media_url.endswith(".json"):
+                        # Strip .json and add .mp3 for media playback
+                        media_url = media_url[:-5] + ".mp3"
+                        logger.info(f"🔄 [REC_CB] Converted .json URL to .mp3 for playback: {call_sid}")
+                    
                     # Update recording metadata
-                    call_log.recording_url = recording_url
+                    call_log.recording_url = media_url  # Save .mp3 URL, not .json metadata URL
                     call_log.recording_sid = recording_sid
                     call_log.status = "recorded"
                     
