@@ -31,15 +31,21 @@ function extractCallSidFromUrl(url: string): string | null {
 }
 
 // 🔥 FIX: Periodic cleanup to prevent memory leaks
+// CRITICAL: Only clean up entries that are not currently being used by any AudioPlayer instance
 setInterval(() => {
   const now = Date.now();
   const entriesToDelete: string[] = [];
   
   // Find expired entries (cleanup after cooldown expires)
+  // Only delete entries in 'failed' or 'preparing' status that are old enough
   globalPreparationCache.forEach((value, callSid) => {
-    if (now - value.timestamp > PREPARATION_COOLDOWN_MS) {
+    // 🔥 CRITICAL FIX: Never delete 'processing' entries - they're actively being downloaded
+    // Only delete failed entries or old preparing entries (not picked up by worker)
+    if (value.status === 'failed' || 
+        (value.status === 'preparing' && now - value.timestamp > PREPARATION_COOLDOWN_MS)) {
       entriesToDelete.push(callSid);
     }
+    // Processing entries will be cleaned up by worker on completion
   });
   
   // Remove expired entries
@@ -72,6 +78,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [prepareTriggered, setPrepareTriggered] = useState(false);
   const lastSrcRef = useRef<string>(''); // 🔥 FIX: Track last src to prevent duplicate processing
+  const currentBlobUrlRef = useRef<string | null>(null); // 🔥 FIX: Track current blob URL for proper cleanup
 
   // 🔥 PERFORMANCE FIX: Reduced retry limit and improved backoff
   const MAX_RETRIES = 5; // Reduced from 10 to 5 to prevent excessive polling
@@ -219,6 +226,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
           
           const blobUrl = window.URL.createObjectURL(blob);
           setBlobUrl(blobUrl);
+          currentBlobUrlRef.current = blobUrl; // 🔥 FIX: Track blob URL in ref
           setPreparingRecording(false);
           setIsLoading(false);
           setRetryCount(0);
@@ -296,6 +304,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       
       const blobUrl = window.URL.createObjectURL(blob);
       setBlobUrl(blobUrl);
+      currentBlobUrlRef.current = blobUrl; // 🔥 FIX: Track blob URL in ref
       setPreparingRecording(false);
       setIsLoading(false);
       setRetryCount(0);
@@ -329,6 +338,14 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       if (lastSrcRef.current === src) {
         return;
       }
+      
+      // 🔥 CRITICAL FIX: Revoke old blob URL before creating new one
+      if (currentBlobUrlRef.current && currentBlobUrlRef.current.startsWith('blob:')) {
+        console.log('[AudioPlayer] Revoking old blob URL before switching recordings');
+        window.URL.revokeObjectURL(currentBlobUrlRef.current);
+        currentBlobUrlRef.current = null;
+      }
+      
       lastSrcRef.current = src;
       
       // Clean up any existing timeouts
@@ -347,6 +364,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       // If src is already a blob URL, use it directly
       if (src.startsWith('blob:')) {
         setBlobUrl(src);
+        currentBlobUrlRef.current = src; // Track externally provided blob
         setIsLoading(false);
         return;
       }
@@ -369,17 +387,23 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     }
   }, [src]);
 
-  // Cleanup blob URL on unmount or when src changes
+  // 🔥 CRITICAL FIX: Cleanup blob URL on unmount ONLY
+  // Don't tie cleanup to blobUrl changes - only clean up on unmount
   useEffect(() => {
     return () => {
-      if (blobUrl && blobUrl.startsWith('blob:')) {
-        window.URL.revokeObjectURL(blobUrl);
+      // Clean up blob URL on unmount
+      if (currentBlobUrlRef.current && currentBlobUrlRef.current.startsWith('blob:')) {
+        console.log('[AudioPlayer] Revoking blob URL on unmount');
+        window.URL.revokeObjectURL(currentBlobUrlRef.current);
+        currentBlobUrlRef.current = null;
       }
+      // Clean up any pending timeouts
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
       }
     };
-  }, [blobUrl]);
+  }, []); // Empty dependency array - only run on mount/unmount
 
   // Apply playback speed to audio element
   useEffect(() => {
