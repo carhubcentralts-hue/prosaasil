@@ -3060,20 +3060,29 @@ class MediaStreamHandler:
     
     async def _run_realtime_mode_async(self):
         """
-        🚀 OpenAI Realtime API - Async main loop with PARALLEL startup
+        🚀 Realtime API - Async main loop with PARALLEL startup
         
-        Handles bidirectional audio streaming:
-        1. Connect to OpenAI IMMEDIATELY (parallel with DB query)
+        Handles bidirectional audio streaming for both OpenAI and Gemini:
+        1. Connect to provider IMMEDIATELY (parallel with DB query)
         2. Wait for business info from main thread
         3. Configure session and trigger greeting
         4. Stream audio bidirectionally
         """
+        # Import both clients
         from server.services.openai_realtime_client import OpenAIRealtimeClient
+        from server.services.gemini_realtime_client import GeminiRealtimeClient
         from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
         # Note: realtime_prompt_builder imported inside try block at line ~1527
         
-        _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
-        logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
+        # Determine which provider to use
+        ai_provider = getattr(self, '_ai_provider', 'openai')
+        
+        if ai_provider == 'gemini':
+            _orig_print(f"🚀 [GEMINI_LIVE] Async loop starting - connecting to Gemini Live API IMMEDIATELY", flush=True)
+            logger.debug(f"[GEMINI_LIVE] _run_realtime_mode_async STARTED for call {self.call_sid}")
+        else:
+            _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
+            logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
         # Helper function for session configuration (used for initial config and retry)
         async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=None, tool_choice="auto", force=False, send_reason="initial"):
@@ -3190,19 +3199,27 @@ class MediaStreamHandler:
             t_start = time.time()
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 REALTIME STABILITY: OpenAI connection with SINGLE timeout
+            # 🔥 REALTIME STABILITY: Provider connection with SINGLE timeout
             # ═══════════════════════════════════════════════════════════════════════
             # NOTE: client.connect() already has internal retry (3 attempts with exponential backoff)
             # We only add a timeout wrapper to prevent infinite hangs - NO external retry loop!
             # Total internal retry time: ~7s (1s + 2s + 4s backoff)
             # ═══════════════════════════════════════════════════════════════════════
-            logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
-            client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
+            
+            if ai_provider == 'gemini':
+                logger.info(f"[CALL DEBUG] Creating Gemini Live client")
+                client = GeminiRealtimeClient()
+                client_type = "GEMINI_LIVE"
+            else:
+                logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
+                client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
+                client_type = "OPENAI"
+                
             t_client = time.time()
             if DEBUG: logger.debug(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
             t_connect_start = time.time()
-            _orig_print(f"🔌 [REALTIME] Connecting to OpenAI (internal retry: 3 attempts)...", flush=True)
+            _orig_print(f"🔌 [{client_type}] Connecting to provider (internal retry: 3 attempts)...", flush=True)
             
             try:
                 # 🔥 FIX #3: Increased timeout to 8s and max_retries to 3 for better reliability
@@ -9851,9 +9868,10 @@ class MediaStreamHandler:
                             _orig_print(f"🎯 [CALL_ROUTING] provider={ai_provider} voice={voice_name}", flush=True)
                             
                             # 🔥 CRITICAL: Decide which pipeline to use based on ai_provider
-                            # - OpenAI: Use Realtime API (bidirectional audio streaming)
-                            # - Gemini: Use STT → LLM → TTS pipeline (no Realtime)
-                            use_realtime_for_this_call = (ai_provider == 'openai')
+                            # - OpenAI: Use OpenAI Realtime API (bidirectional audio streaming)
+                            # - Gemini: Use Gemini Live API (bidirectional audio streaming) 
+                            # Both providers now use realtime streaming!
+                            use_realtime_for_this_call = True  # ✅ Both OpenAI and Gemini use realtime
                             self._use_realtime_for_call = use_realtime_for_this_call
                             
                             # 🔥 CRITICAL: Set USE_REALTIME_API flag for this handler instance
@@ -9861,8 +9879,8 @@ class MediaStreamHandler:
                             self._USE_REALTIME_API_OVERRIDE = use_realtime_for_this_call
                             
                             if ai_provider == 'gemini':
-                                logger.info(f"[GEMINI_PIPELINE] Call will use Gemini: STT (Whisper) → LLM (Gemini) → TTS (Gemini)")
-                                _orig_print(f"🔷 [GEMINI_PIPELINE] starting", flush=True)
+                                logger.info(f"[GEMINI_LIVE] Call will use Gemini Live API (realtime audio streaming)")
+                                _orig_print(f"🔷 [GEMINI_LIVE] Realtime streaming enabled", flush=True)
                             else:
                                 logger.info(f"[OPENAI_PIPELINE] Call will use OpenAI Realtime API")
                             
@@ -9890,7 +9908,11 @@ class MediaStreamHandler:
                             logger.debug(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
                             t_realtime_start = time.time()
                             delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
-                            _orig_print(f"🚀 [REALTIME] Starting OpenAI at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
+                            
+                            if ai_provider == 'gemini':
+                                _orig_print(f"🚀 [GEMINI_LIVE] Starting Gemini Live API at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
+                            else:
+                                _orig_print(f"🚀 [REALTIME] Starting OpenAI at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
                             
                             logger.debug(f"[REALTIME] Creating realtime thread...")
                             self.realtime_thread = threading.Thread(
@@ -9917,14 +9939,6 @@ class MediaStreamHandler:
                             else:
                                 logger.warning(f"[REALTIME] Audio out thread already started - skipping duplicate start")
                             logger.debug(f"[REALTIME] Both realtime threads started successfully!")
-                        elif not use_realtime:
-                            # 🔷 GEMINI PIPELINE: Use STT → LLM → TTS (not Realtime API)
-                            logger.info(f"[GEMINI_PIPELINE] Initializing Gemini pipeline for call {self.call_sid}")
-                            _orig_print(f"🔷 [GEMINI_PIPELINE] Not using OpenAI Realtime (provider=gemini)", flush=True)
-                            
-                            # 🔥 Gemini uses batch Whisper STT, not streaming
-                            # No initialization needed - Whisper called on-demand per utterance
-                            logger.info("✅ [GEMINI_PIPELINE] Will use Whisper STT (batch mode) for Gemini calls")
                         else:
                             logger.warning(f"[CALL_ROUTING] AI service thread NOT started! use_realtime={use_realtime}, realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                         if not hasattr(self, 'bot_speaks_first'):
