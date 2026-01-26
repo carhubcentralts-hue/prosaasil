@@ -1106,6 +1106,48 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 if call_log:
                     db.session.commit()
             
+            # 🔥 NEW: CALL SUMMARIZATION for long calls
+            # Enqueue summarization job after transcription is complete
+            try:
+                # Check if we should generate summary for this call
+                should_summarize = False
+                
+                # Only summarize if we have a good transcript
+                transcript_for_summary = final_transcript or transcription
+                if transcript_for_summary and len(transcript_for_summary.strip()) > 100:
+                    # Check if summary already exists or is being processed
+                    if not call_log.summary or call_log.summary_status in ['failed', None]:
+                        should_summarize = True
+                
+                if should_summarize:
+                    # Mark as pending and enqueue the job
+                    call_log.summary_status = 'pending'
+                    db.session.commit()
+                    
+                    # Import and enqueue the summarization job
+                    from server.jobs.summarize_call_job import enqueue_summarize_call
+                    job = enqueue_summarize_call(call_sid, delay=5)  # 5 second delay to ensure transcript is fully written
+                    
+                    if job:
+                        logger.info(f"[SUMMARIZE] ✅ Enqueued summarization job for {call_sid}")
+                        log.info(f"[SUMMARIZE] Enqueued summarization for {call_sid}")
+                    else:
+                        logger.warning(f"[SUMMARIZE] Failed to enqueue job for {call_sid}")
+                        log.warning(f"[SUMMARIZE] Failed to enqueue for {call_sid}")
+                        call_log.summary_status = None  # Reset status on failure
+                        db.session.commit()
+                elif call_log.summary and call_log.summary_status != 'completed':
+                    # Already has summary but status not set - mark as completed
+                    call_log.summary_status = 'completed'
+                    db.session.commit()
+                    log.info(f"[SUMMARIZE] Marked existing summary as completed for {call_sid}")
+                
+            except Exception as summarize_err:
+                # Don't fail the entire pipeline if summarization fails
+                logger.error(f"⚠️ [SUMMARIZE] Failed to enqueue summarization for {call_sid}: {summarize_err}")
+                log.error(f"[SUMMARIZE] Failed for {call_sid}: {summarize_err}")
+                # Continue processing - summarization is not critical
+            
             # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
             if not DEBUG:
                 processing_summary = []

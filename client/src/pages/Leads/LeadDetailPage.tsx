@@ -1269,9 +1269,6 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [directionFilter, setDirectionFilter] = useState<'all' | 'incoming' | 'outgoing'>('all');  // 🔥 NEW: Direction filter
-  const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
-  const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
-  const recordingUrlsRef = useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
 
   // Helper to get consistent call identifier
   const getCallId = (call: LeadCall) => call.call_sid || call.id;
@@ -1284,52 +1281,14 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   };
 
   // 🔥 FIX: Load recording as blob with authentication when call is expanded
-  const loadRecordingBlob = async (callId: string) => {
-    // Skip if already loaded or currently loading (check ref for source of truth)
-    if (recordingUrlsRef.current[callId] || loadingRecording === callId) return;
-    
-    setLoadingRecording(callId);
-    try {
-      const response = await fetch(`/api/calls/${callId}/download`, {
-        method: 'GET',
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to load recording');
-      }
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      recordingUrlsRef.current[callId] = url;  // Track in ref for cleanup
-      setRecordingUrls(prev => ({ ...prev, [callId]: url }));
-    } catch (error) {
-      console.error('Error loading recording:', error);
-      // Don't set URL in ref on error - allow retry
-    } finally {
-      setLoadingRecording(null);
-    }
-  };
+  // 🔥 FIX: Removed loadRecordingBlob - now using direct streaming via AudioPlayer
+  // AudioPlayer component handles /api/recordings/<call_sid>/stream → /api/recordings/file/<call_sid>
 
-  // 🔥 FIX: Cleanup blob URLs when component unmounts
-  useEffect(() => {
-    return () => {
-      // Revoke all blob URLs to prevent memory leaks
-      Object.values(recordingUrlsRef.current).forEach(url => {
-        window.URL.revokeObjectURL(url);
-      });
-    };
-  }, []); // Only run on mount/unmount
-
-  // 🔥 FIX: Load recording when call is expanded
+  // Toggle call expansion
   const handleToggleExpand = (callId: string, hasRecording: boolean) => {
     const isExpanding = expandedCallId !== callId;
     setExpandedCallId(isExpanding ? callId : null);
-    
-    // Load recording blob when expanding
-    if (isExpanding && hasRecording) {
-      loadRecordingBlob(callId);
-    }
+    // Recording is now loaded on-demand by AudioPlayer component when expanded
   };
 
   // 🔥 NEW: Filter calls by direction
@@ -1525,20 +1484,14 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                             הורד
                           </button>
                         </div>
-                        {/* Audio Player with playback speed controls */}
-                        {recordingUrls[getCallId(call)] ? (
+                        {/* Audio Player with direct streaming (no blob URLs) */}
+                        {call.hasRecording ? (
                           <AudioPlayer
-                            src={recordingUrls[getCallId(call)]}
-                            loading={loadingRecording === getCallId(call)}
+                            src={`/api/recordings/${getCallId(call)}/stream`}
                           />
-                        ) : loadingRecording === getCallId(call) ? (
-                          <div className="flex items-center justify-center py-4">
-                            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                            <span className="text-sm text-gray-500 mr-2">טוען הקלטה...</span>
-                          </div>
                         ) : (
-                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
+                          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                            <p className="text-sm text-gray-600">אין הקלטה זמינה</p>
                           </div>
                         )}
                       </div>
