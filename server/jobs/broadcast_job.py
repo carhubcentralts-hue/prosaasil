@@ -96,31 +96,9 @@ def process_broadcast_job(broadcast_id: int):
     logger.info(f"  → throttle: {THROTTLE_MS}ms")
     logger.info("=" * 60)
         
-    # Ensure last_processed_recipient_id column exists (add if missing)
-    try:
-        from sqlalchemy import text
-        # Check if column exists
-        check_query = text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name='whatsapp_broadcasts' 
-            AND column_name='last_processed_recipient_id'
-        """)
-        result = db.session.execute(check_query).fetchone()
-        
-        if not result:
-            # Add column if it doesn't exist
-            logger.info("Adding last_processed_recipient_id column to whatsapp_broadcasts")
-            add_column_query = text("""
-                ALTER TABLE whatsapp_broadcasts 
-                ADD COLUMN last_processed_recipient_id INTEGER DEFAULT 0
-            """)
-            db.session.execute(add_column_query)
-            db.session.commit()
-            logger.info("✅ Column added successfully")
-    except Exception as e:
-        logger.warning(f"Column check/add failed (may already exist): {e}")
-        db.session.rollback()
+    # 🎯 FIX #5: Removed ALTER TABLE at runtime - this is now handled by migration_add_broadcast_cursor.py
+    # Column last_processed_recipient_id MUST exist before this job runs
+    # If it doesn't exist, the migration should be run first
         
     # Update broadcast status to running and set started_at if not set
     if not broadcast.started_at:
