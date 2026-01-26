@@ -34,12 +34,12 @@ def run_migration():
                         AND column_name='lead_tabs_config'
                     ) THEN
                         ALTER TABLE business 
-                        ADD COLUMN lead_tabs_config JSON DEFAULT NULL;
+                        ADD COLUMN lead_tabs_config JSONB NOT NULL DEFAULT '{}'::jsonb;
                         
                         COMMENT ON COLUMN business.lead_tabs_config IS 
-                        'Flexible tab configuration for lead detail page. JSON array of tab keys. Max 6 tabs. Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes';
+                        'Flexible tab configuration for lead detail page. JSONB object with primary and secondary tab arrays. Max 6 tabs. Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes';
                         
-                        RAISE NOTICE 'Added lead_tabs_config column';
+                        RAISE NOTICE 'Added lead_tabs_config column with JSONB type';
                     ELSE
                         RAISE NOTICE 'lead_tabs_config column already exists';
                     END IF;
