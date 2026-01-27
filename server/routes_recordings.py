@@ -145,10 +145,45 @@ def serve_recording_file(call_sid):
         
         # Check if file exists locally
         if not check_local_recording_exists(call_sid):
+            # 🔥 FIX: Trigger download if recording_url exists but file not on disk
+            if call.recording_url:
+                log.info(f"Serve recording file: File not on disk, triggering download for call_sid={call_sid}")
+                
+                # Try to trigger download job if not already in progress
+                try:
+                    from server.tasks_recording import enqueue_recording_download_only
+                    from server.models_sql import RecordingRun
+                    
+                    # Check if there's already a download job in progress
+                    existing_run = RecordingRun.query.filter(
+                        RecordingRun.call_sid == call_sid,
+                        RecordingRun.job_type == 'download',
+                        RecordingRun.status.in_(['queued', 'running'])
+                    ).first()
+                    
+                    if not existing_run:
+                        log.info(f"[RECORDING] Enqueueing download job for call_sid={call_sid}")
+                        enqueue_recording_download_only(
+                            call_sid=call_sid,
+                            recording_url=call.recording_url,
+                            business_id=business_id,
+                            from_number=call.from_number or "",
+                            to_number=call.to_number or "",
+                            recording_sid=call.recording_sid
+                        )
+                    else:
+                        log.info(f"[RECORDING] Download already in progress for call_sid={call_sid}, run_id={existing_run.id}")
+                        
+                except Exception as e:
+                    log.error(f"[RECORDING] Failed to enqueue download job: {e}")
+            else:
+                log.warning(f"Serve recording file: No recording_url available for call_sid={call_sid}")
+                
             log.warning(f"Serve recording file: File not found on disk for call_sid={call_sid}")
             return jsonify({
                 "error": "Recording file not available",
-                "message": "Recording is being downloaded by worker. Please retry in a few seconds."
+                "message": "ההקלטה בתהליך הורדה. אנא נסה שוב בעוד מספר שניות.",
+                "message_en": "Recording is being downloaded. Please retry in a few seconds."
             }), 404
         
         # File exists - serve it
