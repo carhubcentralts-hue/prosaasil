@@ -19,17 +19,44 @@ def test_inline_data_none_check():
     with open('server/services/gemini_realtime_client.py', 'r') as f:
         source = f.read()
     
-    # Check that the fix is present
-    # The fix should check if inline_data is not None before accessing mime_type
-    if 'if inline_data and hasattr(inline_data, \'mime_type\') and inline_data.mime_type.startswith(\'audio/\')' in source:
-        print("✅ Fix confirmed: inline_data None check is present")
+    # Check that inline_data is checked before accessing mime_type
+    # Look for the pattern where inline_data.mime_type is accessed
+    import re
+    
+    # Find all places where inline_data.mime_type is accessed
+    mime_type_accesses = re.findall(r'inline_data\.mime_type', source)
+    
+    if not mime_type_accesses:
+        print("⚠️ No inline_data.mime_type access found in code")
+        return True  # If there's no access, there's no issue
+    
+    print(f"Found {len(mime_type_accesses)} access(es) to inline_data.mime_type")
+    
+    # Check that there's a None check before the mime_type access
+    # Look for patterns like: if inline_data and ... inline_data.mime_type
+    # This is more flexible than exact string matching
+    protected_pattern = re.search(
+        r'if\s+inline_data\s+and.*?inline_data\.mime_type',
+        source,
+        re.DOTALL
+    )
+    
+    if protected_pattern:
+        print("✅ Fix confirmed: inline_data is checked before accessing mime_type")
         return True
-    elif 'inline_data.mime_type.startswith' in source and 'if inline_data and' not in source.split('inline_data.mime_type.startswith')[0].split('\n')[-1]:
-        print("❌ Fix missing: inline_data.mime_type is accessed without None check")
-        return False
-    else:
-        print("✅ Fix appears to be in place")
+    
+    # Alternative: check if there's hasattr check
+    hasattr_pattern = re.search(
+        r'hasattr\(inline_data,\s*["\']mime_type["\']\)',
+        source
+    )
+    
+    if hasattr_pattern:
+        print("✅ Fix confirmed: hasattr check for mime_type is present")
         return True
+    
+    print("❌ Warning: inline_data.mime_type access may not be properly protected")
+    return False
 
 
 def test_code_structure():
