@@ -4569,8 +4569,10 @@ class MediaStreamHandler:
                 if ai_provider == 'gemini':
                     # ✅ AUDIO VALIDATION A: Input to Gemini (Twilio → Gemini)
                     # Gemini expects PCM16 at 16kHz, mono
+                    # Step 0: Decode base64 string to raw μ-law bytes (audio_chunk is base64-encoded)
+                    mulaw_bytes = base64.b64decode(audio_chunk)
                     # Step 1: Convert μ-law 8kHz (160 samples/20ms) to PCM16 8kHz (320 bytes/20ms)
-                    pcm16_8k = mulaw_to_pcm16_fast(audio_chunk)
+                    pcm16_8k = mulaw_to_pcm16_fast(mulaw_bytes)
                     # Step 2: Resample from 8kHz to 16kHz for Gemini (320→640 bytes/20ms)
                     # audioop.ratecv preserves 20ms frame duration by doubling samples
                     pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
