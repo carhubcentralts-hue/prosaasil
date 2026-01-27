@@ -913,11 +913,8 @@ def outbound_call():
     # 🔥 FIX: Create/link lead for outbound calls (similar to inbound)
     # This ensures outbound calls properly update leads
     if to_number:
-        # Convert lead_id string to int if provided
-        lead_id_int = int(lead_id) if lead_id and lead_id.isdigit() else None
-        
-        # If we have lead_id, we still need to run lead creation to ensure call_log is linked
-        # If we don't have lead_id, we need to find/create one based on phone number
+        # Always run lead creation to ensure call_log is properly linked
+        # If lead_id exists, it will be updated; if not, one will be created
         threading.Thread(
             target=_create_lead_from_call,
             args=(call_sid, from_number, to_number, int(business_id) if business_id else None, "outbound"),
