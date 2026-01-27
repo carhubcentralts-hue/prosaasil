@@ -425,14 +425,31 @@ def download_recording(call_sid):
                         "message": "Failed to enqueue recording download - backend issue",
                         "details": "The server could not queue the recording job. Check server logs."
                     }), 500
-                else:
-                    # Job was not enqueued (file cached or duplicate) - this is OK
-                    logger.info(f"🔧 [API DOWNLOAD] Job not enqueued for {call_sid} (reason: {reason})")
+                elif reason == "cached":
+                    # File is cached - verify it exists and return ready
+                    logger.info(f"🔧 [API DOWNLOAD] File cached for {call_sid}")
                     return jsonify({
                         "success": True,
                         "status": "ready",
                         "message": "Recording is ready"
                     }), 200
+                elif reason == "duplicate":
+                    # Duplicate job - a download is already in progress
+                    # Return "processing" status to indicate user should wait
+                    logger.info(f"🔧 [API DOWNLOAD] Download already in progress for {call_sid}")
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": "Recording is being prepared, please retry in a few seconds"
+                    }), 202
+                else:
+                    # Unknown reason - log and return processing status
+                    logger.warning(f"⚠️ [API DOWNLOAD] Unknown reason '{reason}' for {call_sid}")
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": "Recording is being prepared, please retry in a few seconds"
+                    }), 202
             
             return jsonify({
                 "success": True,
@@ -757,14 +774,31 @@ def stream_recording(call_sid):
                         "message": "Failed to enqueue recording stream - backend issue",
                         "details": "The server could not queue the recording job. Check server logs."
                     }), 500
-                else:
-                    # Job was not enqueued (file cached or duplicate) - this is OK
-                    logger.info(f"🔧 [API STREAM] Job not enqueued for {call_sid} (reason: {reason})")
+                elif reason == "cached":
+                    # File is cached - verify it exists and return ready
+                    logger.info(f"🔧 [API STREAM] File cached for {call_sid}")
                     return jsonify({
                         "success": True,
                         "status": "ready",
                         "message": "Recording is ready"
                     }), 200
+                elif reason == "duplicate":
+                    # Duplicate job - a download is already in progress
+                    # Return "processing" status to indicate user should wait
+                    logger.info(f"🔧 [API STREAM] Download already in progress for {call_sid}")
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": "Recording is being prepared, please retry in a few seconds"
+                    }), 202
+                else:
+                    # Unknown reason - log and return processing status
+                    logger.warning(f"⚠️ [API STREAM] Unknown reason '{reason}' for {call_sid}")
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": "Recording is being prepared, please retry in a few seconds"
+                    }), 202
             
             return jsonify({
                 "success": True,
