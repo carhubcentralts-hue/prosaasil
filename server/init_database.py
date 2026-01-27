@@ -5,6 +5,7 @@ Ensures the system is ready to use out-of-the-box
 """
 import logging
 import json
+import os
 from datetime import datetime
 from werkzeug.security import generate_password_hash
 from server.db import db
@@ -111,22 +112,34 @@ def initialize_production_database():
             logger.error(f"[INIT_DB] Database error querying admin user: {db_error}")
             raise
         
+        # 🔒 SECURITY: Check if we're in production mode
+        is_production = (
+            os.getenv('FLASK_ENV') == 'production' or 
+            os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+        )
+        
         if not admin:
-            logger.info("👤 No system admin user found, creating system_admin...")
-            # Password: admin123
-            password_hash = generate_password_hash('admin123', method='scrypt')
-            admin = User(
-                email='admin@admin.com',
-                password_hash=password_hash,
-                name='System Administrator',
-                role='system_admin',
-                business_id=system_business.id,  # ✅ FIXED: Link to System business (not None)
-                is_active=True,
-                created_at=datetime.utcnow()
-            )
-            db.session.add(admin)
-            db.session.commit()
-            logger.info(f"✅ Created system admin user: admin@admin.com (ID: {admin.id}, business_id: {admin.business_id})")
+            # 🔒 SECURITY: Only create admin with default password in non-production
+            if is_production:
+                logger.warning("⚠️ PRODUCTION MODE: Admin user not found. Please create manually with secure password.")
+                logger.warning("   To create admin: Use application UI or database management tools")
+            else:
+                logger.info("👤 No system admin user found, creating system_admin with default password...")
+                logger.info("   ⚠️ DEV MODE: Default password 'admin123' - CHANGE IN PRODUCTION!")
+                # Password: admin123 (dev/test only)
+                password_hash = generate_password_hash('admin123', method='scrypt')
+                admin = User(
+                    email='admin@admin.com',
+                    password_hash=password_hash,
+                    name='System Administrator',
+                    role='system_admin',
+                    business_id=system_business.id,  # ✅ FIXED: Link to System business (not None)
+                    is_active=True,
+                    created_at=datetime.utcnow()
+                )
+                db.session.add(admin)
+                db.session.commit()
+                logger.info(f"✅ Created system admin user: admin@admin.com (ID: {admin.id}, business_id: {admin.business_id})")
         else:
             logger.info(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role}, business_id: {admin.business_id})")
             
@@ -270,7 +283,18 @@ def initialize_production_database():
             # Don't fail initialization on migration errors
         
         logger.info("✅ Database initialization completed successfully!")
-        logger.info(f"📧 Admin login: admin@admin.com / admin123")
+        
+        # 🔒 SECURITY: Only log admin credentials in non-production
+        is_production = (
+            os.getenv('FLASK_ENV') == 'production' or 
+            os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+        )
+        if not is_production:
+            logger.info(f"📧 Admin login: admin@admin.com / admin123 (DEV MODE ONLY)")
+            logger.warning("⚠️ SECURITY: Change admin password before production deployment!")
+        else:
+            logger.info(f"📧 Production mode: Use secure credentials for admin access")
+        
         logger.info(f"🏢 Business ID: {business.id}")
         
         return True

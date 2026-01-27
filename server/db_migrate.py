@@ -5759,6 +5759,16 @@ def apply_migrations():
             else:
                 checkpoint("✅ All required columns verified successfully")
         
+        # 🔥 CRITICAL: Verify business.lead_tabs_config exists (Migration 112)
+        if check_table_exists('business'):
+            if not check_column_exists('business', 'lead_tabs_config'):
+                error_msg = "❌ POST-MIGRATION VERIFICATION FAILED: Missing column 'business.lead_tabs_config'"
+                checkpoint(error_msg)
+                checkpoint("💡 TIP: Migration 112 may have failed. This column is REQUIRED for API to start.")
+                raise Exception("Migration verification failed: business.lead_tabs_config column missing")
+            else:
+                checkpoint("  ✅ Column 'business.lead_tabs_config' exists")
+        
         checkpoint("✅ Migration completed successfully!")
     
     # 🔒 CONCURRENCY PROTECTION: Release PostgreSQL advisory lock
