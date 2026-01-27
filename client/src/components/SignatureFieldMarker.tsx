@@ -450,7 +450,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
             )}
 
             {/* PDF with Overlay */}
-            <div className="flex-1 relative min-h-0">
+            <div className="flex-1 relative min-h-[500px]">
               {loadingInfo ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50 rounded-lg">
                   <div className="text-center">
