@@ -5679,8 +5679,7 @@ def apply_migrations():
                 db.session.rollback()
                 # Do NOT mark as complete on failure
         else:
-            checkpoint("  ℹ️ business table does not exist - skipping")
-            checkpoint("✅ Migration 112 complete: Flexible lead tabs configuration enabled")
+            checkpoint("  ℹ️ business table does not exist - skipping Migration 112")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:
