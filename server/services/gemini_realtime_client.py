@@ -276,12 +276,23 @@ class GeminiRealtimeClient:
                 mime_type="audio/pcm;rate=16000"
             )
             
+            # 🔥 LOG: Track audio sent to Gemini
+            if not hasattr(self, '_audio_chunks_sent'):
+                self._audio_chunks_sent = 0
+                logger.info(f"🎤 [GEMINI_SEND] Starting to send audio to Gemini Live API")
+            self._audio_chunks_sent += 1
+            
+            # Log first few chunks for debugging
+            if self._audio_chunks_sent <= 3:
+                logger.info(f"🎤 [GEMINI_SEND] audio_chunk #{self._audio_chunks_sent}: {len(audio_bytes)} bytes")
+            
             # Send audio using send_realtime_input
             # Note: end_of_turn is not used for realtime input (uses VAD instead)
             await self.session.send_realtime_input(audio=audio_blob)
             
         except Exception as e:
-            logger.error(f"[GEMINI_LIVE] Failed to send audio: {e}")
+            logger.error(f"❌ [GEMINI_SEND] Failed to send audio: {e}")
+            logger.exception(f"[GEMINI_THREAD_CRASH] Exception in send_audio", exc_info=True)
             raise
     
     async def send_text(self, text: str, end_of_turn: bool = True):
@@ -296,11 +307,18 @@ class GeminiRealtimeClient:
             raise RuntimeError("Not connected. Call connect() first.")
         
         try:
+            # 🔥 LOG: Track text sent to Gemini
+            if text:
+                logger.info(f"📝 [GEMINI_SEND] text: {text[:100]}...")
+            else:
+                logger.info(f"📝 [GEMINI_SEND] text: (empty - greeting trigger)")
+            
             # Send text using send_realtime_input
             # Note: end_of_turn is not used for realtime input (uses VAD instead)
             await self.session.send_realtime_input(text=text)
         except Exception as e:
-            logger.error(f"[GEMINI_LIVE] Failed to send text: {e}")
+            logger.error(f"❌ [GEMINI_SEND] Failed to send text: {e}")
+            logger.exception(f"[GEMINI_THREAD_CRASH] Exception in send_text", exc_info=True)
             raise
     
     async def update_config(
@@ -358,6 +376,7 @@ class GeminiRealtimeClient:
                             'type': 'setup_complete',
                             'data': None
                         }
+                        logger.info("✅ [GEMINI_RECV] setup_complete")
                         if not IS_PROD or REALTIME_VERBOSE:
                             logger.info("[GEMINI_LIVE] Setup complete")
                     
@@ -385,9 +404,10 @@ class GeminiRealtimeClient:
                                         # Log first audio chunk in production
                                         if IS_PROD and not REALTIME_VERBOSE and not _first_audio_logged:
                                             _first_audio_logged = True
-                                            logger.info(f"[GEMINI_LIVE] AI started speaking: {len(audio_bytes)} bytes")
+                                            logger.info(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(audio_bytes)} bytes")
+                                            _orig_print(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(audio_bytes)} bytes", flush=True)
                                         elif not IS_PROD or REALTIME_VERBOSE:
-                                            logger.debug(f"[GEMINI_LIVE] Audio chunk: {len(audio_bytes)} bytes")
+                                            logger.debug(f"🔊 [GEMINI_RECV] audio_chunk: {len(audio_bytes)} bytes")
                                         
                                         yield event
                                 
@@ -398,6 +418,7 @@ class GeminiRealtimeClient:
                                         'data': part.text
                                     }
                                     
+                                    logger.info(f"📝 [GEMINI_RECV] text: {part.text[:100]}...")
                                     if not IS_PROD or REALTIME_VERBOSE:
                                         logger.info(f"[GEMINI_LIVE] Text response: {part.text[:100]}")
                                     
@@ -410,6 +431,7 @@ class GeminiRealtimeClient:
                             'data': None
                         }
                         
+                        logger.info("✅ [GEMINI_RECV] turn_complete")
                         if not IS_PROD or REALTIME_VERBOSE:
                             logger.info("[GEMINI_LIVE] Turn complete")
                         
@@ -425,7 +447,7 @@ class GeminiRealtimeClient:
                             'data': None
                         }
                         
-                        logger.info("[GEMINI_LIVE] Interrupted")
+                        logger.info("⚠️ [GEMINI_RECV] interrupted")
                         yield event
                     
                     # Check for function calls
@@ -435,6 +457,7 @@ class GeminiRealtimeClient:
                             'data': server_message.tool_call
                         }
                         
+                        logger.info("🔧 [GEMINI_RECV] function_call")
                         if not IS_PROD or REALTIME_VERBOSE:
                             logger.info("[GEMINI_LIVE] Function call received")
                         
@@ -445,11 +468,13 @@ class GeminiRealtimeClient:
                         logger.debug(f"[GEMINI_LIVE] Unknown message type: {type(server_message)}")
                 
                 except Exception as parse_error:
-                    logger.error(f"[GEMINI_LIVE] Error parsing message: {parse_error}")
+                    logger.error(f"❌ [GEMINI_RECV] Error parsing message: {parse_error}")
+                    logger.exception(f"[GEMINI_THREAD_CRASH] Exception in recv_events parse", exc_info=True)
                     continue
         
         except Exception as e:
-            logger.error(f"[GEMINI_LIVE] Error in receive loop: {e}")
+            logger.error(f"❌ [GEMINI_RECV] Error in receive loop: {e}")
+            logger.exception(f"[GEMINI_THREAD_CRASH] Exception in recv_events loop", exc_info=True)
             raise
     
     async def cancel_response(self, response_id: Optional[str] = None):
