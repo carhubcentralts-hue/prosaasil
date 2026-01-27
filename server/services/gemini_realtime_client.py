@@ -12,6 +12,7 @@ import json
 import asyncio
 import logging
 import base64
+import binascii
 import builtins
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 
@@ -34,7 +35,9 @@ IS_PROD = os.getenv("DEBUG", "1") == "1"  # DEBUG=1 means production
 REALTIME_VERBOSE = os.getenv("REALTIME_VERBOSE", "0") == "1"  # Explicit verbose flag
 
 # Gemini Live API configuration
-GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.0-flash-exp")
+# 🔥 CRITICAL: Use native audio model for proper bidirectional audio streaming
+# The native-audio-preview model is required for stable audio output in telephony
+GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025")
 
 # Audio format constants
 # Gemini expects 16kHz mono PCM for input, outputs 24kHz mono PCM
@@ -69,6 +72,28 @@ def _clamp_temperature(requested_temp: Optional[float]) -> float:
         return GEMINI_TEMPERATURE_MAX
     
     return requested_temp
+
+
+def _fix_base64_padding(data: str) -> str:
+    """
+    Fix base64 padding by adding missing padding characters.
+    Base64 strings must have length divisible by 4.
+    
+    Args:
+        data: Base64 encoded string (possibly missing padding)
+    
+    Returns:
+        Base64 string with correct padding
+    """
+    # Remove any whitespace
+    data = data.strip()
+    
+    # Add padding if needed (base64 strings must be divisible by 4)
+    missing_padding = len(data) % 4
+    if missing_padding:
+        data += '=' * (4 - missing_padding)
+    
+    return data
 
 
 def _sanitize_text_for_realtime(text: str, max_chars: int = 8000) -> str:
@@ -116,7 +141,7 @@ class GeminiRealtimeClient:
         
         Args:
             api_key: Gemini API key (defaults to GEMINI_API_KEY env var)
-            model: Model to use (default: GEMINI_LIVE_MODEL env var or gemini-2.0-flash-exp)
+            model: Model to use (default: GEMINI_LIVE_MODEL env var or gemini-2.5-flash-native-audio-preview-12-2025)
         """
         if not _genai_available:
             raise ImportError(
@@ -396,24 +421,31 @@ class GeminiRealtimeClient:
                                     # Audio data
                                     inline_data = part.inline_data
                                     if inline_data.mime_type.startswith('audio/'):
-                                        # Decode base64 audio
-                                        audio_bytes = base64.b64decode(inline_data.data)
-                                        
-                                        event = {
-                                            'type': 'audio',
-                                            'data': audio_bytes,
-                                            'mime_type': inline_data.mime_type
-                                        }
-                                        
-                                        # Log first audio chunk in production
-                                        if IS_PROD and not REALTIME_VERBOSE and not _first_audio_logged:
-                                            _first_audio_logged = True
-                                            logger.info(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(audio_bytes)} bytes")
-                                            _orig_print(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(audio_bytes)} bytes", flush=True)
-                                        elif not IS_PROD or REALTIME_VERBOSE:
-                                            logger.debug(f"🔊 [GEMINI_RECV] audio_chunk: {len(audio_bytes)} bytes")
-                                        
-                                        yield event
+                                        try:
+                                            # Decode base64 audio with padding fix
+                                            # Fix: Gemini API sometimes sends audio with incorrect padding
+                                            fixed_data = _fix_base64_padding(inline_data.data)
+                                            audio_bytes = base64.b64decode(fixed_data)
+                                            
+                                            event = {
+                                                'type': 'audio',
+                                                'data': audio_bytes,
+                                                'mime_type': inline_data.mime_type
+                                            }
+                                            
+                                            # Log first audio chunk in production
+                                            if IS_PROD and not REALTIME_VERBOSE and not _first_audio_logged:
+                                                _first_audio_logged = True
+                                                logger.info(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(audio_bytes)} bytes")
+                                                _orig_print(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(audio_bytes)} bytes", flush=True)
+                                            elif not IS_PROD or REALTIME_VERBOSE:
+                                                logger.debug(f"🔊 [GEMINI_RECV] audio_chunk: {len(audio_bytes)} bytes")
+                                            
+                                            yield event
+                                        except (binascii.Error, ValueError) as audio_decode_error:
+                                            # Skip malformed audio chunks gracefully
+                                            logger.debug(f"⚠️ [GEMINI_RECV] Skipping malformed audio chunk: {audio_decode_error}")
+                                            # Continue processing other parts
                                 
                                 elif hasattr(part, 'text'):
                                     # Text response
