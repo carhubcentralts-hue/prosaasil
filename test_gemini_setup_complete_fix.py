@@ -35,15 +35,29 @@ def test_setup_complete_yield():
             found_setup_complete_section = True
             # Check next few lines for yield
             for j in range(i, min(i+10, len(lines))):
-                if 'yield event' in lines[j] and '# 🔥 FIX: Yield the event so it\'s processed' in lines[j]:
+                if 'yield event' in lines[j]:
                     found_yield_after_setup = True
                     break
             break
     
     if found_setup_complete_section and found_yield_after_setup:
-        print("✓ setup_complete event is yielded with fix comment")
+        print("✓ setup_complete event is yielded")
     else:
         print("❌ setup_complete event not properly yielded")
+        return False
+    
+    # Test 3: Check for deduplication of setup_complete (only first one should be yielded)
+    if '_setup_complete_seen' in content and 'not _setup_complete_seen' in content:
+        print("✓ setup_complete deduplication implemented (only first event yielded)")
+    else:
+        print("❌ setup_complete deduplication not found")
+        return False
+    
+    # Test 4: Check that we changed elif to if for message attribute checks
+    if '# 🔥 FIX: Changed from elif to if - messages can have multiple attributes!' in content:
+        print("✓ Changed elif to if - messages can have multiple attributes")
+    else:
+        print("❌ elif to if change not found or not commented")
         return False
     
     print("\n" + "=" * 60)

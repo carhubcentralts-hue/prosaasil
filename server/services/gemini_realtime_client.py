@@ -361,28 +361,31 @@ class GeminiRealtimeClient:
         
         # Track first audio chunk for production logging
         _first_audio_logged = False
+        _setup_complete_seen = False  # Track if we've already seen setup_complete
         
         try:
             async for server_message in self.session.receive():
                 try:
                     # Parse Gemini Live API message structure
-                    # The message object has different attributes based on type
+                    # 🔥 CRITICAL: Gemini messages can have MULTIPLE attributes!
+                    # We must check ALL attributes, not use if/elif
+                    # A message can have both setup_complete AND server_content!
                     
-                    event = {}
-                    
-                    # Check for setup complete
-                    if hasattr(server_message, 'setup_complete'):
+                    # Check for setup complete (only yield first time)
+                    if hasattr(server_message, 'setup_complete') and not _setup_complete_seen:
+                        _setup_complete_seen = True
                         event = {
                             'type': 'setup_complete',
                             'data': None
                         }
-                        logger.info("✅ [GEMINI_RECV] setup_complete")
+                        logger.info("✅ [GEMINI_RECV] setup_complete (FIRST)")
                         if not IS_PROD or REALTIME_VERBOSE:
-                            logger.info("[GEMINI_LIVE] Setup complete")
-                        yield event  # 🔥 FIX: Yield the event so it's processed
+                            logger.info("[GEMINI_LIVE] Setup complete (first occurrence)")
+                        yield event
                     
                     # Check for server content (audio/text response)
-                    elif hasattr(server_message, 'server_content'):
+                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
+                    if hasattr(server_message, 'server_content'):
                         content = server_message.server_content
                         
                         # Check if it's audio
@@ -426,7 +429,8 @@ class GeminiRealtimeClient:
                                     yield event
                     
                     # Check for turn complete
-                    elif hasattr(server_message, 'turn_complete'):
+                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
+                    if hasattr(server_message, 'turn_complete'):
                         event = {
                             'type': 'turn_complete',
                             'data': None
@@ -442,7 +446,8 @@ class GeminiRealtimeClient:
                         yield event
                     
                     # Check for interruption
-                    elif hasattr(server_message, 'interrupted'):
+                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
+                    if hasattr(server_message, 'interrupted'):
                         event = {
                             'type': 'interrupted',
                             'data': None
@@ -452,7 +457,8 @@ class GeminiRealtimeClient:
                         yield event
                     
                     # Check for function calls
-                    elif hasattr(server_message, 'tool_call'):
+                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
+                    if hasattr(server_message, 'tool_call'):
                         event = {
                             'type': 'function_call',
                             'data': server_message.tool_call
@@ -463,10 +469,6 @@ class GeminiRealtimeClient:
                             logger.info("[GEMINI_LIVE] Function call received")
                         
                         yield event
-                    
-                    # Unknown message type - log in dev mode
-                    elif not IS_PROD or REALTIME_VERBOSE:
-                        logger.debug(f"[GEMINI_LIVE] Unknown message type: {type(server_message)}")
                 
                 except Exception as parse_error:
                     logger.error(f"❌ [GEMINI_RECV] Error parsing message: {parse_error}")
