@@ -32,17 +32,29 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const [preparingRecording, setPreparingRecording] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [manualRetryAvailable, setManualRetryAvailable] = useState(false);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSrcRef = useRef<string>(''); // Track last src to prevent duplicate processing
   const abortControllerRef = useRef<AbortController | null>(null); // 🔥 FIX: Cancel pending requests
   const isCheckingRef = useRef<boolean>(false); // 🔥 FIX: Prevent concurrent checks
 
-  // 🔥 PERFORMANCE FIX: Reduced retry limit and improved backoff
-  const MAX_RETRIES = 5; // 5 retries with exponential backoff
+  // 🔥 FIX: Increased retry limit and patience for large recording downloads
+  // Large recordings can take 2-3 minutes to download from Twilio
+  const MAX_RETRIES = 12; // 12 retries with exponential backoff (up to ~3 minutes)
   const getRetryDelay = (retryCount: number) => {
-    // Exponential backoff: 3s → 5s → 8s → 12s → 20s (capped)
-    const delays = [3000, 5000, 8000, 12000, 20000];
+    // Progressive backoff: 3s → 5s → 8s → 10s → 15s → 15s... (capped at 15s)
+    // Total wait time: ~2.5-3 minutes before giving up
+    const delays = [3000, 5000, 8000, 10000, 15000, 15000, 15000, 15000, 15000, 15000, 15000, 15000];
     return delays[Math.min(retryCount, delays.length - 1)];
+  };
+
+  // Helper function to calculate total wait time
+  const calculateTotalWaitTime = (retryCount: number): number => {
+    let total = 0;
+    for (let i = 0; i < retryCount; i++) {
+      total += getRetryDelay(i);
+    }
+    return total / 1000; // Convert to seconds
   };
 
   // 🔥 CHECK: Use HEAD request to check if recording file exists
@@ -75,7 +87,8 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       if (response.status === 404 && currentRetry < MAX_RETRIES) {
         // 404 - file not yet downloaded by worker, retry with backoff
         const delay = getRetryDelay(currentRetry);
-        console.log(`[AudioPlayer] File not ready (404), retrying in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
+        const totalWaitSoFar = calculateTotalWaitTime(currentRetry);
+        console.log(`[AudioPlayer] File not ready (404), retrying in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES}, waited ${Math.floor(totalWaitSoFar)}s so far)`);
         setRetryCount(currentRetry + 1);
         setPreparingRecording(true);
         
@@ -147,6 +160,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         setIsLoading(true);
         setRetryCount(0);
         setErrorMessage(null);
+        setManualRetryAvailable(false);
         setStreamUrl(null);
 
         // Use src directly - should already be /api/recordings/file/<call_sid> format
@@ -162,9 +176,14 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
           setIsLoading(false);
           console.log(`[AudioPlayer] Playing from: ${fileUrl}`);
         } else {
-          // Recording file not available
-          // Show user-friendly message explaining worker will download it
-          setErrorMessage('ההקלטה בתהליך הורדה. אנא נסה שוב בעוד מספר שניות.');
+          // Recording file not available after all retries
+          // Show user-friendly message with retry option
+          const totalWaitTime = calculateTotalWaitTime(retryCount);
+          setErrorMessage(
+            `ההקלטה עדיין בתהליך הורדה (חיכינו ${Math.floor(totalWaitTime)} שניות). ` +
+            `זה יכול לקחת עד 3 דקות להקלטות ארוכות.`
+          );
+          setManualRetryAvailable(true);
           setPreparingRecording(false);
           setIsLoading(false);
         }
@@ -219,6 +238,20 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     }
   };
 
+  // Handle manual retry
+  const handleManualRetry = () => {
+    // Reset state and trigger reload by updating lastSrcRef
+    lastSrcRef.current = '';
+    setErrorMessage(null);
+    setManualRetryAvailable(false);
+    setRetryCount(0);
+    setIsLoading(true);
+    setPreparingRecording(true);
+    
+    // Trigger reload by changing the src ref
+    checkFileAvailable(src, 0);
+  };
+
   // Handle audio ready
   const handleCanPlay = () => {
     setIsLoading(false);
@@ -232,10 +265,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
 
   if (loading || preparingRecording) {
     // Calculate estimated seconds elapsed
-    let secondsElapsed = 0;
-    for (let i = 0; i < retryCount; i++) {
-      secondsElapsed += getRetryDelay(i) / 1000;
-    }
+    const secondsElapsed = calculateTotalWaitTime(retryCount);
     
     return (
       <div className="flex items-center justify-center py-4">
@@ -254,8 +284,16 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
 
   if (errorMessage) {
     return (
-      <div className="py-4 text-center">
+      <div className="py-4 text-center space-y-3">
         <p className="text-sm text-red-600">{errorMessage}</p>
+        {manualRetryAvailable && (
+          <button
+            onClick={handleManualRetry}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+          >
+            נסה שוב
+          </button>
+        )}
       </div>
     );
   }
