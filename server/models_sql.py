@@ -60,7 +60,12 @@ class Business(db.Model):
     # JSON object with 'primary' and 'secondary' arrays. If NULL, uses default tabs.
     # Example: {"primary": ["activity", "reminders", "documents"], "secondary": ["overview", "whatsapp", "calls"]}
     # Max 3 primary tabs (shown directly), up to 3 additional in 'More' menu (total 6)
-    lead_tabs_config = db.Column(db.JSON, nullable=True, default=None)
+    # ✅ BUILD 113: Flexible tab configuration for lead detail page
+    # JSONB object with primary and secondary tab arrays
+    # Default: {} (empty object, tabs will be generated dynamically)
+    # Max 3 primary + 3 secondary (6 total)
+    # Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes
+    lead_tabs_config = db.Column(db.JSON, nullable=False, default=dict, server_default='{}')  # ✅ NOT NULL with default
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

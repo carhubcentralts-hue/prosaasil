@@ -5630,6 +5630,13 @@ def apply_migrations():
                 if not check_column_exists('business', 'lead_tabs_config'):
                     checkpoint("  → Adding lead_tabs_config JSONB column (optimized for large tables)...")
                     
+                    # 🔥 CRITICAL: Increase statement timeout for large business table
+                    # Default timeout may be too short for large production tables
+                    checkpoint("  → Setting statement timeout to 10 minutes for ALTER TABLE...")
+                    from sqlalchemy import text
+                    db.session.execute(text("SET statement_timeout = '600000'"))  # 10 minutes
+                    db.session.commit()
+                    
                     # Step 1: Add column as nullable (fast, no table rewrite)
                     checkpoint("  → Step 1/3: Adding column as nullable...")
                     exec_ddl(db.engine, """
@@ -5646,7 +5653,6 @@ def apply_migrations():
                     
                     # Step 3: Update existing rows and add NOT NULL constraint
                     checkpoint("  → Step 3/3: Updating existing rows and adding NOT NULL constraint...")
-                    from sqlalchemy import text
                     # Update any NULL values to the default (should be none if column was just added)
                     db.session.execute(text("""
                         UPDATE business 
@@ -5660,6 +5666,11 @@ def apply_migrations():
                         ALTER TABLE business 
                         ALTER COLUMN lead_tabs_config SET NOT NULL
                     """)
+                    
+                    # Reset statement timeout to default
+                    checkpoint("  → Resetting statement timeout to default...")
+                    db.session.execute(text("SET statement_timeout = DEFAULT"))
+                    db.session.commit()
                     
                     # Add column comment
                     exec_ddl(db.engine, """
