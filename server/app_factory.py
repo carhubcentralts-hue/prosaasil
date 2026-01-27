@@ -128,11 +128,24 @@ def ensure_db_ready(app, max_retries=10, retry_delay=2.0):
                         "AND column_name = :column_name"
                     ), {"table_name": "business", "column_name": "lead_tabs_config"})
                     if not result.fetchone():
-                        logger.error("❌ Critical column 'business.lead_tabs_config' not found")
+                        error_msg = "❌ Critical column 'business.lead_tabs_config' not found"
+                        logger.error(error_msg)
                         logger.error("   Migrations need to run! Set RUN_MIGRATIONS=1 or run migrations manually")
-                        logger.error("   System will attempt to continue but queries may fail")
-                        # Don't return False here - let schema validation handle it
-                        # But log clearly so the issue is visible
+                        
+                        # 🔥 FAIL FAST in production - don't start the API if schema is missing
+                        is_production = (
+                            os.getenv('FLASK_ENV') == 'production' or 
+                            os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+                        )
+                        if is_production:
+                            logger.error("   🚨 PRODUCTION MODE: Cannot start with missing schema!")
+                            db.session.rollback()
+                            raise RuntimeError(
+                                "Critical database schema missing: business.lead_tabs_config column not found. "
+                                "Run migrations before starting the API service."
+                            )
+                        else:
+                            logger.warning("   ⚠️ DEV MODE: System will attempt to continue but queries may fail")
                     
                     db.session.rollback()  # Clean up
                     
@@ -1291,12 +1304,16 @@ def create_app():
         warmup_services_async()
         start_periodic_warmup()
         
-        # Warmup Google clients (STT & Gemini) to catch config issues early
-        try:
-            from server.services.providers.google_clients import warmup_google_clients
-            warmup_google_clients()
-        except Exception as e:
-            logger.warning(f"⚠️ Google clients warmup failed (non-critical): {e}")
+        # 🔥 Google clients warmup - Only if Google services are NOT disabled
+        # This prevents 403 errors from Google TTS when DISABLE_GOOGLE=true
+        if os.getenv("DISABLE_GOOGLE", "false").lower() != "true":
+            try:
+                from server.services.providers.google_clients import warmup_google_clients
+                warmup_google_clients()
+            except Exception as e:
+                logger.warning(f"⚠️ Google clients warmup failed (non-critical): {e}")
+        else:
+            logger.info("⚠️ Google services disabled (DISABLE_GOOGLE=true) - skipping Google TTS warmup")
     
 
     # ✅ ERROR HANDLERS - JSON responses instead of Error {}
