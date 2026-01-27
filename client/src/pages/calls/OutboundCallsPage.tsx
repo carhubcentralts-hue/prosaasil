@@ -2250,7 +2250,7 @@ export function OutboundCallsPage() {
                                     <Download className="h-4 w-4" />
                                     הורד
                                   </a>
-                                  <AudioPlayer src={`/api/recordings/${call.call_sid}/stream`} />
+                                  <AudioPlayer src={`/api/recordings/file/${call.call_sid}`} />
                                 </div>
                               ) : (
                                 '-'

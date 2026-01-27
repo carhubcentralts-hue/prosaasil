@@ -1589,7 +1589,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
 
   // 🔥 FIX: Load recording as blob with authentication when call is expanded
   // 🔥 Removed loadRecordingBlob - now using direct streaming via AudioPlayer
-  // AudioPlayer component uses /api/recordings/<call_sid>/stream endpoint
+  // AudioPlayer component uses /api/recordings/file/<call_sid> endpoint (direct file serving)
   // with explicit_user_action=true for security and Range support
 
   // Toggle call expansion
@@ -1795,7 +1795,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         {/* Audio Player with direct streaming (no blob URLs) */}
                         {call.hasRecording ? (
                           <AudioPlayer
-                            src={`/api/recordings/${getCallId(call)}/stream`}
+                            src={`/api/recordings/file/${getCallId(call)}`}
                           />
                         ) : (
                           <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
