@@ -496,8 +496,6 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                       pointerEvents: signatureMarkingMode ? 'auto' : 'none',
                       // ✅ Ensure proper z-index (overlay is above PDF canvas)
                       zIndex: PDF_OVERLAY_Z_INDEX,
-                      // ✅ Ensure overlay is positioned correctly
-                      position: 'absolute',
                     }}
                   >
                     {renderSignatureFields()}

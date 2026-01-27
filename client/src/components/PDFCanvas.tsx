@@ -399,12 +399,11 @@ export function PDFCanvas({
             <canvas 
               ref={canvasRef}
               key={`pdf-${pdfUrl}-page-${currentPage}-scale-${Math.round(scale * 100)}`}
-              className="shadow-lg bg-white block"
+              className="shadow-lg bg-white block relative"
               style={{
                 // 🔥 FIX: Ensure canvas is always displayed properly
                 display: 'block',
                 maxWidth: '100%',
-                position: 'relative',
                 zIndex: PDF_CANVAS_Z_INDEX,
               }}
             />
@@ -433,8 +432,6 @@ export function PDFCanvas({
                   pointerEvents: 'none',
                   // ✅ Ensure proper z-index layering above canvas but below UI
                   zIndex: PDF_OVERLAY_Z_INDEX,
-                  // ✅ Ensure overlay follows the same positioning as canvas
-                  position: 'absolute',
                 }}
               >
                 {children}

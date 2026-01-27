@@ -310,7 +310,6 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
                 style={{ 
                   background: 'transparent',
                   zIndex: PDF_OVERLAY_Z_INDEX,
-                  position: 'absolute',
                 }}
               >
                 {getCurrentPageFields().map((field, index) => (
