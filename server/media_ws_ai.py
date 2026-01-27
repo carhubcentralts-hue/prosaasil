@@ -5192,9 +5192,11 @@ class MediaStreamHandler:
                         logger.error(f"❌ [GEMINI_SEND] Failed to send greeting trigger: {e}")
                         logger.exception(f"[GEMINI_THREAD_CRASH] Exception in greeting trigger", exc_info=True)
                 
-                # 🔥 GEMINI WATCHDOG: Start timer to detect if first audio never arrives
-                if reason == "GREETING" or is_greeting:
-                    self._start_first_audio_watchdog(ai_provider)
+                # 🔥 SIMPLE MODE: Disable watchdog for Gemini (user request: "בלי WATCHDOG, שיהיה SIMPLE MODE כמו OPEN AI!!!")
+                # Gemini Live API handles audio streaming automatically, no need for timeout monitoring
+                # The watchdog was triggering false alarms due to setup_complete event handling issues (now fixed)
+                # if reason == "GREETING" or is_greeting:
+                #     self._start_first_audio_watchdog(ai_provider)
                 
                 # Return True to indicate "response will come"
             else:
