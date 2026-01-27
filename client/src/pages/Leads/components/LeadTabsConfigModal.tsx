@@ -53,26 +53,30 @@ export function LeadTabsConfigModal({
       setSaving(true);
       setError(null);
 
+      // Remove duplicates - ensure no tab appears in both lists
+      const uniquePrimary = [...new Set(primaryTabs)];
+      const uniqueSecondary = [...new Set(secondaryTabs.filter(tab => !uniquePrimary.includes(tab)))];
+
       // Validate
-      if (primaryTabs.length === 0) {
+      if (uniquePrimary.length === 0) {
         setError('חובה לבחור לפחות טאב אחד ראשי');
         setSaving(false);
         return;
       }
 
-      if (primaryTabs.length > 5) {
+      if (uniquePrimary.length > 5) {
         setError('ניתן לבחור עד 5 טאבים ראשיים');
         setSaving(false);
         return;
       }
 
-      if (secondaryTabs.length > 5) {
+      if (uniqueSecondary.length > 5) {
         setError('ניתן לבחור עד 5 טאבים משניים');
         setSaving(false);
         return;
       }
 
-      await onSave(primaryTabs, secondaryTabs);
+      await onSave(uniquePrimary, uniqueSecondary);
       onClose();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'שגיאה בשמירת ההגדרות';

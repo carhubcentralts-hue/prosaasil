@@ -51,25 +51,29 @@ export function LeadTabsSettings() {
       setSaving(true);
       setError(null);
       
+      // Remove duplicates - ensure no tab appears in both lists
+      const uniquePrimary = [...new Set(primaryTabs)];
+      const uniqueSecondary = [...new Set(secondaryTabs.filter(tab => !uniquePrimary.includes(tab)))];
+      
       // Validate
-      if (primaryTabs.length === 0) {
+      if (uniquePrimary.length === 0) {
         setError('חובה לבחור לפחות טאב אחד ראשי');
         return;
       }
       
-      if (primaryTabs.length > 3) {
-        setError('ניתן לבחור עד 3 טאבים ראשיים');
+      if (uniquePrimary.length > 5) {
+        setError('ניתן לבחור עד 5 טאבים ראשיים');
         return;
       }
       
-      if (secondaryTabs.length > 3) {
-        setError('ניתן לבחור עד 3 טאבים משניים');
+      if (uniqueSecondary.length > 5) {
+        setError('ניתן לבחור עד 5 טאבים משניים');
         return;
       }
       
       await updateTabsConfig({
-        primary: primaryTabs,
-        secondary: secondaryTabs
+        primary: uniquePrimary,
+        secondary: uniqueSecondary
       });
       
       setSuccess(true);
@@ -87,14 +91,14 @@ export function LeadTabsSettings() {
   };
   
   const addToPrimary = (tabKey: string) => {
-    if (primaryTabs.length < 3 && !primaryTabs.includes(tabKey)) {
+    if (primaryTabs.length < 5 && !primaryTabs.includes(tabKey)) {
       setPrimaryTabs([...primaryTabs, tabKey]);
       setSecondaryTabs(secondaryTabs.filter(k => k !== tabKey));
     }
   };
   
   const addToSecondary = (tabKey: string) => {
-    if (secondaryTabs.length < 3 && !secondaryTabs.includes(tabKey)) {
+    if (secondaryTabs.length < 5 && !secondaryTabs.includes(tabKey)) {
       setSecondaryTabs([...secondaryTabs, tabKey]);
       setPrimaryTabs(primaryTabs.filter(k => k !== tabKey));
     }
@@ -166,10 +170,10 @@ export function LeadTabsSettings() {
         <Card className="p-6">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-1">
-              טאבים ראשיים ({primaryTabs.length}/3)
+              טאבים ראשיים ({primaryTabs.length}/5)
             </h3>
             <p className="text-sm text-gray-500">
-              מוצגים ישירות בדף הליד (עד 3)
+              מוצגים ישירות בדף הליד (עד 5)
             </p>
           </div>
           
@@ -211,10 +215,10 @@ export function LeadTabsSettings() {
         <Card className="p-6">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-1">
-              טאבים משניים ({secondaryTabs.length}/3)
+              טאבים משניים ({secondaryTabs.length}/5)
             </h3>
             <p className="text-sm text-gray-500">
-              מוצגים בתפריט "עוד" (עד 3)
+              מוצגים בתפריט "עוד" (עד 5)
             </p>
           </div>
           
@@ -270,7 +274,7 @@ export function LeadTabsSettings() {
                   <div className="text-xs text-gray-500">{tab.description}</div>
                 </div>
                 <div className="flex gap-1">
-                  {primaryTabs.length < 3 && (
+                  {primaryTabs.length < 5 && (
                     <button
                       onClick={() => addToPrimary(tab.key)}
                       className="p-1 hover:bg-blue-100 rounded transition-colors"
@@ -279,7 +283,7 @@ export function LeadTabsSettings() {
                       <Plus className="w-4 h-4 text-blue-600" />
                     </button>
                   )}
-                  {secondaryTabs.length < 3 && (
+                  {secondaryTabs.length < 5 && (
                     <button
                       onClick={() => addToSecondary(tab.key)}
                       className="p-1 hover:bg-gray-100 rounded transition-colors"
@@ -359,7 +363,7 @@ export function LeadTabsSettings() {
         <ul className="text-sm text-blue-800 space-y-1">
           <li>• טאבים ראשיים מוצגים תמיד בדף הליד</li>
           <li>• טאבים משניים זמינים דרך כפתור "עוד"</li>
-          <li>• מקסימום 3 טאבים ראשיים ו-3 משניים (6 סה"כ)</li>
+          <li>• מקסימום 5 טאבים ראשיים ו-5 משניים (10 סה"כ)</li>
           <li>• השינויים יופיעו מיד בכל דפי הליד</li>
         </ul>
       </div>

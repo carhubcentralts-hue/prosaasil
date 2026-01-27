@@ -1045,13 +1045,22 @@ def update_current_business_settings():
                 has_secondary = 'secondary' in tabs_config and isinstance(tabs_config['secondary'], list)
                 
                 if has_primary or has_secondary:
-                    # Limit to max 3 primary tabs and 3 secondary tabs (6 total)
-                    if 'primary' in tabs_config and isinstance(tabs_config['primary'], list):
-                        tabs_config['primary'] = tabs_config['primary'][:3]
-                    if 'secondary' in tabs_config and isinstance(tabs_config['secondary'], list):
-                        tabs_config['secondary'] = tabs_config['secondary'][:3]
-                    business.lead_tabs_config = tabs_config
-                    logger.info(f"✅ Updated lead_tabs_config for business {business_id}: {tabs_config}")
+                    # Remove duplicates - ensure no tab appears in both lists
+                    primary_tabs = tabs_config.get('primary', [])[:5] if has_primary else []
+                    secondary_tabs = tabs_config.get('secondary', [])[:5] if has_secondary else []
+                    
+                    # Remove duplicates: if a tab appears in both, keep it only in primary
+                    unique_primary = list(dict.fromkeys(primary_tabs))  # Remove duplicates within primary
+                    unique_secondary = [tab for tab in dict.fromkeys(secondary_tabs) if tab not in unique_primary]  # Remove duplicates and items in primary
+                    
+                    validated_config = {}
+                    if unique_primary:
+                        validated_config['primary'] = unique_primary
+                    if unique_secondary:
+                        validated_config['secondary'] = unique_secondary
+                    
+                    business.lead_tabs_config = validated_config
+                    logger.info(f"✅ Updated lead_tabs_config for business {business_id}: {validated_config}")
                 else:
                     logger.warning(f"⚠️ Invalid lead_tabs_config structure for business {business_id}: must have 'primary' or 'secondary' as list")
                     return jsonify({"error": "תצורת טאבים לא תקינה - חובה לספק primary או secondary כרשימה"}), 400

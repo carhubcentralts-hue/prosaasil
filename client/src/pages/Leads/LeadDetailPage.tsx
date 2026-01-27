@@ -142,15 +142,16 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     const primaryKeys = tabsConfig?.primary || DEFAULT_PRIMARY_TABS;
     const secondaryKeys = tabsConfig?.secondary || DEFAULT_SECONDARY_TABS;
     
+    // Remove duplicates - if a tab appears in both, keep it only in primary
+    const uniqueSecondaryKeys = secondaryKeys.filter(key => !primaryKeys.includes(key));
+    
     const primary = primaryKeys
       .map(key => ALL_AVAILABLE_TABS.find(tab => tab.key === key))
-      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined)
-      .slice(0, 3); // Max 3 primary tabs
+      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined);
     
-    const secondary = secondaryKeys
+    const secondary = uniqueSecondaryKeys
       .map(key => ALL_AVAILABLE_TABS.find(tab => tab.key === key))
-      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined)
-      .slice(0, 3); // Max 3 secondary tabs
+      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined);
     
     return { primaryTabs: primary, secondaryTabs: secondary };
   }, [tabsConfig]);
