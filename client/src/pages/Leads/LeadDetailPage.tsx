@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File, Send, FileSignature, MoreHorizontal, ClipboardList, FolderOpen } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File, Send, FileSignature, MoreHorizontal, ClipboardList, FolderOpen, Settings } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
+import { LeadTabsConfigModal } from './components/LeadTabsConfigModal';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
@@ -109,6 +110,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [editingReminder, setEditingReminder] = useState<LeadReminder | null>(null);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);  // For "More" dropdown
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const [tabsConfigModalOpen, setTabsConfigModalOpen] = useState(false);  // For tabs configuration modal
   
   // Close more menu when clicking outside
   useEffect(() => {
@@ -136,7 +138,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const { statuses, refreshStatuses } = useStatuses();
   
   // 🔥 NEW: Dynamic tabs configuration
-  const { tabsConfig, loading: loadingTabsConfig } = useLeadTabsConfig();
+  const { tabsConfig, loading: loadingTabsConfig, updateTabsConfig, refreshConfig } = useLeadTabsConfig();
   
   // Calculate primary and secondary tabs based on configuration
   const { primaryTabs, secondaryTabs } = useMemo(() => {
@@ -294,6 +296,12 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Handle tabs configuration save
+  const handleSaveTabsConfig = async (primary: string[], secondary: string[]) => {
+    await updateTabsConfig({ primary, secondary });
+    await refreshConfig();
   };
 
   const updateLeadStatus = async (newStatus: string) => {
@@ -538,6 +546,17 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 </div>
               )}
             </div>
+
+            {/* Configure Tabs Button */}
+            <button
+              onClick={() => setTabsConfigModalOpen(true)}
+              className="flex items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all min-h-[44px] border bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-blue-300"
+              title="הגדר טאבים"
+              data-testid="button-configure-tabs"
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline">הגדר טאבים</span>
+            </button>
           </div>
         </div>
       </div>
@@ -932,6 +951,15 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       <div className="lg:hidden">
         <LeadNavigationArrows currentLeadId={parseInt(id!)} variant="mobile" />
       </div>
+
+      {/* Tabs Configuration Modal */}
+      <LeadTabsConfigModal
+        isOpen={tabsConfigModalOpen}
+        onClose={() => setTabsConfigModalOpen(false)}
+        currentPrimary={tabsConfig?.primary || DEFAULT_PRIMARY_TABS}
+        currentSecondary={tabsConfig?.secondary || DEFAULT_SECONDARY_TABS}
+        onSave={handleSaveTabsConfig}
+      />
     </div>
   );
 }
