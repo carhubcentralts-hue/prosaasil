@@ -16,8 +16,11 @@ export interface SignatureField {
 
 // Constants
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
-const FIELD_Z_INDEX_NORMAL = 5; // Z-index for normal signature fields
-const FIELD_Z_INDEX_SELECTED = 10; // Z-index for selected signature field
+const PDF_CANVAS_Z_INDEX = 1; // Z-index for PDF canvas layer
+const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay layer (transparent, holds signature fields)
+const FIELD_Z_INDEX_NORMAL = 5; // Z-index for normal signature fields (relative to overlay)
+const FIELD_Z_INDEX_SELECTED = 10; // Z-index for selected signature field (relative to overlay)
+const UI_TOOLBAR_Z_INDEX = 20; // Z-index for UI elements (toolbars, buttons)
 const ERROR_LOADING_PDF_INFO = 'שגיאה בטעינת מידע על PDF';
 
 interface SignatureFieldMarkerProps {
@@ -304,8 +307,14 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
             top: `${field.y * 100}%`,
             width: `${field.w * 100}%`,
             height: `${field.h * 100}%`,
+            // ✅ Enable pointer events for individual signature fields only
             pointerEvents: 'auto',
+            // ✅ Z-index relative to overlay (not absolute page z-index)
             zIndex: selectedFieldId === field.id ? FIELD_Z_INDEX_SELECTED : FIELD_Z_INDEX_NORMAL,
+            // ✅ Ensure background is semi-transparent, not opaque
+            backgroundColor: selectedFieldId === field.id 
+              ? 'rgba(59, 130, 246, 0.2)' // blue with 20% opacity
+              : 'rgba(34, 197, 94, 0.2)', // green with 20% opacity
           }}
           onMouseDown={(e) => handleFieldMouseDown(e, field)}
           onPointerDown={(e) => handleFieldMouseDown(e, field)}
@@ -480,8 +489,13 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                     onMouseLeave={handleMouseUp}
                     onPointerLeave={handleMouseUp}
                     style={{
+                      // ✅ Transparent background - no white box covering PDF
                       background: 'transparent',
+                      // ✅ Only enable pointer events when in marking mode
+                      // This allows clicking through to PDF when not marking
                       pointerEvents: signatureMarkingMode ? 'auto' : 'none',
+                      // ✅ Ensure proper z-index (overlay is above PDF canvas)
+                      zIndex: PDF_OVERLAY_Z_INDEX,
                     }}
                   >
                     {renderSignatureFields()}
