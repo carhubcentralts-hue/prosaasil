@@ -2972,6 +2972,8 @@ function getActivityInfo(activity: LeadActivity) {
     'whatsapp_out': { label: 'הודעה יוצאת', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-500' },
     'appointment': { label: 'פגישה', icon: Calendar, color: 'text-white', bgColor: 'bg-indigo-500' },
     'reminder': { label: 'משימה', icon: CheckCircle2, color: 'text-white', bgColor: 'bg-yellow-500' },
+    'reminder_created': { label: 'משימה נוצרה', icon: CheckCircle2, color: 'text-white', bgColor: 'bg-yellow-500' },
+    'reminder_completed': { label: 'משימה הושלמה', icon: CheckCircle2, color: 'text-white', bgColor: 'bg-green-500' },
     'note': { label: 'הערה', icon: Activity, color: 'text-white', bgColor: 'bg-gray-500' },
     'created': { label: 'ליד נוצר', icon: User, color: 'text-white', bgColor: 'bg-emerald-500' },
     'email': { label: 'אימייל', icon: Mail, color: 'text-white', bgColor: 'bg-red-500' },
@@ -2998,8 +3000,11 @@ function getActivityDescription(activity: LeadActivity, statuses: LeadStatus[] =
   if (activity.type === 'appointment') {
     return payload.title || 'פגישה נקבעה';
   }
-  if (activity.type === 'reminder') {
+  if (activity.type === 'reminder' || activity.type === 'reminder_created') {
     return payload.note || 'משימה נוספה';
+  }
+  if (activity.type === 'reminder_completed') {
+    return payload.note || 'משימה הושלמה';
   }
   if (activity.type === 'created') {
     // 🔥 FIX: Use Hebrew labels for source
