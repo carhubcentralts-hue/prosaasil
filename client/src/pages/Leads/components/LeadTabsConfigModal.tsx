@@ -1,11 +1,8 @@
-/**
- * Lead Tabs Configuration Modal
- * Allows inline editing of tabs directly from the lead detail page
- */
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Save, RotateCcw, Settings as SettingsIcon, GripVertical } from 'lucide-react';
 import { Button } from '../../../shared/components/ui/Button';
-import { DEFAULT_PRIMARY_TABS, DEFAULT_SECONDARY_TABS } from '../constants/tabsConfig';
+import { DEFAULT_PRIMARY_TABS, ALL_AVAILABLE_TAB_KEYS } from '../constants/tabsConfig';
+import { deduplicateTabsConfig, validateTabsConfig } from '../../../utils/tabsConfigUtils';
 
 // All available tabs with descriptions
 const ALL_TABS = [
@@ -45,7 +42,15 @@ export function LeadTabsConfigModal({
   // Update local state when props change
   useEffect(() => {
     setPrimaryTabs(currentPrimary);
-    setSecondaryTabs(currentSecondary);
+    
+    // 🔥 NEW: If secondary is empty/undefined, default to all tabs not in primary
+    if (currentSecondary && currentSecondary.length > 0) {
+      setSecondaryTabs(currentSecondary);
+    } else {
+      const primarySet = new Set(currentPrimary);
+      const allOtherTabs = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+      setSecondaryTabs(allOtherTabs);
+    }
   }, [currentPrimary, currentSecondary]);
 
   const handleSave = async () => {
@@ -53,26 +58,18 @@ export function LeadTabsConfigModal({
       setSaving(true);
       setError(null);
 
-      // Validate
-      if (primaryTabs.length === 0) {
-        setError('חובה לבחור לפחות טאב אחד ראשי');
+      // Remove duplicates using shared utility
+      const { uniquePrimary, uniqueSecondary } = deduplicateTabsConfig(primaryTabs, secondaryTabs);
+
+      // Validate using shared utility
+      const validationError = validateTabsConfig(uniquePrimary, uniqueSecondary);
+      if (validationError) {
+        setError(validationError);
         setSaving(false);
         return;
       }
 
-      if (primaryTabs.length > 5) {
-        setError('ניתן לבחור עד 5 טאבים ראשיים');
-        setSaving(false);
-        return;
-      }
-
-      if (secondaryTabs.length > 5) {
-        setError('ניתן לבחור עד 5 טאבים משניים');
-        setSaving(false);
-        return;
-      }
-
-      await onSave(primaryTabs, secondaryTabs);
+      await onSave(uniquePrimary, uniqueSecondary);
       onClose();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'שגיאה בשמירת ההגדרות';
@@ -83,7 +80,10 @@ export function LeadTabsConfigModal({
 
   const handleReset = () => {
     setPrimaryTabs([...DEFAULT_PRIMARY_TABS]);
-    setSecondaryTabs([...DEFAULT_SECONDARY_TABS]);
+    // Secondary: all tabs not in primary
+    const primarySet = new Set(DEFAULT_PRIMARY_TABS);
+    const allOtherTabs = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+    setSecondaryTabs(allOtherTabs);
   };
 
   const addToPrimary = (tabKey: string) => {
@@ -288,7 +288,8 @@ export function LeadTabsConfigModal({
             <h4 className="font-semibold text-blue-900 mb-2">💡 טיפים</h4>
             <ul className="text-sm text-blue-800 space-y-1">
               <li>• טאבים ראשיים מוצגים תמיד בדף הליד</li>
-              <li>• טאבים משניים זמינים דרך כפתור "עוד"</li>
+              <li>• <strong>טאבים משניים - כברירת מחדל מוצגים כל הטאבים</strong> שלא בראשיים</li>
+              <li>• ניתן לערוך ולהסיר טאבים משניים לפי הצורך</li>
               <li>• מקסימום 5 טאבים ראשיים ו-5 משניים (10 סה"כ)</li>
               <li>• כפתור כחול + מוסיף לראשיים, כפתור אפור + לטאבים משניים</li>
             </ul>

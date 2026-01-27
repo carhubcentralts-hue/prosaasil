@@ -19,7 +19,7 @@ import { formatDate } from '../../shared/utils/format';
 import { useStatuses, LeadStatus } from '../../features/statuses/hooks';
 import { getStatusColor, getStatusLabel } from '../../shared/utils/status';
 import { useLeadTabsConfig } from './hooks/useLeadTabsConfig';
-import { DEFAULT_PRIMARY_TABS, DEFAULT_SECONDARY_TABS } from './constants/tabsConfig';
+import { DEFAULT_PRIMARY_TABS, ALL_AVAILABLE_TAB_KEYS } from './constants/tabsConfig';
 
 interface LeadDetailPageProps {}
 
@@ -140,17 +140,31 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   // Calculate primary and secondary tabs based on configuration
   const { primaryTabs, secondaryTabs } = useMemo(() => {
     const primaryKeys = tabsConfig?.primary || DEFAULT_PRIMARY_TABS;
-    const secondaryKeys = tabsConfig?.secondary || DEFAULT_SECONDARY_TABS;
+    
+    // 🔥 NEW REQUIREMENT: Secondary tabs default to ALL tabs not in primary
+    // If explicitly configured, use that configuration
+    // Otherwise, show all available tabs that are not in primary
+    let secondaryKeys: string[];
+    if (tabsConfig?.secondary !== undefined) {
+      // Explicitly configured secondary tabs
+      secondaryKeys = tabsConfig.secondary;
+    } else {
+      // Default: ALL tabs not in primary
+      const primarySet = new Set(primaryKeys);
+      secondaryKeys = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+    }
+    
+    // Remove duplicates using shared utility (O(1) lookup with Set)
+    const primaryKeysSet = new Set(primaryKeys);
+    const uniqueSecondaryKeys = secondaryKeys.filter(key => !primaryKeysSet.has(key));
     
     const primary = primaryKeys
       .map(key => ALL_AVAILABLE_TABS.find(tab => tab.key === key))
-      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined)
-      .slice(0, 3); // Max 3 primary tabs
+      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined);
     
-    const secondary = secondaryKeys
+    const secondary = uniqueSecondaryKeys
       .map(key => ALL_AVAILABLE_TABS.find(tab => tab.key === key))
-      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined)
-      .slice(0, 3); // Max 3 secondary tabs
+      .filter((tab): tab is typeof ALL_AVAILABLE_TABS[number] => tab !== undefined);
     
     return { primaryTabs: primary, secondaryTabs: secondary };
   }, [tabsConfig]);
@@ -960,7 +974,14 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         isOpen={tabsConfigModalOpen}
         onClose={() => setTabsConfigModalOpen(false)}
         currentPrimary={tabsConfig?.primary || DEFAULT_PRIMARY_TABS}
-        currentSecondary={tabsConfig?.secondary || DEFAULT_SECONDARY_TABS}
+        currentSecondary={
+          tabsConfig?.secondary !== undefined 
+            ? tabsConfig.secondary 
+            : (() => {
+                const primarySet = new Set(tabsConfig?.primary || DEFAULT_PRIMARY_TABS);
+                return ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+              })()
+        }
         onSave={handleSaveTabsConfig}
       />
     </div>

@@ -18,6 +18,28 @@ DEFAULT_VOICE_ID = "ash"
 
 # REMOVED custom csrf_exempt decorator - using proper @csrf.exempt from SeaSurf only where needed
 
+def deduplicate_tabs_config(primary_tabs, secondary_tabs):
+    """
+    Remove duplicates from tabs configuration
+    If a tab appears in both primary and secondary, it stays only in primary
+    
+    Args:
+        primary_tabs: List of primary tab keys
+        secondary_tabs: List of secondary tab keys
+        
+    Returns:
+        Tuple of (unique_primary, unique_secondary) lists
+    """
+    # Remove duplicates within primary (preserve order using dict.fromkeys)
+    unique_primary = list(dict.fromkeys(primary_tabs))
+    
+    # Remove duplicates within secondary and filter out items in primary
+    # Use set for O(1) lookup performance
+    primary_set = set(unique_primary)
+    unique_secondary = [tab for tab in dict.fromkeys(secondary_tabs) if tab not in primary_set]
+    
+    return unique_primary, unique_secondary
+
 def normalize_patterns(payload):
     """
     Normalize patterns_json to ensure it's always a List[str]
@@ -1045,13 +1067,21 @@ def update_current_business_settings():
                 has_secondary = 'secondary' in tabs_config and isinstance(tabs_config['secondary'], list)
                 
                 if has_primary or has_secondary:
-                    # Limit to max 3 primary tabs and 3 secondary tabs (6 total)
-                    if 'primary' in tabs_config and isinstance(tabs_config['primary'], list):
-                        tabs_config['primary'] = tabs_config['primary'][:3]
-                    if 'secondary' in tabs_config and isinstance(tabs_config['secondary'], list):
-                        tabs_config['secondary'] = tabs_config['secondary'][:3]
-                    business.lead_tabs_config = tabs_config
-                    logger.info(f"✅ Updated lead_tabs_config for business {business_id}: {tabs_config}")
+                    # Limit to max 5 each and deduplicate using helper function
+                    primary_tabs = tabs_config.get('primary', [])[:5] if has_primary else []
+                    secondary_tabs = tabs_config.get('secondary', [])[:5] if has_secondary else []
+                    
+                    # Use helper function for deduplication
+                    unique_primary, unique_secondary = deduplicate_tabs_config(primary_tabs, secondary_tabs)
+                    
+                    validated_config = {}
+                    if unique_primary:
+                        validated_config['primary'] = unique_primary
+                    if unique_secondary:
+                        validated_config['secondary'] = unique_secondary
+                    
+                    business.lead_tabs_config = validated_config
+                    logger.info(f"✅ Updated lead_tabs_config for business {business_id}: {validated_config}")
                 else:
                     logger.warning(f"⚠️ Invalid lead_tabs_config structure for business {business_id}: must have 'primary' or 'secondary' as list")
                     return jsonify({"error": "תצורת טאבים לא תקינה - חובה לספק primary או secondary כרשימה"}), 400

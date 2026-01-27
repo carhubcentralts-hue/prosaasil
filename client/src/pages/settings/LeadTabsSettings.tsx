@@ -1,12 +1,10 @@
-/**
- * Lead Tabs Configuration Component
- * Allows businesses to customize which tabs appear in the lead detail page
- */
 import React, { useState, useEffect } from 'react';
 import { GripVertical, Plus, X, Save, RotateCcw, Settings, Eye, EyeOff } from 'lucide-react';
 import { useLeadTabsConfig } from '../Leads/hooks/useLeadTabsConfig';
 import { Card } from '../../shared/components/ui/Card';
 import { Button } from '../../shared/components/ui/Button';
+import { deduplicateTabsConfig, validateTabsConfig } from '../../utils/tabsConfigUtils';
+import { DEFAULT_PRIMARY_TABS, ALL_AVAILABLE_TAB_KEYS } from '../Leads/constants/tabsConfig';
 
 // All available tabs with descriptions
 const ALL_TABS = [
@@ -37,12 +35,24 @@ export function LeadTabsSettings() {
   // Initialize from config
   useEffect(() => {
     if (tabsConfig) {
-      setPrimaryTabs(tabsConfig.primary || ['activity', 'reminders', 'documents']);
-      setSecondaryTabs(tabsConfig.secondary || ['overview', 'whatsapp', 'calls', 'email']);
+      setPrimaryTabs(tabsConfig.primary || DEFAULT_PRIMARY_TABS);
+      
+      // 🔥 NEW: Secondary tabs default to ALL tabs not in primary
+      if (tabsConfig.secondary !== undefined) {
+        setSecondaryTabs(tabsConfig.secondary);
+      } else {
+        // Default: show all tabs that are not in primary
+        const primarySet = new Set(tabsConfig.primary || DEFAULT_PRIMARY_TABS);
+        const allOtherTabs = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+        setSecondaryTabs(allOtherTabs);
+      }
     } else {
       // Default configuration
-      setPrimaryTabs(['activity', 'reminders', 'documents']);
-      setSecondaryTabs(['overview', 'whatsapp', 'calls', 'email', 'contracts', 'appointments', 'ai_notes', 'notes']);
+      setPrimaryTabs(DEFAULT_PRIMARY_TABS);
+      // Secondary: all tabs not in primary
+      const primarySet = new Set(DEFAULT_PRIMARY_TABS);
+      const allOtherTabs = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+      setSecondaryTabs(allOtherTabs);
     }
   }, [tabsConfig]);
   
@@ -51,25 +61,19 @@ export function LeadTabsSettings() {
       setSaving(true);
       setError(null);
       
-      // Validate
-      if (primaryTabs.length === 0) {
-        setError('חובה לבחור לפחות טאב אחד ראשי');
-        return;
-      }
+      // Remove duplicates using shared utility
+      const { uniquePrimary, uniqueSecondary } = deduplicateTabsConfig(primaryTabs, secondaryTabs);
       
-      if (primaryTabs.length > 3) {
-        setError('ניתן לבחור עד 3 טאבים ראשיים');
-        return;
-      }
-      
-      if (secondaryTabs.length > 3) {
-        setError('ניתן לבחור עד 3 טאבים משניים');
+      // Validate using shared utility
+      const validationError = validateTabsConfig(uniquePrimary, uniqueSecondary);
+      if (validationError) {
+        setError(validationError);
         return;
       }
       
       await updateTabsConfig({
-        primary: primaryTabs,
-        secondary: secondaryTabs
+        primary: uniquePrimary,
+        secondary: uniqueSecondary
       });
       
       setSuccess(true);
@@ -82,19 +86,22 @@ export function LeadTabsSettings() {
   };
   
   const handleReset = () => {
-    setPrimaryTabs(['activity', 'reminders', 'documents']);
-    setSecondaryTabs(['overview', 'whatsapp', 'calls', 'email', 'contracts', 'appointments', 'ai_notes', 'notes']);
+    setPrimaryTabs(DEFAULT_PRIMARY_TABS);
+    // Secondary: all tabs not in primary
+    const primarySet = new Set(DEFAULT_PRIMARY_TABS);
+    const allOtherTabs = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+    setSecondaryTabs(allOtherTabs);
   };
   
   const addToPrimary = (tabKey: string) => {
-    if (primaryTabs.length < 3 && !primaryTabs.includes(tabKey)) {
+    if (primaryTabs.length < 5 && !primaryTabs.includes(tabKey)) {
       setPrimaryTabs([...primaryTabs, tabKey]);
       setSecondaryTabs(secondaryTabs.filter(k => k !== tabKey));
     }
   };
   
   const addToSecondary = (tabKey: string) => {
-    if (secondaryTabs.length < 3 && !secondaryTabs.includes(tabKey)) {
+    if (secondaryTabs.length < 5 && !secondaryTabs.includes(tabKey)) {
       setSecondaryTabs([...secondaryTabs, tabKey]);
       setPrimaryTabs(primaryTabs.filter(k => k !== tabKey));
     }
@@ -166,10 +173,10 @@ export function LeadTabsSettings() {
         <Card className="p-6">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-1">
-              טאבים ראשיים ({primaryTabs.length}/3)
+              טאבים ראשיים ({primaryTabs.length}/5)
             </h3>
             <p className="text-sm text-gray-500">
-              מוצגים ישירות בדף הליד (עד 3)
+              מוצגים ישירות בדף הליד (עד 5)
             </p>
           </div>
           
@@ -211,10 +218,10 @@ export function LeadTabsSettings() {
         <Card className="p-6">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-1">
-              טאבים משניים ({secondaryTabs.length}/3)
+              טאבים משניים ({secondaryTabs.length}/5)
             </h3>
             <p className="text-sm text-gray-500">
-              מוצגים בתפריט "עוד" (עד 3)
+              מוצגים בתפריט "עוד" (עד 5)
             </p>
           </div>
           
@@ -270,7 +277,7 @@ export function LeadTabsSettings() {
                   <div className="text-xs text-gray-500">{tab.description}</div>
                 </div>
                 <div className="flex gap-1">
-                  {primaryTabs.length < 3 && (
+                  {primaryTabs.length < 5 && (
                     <button
                       onClick={() => addToPrimary(tab.key)}
                       className="p-1 hover:bg-blue-100 rounded transition-colors"
@@ -279,7 +286,7 @@ export function LeadTabsSettings() {
                       <Plus className="w-4 h-4 text-blue-600" />
                     </button>
                   )}
-                  {secondaryTabs.length < 3 && (
+                  {secondaryTabs.length < 5 && (
                     <button
                       onClick={() => addToSecondary(tab.key)}
                       className="p-1 hover:bg-gray-100 rounded transition-colors"
@@ -358,8 +365,9 @@ export function LeadTabsSettings() {
         <h4 className="font-semibold text-blue-900 mb-2">💡 טיפים</h4>
         <ul className="text-sm text-blue-800 space-y-1">
           <li>• טאבים ראשיים מוצגים תמיד בדף הליד</li>
-          <li>• טאבים משניים זמינים דרך כפתור "עוד"</li>
-          <li>• מקסימום 3 טאבים ראשיים ו-3 משניים (6 סה"כ)</li>
+          <li>• <strong>טאבים משניים - כברירת מחדל מוצגים כל הטאבים</strong> שלא בראשיים</li>
+          <li>• ניתן לערוך ולהסיר טאבים משניים לפי הצורך</li>
+          <li>• מקסימום 5 טאבים ראשיים ו-5 משניים (10 סה"כ)</li>
           <li>• השינויים יופיעו מיד בכל דפי הליד</li>
         </ul>
       </div>
