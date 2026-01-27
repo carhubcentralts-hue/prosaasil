@@ -4763,7 +4763,7 @@ class MediaStreamHandler:
                 'type': 'session.updated',
                 'session': {
                     'id': 'gemini_session',
-                    'model': 'gemini-2.0-flash-exp',
+                    'model': 'gemini-2.5-flash-native-audio-preview-12-2025',
                     'modalities': ['text', 'audio'],
                     'instructions': '',  # Already set during connect()
                     'voice': getattr(self, '_call_voice', 'alloy'),
