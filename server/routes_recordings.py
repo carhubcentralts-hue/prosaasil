@@ -151,8 +151,47 @@ def serve_recording_file(call_sid):
         
         # Check if file exists locally
         if not check_local_recording_exists(call_sid):
-            # 🔥 FIX: Trigger download if recording_url exists but file not on disk
-            if call.recording_url:
+            # 🔥 FIX: If recording_url is missing, try to fetch it from Twilio
+            recording_url_to_use = call.recording_url
+            
+            if not recording_url_to_use:
+                log.warning(f"[RECORDING] No recording_url in database for call_sid={call_sid}, attempting to fetch from Twilio")
+                
+                # Try to fetch recording URL from Twilio API
+                try:
+                    import os
+                    from twilio.rest import Client
+                    
+                    account_sid = os.getenv('TWILIO_ACCOUNT_SID')
+                    auth_token = os.getenv('TWILIO_AUTH_TOKEN')
+                    
+                    if account_sid and auth_token:
+                        client = Client(account_sid, auth_token)
+                        
+                        # Fetch call recordings from Twilio
+                        recordings = client.recordings.list(call_sid=call_sid, limit=1)
+                        
+                        if recordings:
+                            # Found recording - save URL to database
+                            recording = recordings[0]
+                            recording_url_to_use = f"https://api.twilio.com{recording.uri.replace('.json', '.mp3')}"
+                            call.recording_url = recording_url_to_use
+                            call.recording_sid = recording.sid
+                            db.session.commit()
+                            
+                            log.info(f"✅ [RECORDING] Fetched and saved recording_url from Twilio for call_sid={call_sid}")
+                        else:
+                            log.warning(f"⚠️ [RECORDING] No recordings found in Twilio for call_sid={call_sid}")
+                    else:
+                        log.error(f"❌ [RECORDING] Twilio credentials not configured, cannot fetch recording_url")
+                        
+                except Exception as e:
+                    log.error(f"❌ [RECORDING] Failed to fetch recording_url from Twilio for call_sid={call_sid}: {e}")
+                    import traceback
+                    log.error(traceback.format_exc())
+            
+            # 🔥 FIX: Trigger download if recording_url exists (or was just fetched) but file not on disk
+            if recording_url_to_use:
                 log.info(f"Serve recording file: File not on disk, triggering download for call_sid={call_sid}")
                 
                 # Try to trigger download job if not already in progress
@@ -171,7 +210,7 @@ def serve_recording_file(call_sid):
                         log.info(f"[RECORDING] Enqueueing download job for call_sid={call_sid}")
                         enqueue_recording_download_only(
                             call_sid=call_sid,
-                            recording_url=call.recording_url,
+                            recording_url=recording_url_to_use,
                             business_id=business_id,
                             from_number=call.from_number or "",
                             to_number=call.to_number or "",
@@ -183,16 +222,25 @@ def serve_recording_file(call_sid):
                 except Exception as e:
                     log.error(f"[RECORDING] Failed to enqueue download job: {e}")
             else:
-                log.warning(f"Serve recording file: No recording_url available for call_sid={call_sid}")
+                log.error(f"❌ [RECORDING] No recording_url available for call_sid={call_sid} - recording may not exist in Twilio")
                 
             log.warning(f"Serve recording file: File not found on disk for call_sid={call_sid}")
             if is_head_request:
                 return Response(status=404)
-            return jsonify({
-                "error": "Recording file not available",
-                "message": "ההקלטה בתהליך הורדה. אנא נסה שוב בעוד מספר שניות.",
-                "message_en": "Recording is being downloaded. Please retry in a few seconds."
-            }), 404
+            
+            # Provide appropriate error message based on whether recording_url exists
+            if recording_url_to_use:
+                return jsonify({
+                    "error": "Recording file not available",
+                    "message": "ההקלטה בתהליך הורדה. אנא נסה שוב בעוד מספר שניות.",
+                    "message_en": "Recording is being downloaded. Please retry in a few seconds."
+                }), 404
+            else:
+                return jsonify({
+                    "error": "Recording not found",
+                    "message": "לא נמצאה הקלטה לשיחה זו. ייתכן שההקלטה לא הופעלה או שהשיחה הייתה קצרה מדי.",
+                    "message_en": "No recording found for this call. Recording may not have been enabled or the call was too short."
+                }), 404
         
         # File exists - serve it
         recordings_dir = _get_recordings_dir()
