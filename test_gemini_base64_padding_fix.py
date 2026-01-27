@@ -86,18 +86,15 @@ class TestBase64PaddingFix:
         result = _fix_base64_padding("")
         assert result == ""
     
-    def test_single_char(self):
-        """Test with single character (needs 3 padding chars)"""
-        # "Q" by itself (represents binary 010000)
-        result = _fix_base64_padding("Q")
-        assert result == "Q==="
+    def test_valid_two_char_base64(self):
+        """Test with two-character base64 (needs 2 padding chars)"""
+        # "QQ==" is valid base64 for binary '01000001'
+        result = _fix_base64_padding("QQ")
+        assert result == "QQ=="
         
-        # Verify it doesn't crash on decode
-        try:
-            base64.b64decode(result)
-        except Exception:
-            # Single char may not be valid base64, but should not crash
-            pass
+        # Verify it decodes successfully
+        decoded = base64.b64decode(result)
+        assert len(decoded) == 1  # Should decode to 1 byte
 
 
 if __name__ == "__main__":

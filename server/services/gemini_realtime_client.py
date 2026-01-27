@@ -439,7 +439,7 @@ class GeminiRealtimeClient:
                                                 logger.debug(f"🔊 [GEMINI_RECV] audio_chunk: {len(audio_bytes)} bytes")
                                             
                                             yield event
-                                        except Exception as audio_decode_error:
+                                        except (base64.binascii.Error, ValueError) as audio_decode_error:
                                             # Skip malformed audio chunks gracefully
                                             logger.debug(f"⚠️ [GEMINI_RECV] Skipping malformed audio chunk: {audio_decode_error}")
                                             # Continue processing other parts
