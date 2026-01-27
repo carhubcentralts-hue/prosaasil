@@ -5255,22 +5255,30 @@ class MediaStreamHandler:
                     lead_notes  # 🔥 NEW: Pass notes to context builder
                 )
                 
-                # Re-inject NAME_ANCHOR
-                name_anchor_event = await client.send_event(
-                    {
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "message",
-                            "role": "system",
-                            "content": [
-                                {
-                                    "type": "input_text",
-                                    "text": name_anchor_text,
-                                }
-                            ],
-                        },
-                    }
-                )
+                # 🔥 FIX: NAME_ANCHOR injection only supported by OpenAI Realtime API
+                # Gemini Live API doesn't support conversation.item.create events
+                ai_provider = getattr(self, '_ai_provider', 'openai')
+                if ai_provider == 'openai':
+                    # Re-inject NAME_ANCHOR (OpenAI only)
+                    name_anchor_event = await client.send_event(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": name_anchor_text,
+                                    }
+                                ],
+                            },
+                        }
+                    )
+                else:
+                    # Gemini: NAME_ANCHOR is already in system_instructions
+                    logger.info(f"[NAME_ANCHOR] Gemini provider - NAME_ANCHOR already in system instructions")
+                    name_anchor_event = {"item": {"id": "gemini_name_anchor_update"}}
                 
                 # Update stored state with hash
                 self._name_anchor_customer_name = current_name
