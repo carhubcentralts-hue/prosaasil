@@ -17,11 +17,11 @@ from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 
 try:
     from google import genai
-    from google.genai.types import LiveConnectConfig
+    from google.genai import types
     _genai_available = True
 except ImportError:
     genai = None
-    LiveConnectConfig = None
+    types = None
     _genai_available = False
 
 logger = logging.getLogger(__name__)
@@ -263,23 +263,22 @@ class GeminiRealtimeClient:
         
         Args:
             audio_bytes: Raw PCM audio data (16-bit, 16kHz, mono)
-            end_of_turn: Whether this is the end of user's turn
+            end_of_turn: Whether this is the end of user's turn (unused for realtime input)
         """
         if not self._connected or not self.session:
             raise RuntimeError("Not connected. Call connect() first.")
         
         try:
-            # Gemini Live API expects base64-encoded audio
-            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-            
-            # Send audio to the session
-            await self.session.send(
-                {
-                    "mime_type": "audio/pcm",
-                    "data": audio_b64
-                },
-                end_of_turn=end_of_turn
+            # Gemini Live API expects audio as a Blob object
+            # Create a Blob with the audio data and proper MIME type
+            audio_blob = types.Blob(
+                data=audio_bytes,
+                mime_type="audio/pcm;rate=16000"
             )
+            
+            # Send audio using send_realtime_input
+            # Note: end_of_turn is not used for realtime input (uses VAD instead)
+            await self.session.send_realtime_input(audio=audio_blob)
             
         except Exception as e:
             logger.error(f"[GEMINI_LIVE] Failed to send audio: {e}")
@@ -291,13 +290,15 @@ class GeminiRealtimeClient:
         
         Args:
             text: Text message to send
-            end_of_turn: Whether this is the end of user's turn
+            end_of_turn: Whether this is the end of user's turn (unused for realtime input)
         """
         if not self._connected or not self.session:
             raise RuntimeError("Not connected. Call connect() first.")
         
         try:
-            await self.session.send(text, end_of_turn=end_of_turn)
+            # Send text using send_realtime_input
+            # Note: end_of_turn is not used for realtime input (uses VAD instead)
+            await self.session.send_realtime_input(text=text)
         except Exception as e:
             logger.error(f"[GEMINI_LIVE] Failed to send text: {e}")
             raise
