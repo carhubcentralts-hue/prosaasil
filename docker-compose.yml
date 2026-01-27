@@ -67,6 +67,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       # 🔥 MIGRATION MODE: Skip application startup, only run migrations
       MIGRATION_MODE: "1"
+      # 🔥 CRITICAL: Must be exactly "1" (not "true", not true, not "1" in quotes from env)
+      RUN_MIGRATIONS: "1"
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1

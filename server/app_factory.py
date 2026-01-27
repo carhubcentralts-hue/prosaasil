@@ -823,7 +823,7 @@ def create_app():
         app.register_blueprint(calls_bp)
         
         # BUILD 174: Outbound Calls API
-        from server.routes_outbound import outbound_bp, cleanup_stuck_dialing_jobs
+        from server.routes_outbound import outbound_bp, cleanup_stuck_dialing_jobs, cleanup_stuck_runs
         app.register_blueprint(outbound_bp)
         
         # 🔒 CRITICAL: Cleanup stuck jobs and runs on startup to prevent blocking
@@ -832,7 +832,6 @@ def create_app():
         try:
             logger.info("[STARTUP] Running cleanup on startup...")
             with app.app_context():
-                from server.routes_outbound import cleanup_stuck_runs
                 cleanup_stuck_dialing_jobs()
                 cleanup_stuck_runs()  # 🔥 NEW: Also cleanup stuck runs (ghost active queue fix)
             logger.info("[STARTUP] ✅ Cleanup complete")
