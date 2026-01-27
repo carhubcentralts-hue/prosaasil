@@ -140,10 +140,23 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   // Calculate primary and secondary tabs based on configuration
   const { primaryTabs, secondaryTabs } = useMemo(() => {
     const primaryKeys = tabsConfig?.primary || DEFAULT_PRIMARY_TABS;
-    const secondaryKeys = tabsConfig?.secondary || DEFAULT_SECONDARY_TABS;
     
-    // Remove duplicates - if a tab appears in both, keep it only in primary
-    const uniqueSecondaryKeys = secondaryKeys.filter(key => !primaryKeys.includes(key));
+    // 🔥 NEW REQUIREMENT: Secondary tabs default to ALL tabs not in primary
+    // If explicitly configured, use that configuration
+    // Otherwise, show all available tabs that are not in primary
+    let secondaryKeys: string[];
+    if (tabsConfig?.secondary !== undefined) {
+      // Explicitly configured secondary tabs
+      secondaryKeys = tabsConfig.secondary;
+    } else {
+      // Default: ALL tabs not in primary
+      const primarySet = new Set(primaryKeys);
+      secondaryKeys = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+    }
+    
+    // Remove duplicates using shared utility (O(1) lookup with Set)
+    const primaryKeysSet = new Set(primaryKeys);
+    const uniqueSecondaryKeys = secondaryKeys.filter(key => !primaryKeysSet.has(key));
     
     const primary = primaryKeys
       .map(key => ALL_AVAILABLE_TABS.find(tab => tab.key === key))
@@ -961,7 +974,11 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         isOpen={tabsConfigModalOpen}
         onClose={() => setTabsConfigModalOpen(false)}
         currentPrimary={tabsConfig?.primary || DEFAULT_PRIMARY_TABS}
-        currentSecondary={tabsConfig?.secondary || DEFAULT_SECONDARY_TABS}
+        currentSecondary={
+          tabsConfig?.secondary !== undefined 
+            ? tabsConfig.secondary 
+            : ALL_AVAILABLE_TAB_KEYS.filter(key => !(tabsConfig?.primary || DEFAULT_PRIMARY_TABS).includes(key))
+        }
         onSave={handleSaveTabsConfig}
       />
     </div>

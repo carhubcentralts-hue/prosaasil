@@ -18,6 +18,28 @@ DEFAULT_VOICE_ID = "ash"
 
 # REMOVED custom csrf_exempt decorator - using proper @csrf.exempt from SeaSurf only where needed
 
+def deduplicate_tabs_config(primary_tabs, secondary_tabs):
+    """
+    Remove duplicates from tabs configuration
+    If a tab appears in both primary and secondary, it stays only in primary
+    
+    Args:
+        primary_tabs: List of primary tab keys
+        secondary_tabs: List of secondary tab keys
+        
+    Returns:
+        Tuple of (unique_primary, unique_secondary) lists
+    """
+    # Remove duplicates within primary (preserve order using dict.fromkeys)
+    unique_primary = list(dict.fromkeys(primary_tabs))
+    
+    # Remove duplicates within secondary and filter out items in primary
+    # Use set for O(1) lookup performance
+    primary_set = set(unique_primary)
+    unique_secondary = [tab for tab in dict.fromkeys(secondary_tabs) if tab not in primary_set]
+    
+    return unique_primary, unique_secondary
+
 def normalize_patterns(payload):
     """
     Normalize patterns_json to ensure it's always a List[str]
@@ -1045,13 +1067,12 @@ def update_current_business_settings():
                 has_secondary = 'secondary' in tabs_config and isinstance(tabs_config['secondary'], list)
                 
                 if has_primary or has_secondary:
-                    # Remove duplicates - ensure no tab appears in both lists
+                    # Limit to max 5 each and deduplicate using helper function
                     primary_tabs = tabs_config.get('primary', [])[:5] if has_primary else []
                     secondary_tabs = tabs_config.get('secondary', [])[:5] if has_secondary else []
                     
-                    # Remove duplicates: if a tab appears in both, keep it only in primary
-                    unique_primary = list(dict.fromkeys(primary_tabs))  # Remove duplicates within primary
-                    unique_secondary = [tab for tab in dict.fromkeys(secondary_tabs) if tab not in unique_primary]  # Remove duplicates and items in primary
+                    # Use helper function for deduplication
+                    unique_primary, unique_secondary = deduplicate_tabs_config(primary_tabs, secondary_tabs)
                     
                     validated_config = {}
                     if unique_primary:

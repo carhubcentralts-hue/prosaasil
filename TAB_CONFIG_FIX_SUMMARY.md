@@ -1,5 +1,17 @@
 # תיקון הגדרות טאבים / Tab Configuration Fixes
 
+## 🆕 דרישה חדשה / New Requirement
+
+**טאבים משניים מציגים הכל כברירת מחדל!**
+- **טאבים משניים (תפריט "עוד")**: כברירת מחדל מציגים **את כל הטאבים** שלא נמצאים בטאבים ראשיים
+- העסק יכול לערוך ולהסיר טאבים משניים לפי הצורך
+- **טאבים ראשיים**: מוצגים בדיוק לפי הגדרת העסק
+
+**Secondary tabs show everything by default!**
+- **Secondary tabs ("More" menu)**: By default show **ALL tabs** that are not in primary tabs
+- Business can edit and remove secondary tabs as needed
+- **Primary tabs**: Display exactly as configured by the business
+
 ## סיכום הבעיות שתוקנו / Summary of Fixed Issues
 
 ### 🐛 בעיות שתוקנו / Issues Fixed
@@ -15,8 +27,12 @@
 3. **לא כל הטאבים הופיעו / Not All Tabs Displayed**
    - **בעיה**: הקוד חתך את הרשימה ל-3 טאבים בלבד גם אם נשמרו יותר
    - **פתרון**: הסרנו את המגבלה המלאכותית והכל מוצג כפי שהוגדר
+   
+4. **🆕 טאבים משניים לא הציגו הכל / Secondary Tabs Didn't Show All**
+   - **בעיה**: היה צריך להגדיר ידנית כל טאב משני
+   - **פתרון**: כברירת מחדל, טאבים משניים מציגים **את כל הטאבים** שלא בראשיים, עם אפשרות לערוך
 
-4. **העמוד לא התעדכן / Page Not Updating**
+5. **העמוד לא התעדכן / Page Not Updating**
    - **בעיה**: לאחר שמירת השינויים, הדף לא התעדכן מיידית
    - **פתרון**: שיפרנו את זרימת הנתונים כדי להבטיח רענון אוטומטי
 
@@ -26,12 +42,16 @@
 
 #### 1. LeadDetailPage.tsx
 ```typescript
-// Before: Limited to 3 tabs
-.slice(0, 3); // Max 3 primary tabs
-
-// After: Show all configured tabs + remove duplicates
-const uniqueSecondaryKeys = secondaryKeys.filter(key => !primaryKeys.includes(key));
-// No slice - show all
+// 🆕 NEW: Secondary tabs default to ALL tabs not in primary
+let secondaryKeys: string[];
+if (tabsConfig?.secondary !== undefined) {
+  // Explicitly configured
+  secondaryKeys = tabsConfig.secondary;
+} else {
+  // Default: ALL tabs not in primary
+  const primarySet = new Set(primaryKeys);
+  secondaryKeys = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+}
 ```
 
 #### 2. LeadTabsSettings.tsx
@@ -109,22 +129,32 @@ unique_secondary = [tab for tab in dict.fromkeys(secondary_tabs[:5])
 ### כללי הגדרה / Configuration Rules
 
 - ✅ **טאבים ראשיים**: עד 5 - מוצגים תמיד בדף
-- ✅ **טאבים משניים**: עד 5 - מוצגים בתפריט "עוד"
+- ✅ **טאבים משניים**: עד 5 - **כברירת מחדל מציגים את כל הטאבים** שלא בראשיים
+- ✅ **ניתן לערוך**: העסק יכול להסיר טאבים משניים לפי הצורך
 - ✅ **ללא כפילויות**: כל טאב מופיע פעם אחת בלבד
 - ✅ **עדיפות**: אם טאב מופיע בשניהם, הוא נשאר בטאבים ראשיים
 
 ## 📊 דוגמאות / Examples
 
-### דוגמה 1: הגדרה תקינה / Valid Configuration
+### דוגמה 1: הגדרה תקינה - טאבים ראשיים בלבד / Valid Configuration - Primary Only
+```json
+{
+  "primary": ["activity", "reminders", "documents"]
+  // secondary not specified - will default to ALL other tabs
+}
+```
+✅ 3 ראשיים + 8 משניים (כל השאר) = 11 סה"כ מוצגים
+
+### דוגמה 2: הגדרה מלאה / Full Configuration
 ```json
 {
   "primary": ["activity", "reminders", "documents", "overview", "whatsapp"],
-  "secondary": ["calls", "email", "contracts", "appointments", "ai_notes"]
+  "secondary": ["calls", "email"]  // Only these 2 in secondary
 }
 ```
-✅ 5 ראשיים + 5 משניים = 10 סה"כ
+✅ 5 ראשיים + 2 משניים = 7 סה"כ (טאבים אחרים לא מוצגים)
 
-### דוגמה 2: כפילויות (לפני ואחרי) / Duplicates (Before/After)
+### דוגמה 3: כפילויות (לפני ואחרי) / Duplicates (Before/After)
 
 **לפני התיקון / Before Fix:**
 ```json
@@ -169,6 +199,8 @@ curl http://localhost:5000/api/health
 ## 🎉 תוצאות / Results
 
 - ✅ **כל הטאבים מוצגים** - לא חוסם ב-3
+- ✅ **🆕 טאבים משניים מציגים הכל כברירת מחדל** - אין צורך בהגדרה ידנית
+- ✅ **אפשרות לערוך** - העסק יכול להסיר טאבים משניים לפי הצורך
 - ✅ **אין כפילויות** - כל טאב מופיע פעם אחת
 - ✅ **עקביות מלאה** - Frontend ו-Backend מסונכרנים
 - ✅ **עדכון מיידי** - שינויים נראים מיד לאחר שמירה

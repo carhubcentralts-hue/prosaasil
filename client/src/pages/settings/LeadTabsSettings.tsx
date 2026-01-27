@@ -1,12 +1,10 @@
-/**
- * Lead Tabs Configuration Component
- * Allows businesses to customize which tabs appear in the lead detail page
- */
 import React, { useState, useEffect } from 'react';
 import { GripVertical, Plus, X, Save, RotateCcw, Settings, Eye, EyeOff } from 'lucide-react';
 import { useLeadTabsConfig } from '../Leads/hooks/useLeadTabsConfig';
 import { Card } from '../../shared/components/ui/Card';
 import { Button } from '../../shared/components/ui/Button';
+import { deduplicateTabsConfig, validateTabsConfig } from '../../utils/tabsConfigUtils';
+import { DEFAULT_PRIMARY_TABS, ALL_AVAILABLE_TAB_KEYS } from '../Leads/constants/tabsConfig';
 
 // All available tabs with descriptions
 const ALL_TABS = [
@@ -37,12 +35,24 @@ export function LeadTabsSettings() {
   // Initialize from config
   useEffect(() => {
     if (tabsConfig) {
-      setPrimaryTabs(tabsConfig.primary || ['activity', 'reminders', 'documents']);
-      setSecondaryTabs(tabsConfig.secondary || ['overview', 'whatsapp', 'calls', 'email']);
+      setPrimaryTabs(tabsConfig.primary || DEFAULT_PRIMARY_TABS);
+      
+      // 🔥 NEW: Secondary tabs default to ALL tabs not in primary
+      if (tabsConfig.secondary !== undefined) {
+        setSecondaryTabs(tabsConfig.secondary);
+      } else {
+        // Default: show all tabs that are not in primary
+        const primarySet = new Set(tabsConfig.primary || DEFAULT_PRIMARY_TABS);
+        const allOtherTabs = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+        setSecondaryTabs(allOtherTabs);
+      }
     } else {
       // Default configuration
-      setPrimaryTabs(['activity', 'reminders', 'documents']);
-      setSecondaryTabs(['overview', 'whatsapp', 'calls', 'email', 'contracts', 'appointments', 'ai_notes', 'notes']);
+      setPrimaryTabs(DEFAULT_PRIMARY_TABS);
+      // Secondary: all tabs not in primary
+      const primarySet = new Set(DEFAULT_PRIMARY_TABS);
+      const allOtherTabs = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+      setSecondaryTabs(allOtherTabs);
     }
   }, [tabsConfig]);
   
@@ -51,23 +61,13 @@ export function LeadTabsSettings() {
       setSaving(true);
       setError(null);
       
-      // Remove duplicates - ensure no tab appears in both lists
-      const uniquePrimary = [...new Set(primaryTabs)];
-      const uniqueSecondary = [...new Set(secondaryTabs.filter(tab => !uniquePrimary.includes(tab)))];
+      // Remove duplicates using shared utility
+      const { uniquePrimary, uniqueSecondary } = deduplicateTabsConfig(primaryTabs, secondaryTabs);
       
-      // Validate
-      if (uniquePrimary.length === 0) {
-        setError('חובה לבחור לפחות טאב אחד ראשי');
-        return;
-      }
-      
-      if (uniquePrimary.length > 5) {
-        setError('ניתן לבחור עד 5 טאבים ראשיים');
-        return;
-      }
-      
-      if (uniqueSecondary.length > 5) {
-        setError('ניתן לבחור עד 5 טאבים משניים');
+      // Validate using shared utility
+      const validationError = validateTabsConfig(uniquePrimary, uniqueSecondary);
+      if (validationError) {
+        setError(validationError);
         return;
       }
       
@@ -86,8 +86,11 @@ export function LeadTabsSettings() {
   };
   
   const handleReset = () => {
-    setPrimaryTabs(['activity', 'reminders', 'documents']);
-    setSecondaryTabs(['overview', 'whatsapp', 'calls', 'email', 'contracts', 'appointments', 'ai_notes', 'notes']);
+    setPrimaryTabs(DEFAULT_PRIMARY_TABS);
+    // Secondary: all tabs not in primary
+    const primarySet = new Set(DEFAULT_PRIMARY_TABS);
+    const allOtherTabs = ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+    setSecondaryTabs(allOtherTabs);
   };
   
   const addToPrimary = (tabKey: string) => {
@@ -362,7 +365,8 @@ export function LeadTabsSettings() {
         <h4 className="font-semibold text-blue-900 mb-2">💡 טיפים</h4>
         <ul className="text-sm text-blue-800 space-y-1">
           <li>• טאבים ראשיים מוצגים תמיד בדף הליד</li>
-          <li>• טאבים משניים זמינים דרך כפתור "עוד"</li>
+          <li>• <strong>טאבים משניים - כברירת מחדל מוצגים כל הטאבים</strong> שלא בראשיים</li>
+          <li>• ניתן לערוך ולהסיר טאבים משניים לפי הצורך</li>
           <li>• מקסימום 5 טאבים ראשיים ו-5 משניים (10 סה"כ)</li>
           <li>• השינויים יופיעו מיד בכל דפי הליד</li>
         </ul>
