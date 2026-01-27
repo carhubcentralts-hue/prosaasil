@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Save, Trash2, Eye, Edit3, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Save, Trash2, Eye, Edit3, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Button } from '../shared/components/ui/Button';
 import { logger } from '../shared/utils/logger';
-import { PDFCanvas } from './PDFCanvas';
 
 export interface SignatureField {
   id: string;
@@ -16,12 +15,7 @@ export interface SignatureField {
 
 // Constants
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
-const MIN_PDF_CONTAINER_HEIGHT = 500; // Minimum height for PDF container (px)
-const PDF_CANVAS_Z_INDEX = 1; // Z-index for PDF canvas layer
-const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay layer (transparent, holds signature fields)
-const FIELD_Z_INDEX_NORMAL = 5; // Z-index for normal signature fields (relative to overlay)
-const FIELD_Z_INDEX_SELECTED = 10; // Z-index for selected signature field (relative to overlay)
-const UI_TOOLBAR_Z_INDEX = 20; // Z-index for UI elements (toolbars, buttons)
+const MIN_PDF_CONTAINER_HEIGHT = 400; // Minimum height for PDF container (px)
 const ERROR_LOADING_PDF_INFO = 'שגיאה בטעינת מידע על PDF';
 
 interface SignatureFieldMarkerProps {
@@ -44,9 +38,9 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
   const [loadingInfo, setLoadingInfo] = useState(true);
   const [pdfUrl, setPdfUrl] = useState<string>('');
-  const [scale, setScale] = useState(1.0);
   
   const pdfContainerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Load PDF info and signature fields
   useEffect(() => {
@@ -91,6 +85,16 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     }
   };
 
+  // Update iframe src when page changes
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (iframe && pdfUrl) {
+      // Add timestamp to ensure reload and page number for navigation
+      const timestamp = Date.now();
+      iframe.src = `${pdfUrl}#page=${currentPage}&view=FitH&t=${timestamp}`;
+    }
+  }, [currentPage, pdfUrl]);
+
   const handleSave = async () => {
     if (fields.length === 0) {
       setError('יש להוסיף לפחות שדה חתימה אחד');
@@ -110,16 +114,14 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     }
   };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) => {
+  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pdfContainerRef.current || !signatureMarkingMode) return;
     
     const rect = pdfContainerRef.current.getBoundingClientRect();
     
     // Get click position in pixels relative to container
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-    const clickX = clientX - rect.left;
-    const clickY = clientY - rect.top;
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
     
     // Convert to relative units (0-1) based on container dimensions
     const relX = clickX / rect.width;
@@ -164,10 +166,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     
     const rect = pdfContainerRef.current.getBoundingClientRect();
     // Get position as relative coordinates (0-1)
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-    const x = (clientX - rect.left) / rect.width;
-    const y = (clientY - rect.top) / rect.height;
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
     
     if (handle) {
       setIsResizing(handle);
@@ -186,15 +186,13 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     setSelectedFieldId(field.id);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pdfContainerRef.current || !dragStart || !selectedFieldId) return;
     
     const rect = pdfContainerRef.current.getBoundingClientRect();
     // Get position as relative coordinates (0-1)
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-    const x = (clientX - rect.left) / rect.width;
-    const y = (clientY - rect.top) / rect.height;
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
     
     const dx = x - dragStart.x;
     const dy = y - dragStart.y;
@@ -308,17 +306,13 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
             top: `${field.y * 100}%`,
             width: `${field.w * 100}%`,
             height: `${field.h * 100}%`,
-            // ✅ Enable pointer events for individual signature fields only
             pointerEvents: 'auto',
-            // ✅ Z-index relative to overlay (not absolute page z-index)
-            zIndex: selectedFieldId === field.id ? FIELD_Z_INDEX_SELECTED : FIELD_Z_INDEX_NORMAL,
-            // ✅ Ensure background is semi-transparent, not opaque
+            zIndex: selectedFieldId === field.id ? 10 : 5,
             backgroundColor: selectedFieldId === field.id 
-              ? 'rgba(59, 130, 246, 0.2)' // blue with 20% opacity
-              : 'rgba(34, 197, 94, 0.2)', // green with 20% opacity
+              ? 'rgba(59, 130, 246, 0.2)' 
+              : 'rgba(34, 197, 94, 0.2)',
           }}
           onMouseDown={(e) => handleFieldMouseDown(e, field)}
-          onPointerDown={(e) => handleFieldMouseDown(e, field)}
         >
           {/* Field Label */}
           <div className="absolute -top-7 right-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-t-lg shadow-md whitespace-nowrap">
@@ -343,22 +337,18 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
               <div 
                 className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'tr')}
-                onPointerDown={(e) => handleFieldMouseDown(e, field, 'tr')}
               />
               <div 
                 className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'tl')}
-                onPointerDown={(e) => handleFieldMouseDown(e, field, 'tl')}
               />
               <div 
                 className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'br')}
-                onPointerDown={(e) => handleFieldMouseDown(e, field, 'br')}
               />
               <div 
                 className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'bl')}
-                onPointerDown={(e) => handleFieldMouseDown(e, field, 'bl')}
               />
             </>
           )}
@@ -452,13 +442,14 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
 
             {/* PDF with Overlay */}
             <div 
-              className="flex-1 relative" 
+              ref={pdfContainerRef}
+              className="flex-1 relative bg-gray-100 rounded-lg overflow-auto" 
               style={{ minHeight: `${MIN_PDF_CONTAINER_HEIGHT}px` }}
             >
               {loadingInfo ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50 rounded-lg">
                   <div className="text-center">
-                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-4"></div>
+                    <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
                     <p className="text-gray-600 text-lg font-medium">טוען מידע על PDF...</p>
                   </div>
                 </div>
@@ -470,41 +461,55 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                   </div>
                 </div>
               ) : pdfUrl ? (
-                <PDFCanvas
-                  pdfUrl={pdfUrl}
-                  currentPage={currentPage}
-                  onPageChange={setCurrentPage}
-                  onTotalPagesChange={setTotalPages}
-                  scale={scale}
-                  onScaleChange={setScale}
-                  showControls={false}
-                  className="h-full"
-                  containerRef={pdfContainerRef}
-                >
-                  {/* Overlay for signature fields */}
-                  <div
-                    className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair' : 'cursor-default'}`}
-                    onClick={handleCanvasClick}
-                    onPointerDown={handleCanvasClick}
-                    onMouseMove={handleMouseMove}
-                    onPointerMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onPointerUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    onPointerLeave={handleMouseUp}
-                    style={{
-                      // ✅ Transparent background - no white box covering PDF
-                      background: 'transparent',
-                      // ✅ Only enable pointer events when in marking mode
-                      // This allows clicking through to PDF when not marking
-                      pointerEvents: signatureMarkingMode ? 'auto' : 'none',
-                      // ✅ Ensure proper z-index (overlay is above PDF canvas)
-                      zIndex: PDF_OVERLAY_Z_INDEX,
+                <div className="relative w-full h-full flex items-start justify-center p-4">
+                  {/* PDF iframe - simple and reliable */}
+                  <iframe
+                    key={`pdf-page-${currentPage}`}
+                    ref={iframeRef}
+                    src={`${pdfUrl}#page=${currentPage}&view=FitH`}
+                    className="w-full h-full min-h-[500px] rounded-lg shadow-lg bg-white"
+                    title="PDF Document"
+                    style={{ 
+                      border: 'none',
+                      display: 'block',
+                      zIndex: 1,
+                      position: 'relative',
                     }}
-                  >
-                    {renderSignatureFields()}
-                  </div>
-                </PDFCanvas>
+                  />
+                  
+                  {/* Transparent overlay for capturing clicks - ONLY when signature mode is active */}
+                  {signatureMarkingMode && (
+                    <div
+                      className="absolute inset-4 cursor-crosshair transition-all"
+                      style={{
+                        backgroundColor: 'rgba(34, 197, 94, 0.08)', // Subtle green tint
+                        pointerEvents: 'auto',
+                        backgroundImage: 'radial-gradient(circle, rgba(34, 197, 94, 0.15) 1px, transparent 1px)',
+                        backgroundSize: '20px 20px',
+                        zIndex: 2,
+                      }}
+                      onClick={handleOverlayClick}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseUp}
+                    >
+                      {renderSignatureFields()}
+                    </div>
+                  )}
+                  
+                  {/* Overlay for existing signature fields - always visible */}
+                  {!signatureMarkingMode && (
+                    <div
+                      className="absolute inset-4"
+                      style={{
+                        pointerEvents: 'none', // Don't block PDF interaction
+                        zIndex: 2,
+                      }}
+                    >
+                      {renderSignatureFields()}
+                    </div>
+                  )}
+                </div>
               ) : null}
             </div>
           </div>
