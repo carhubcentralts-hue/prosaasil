@@ -140,6 +140,12 @@ def list_calls():
             # ✅ Prefer offline transcript (final_transcript) over realtime (transcription)
             best_transcript = getattr(call, 'final_transcript', None) or call.transcription
             
+            # 🔥 FIX: Calculate customer phone based on direction
+            # For inbound: customer is from_number (who called us)
+            # For outbound: customer is to_number (who we called)
+            call_direction = getattr(call, 'direction', 'inbound')
+            customer_phone = call.from_number if call_direction == 'inbound' else getattr(call, 'to_number', call.from_number)
+            
             calls_data.append({
                 "sid": call.call_sid,
                 "call_sid": call.call_sid,  # 🔥 NEW: Add explicit call_sid field
@@ -147,9 +153,10 @@ def list_calls():
                 "lead_name": getattr(call, 'lead_name', None),
                 "from_e164": call.from_number,
                 "to_e164": getattr(call, 'to_number', None),
+                "customer_phone": customer_phone,  # 🔥 NEW: Always the customer's phone (direction-aware)
                 "duration": getattr(call, 'duration', 0),
                 "status": call.status,
-                "direction": getattr(call, 'direction', 'inbound'),
+                "direction": call_direction,
                 "twilio_direction": getattr(call, 'twilio_direction', None),  # 🔥 NEW: Original Twilio direction
                 "parent_call_sid": getattr(call, 'parent_call_sid', None),  # 🔥 NEW: Parent call SID
                 "at": call.created_at.isoformat() if call.created_at else None,
@@ -201,6 +208,10 @@ def get_call_details(call_sid):
         # ✅ Prefer offline transcript (final_transcript) over realtime (transcription)
         best_transcript = getattr(call, 'final_transcript', None) or call.transcription or "אין תמליל זמין"
         
+        # 🔥 FIX: Calculate customer phone based on direction
+        call_direction = getattr(call, 'direction', 'inbound')
+        customer_phone = call.from_number if call_direction == 'inbound' else getattr(call, 'to_number', call.from_number)
+        
         details = {
             "call": {
                 "sid": call.call_sid,
@@ -208,9 +219,10 @@ def get_call_details(call_sid):
                 "lead_name": getattr(call, 'lead_name', None),
                 "from_e164": call.from_number,
                 "to_e164": getattr(call, 'to_number', None),
+                "customer_phone": customer_phone,  # 🔥 NEW: Always the customer's phone (direction-aware)
                 "duration": getattr(call, 'duration', 0),
                 "status": call.status,
-                "direction": getattr(call, 'direction', 'inbound'),
+                "direction": call_direction,
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "recording_url": call.recording_url,
                 "hasRecording": bool(call.recording_url),

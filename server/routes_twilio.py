@@ -279,17 +279,22 @@ def _trigger_recording_for_call(call_sid):
     except Exception as e:
         logger.error(f"❌ Failed to trigger recording for {call_sid}: {e}")
 
-def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=None):
+def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=None, direction="inbound"):
     """
     ✅ BUILD 89: יצירת/עדכון ליד אוטומטי - עם try/except מלא
     Thread-safe: רץ בהקשר נפרד עם app context
     ✅ BUILD 152: הסרת hardcoded phone number - זיהוי דינמי לפי Business.phone_e164
+    🔥 FIX: Added direction parameter to correctly identify customer phone:
+        - inbound: customer is from_number (caller)
+        - outbound: customer is to_number (who we called)
     """
     from server.app_factory import get_process_app
     
     # ✅ BUILD 152: to_number יקבע דינמית לפי עסק פעיל (אם חסר)
+    # 🔥 FIX: Determine customer phone based on direction
+    customer_phone = from_number if direction == "inbound" else to_number
     
-    logger.info(f"🔵 CREATE_LEAD_FROM_CALL - Starting for {from_number}, call_sid={call_sid}")
+    logger.info(f"🔵 CREATE_LEAD_FROM_CALL - Starting for customer_phone={customer_phone}, direction={direction}, call_sid={call_sid}")
     
     try:
         # 🔥 Get app WITHOUT creating new instance
@@ -334,13 +339,13 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                 from server.services.customer_intelligence import CustomerIntelligence
                 ci_service = CustomerIntelligence(business_id=business_id)
                 customer, lead, was_created = ci_service.find_or_create_customer_from_call(
-                    phone_number=from_number,
+                    phone_number=customer_phone,
                     call_sid=call_sid,
                     transcription="",
                     conversation_data={}
                 )
                 logger.info(f"✅ CustomerIntelligence SUCCESS: customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}, was_created={was_created}")
-                logger.info(f"✅ LEAD_CREATED: business_id={business_id}, lead_id={lead.id if lead else None}, phone={from_number}")
+                logger.info(f"✅ LEAD_CREATED: business_id={business_id}, lead_id={lead.id if lead else None}, phone={customer_phone}, direction={direction}")
             except Exception as e:
                 logger.error(f"⚠️ CustomerIntelligence failed (non-critical): {e}")
                 logger.warning(f"CustomerIntelligence failed for call {call_sid}: {e}")
@@ -369,25 +374,25 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                     # Check if lead already exists for this phone
                     existing_lead = Lead.query.filter_by(
                         tenant_id=business_id,
-                        phone_e164=from_number
+                        phone_e164=customer_phone
                     ).first()
                     
                     if existing_lead:
                         lead = existing_lead
                         logger.info(f"✅ Found existing lead ID={lead.id}")
-                        logger.info(f"✅ LEAD_FOUND: lead_id={lead.id}, phone={from_number}")
+                        logger.info(f"✅ LEAD_FOUND: lead_id={lead.id}, phone={customer_phone}, direction={direction}")
                     else:
                         lead = Lead()
                         lead.tenant_id = business_id
-                        lead.phone_e164 = from_number
+                        lead.phone_e164 = customer_phone
                         lead.source = "call"
                         lead.external_id = call_sid
                         lead.status = "new"
-                        lead.notes = f"שיחה נכנסת - {call_sid}"
+                        lead.notes = f"שיחה {'נכנסת' if direction == 'inbound' else 'יוצאת'} - {call_sid}"
                         db.session.add(lead)
                         db.session.commit()
-                        logger.info(f"✅ CREATED FALLBACK LEAD ID={lead.id} for phone={from_number}")
-                        logger.info(f"✅ LEAD_CREATED_FALLBACK: lead_id={lead.id}, phone={from_number}, business_id={business_id}")
+                        logger.info(f"✅ CREATED FALLBACK LEAD ID={lead.id} for phone={customer_phone}, direction={direction}")
+                        logger.info(f"✅ LEAD_CREATED_FALLBACK: lead_id={lead.id}, phone={customer_phone}, business_id={business_id}, direction={direction}")
                     
                     # 🔥 FIX: Update call_log with lead_id for name resolution
                     if call_log and lead:
@@ -739,10 +744,11 @@ def incoming_call():
     
     # === יצירה אוטומטית של ליד (ברקע) - Non-blocking ===
     # 🔥 GREETING OPTIMIZATION: Lead creation happens in background - doesn't block TwiML response
+    # 🔥 FIX: Pass direction="inbound" for correct phone number matching
     if from_number:
         threading.Thread(
             target=_create_lead_from_call,
-            args=(call_sid, from_number, to_number, business_id),
+            args=(call_sid, from_number, to_number, business_id, "inbound"),
             daemon=True,
             name=f"LeadCreation-{call_sid[:8]}"
         ).start()
@@ -902,6 +908,18 @@ def outbound_call():
             args=(call_sid, business_id),
             daemon=True,
             name=f"PromptBuildOut-{call_sid[:8]}"
+        ).start()
+    
+    # 🔥 FIX: Create/link lead for outbound calls (similar to inbound)
+    # This ensures outbound calls properly update leads
+    if to_number:
+        # Always run lead creation to ensure call_log is properly linked
+        # If lead_id exists, it will be updated; if not, one will be created
+        threading.Thread(
+            target=_create_lead_from_call,
+            args=(call_sid, from_number, to_number, int(business_id) if business_id else None, "outbound"),
+            daemon=True,
+            name=f"LeadCreationOut-{call_sid[:8]}"
         ).start()
     
     # 🎙️ REMOVED: Recording start moved to in-progress status callback

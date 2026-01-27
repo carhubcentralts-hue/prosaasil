@@ -76,6 +76,7 @@ interface Call {
   lead_name?: string;
   from_e164: string;
   to_e164: string;
+  customer_phone?: string;  // 🔥 NEW: Direction-aware customer phone
   duration: number;
   status: string;
   direction: 'inbound' | 'outbound';
@@ -145,7 +146,8 @@ export function CallsPage() {
     
     // Otherwise, try to find lead by phone number
     // Extract last 8 digits for flexible matching (handles +972, 0, etc)
-    const phoneNumber = call.from_e164 || '';
+    // 🔥 FIX: Use customer_phone instead of from_e164 (works for both directions)
+    const phoneNumber = call.customer_phone || call.from_e164 || '';
     const phoneDigits = phoneNumber.replace(/\D/g, '');
     const searchTerm = phoneDigits.length >= 8 ? phoneDigits.slice(-8) : phoneDigits;
     
@@ -398,9 +400,11 @@ export function CallsPage() {
   // Memoize filtered calls to avoid recalculating on every render
   const filteredCalls = useMemo(() => {
     return calls.filter(call => {
+      // 🔥 FIX: Search in customer_phone (direction-aware) instead of just from_e164
+      const phoneToSearch = call.customer_phone || call.from_e164;
       const matchesSearch = !searchQuery || 
         call.lead_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        call.from_e164.includes(searchQuery) ||
+        phoneToSearch.includes(searchQuery) ||
         call.transcription?.toLowerCase().includes(searchQuery.toLowerCase());
       
       const matchesStatus = statusFilter === 'all' || call.status === statusFilter;
@@ -564,7 +568,7 @@ export function CallsPage() {
                         </div>
                         <div>
                           <p className="font-medium text-slate-900">{call.lead_name || 'לקוח אלמוני'}</p>
-                          <p className="text-sm text-slate-500">{call.from_e164}</p>
+                          <p className="text-sm text-slate-500">{call.customer_phone || call.from_e164}</p>
                           <p className="text-xs text-slate-400">{formatDateUtil(call.at)}</p>
                         </div>
                       </div>
@@ -676,7 +680,7 @@ export function CallsPage() {
                       </div>
                       <div>
                         <p className="font-medium text-slate-900">{call.lead_name || 'לקוח אלמוני'}</p>
-                        <p className="text-sm text-slate-500">{call.from_e164}</p>
+                        <p className="text-sm text-slate-500">{call.customer_phone || call.from_e164}</p>
                         <p className="text-xs text-slate-400">{formatDateUtil(call.at)}</p>
                       </div>
                     </div>
@@ -810,7 +814,7 @@ export function CallsPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-700">מספר טלפון</p>
-                  <p className="text-slate-900">{selectedCall.from_e164}</p>
+                  <p className="text-slate-900">{selectedCall.customer_phone || selectedCall.from_e164}</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-700">משך השיחה</p>
