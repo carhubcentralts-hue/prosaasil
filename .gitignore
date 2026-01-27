@@ -119,3 +119,4 @@ certs/
 vite.config.ts.*
 test_media_ws_ai_import.py
 test_media_ws_indentation_fix.py
+test_tab_config_fixes.py
