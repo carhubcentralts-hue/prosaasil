@@ -113,14 +113,14 @@ def get_active_recording_runs():
     })
 
 
-@recordings_bp.route('/file/<call_sid>', methods=['GET'])
+@recordings_bp.route('/file/<call_sid>', methods=['GET', 'OPTIONS'])
 @require_api_auth
 def serve_recording_file(call_sid):
     """
     🔥 NEW: Serve recording file directly from disk
     
     This endpoint serves the MP3 file from the local recordings directory.
-    Use this for direct file serving without blob URL complexity.
+    Worker handles downloads, this just serves existing files.
     
     Returns:
     - 200 + audio/mpeg file if recording exists on disk
@@ -148,7 +148,7 @@ def serve_recording_file(call_sid):
             log.warning(f"Serve recording file: File not found on disk for call_sid={call_sid}")
             return jsonify({
                 "error": "Recording file not available",
-                "message": "Recording has not been downloaded yet. Please use the stream endpoint to trigger download."
+                "message": "Recording is being downloaded by worker. Please retry in a few seconds."
             }), 404
         
         # File exists - serve it
@@ -201,6 +201,14 @@ def serve_recording_file(call_sid):
                 rv.headers.add('Cache-Control', 'no-store')  # Prevent browser caching for security
                 rv.headers.add('Content-Disposition', 'inline')
                 
+                # 🔥 FIX: Add CORS headers for cross-origin requests
+                origin = request.headers.get('Origin')
+                if origin:
+                    rv.headers.add('Access-Control-Allow-Origin', origin)
+                    rv.headers.add('Access-Control-Allow-Credentials', 'true')
+                    rv.headers.add('Vary', 'Origin')
+                    rv.headers.add('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type')
+                
                 return rv
             except (ValueError, IndexError) as e:
                 # Malformed Range header - log and serve entire file instead
@@ -218,6 +226,14 @@ def serve_recording_file(call_sid):
         response.headers['Cache-Control'] = 'no-store'  # Prevent browser caching for security
         response.headers['Content-Disposition'] = 'inline'
         response.headers['Content-Length'] = str(file_size)
+        
+        # 🔥 FIX: Add CORS headers for cross-origin requests
+        origin = request.headers.get('Origin')
+        if origin:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Vary'] = 'Origin'
+            response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
         
         return response
             
