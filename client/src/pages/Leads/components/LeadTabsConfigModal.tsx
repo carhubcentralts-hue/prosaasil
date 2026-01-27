@@ -5,6 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Save, RotateCcw, Settings as SettingsIcon, GripVertical } from 'lucide-react';
 import { Button } from '../../../shared/components/ui/Button';
+import { DEFAULT_PRIMARY_TABS, DEFAULT_SECONDARY_TABS } from '../constants/tabsConfig';
 
 // All available tabs with descriptions
 const ALL_TABS = [
@@ -74,14 +75,15 @@ export function LeadTabsConfigModal({
       await onSave(primaryTabs, secondaryTabs);
       onClose();
     } catch (err) {
-      setError('שגיאה בשמירת ההגדרות');
+      const errorMessage = err instanceof Error ? err.message : 'שגיאה בשמירת ההגדרות';
+      setError(errorMessage);
       setSaving(false);
     }
   };
 
   const handleReset = () => {
-    setPrimaryTabs(['activity', 'reminders', 'documents']);
-    setSecondaryTabs(['overview', 'whatsapp', 'calls', 'email', 'contracts', 'appointments', 'ai_notes', 'notes']);
+    setPrimaryTabs([...DEFAULT_PRIMARY_TABS]);
+    setSecondaryTabs([...DEFAULT_SECONDARY_TABS]);
   };
 
   const addToPrimary = (tabKey: string) => {

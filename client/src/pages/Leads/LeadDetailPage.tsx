@@ -19,6 +19,7 @@ import { formatDate } from '../../shared/utils/format';
 import { useStatuses, LeadStatus } from '../../features/statuses/hooks';
 import { getStatusColor, getStatusLabel } from '../../shared/utils/status';
 import { useLeadTabsConfig } from './hooks/useLeadTabsConfig';
+import { DEFAULT_PRIMARY_TABS, DEFAULT_SECONDARY_TABS } from './constants/tabsConfig';
 
 interface LeadDetailPageProps {}
 
@@ -36,10 +37,6 @@ const ALL_AVAILABLE_TABS = [
   { key: 'ai_notes', label: 'שירות לקוחות AI', icon: Phone, description: 'הערות AI' },
   { key: 'notes', label: 'הערות חופשיות', icon: FileText, description: 'הערות ידניות' },
 ] as const;
-
-// Default configuration if not set
-const DEFAULT_PRIMARY_TABS = ['activity', 'reminders', 'documents'];
-const DEFAULT_SECONDARY_TABS = ['overview', 'whatsapp', 'calls', 'email', 'contracts', 'appointments', 'ai_notes', 'notes'];
 
 type TabKey = typeof ALL_AVAILABLE_TABS[number]['key'];
 
@@ -300,8 +297,14 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 
   // Handle tabs configuration save
   const handleSaveTabsConfig = async (primary: string[], secondary: string[]) => {
-    await updateTabsConfig({ primary, secondary });
-    await refreshConfig();
+    try {
+      await updateTabsConfig({ primary, secondary });
+      await refreshConfig();
+    } catch (err) {
+      console.error('Failed to save tabs configuration:', err);
+      // Re-throw so the modal can show the error
+      throw new Error('שגיאה בשמירת הגדרות הטאבים');
+    }
   };
 
   const updateLeadStatus = async (newStatus: string) => {
