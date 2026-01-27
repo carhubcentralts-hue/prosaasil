@@ -5167,22 +5167,34 @@ class MediaStreamHandler:
             
             # 🔥 PROVIDER-SPECIFIC RESPONSE TRIGGERING
             # OpenAI: Send response.create event (explicit trigger)
-            # Gemini: NO-OP - Gemini auto-responds on turn end (no explicit trigger needed)
+            # Gemini: Send empty text or specific trigger for greeting (no response.create)
             # This is THE gate that prevents double responses and ensures parity
             ai_provider = getattr(self, '_ai_provider', 'openai')
             
             if ai_provider == 'gemini':
                 # 🔷 GEMINI AUTO-RESPONSE GATE (Critical for parity!)
                 # Gemini Live API automatically responds when user finishes speaking
-                # There is NO response.create equivalent - Gemini handles turn-taking internally
-                # Calling trigger_response() for Gemini is a NO-OP by design
-                logger.info(f"🎯 [GEMINI] Auto-response mode - no explicit trigger needed ({reason})")
+                # But for GREETING (bot speaks first), we need to trigger it explicitly
+                logger.info(f"🎯 [GEMINI] Auto-response mode - provider handles turn-taking ({reason})")
+                
+                # 🔥 GEMINI GREETING FIX: For GREETING reason, send an empty text to trigger response
+                # This makes Gemini start speaking without waiting for user input
+                if reason == "GREETING" or is_greeting:
+                    try:
+                        # Send empty text to trigger Gemini to start speaking
+                        # This is the equivalent of response.create for Gemini
+                        await _client.send_text("")
+                        logger.info(f"🎯 [GEMINI_SEND] greeting_trigger: sent empty text to start greeting")
+                        _orig_print(f"🎯 [GEMINI_SEND] greeting_trigger: sent empty text to start bot-speaks-first", flush=True)
+                    except Exception as e:
+                        logger.error(f"❌ [GEMINI_SEND] Failed to send greeting trigger: {e}")
+                        logger.exception(f"[GEMINI_THREAD_CRASH] Exception in greeting trigger", exc_info=True)
                 
                 # 🔥 GEMINI WATCHDOG: Start timer to detect if first audio never arrives
-                if reason == "GREETING":
+                if reason == "GREETING" or is_greeting:
                     self._start_first_audio_watchdog(ai_provider)
                 
-                # Return True to indicate "response will come" but no API call needed
+                # Return True to indicate "response will come"
             else:
                 # OpenAI Realtime API: Send explicit response.create event
                 await _client.send_event({"type": "response.create"})
