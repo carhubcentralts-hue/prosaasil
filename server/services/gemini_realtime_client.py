@@ -12,6 +12,7 @@ import json
 import asyncio
 import logging
 import base64
+import binascii
 import builtins
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 
@@ -34,7 +35,9 @@ IS_PROD = os.getenv("DEBUG", "1") == "1"  # DEBUG=1 means production
 REALTIME_VERBOSE = os.getenv("REALTIME_VERBOSE", "0") == "1"  # Explicit verbose flag
 
 # Gemini Live API configuration
-GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.0-flash-exp")
+# 🔥 CRITICAL: Use native audio model for proper bidirectional audio streaming
+# The native-audio-preview model is required for stable audio output in telephony
+GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025")
 
 # Audio format constants
 # Gemini expects 16kHz mono PCM for input, outputs 24kHz mono PCM
@@ -138,7 +141,7 @@ class GeminiRealtimeClient:
         
         Args:
             api_key: Gemini API key (defaults to GEMINI_API_KEY env var)
-            model: Model to use (default: GEMINI_LIVE_MODEL env var or gemini-2.0-flash-exp)
+            model: Model to use (default: GEMINI_LIVE_MODEL env var or gemini-2.5-flash-native-audio-preview-12-2025)
         """
         if not _genai_available:
             raise ImportError(
@@ -439,7 +442,7 @@ class GeminiRealtimeClient:
                                                 logger.debug(f"🔊 [GEMINI_RECV] audio_chunk: {len(audio_bytes)} bytes")
                                             
                                             yield event
-                                        except (base64.binascii.Error, ValueError) as audio_decode_error:
+                                        except (binascii.Error, ValueError) as audio_decode_error:
                                             # Skip malformed audio chunks gracefully
                                             logger.debug(f"⚠️ [GEMINI_RECV] Skipping malformed audio chunk: {audio_decode_error}")
                                             # Continue processing other parts

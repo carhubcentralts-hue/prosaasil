@@ -16,7 +16,7 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 
 🔷 Gemini Provider (ai_provider='gemini'):
    - STT: Gemini Live API (built-in speech recognition)
-   - LLM: Google Gemini Live API (gemini-2.0-flash-exp)
+   - LLM: Google Gemini Live API (gemini-2.5-flash-native-audio-preview-12-2025)
    - TTS: Gemini Live API (native audio output)
    - Pipeline: Bidirectional real-time streaming (SAME as OpenAI)
    - Requires: GEMINI_API_KEY
