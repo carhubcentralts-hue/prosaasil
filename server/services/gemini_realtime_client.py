@@ -308,7 +308,10 @@ class GeminiRealtimeClient:
         
         try:
             # 🔥 LOG: Track text sent to Gemini
-            logger.info(f"📝 [GEMINI_SEND] text: {text[:100]}...")
+            if text:
+                logger.info(f"📝 [GEMINI_SEND] text: {text[:100]}...")
+            else:
+                logger.info(f"📝 [GEMINI_SEND] text: (empty - greeting trigger)")
             
             # Send text using send_realtime_input
             # Note: end_of_turn is not used for realtime input (uses VAD instead)

@@ -5178,11 +5178,13 @@ class MediaStreamHandler:
                 logger.info(f"🎯 [GEMINI] Auto-response mode - provider handles turn-taking ({reason})")
                 
                 # 🔥 GEMINI GREETING FIX: For GREETING reason, send an empty text to trigger response
-                # This makes Gemini start speaking without waiting for user input
+                # WHY EMPTY TEXT: Gemini Live API is VAD-based (auto-responds on user input).
+                # For bot-speaks-first scenarios, sending empty text signals "start speaking now"
+                # without adding any content to the conversation context.
+                # This is the equivalent of OpenAI's response.create for Gemini.
                 if reason == "GREETING" or is_greeting:
                     try:
                         # Send empty text to trigger Gemini to start speaking
-                        # This is the equivalent of response.create for Gemini
                         await _client.send_text("")
                         logger.info(f"🎯 [GEMINI_SEND] greeting_trigger: sent empty text to start greeting")
                         _orig_print(f"🎯 [GEMINI_SEND] greeting_trigger: sent empty text to start bot-speaks-first", flush=True)
