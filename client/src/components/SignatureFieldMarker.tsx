@@ -16,6 +16,7 @@ export interface SignatureField {
 
 // Constants
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
+const MIN_PDF_CONTAINER_HEIGHT = 500; // Minimum height for PDF container (px)
 const PDF_CANVAS_Z_INDEX = 1; // Z-index for PDF canvas layer
 const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay layer (transparent, holds signature fields)
 const FIELD_Z_INDEX_NORMAL = 5; // Z-index for normal signature fields (relative to overlay)
@@ -450,7 +451,10 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
             )}
 
             {/* PDF with Overlay */}
-            <div className="flex-1 relative min-h-[500px]">
+            <div 
+              className="flex-1 relative" 
+              style={{ minHeight: `${MIN_PDF_CONTAINER_HEIGHT}px` }}
+            >
               {loadingInfo ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50 rounded-lg">
                   <div className="text-center">
