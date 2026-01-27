@@ -420,7 +420,8 @@ class GeminiRealtimeClient:
                                 if hasattr(part, 'inline_data'):
                                     # Audio data
                                     inline_data = part.inline_data
-                                    if inline_data.mime_type.startswith('audio/'):
+                                    # Check if inline_data is not None before accessing mime_type
+                                    if inline_data and hasattr(inline_data, 'mime_type') and inline_data.mime_type.startswith('audio/'):
                                         try:
                                             # Decode base64 audio with padding fix
                                             # Fix: Gemini API sometimes sends audio with incorrect padding
