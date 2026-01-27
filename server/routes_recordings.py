@@ -113,7 +113,7 @@ def get_active_recording_runs():
     })
 
 
-@recordings_bp.route('/file/<call_sid>', methods=['GET', 'OPTIONS'])
+@recordings_bp.route('/file/<call_sid>', methods=['GET', 'HEAD', 'OPTIONS'])
 @require_api_auth
 def serve_recording_file(call_sid):
     """
@@ -123,14 +123,18 @@ def serve_recording_file(call_sid):
     Worker handles downloads, this just serves existing files.
     
     Returns:
-    - 200 + audio/mpeg file if recording exists on disk
+    - 200 + audio/mpeg file if recording exists on disk (GET) or headers only (HEAD)
     - 404 + JSON if file not found
     - 403 if call doesn't belong to user's tenant
     """
     try:
+        # 🔥 FIX: Handle HEAD requests for file existence checks
+        is_head_request = request.method == 'HEAD'
         business_id = get_business_id()
         if not business_id:
             log.warning(f"Serve recording file: No business_id for call_sid={call_sid}")
+            if is_head_request:
+                return Response(status=400)
             return jsonify({"error": "Business ID required"}), 400
         
         # Check if call exists and belongs to this business (tenant validation)
@@ -141,6 +145,8 @@ def serve_recording_file(call_sid):
         
         if not call:
             log.warning(f"Serve recording file: Call not found call_sid={call_sid}, business_id={business_id}")
+            if is_head_request:
+                return Response(status=404)
             return jsonify({"error": "Recording not found"}), 404
         
         # Check if file exists locally
@@ -180,6 +186,8 @@ def serve_recording_file(call_sid):
                 log.warning(f"Serve recording file: No recording_url available for call_sid={call_sid}")
                 
             log.warning(f"Serve recording file: File not found on disk for call_sid={call_sid}")
+            if is_head_request:
+                return Response(status=404)
             return jsonify({
                 "error": "Recording file not available",
                 "message": "ההקלטה בתהליך הורדה. אנא נסה שוב בעוד מספר שניות.",
@@ -192,6 +200,24 @@ def serve_recording_file(call_sid):
         
         # Get file size for headers
         file_size = os.path.getsize(file_path)
+        
+        # 🔥 FIX: For HEAD requests, return only headers without body
+        if is_head_request:
+            response = Response(status=200)
+            response.headers['Content-Type'] = 'audio/mpeg'
+            response.headers['Content-Length'] = str(file_size)
+            response.headers['Accept-Ranges'] = 'bytes'
+            response.headers['Cache-Control'] = 'no-store'
+            
+            # Add CORS headers for cross-origin requests
+            origin = request.headers.get('Origin')
+            if origin:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.headers['Vary'] = 'Origin'
+                response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
+            
+            return response
         
         # Check if Range header is present (for partial content requests)
         range_header = request.headers.get('Range', None)
@@ -276,6 +302,8 @@ def serve_recording_file(call_sid):
         log.error(f"Error serving recording file for {call_sid}: {e}")
         import traceback
         log.error(f"Traceback: {traceback.format_exc()}")
+        if request.method == 'HEAD':
+            return Response(status=500)
         return jsonify({
             "error": "Internal server error",
             "message": str(e)
