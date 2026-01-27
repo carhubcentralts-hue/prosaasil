@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Diagnostic script to check if recording worker is running and processing jobs.
 Run this to diagnose why recordings are not being downloaded.
@@ -76,7 +76,8 @@ def main():
                 ).order_by(RecordingRun.created_at.desc()).limit(10).all()
                 
                 for run in runs:
-                    age = (db.func.now() - run.created_at).total_seconds() if run.created_at else 0
+                    from datetime import datetime
+                    age = (datetime.utcnow() - run.created_at).total_seconds() if run.created_at else 0
                     print(f"      - Run {run.id}: call_sid={run.call_sid} status={run.status} job_type={run.job_type} age={int(age)}s")
             
             # Count completed jobs (last hour)

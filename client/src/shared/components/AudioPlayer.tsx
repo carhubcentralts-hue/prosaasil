@@ -48,6 +48,15 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     return delays[Math.min(retryCount, delays.length - 1)];
   };
 
+  // Helper function to calculate total wait time
+  const calculateTotalWaitTime = (retryCount: number): number => {
+    let total = 0;
+    for (let i = 0; i < retryCount; i++) {
+      total += getRetryDelay(i);
+    }
+    return total / 1000; // Convert to seconds
+  };
+
   // 🔥 CHECK: Use HEAD request to check if recording file exists
   const checkFileAvailable = async (fileUrl: string, currentRetry = 0): Promise<boolean> => {
     // 🔥 FIX: Prevent concurrent checks - only one check at a time
@@ -78,7 +87,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       if (response.status === 404 && currentRetry < MAX_RETRIES) {
         // 404 - file not yet downloaded by worker, retry with backoff
         const delay = getRetryDelay(currentRetry);
-        const totalWaitSoFar = Array.from({length: currentRetry}, (_, i) => getRetryDelay(i)).reduce((a, b) => a + b, 0) / 1000;
+        const totalWaitSoFar = calculateTotalWaitTime(currentRetry);
         console.log(`[AudioPlayer] File not ready (404), retrying in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES}, waited ${Math.floor(totalWaitSoFar)}s so far)`);
         setRetryCount(currentRetry + 1);
         setPreparingRecording(true);
@@ -169,7 +178,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         } else {
           // Recording file not available after all retries
           // Show user-friendly message with retry option
-          const totalWaitTime = Array.from({length: retryCount}, (_, i) => getRetryDelay(i)).reduce((a, b) => a + b, 0) / 1000;
+          const totalWaitTime = calculateTotalWaitTime(retryCount);
           setErrorMessage(
             `ההקלטה עדיין בתהליך הורדה (חיכינו ${Math.floor(totalWaitTime)} שניות). ` +
             `זה יכול לקחת עד 3 דקות להקלטות ארוכות.`
@@ -256,10 +265,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
 
   if (loading || preparingRecording) {
     // Calculate estimated seconds elapsed
-    let secondsElapsed = 0;
-    for (let i = 0; i < retryCount; i++) {
-      secondsElapsed += getRetryDelay(i) / 1000;
-    }
+    const secondsElapsed = calculateTotalWaitTime(retryCount);
     
     return (
       <div className="flex items-center justify-center py-4">
