@@ -464,8 +464,9 @@ class GeminiRealtimeClient:
             return
         
         try:
-            # Gemini Live API: Send empty turn to interrupt current response
-            await self.session.send("", end_of_turn=True)
+            # Gemini Live API: Send empty text to interrupt current response
+            # Using send_realtime_input with empty text for barge-in
+            await self.session.send_realtime_input(text="")
             logger.info("[GEMINI_LIVE] Response cancelled (barge-in)")
         except Exception as e:
             logger.error(f"[GEMINI_LIVE] Failed to cancel response: {e}")
