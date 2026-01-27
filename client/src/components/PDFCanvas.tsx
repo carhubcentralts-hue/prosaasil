@@ -16,7 +16,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.js/pdf.worker.min.js';
 
 // Constants
 const MIN_CONTAINER_WIDTH_FOR_RENDER = 200; // Minimum container width before rendering PDF (px)
+const PDF_CANVAS_Z_INDEX = 1; // Z-index for PDF canvas layer
 const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay (signature fields, etc.)
+const UI_TOOLBAR_Z_INDEX = 10; // Z-index for UI elements (toolbars, buttons)
 const RENDER_TIMEOUT_MS = 10000; // Timeout for rendering to prevent stuck overlays (10 seconds)
 
 export interface PDFCanvasProps {
@@ -402,6 +404,8 @@ export function PDFCanvas({
                 // 🔥 FIX: Ensure canvas is always displayed properly
                 display: 'block',
                 maxWidth: '100%',
+                position: 'relative',
+                zIndex: PDF_CANVAS_Z_INDEX,
               }}
             />
             {/* 🔥 FIX: Rendering overlay - show only during page render */}
@@ -423,12 +427,14 @@ export function PDFCanvas({
                   // Using internal size would make overlay huge and push PDF off-screen
                   width: canvasRef.current.style.width,
                   height: canvasRef.current.style.height,
-                  // Transparent background prevents white box covering PDF
+                  // ✅ Transparent background prevents white box covering PDF
                   background: 'transparent',
-                  // Default to pointer-events none, let children override
+                  // ✅ Default to pointer-events none to not block PDF, let children override
                   pointerEvents: 'none',
-                  // Ensure proper z-index layering above canvas
+                  // ✅ Ensure proper z-index layering above canvas but below UI
                   zIndex: PDF_OVERLAY_Z_INDEX,
+                  // ✅ Ensure overlay follows the same positioning as canvas
+                  position: 'absolute',
                 }}
               >
                 {children}

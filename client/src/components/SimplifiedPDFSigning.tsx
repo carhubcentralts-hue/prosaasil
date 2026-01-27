@@ -6,6 +6,8 @@ import { PDFCanvas } from './PDFCanvas';
 
 // Constants
 const MIN_CONTAINER_WIDTH = 200; // Minimum container width for PDF rendering
+const PDF_CANVAS_Z_INDEX = 1; // Z-index for PDF canvas layer
+const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay layer
 const ERROR_LOADING_PDF_INFO = 'שגיאה בטעינת מידע על PDF';
 
 interface SignatureField {
@@ -303,7 +305,14 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
               containerRef={pdfContainerRef}
             >
               {/* Overlay showing where signatures will be placed */}
-              <div className="absolute inset-0 pointer-events-none" style={{ background: 'transparent' }}>
+              <div 
+                className="absolute inset-0 pointer-events-none" 
+                style={{ 
+                  background: 'transparent',
+                  zIndex: PDF_OVERLAY_Z_INDEX,
+                  position: 'absolute',
+                }}
+              >
                 {getCurrentPageFields().map((field, index) => (
                   <div
                     key={field.id}
@@ -313,6 +322,9 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
                       top: `${field.y * 100}%`,
                       width: `${field.w * 100}%`,
                       height: `${field.h * 100}%`,
+                      // ✅ Ensure semi-transparent background (max 8% opacity as per requirements)
+                      backgroundColor: 'rgba(168, 85, 247, 0.08)', // purple with 8% opacity
+                      pointerEvents: 'none',
                     }}
                   >
                     <div className="bg-purple-600 text-white text-xs px-2 py-1 rounded">
