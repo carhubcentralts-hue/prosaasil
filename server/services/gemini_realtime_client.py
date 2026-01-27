@@ -379,6 +379,7 @@ class GeminiRealtimeClient:
                         logger.info("✅ [GEMINI_RECV] setup_complete")
                         if not IS_PROD or REALTIME_VERBOSE:
                             logger.info("[GEMINI_LIVE] Setup complete")
+                        yield event  # 🔥 FIX: Yield the event so it's processed
                     
                     # Check for server content (audio/text response)
                     elif hasattr(server_message, 'server_content'):
