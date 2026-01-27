@@ -14,15 +14,15 @@ type PlaybackSpeed = 1 | 1.5 | 2;
 const PLAYBACK_SPEED_KEY = 'audioPlaybackRate';
 
 /**
- * AudioPlayer with Playback Speed Controls and Direct Streaming
+ * AudioPlayer with Playback Speed Controls and Direct File Serving
  * 
  * Features:
  * - 1x, 1.5x, 2x playback speed toggle buttons
  * - Persists speed preference in localStorage
  * - Applies speed automatically on load
- * - 🔥 Uses /api/recordings/<call_sid>/stream endpoint for authenticated playback
- * - 🔥 Handles 202 Accepted (download in progress) with retry logic
- * - 🔥 Adds explicit_user_action=true for security
+ * - 🔥 Uses /api/recordings/file/<call_sid> endpoint for direct file serving
+ * - 🔥 NO worker interaction - worker handles downloads, API just serves files
+ * - 🔥 Handles 404 gracefully with user-friendly message
  */
 export function AudioPlayer({ src, loading = false, className = '' }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -45,8 +45,8 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     return delays[Math.min(retryCount, delays.length - 1)];
   };
 
-  // 🔥 CHECK: Use HEAD request with abort signal to check if recording is ready
-  const checkRecordingReady = async (streamUrl: string, currentRetry = 0): Promise<boolean> => {
+  // 🔥 CHECK: Use HEAD request to check if recording file exists
+  const checkRecordingReady = async (fileUrl: string, currentRetry = 0): Promise<boolean> => {
     // 🔥 FIX: Prevent concurrent checks - only one check at a time
     if (isCheckingRef.current) {
       console.log('[AudioPlayer] Check already in progress, skipping...');
@@ -60,29 +60,29 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     abortControllerRef.current = controller;
     
     try {
-      const response = await fetch(streamUrl, {
-        method: 'HEAD', // Just check if ready without downloading
+      const response = await fetch(fileUrl, {
+        method: 'HEAD', // Just check if file exists
         credentials: 'include',
-        signal: controller.signal // 🔥 FIX: Allow cancellation
+        signal: controller.signal
       });
 
       if (response.ok || response.status === 206) {
-        // Recording is ready (200 OK or 206 Partial Content)
+        // File exists and is ready
         isCheckingRef.current = false;
         return true;
       }
 
-      if (response.status === 202 && currentRetry < MAX_RETRIES) {
-        // 202 Accepted - recording is being prepared, retry with backoff
+      if (response.status === 404 && currentRetry < MAX_RETRIES) {
+        // 404 - file not yet downloaded by worker, retry with backoff
         const delay = getRetryDelay(currentRetry);
-        console.log(`[AudioPlayer] Recording not ready (202), retrying in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
+        console.log(`[AudioPlayer] File not ready (404), retrying in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
         setRetryCount(currentRetry + 1);
         setPreparingRecording(true);
         
         return new Promise((resolve) => {
           retryTimeoutRef.current = setTimeout(async () => {
             isCheckingRef.current = false; // Reset before next check
-            const ready = await checkRecordingReady(streamUrl, currentRetry + 1);
+            const ready = await checkRecordingReady(fileUrl, currentRetry + 1);
             resolve(ready);
           }, delay);
         });
