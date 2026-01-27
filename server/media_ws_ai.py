@@ -5893,6 +5893,14 @@ class MediaStreamHandler:
                 
                 # 🔥 VALIDATION: Confirm session.updated received after session.update
                 if event_type == "session.updated":
+                    # 🔥 GEMINI FIX: Only process first session.updated, skip duplicates
+                    # Gemini sends setup_complete for each audio chunk, resulting in many session.updated events
+                    if self._session_config_confirmed:
+                        # Already confirmed - skip duplicate processing
+                        if DEBUG and _event_loop_rate_limiter.every("session_updated_duplicate", 5.0):
+                            logger.debug("[SESSION] Skipping duplicate session.updated (already confirmed)")
+                        continue
+                    
                     _orig_print(f"✅ [SESSION] session.updated received - configuration applied successfully!", flush=True)
                     
                     # Log the session configuration for verification
