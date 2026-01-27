@@ -18,6 +18,7 @@ from rq import Retry  # 🔥 FIX: Import Retry for proper RQ retry handling
 
 # 🔒 Import Lead model at top level for efficient access
 from server.models_sql import CallLog, Business, Lead, BusinessTopic
+from server.db import db  # 🔥 FIX: Import db for creating RecordingRun entries
 
 # Import summarize job for post-transcription processing
 try:
@@ -233,8 +234,26 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     try:
         redis_conn = redis.from_url(REDIS_URL)
         
-        # 🔥 IDEMPOTENCY: Check Redis NX key to prevent duplicate enqueues
-        # BUT DON'T SET IT YET - only set after successful enqueue
+        # 🔥 CRITICAL: Check for existing RecordingRun in DB (primary dedup layer)
+        # This prevents creating duplicate RecordingRun entries when jobs are in progress
+        from server.app_factory import get_process_app
+        from server.models_sql import RecordingRun
+        
+        app = get_process_app()
+        with app.app_context():
+            existing_run = RecordingRun.query.filter_by(
+                business_id=business_id,
+                call_sid=call_sid
+            ).filter(
+                RecordingRun.status.in_(['queued', 'running'])
+            ).first()
+            
+            if existing_run:
+                # Job already queued or running - don't create duplicate
+                logger.info(f"🔒 [RQ] RecordingRun already exists: call_sid={call_sid} run_id={existing_run.id} status={existing_run.status}")
+                return (False, "duplicate")
+        
+        # 🔥 IDEMPOTENCY: Check Redis NX key to prevent duplicate enqueues (secondary layer)
         # Short TTL (120s) to prevent blocking, but long enough to prevent double-clicks
         job_key = f"job:download:{business_id}:{call_sid}"
         try:
@@ -251,6 +270,41 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         except Exception as e:
             logger.warning(f"[DOWNLOAD_ONLY] Redis dedup check error for {call_sid}: {e} - proceeding anyway")
             # Continue on Redis error (fail-open)
+        
+        # 🔥 NEW: Create RecordingRun entry BEFORE enqueueing to RQ
+        # This ensures the DB entry exists immediately and prevents race conditions
+        try:
+            with app.app_context():
+                # 🔥 FIX: Double-check within transaction to handle race conditions
+                existing = RecordingRun.query.filter_by(
+                    business_id=business_id,
+                    call_sid=call_sid
+                ).filter(
+                    RecordingRun.status.in_(['queued', 'running'])
+                ).first()
+                
+                if existing:
+                    # Another process created the run between our check and now
+                    logger.info(f"🔒 [RQ] RecordingRun created by another process: call_sid={call_sid} run_id={existing.id}")
+                    return (False, "duplicate")
+                
+                run = RecordingRun(
+                    business_id=business_id,
+                    call_sid=call_sid,
+                    recording_sid=recording_sid,
+                    recording_url=recording_url,
+                    job_type='download',
+                    status='queued'
+                )
+                db.session.add(run)
+                db.session.commit()
+                run_id = run.id
+                logger.info(f"🎯 [RQ_ENQUEUE] Created RecordingRun {run_id} for call_sid={call_sid}")
+        except Exception as e:
+            # Handle race condition or DB errors
+            logger.error(f"❌ [RQ] Failed to create RecordingRun for {call_sid}: {e}")
+            db.session.rollback()
+            return (False, "error")
         
         queue = Queue('recordings', connection=redis_conn)
         

@@ -34,6 +34,8 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSrcRef = useRef<string>(''); // Track last src to prevent duplicate processing
+  const abortControllerRef = useRef<AbortController | null>(null); // 🔥 FIX: Cancel pending requests
+  const isCheckingRef = useRef<boolean>(false); // 🔥 FIX: Prevent concurrent checks
 
   // 🔥 PERFORMANCE FIX: Reduced retry limit and improved backoff
   const MAX_RETRIES = 5; // 5 retries with exponential backoff
@@ -43,16 +45,30 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     return delays[Math.min(retryCount, delays.length - 1)];
   };
 
-  // 🔥 Check if recording is ready on server
+  // 🔥 CHECK: Use HEAD request with abort signal to check if recording is ready
   const checkRecordingReady = async (streamUrl: string, currentRetry = 0): Promise<boolean> => {
+    // 🔥 FIX: Prevent concurrent checks - only one check at a time
+    if (isCheckingRef.current) {
+      console.log('[AudioPlayer] Check already in progress, skipping...');
+      return false;
+    }
+    
+    isCheckingRef.current = true;
+    
+    // 🔥 FIX: Create and store AbortController BEFORE fetch to prevent race condition
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    
     try {
       const response = await fetch(streamUrl, {
         method: 'HEAD', // Just check if ready without downloading
-        credentials: 'include'
+        credentials: 'include',
+        signal: controller.signal // 🔥 FIX: Allow cancellation
       });
 
       if (response.ok || response.status === 206) {
         // Recording is ready (200 OK or 206 Partial Content)
+        isCheckingRef.current = false;
         return true;
       }
 
@@ -65,6 +81,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         
         return new Promise((resolve) => {
           retryTimeoutRef.current = setTimeout(async () => {
+            isCheckingRef.current = false; // Reset before next check
             const ready = await checkRecordingReady(streamUrl, currentRetry + 1);
             resolve(ready);
           }, delay);
@@ -72,9 +89,16 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       }
 
       // Other error or max retries reached
+      isCheckingRef.current = false;
       return false;
     } catch (error) {
-      console.error('[AudioPlayer] Error checking recording:', error);
+      // 🔥 FIX: Don't log abort errors as errors
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AudioPlayer] Request aborted');
+      } else {
+        console.error('[AudioPlayer] Error checking recording:', error);
+      }
+      isCheckingRef.current = false;
       return false;
     }
   };
@@ -104,6 +128,12 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         }
         lastSrcRef.current = src;
 
+        // 🔥 FIX: Abort any pending requests
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
+
         // Clean up any existing timeouts
         if (retryTimeoutRef.current) {
           clearTimeout(retryTimeoutRef.current);
@@ -111,6 +141,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         }
 
         // Reset state
+        isCheckingRef.current = false; // 🔥 FIX: Reset checking flag
         setPreparingRecording(false);
         setIsLoading(true);
         setRetryCount(0);
@@ -156,10 +187,18 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
 
     // Cleanup on unmount
     return () => {
+      // 🔥 FIX: Abort pending requests on cleanup
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
         retryTimeoutRef.current = null;
       }
+      
+      isCheckingRef.current = false; // 🔥 FIX: Reset checking flag
     };
   }, [src]);
 

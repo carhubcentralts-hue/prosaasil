@@ -688,40 +688,46 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - enqueue download job (NO SLOT ACQUISITION IN API)
-            # 🔥 FIX: API never acquires slots, just enqueues. Worker acquires/releases slots.
-            from server.services.recording_semaphore import check_status
+            # File doesn't exist locally - check for existing job or enqueue download
+            # 🔥 FIX: Check RecordingRun status first to prevent duplicate job creation
+            from server.models_sql import RecordingRun
             from server.tasks_recording import enqueue_recording_download_only
             
-            # Check current status first (dedup + queue position)
-            status, info = check_status(business_id, call_sid)
+            # 🔥 CRITICAL: Check for existing RecordingRun to prevent duplicate jobs
+            existing_run = RecordingRun.query.filter_by(
+                business_id=business_id,
+                call_sid=call_sid
+            ).order_by(RecordingRun.created_at.desc()).first()
             
-            if status == "processing":
-                # Already being downloaded
-                log.debug(f"Stream recording: Download in progress for call_sid={call_sid}")
-                return jsonify({
-                    "success": True,
-                    "status": "processing",
-                    "message": "Recording is being prepared, please retry in a few seconds"
-                }), 202
-            elif status == "queued":
-                # Already in queue
-                position = info.get("position", "?")
-                log.debug(f"Stream recording: Call {call_sid} in queue position {position}")
-                return jsonify({
-                    "success": True,
-                    "status": "queued",
-                    "message": f"Recording queued (position {position}), please retry in a few seconds"
-                }), 202
-            elif status == "failed":
-                # 🔥 NEW: Return failed status to stop frontend retries
-                log.error(f"Stream recording: Download failed for call_sid={call_sid}")
-                return jsonify({
-                    "success": False,
-                    "status": "failed",
-                    "error": info.get("error", "Download failed"),
-                    "message": "Recording download failed"
-                }), 500
+            if existing_run:
+                # Job already exists - return status based on RecordingRun
+                if existing_run.status == 'running':
+                    log.debug(f"Stream recording: Download in progress for call_sid={call_sid} (run_id={existing_run.id})")
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": "Recording is being prepared, please retry in a few seconds"
+                    }), 202
+                elif existing_run.status == 'queued':
+                    log.debug(f"Stream recording: Call {call_sid} in queue (run_id={existing_run.id})")
+                    return jsonify({
+                        "success": True,
+                        "status": "queued",
+                        "message": "Recording queued, please retry in a few seconds"
+                    }), 202
+                elif existing_run.status == 'failed':
+                    # 🔥 NEW: Return failed status to stop frontend retries
+                    log.error(f"Stream recording: Download failed for call_sid={call_sid} (run_id={existing_run.id})")
+                    return jsonify({
+                        "success": False,
+                        "status": "failed",
+                        "error": existing_run.error_message or "Download failed",
+                        "message": "Recording download failed"
+                    }), 500
+                elif existing_run.status == 'completed':
+                    # Job completed but file not found - may have been deleted
+                    log.warning(f"Stream recording: Job completed but file missing for call_sid={call_sid}")
+                    # Fall through to create new job
             
             # 🔥 FIX: Always enqueue - let worker handle slot management
             # This prevents API from acquiring slots that get stuck if worker fails
