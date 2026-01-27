@@ -5628,27 +5628,59 @@ def apply_migrations():
         if check_table_exists('business'):
             try:
                 if not check_column_exists('business', 'lead_tabs_config'):
-                    checkpoint("  → Adding lead_tabs_config JSONB column with default empty object...")
+                    checkpoint("  → Adding lead_tabs_config JSONB column (optimized for large tables)...")
+                    
+                    # Step 1: Add column as nullable (fast, no table rewrite)
+                    checkpoint("  → Step 1/3: Adding column as nullable...")
                     exec_ddl(db.engine, """
                         ALTER TABLE business 
-                        ADD COLUMN IF NOT EXISTS lead_tabs_config JSONB NOT NULL DEFAULT '{}'::jsonb
+                        ADD COLUMN IF NOT EXISTS lead_tabs_config JSONB
                     """)
+                    
+                    # Step 2: Set default value (fast in PostgreSQL 11+)
+                    checkpoint("  → Step 2/3: Setting default value...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE business 
+                        ALTER COLUMN lead_tabs_config SET DEFAULT '{}'::jsonb
+                    """)
+                    
+                    # Step 3: Update existing rows and add NOT NULL constraint
+                    checkpoint("  → Step 3/3: Updating existing rows and adding NOT NULL constraint...")
+                    from sqlalchemy import text
+                    # Update any NULL values to the default (should be none if column was just added)
+                    db.session.execute(text("""
+                        UPDATE business 
+                        SET lead_tabs_config = '{}'::jsonb 
+                        WHERE lead_tabs_config IS NULL
+                    """))
+                    db.session.commit()
+                    
+                    # Now add NOT NULL constraint (requires scan but no rewrite since all values are non-NULL)
+                    exec_ddl(db.engine, """
+                        ALTER TABLE business 
+                        ALTER COLUMN lead_tabs_config SET NOT NULL
+                    """)
+                    
+                    # Add column comment
                     exec_ddl(db.engine, """
                         COMMENT ON COLUMN business.lead_tabs_config IS 
                         'Flexible tab configuration for lead detail page. JSONB object with primary and secondary tab arrays. Max 3 primary + 3 secondary (6 total). Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes'
                     """)
+                    
                     checkpoint("  ✅ Column lead_tabs_config added to business table with JSONB type")
                     migrations_applied.append('112_lead_tabs_config')
+                    checkpoint("✅ Migration 112 complete: Flexible lead tabs configuration enabled")
                 else:
                     checkpoint("  ℹ️ Column lead_tabs_config already exists")
+                    checkpoint("✅ Migration 112 complete: Flexible lead tabs configuration enabled")
             except Exception as e:
                 checkpoint(f"❌ Migration 112 failed: {e}")
                 logger.error(f"Migration 112 error: {e}", exc_info=True)
                 db.session.rollback()
+                # Do NOT mark as complete on failure
         else:
             checkpoint("  ℹ️ business table does not exist - skipping")
-        
-        checkpoint("✅ Migration 112 complete: Flexible lead tabs configuration enabled")
+            checkpoint("✅ Migration 112 complete: Flexible lead tabs configuration enabled")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:
