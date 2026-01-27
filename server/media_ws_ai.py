@@ -4092,22 +4092,30 @@ class MediaStreamHandler:
                             lead_notes  # 🔥 NEW: Pass notes to context builder
                         )
                         
-                        # Inject as conversation system message
-                        name_anchor_event = await client.send_event(
-                            {
-                                "type": "conversation.item.create",
-                                "item": {
-                                    "type": "message",
-                                    "role": "system",
-                                    "content": [
-                                        {
-                                            "type": "input_text",
-                                            "text": name_anchor_text,
-                                        }
-                                    ],
-                                },
-                            }
-                        )
+                        # 🔥 FIX: NAME_ANCHOR injection only supported by OpenAI Realtime API
+                        # Gemini Live API doesn't support conversation.item.create events
+                        ai_provider = getattr(self, '_ai_provider', 'openai')
+                        if ai_provider == 'openai':
+                            # Inject as conversation system message (OpenAI only)
+                            name_anchor_event = await client.send_event(
+                                {
+                                    "type": "conversation.item.create",
+                                    "item": {
+                                        "type": "message",
+                                        "role": "system",
+                                        "content": [
+                                            {
+                                                "type": "input_text",
+                                                "text": name_anchor_text,
+                                            }
+                                        ],
+                                    },
+                                }
+                            )
+                        else:
+                            # Gemini: NAME_ANCHOR is already in system_instructions, no separate injection needed
+                            logger.info(f"[NAME_ANCHOR] Gemini provider detected - NAME_ANCHOR already in system instructions")
+                            name_anchor_event = {"item": {"id": "gemini_name_anchor"}}
                         
                         # Store injection state with hash
                         self._name_anchor_injected = True
@@ -4553,6 +4561,7 @@ class MediaStreamHandler:
                 # 🔥 UNIFIED AUDIO SENDING: Both providers use proper audio format
                 # OpenAI: client.send_audio_chunk() sends base64-encoded μ-law at 8kHz
                 # Gemini: client.send_audio() expects raw PCM16 bytes at 16kHz
+                ai_provider = getattr(self, '_ai_provider', 'openai')
                 if ai_provider == 'gemini':
                     # ✅ AUDIO VALIDATION A: Input to Gemini (Twilio → Gemini)
                     # Gemini expects PCM16 at 16kHz, mono
