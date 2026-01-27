@@ -161,15 +161,16 @@ def serve_recording_file(call_sid):
                     from server.tasks_recording import enqueue_recording_download_only
                     from server.models_sql import RecordingRun
                     
-                    # Check if there's already a download job in progress
+                    # Check if there's already a download job in progress (any type)
+                    # Check both 'download' and 'full' job types since full jobs also download the file
                     existing_run = RecordingRun.query.filter(
                         RecordingRun.call_sid == call_sid,
-                        RecordingRun.job_type == 'download',
+                        RecordingRun.job_type.in_(['download', 'full']),
                         RecordingRun.status.in_(['queued', 'running'])
                     ).first()
                     
                     if not existing_run:
-                        log.info(f"[RECORDING] Enqueueing download job for call_sid={call_sid}")
+                        log.info(f"[RECORDING] No existing job found, enqueueing download-only job for call_sid={call_sid}")
                         enqueue_recording_download_only(
                             call_sid=call_sid,
                             recording_url=call.recording_url,
@@ -179,7 +180,7 @@ def serve_recording_file(call_sid):
                             recording_sid=call.recording_sid
                         )
                     else:
-                        log.info(f"[RECORDING] Download already in progress for call_sid={call_sid}, run_id={existing_run.id}")
+                        log.info(f"[RECORDING] Download already in progress for call_sid={call_sid}, job_type={existing_run.job_type}, status={existing_run.status}, run_id={existing_run.id}")
                         
                 except Exception as e:
                     log.error(f"[RECORDING] Failed to enqueue download job: {e}")
@@ -191,8 +192,9 @@ def serve_recording_file(call_sid):
                 return Response(status=404)
             return jsonify({
                 "error": "Recording file not available",
-                "message": "ההקלטה בתהליך הורדה. אנא נסה שוב בעוד מספר שניות.",
-                "message_en": "Recording is being downloaded. Please retry in a few seconds."
+                "message": "ההקלטה בתהליך הורדה מטוויליו. הורדת קבצים גדולים יכולה לקחת עד 3 דקות. אנא המתן והדף יתעדכן אוטומטית.",
+                "message_en": "Recording is being downloaded from Twilio. Large files may take up to 3 minutes. Please wait, the page will update automatically.",
+                "retry_recommended": True
             }), 404
         
         # File exists - serve it
