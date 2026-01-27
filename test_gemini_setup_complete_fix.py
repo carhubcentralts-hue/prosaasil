@@ -2,6 +2,7 @@
 Test Gemini setup_complete Event Fix
 Validates that setup_complete events are properly yielded and duplicate session.updated events are skipped
 """
+import os
 
 
 def test_setup_complete_yield():
@@ -10,8 +11,10 @@ def test_setup_complete_yield():
     print("Validating setup_complete Event Yield Fix")
     print("=" * 60)
     
-    # Read the Gemini realtime client file
-    with open('/home/runner/work/prosaasil/prosaasil/server/services/gemini_realtime_client.py', 'r') as f:
+    # Read the Gemini realtime client file using relative path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(script_dir, 'server', 'services', 'gemini_realtime_client.py')
+    with open(file_path, 'r') as f:
         content = f.read()
     
     # Test 1: Check that setup_complete creates an event
@@ -55,8 +58,10 @@ def test_duplicate_session_updated_skip():
     print("Validating Duplicate session.updated Skip")
     print("=" * 60)
     
-    # Read the media_ws_ai file
-    with open('/home/runner/work/prosaasil/prosaasil/server/media_ws_ai.py', 'r') as f:
+    # Read the media_ws_ai file using relative path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(script_dir, 'server', 'media_ws_ai.py')
+    with open(file_path, 'r') as f:
         content = f.read()
     
     # Test 1: Check that session.updated handler exists
@@ -92,8 +97,10 @@ def test_watchdog_disabled_for_gemini():
     print("Validating Watchdog Disabled for Gemini (SIMPLE MODE)")
     print("=" * 60)
     
-    # Read the media_ws_ai file
-    with open('/home/runner/work/prosaasil/prosaasil/server/media_ws_ai.py', 'r') as f:
+    # Read the media_ws_ai file using relative path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(script_dir, 'server', 'media_ws_ai.py')
+    with open(file_path, 'r') as f:
         content = f.read()
     
     # Test 1: Check that watchdog call is commented out
