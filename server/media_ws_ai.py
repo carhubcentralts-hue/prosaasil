@@ -38,7 +38,7 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata, uuid
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata, uuid, sys
 import builtins
 from dataclasses import dataclass
 from typing import Optional
@@ -46,6 +46,33 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 from server.config.voices import DEFAULT_VOICE, OPENAI_VOICES, REALTIME_VOICES  # 🎤 Voice Library
+
+# 🔥 GEMINI FIX: Global thread exception handler (Python 3.8+)
+# This catches any uncaught exceptions in threads that might otherwise be silent
+def _global_thread_exception_handler(args):
+    """
+    Global handler for uncaught exceptions in threads.
+    Logs to both logger and stdout to ensure visibility.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    exc_type, exc_value, exc_tb, thread = args.exc_type, args.exc_value, args.exc_traceback, args.thread
+    
+    _orig_print(
+        f"❌ [GEMINI_THREAD_CRASH] Uncaught exception in thread '{thread.name}': "
+        f"{exc_type.__name__}: {exc_value}",
+        flush=True
+    )
+    
+    logger.exception(
+        f"[GEMINI_THREAD_CRASH] Uncaught exception in thread '{thread.name}'",
+        exc_info=(exc_type, exc_value, exc_tb)
+    )
+
+# Install global thread exception handler (Python 3.8+)
+if sys.version_info >= (3, 8):
+    threading.excepthook = _global_thread_exception_handler
 
 # 🔥 SERVER-FIRST scheduling (Realtime, no tools):
 # ⚠️⚠️⚠️ PERMANENTLY DISABLED ⚠️⚠️⚠️
@@ -2500,6 +2527,61 @@ class MediaStreamHandler:
         except Exception as e:
             # Don't let backlog monitoring crash the call
             pass
+    
+    def _start_first_audio_watchdog(self, provider: str):
+        """
+        🔥 GEMINI WATCHDOG: Monitor for first audio chunk after RESPONSE_CREATE
+        
+        If no audio chunk arrives within 2.5 seconds after RESPONSE_CREATE (greeting),
+        log diagnostic snapshot and potentially trigger reconnect.
+        
+        Args:
+            provider: The AI provider ('gemini' or 'openai')
+        """
+        def watchdog_thread():
+            import time
+            time.sleep(2.5)  # Wait 2.5 seconds
+            
+            # Check if first audio has arrived
+            first_audio_received = getattr(self, '_greeting_audio_started_logged', False)
+            
+            if not first_audio_received:
+                # No audio received - log diagnostic snapshot
+                _orig_print(
+                    f"⚠️ [AUDIO_WATCHDOG] No audio received 2.5s after RESPONSE_CREATE!",
+                    flush=True
+                )
+                
+                # Capture diagnostic info
+                ai_provider = getattr(self, '_ai_provider', 'unknown')
+                model = getattr(self, '_model', 'unknown')
+                call_voice = getattr(self, '_call_voice', 'unknown')
+                ws_state = 'connected' if getattr(self, '_connected', False) else 'disconnected'
+                
+                # Queue sizes
+                tx_q_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                out_q_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                
+                # Last events
+                last_audio_chunk_ts = getattr(self, '_last_audio_chunk_ts', None)
+                last_audio_delta_ts = getattr(self, '_last_audio_delta_ts', None)
+                
+                _orig_print(
+                    f"📊 [WATCHDOG_SNAPSHOT] provider={ai_provider}, model={model}, voice={call_voice}, "
+                    f"ws_state={ws_state}, tx_q={tx_q_size}, out_q={out_q_size}, "
+                    f"last_audio_chunk_ts={last_audio_chunk_ts}, last_audio_delta_ts={last_audio_delta_ts}",
+                    flush=True
+                )
+                
+                logger.error(
+                    f"[AUDIO_WATCHDOG] No first audio after 2.5s - "
+                    f"provider={ai_provider}, model={model}, voice={call_voice}, "
+                    f"ws_state={ws_state}, tx_q={tx_q_size}, out_q={out_q_size}"
+                )
+        
+        # Start watchdog thread
+        watchdog = threading.Thread(target=watchdog_thread, daemon=True, name="AudioWatchdog")
+        watchdog.start()
     
     async def _maybe_hangup_voicemail(self, user_text: str):
         """
@@ -5095,6 +5177,11 @@ class MediaStreamHandler:
                 # There is NO response.create equivalent - Gemini handles turn-taking internally
                 # Calling trigger_response() for Gemini is a NO-OP by design
                 logger.info(f"🎯 [GEMINI] Auto-response mode - no explicit trigger needed ({reason})")
+                
+                # 🔥 GEMINI WATCHDOG: Start timer to detect if first audio never arrives
+                if reason == "GREETING":
+                    self._start_first_audio_watchdog(ai_provider)
+                
                 # Return True to indicate "response will come" but no API call needed
             else:
                 # OpenAI Realtime API: Send explicit response.create event
@@ -9252,6 +9339,7 @@ class MediaStreamHandler:
         
         🔥 PART C DEBUG: Added logging to trace tx=0 issues
         🔥 FIX #1: Continue draining queue even after stop flag
+        🔥 GEMINI FIX: Provider-aware logging
         """
         if not hasattr(self, 'realtime_tx_frames'):
             self.realtime_tx_frames = 0
@@ -9269,7 +9357,12 @@ class MediaStreamHandler:
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law
         audio_buffer = b''  # Rolling buffer for incomplete frames
         
-        _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
+        # 🔥 GEMINI FIX: Provider-aware startup logging
+        ai_provider = getattr(self, '_ai_provider', 'openai')
+        if ai_provider == 'gemini':
+            _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for GEMINI audio", flush=True)
+        else:
+            _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
         
         # 🔥 FIX #1: Continue until queue is empty OR sentinel received
         # 🔥 SESSION LIFECYCLE: Also check self.closed to exit immediately on session close
