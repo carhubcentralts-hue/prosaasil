@@ -24,6 +24,12 @@ def initialize_production_database():
     
     This runs automatically on app startup and is idempotent (safe to run multiple times)
     """
+    # 🔒 SECURITY: Determine environment once at function start
+    is_production = (
+        os.getenv('FLASK_ENV') == 'production' or 
+        os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+    )
+    
     try:
         logger.info("🔧 Starting database initialization...")
         
@@ -112,12 +118,7 @@ def initialize_production_database():
             logger.error(f"[INIT_DB] Database error querying admin user: {db_error}")
             raise
         
-        # 🔒 SECURITY: Check if we're in production mode
-        is_production = (
-            os.getenv('FLASK_ENV') == 'production' or 
-            os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
-        )
-        
+        # 🔒 SECURITY: Check if we're in production mode (determined at function start)
         if not admin:
             # 🔒 SECURITY: Only create admin with default password in non-production
             if is_production:
@@ -284,11 +285,7 @@ def initialize_production_database():
         
         logger.info("✅ Database initialization completed successfully!")
         
-        # 🔒 SECURITY: Only log admin credentials in non-production
-        is_production = (
-            os.getenv('FLASK_ENV') == 'production' or 
-            os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
-        )
+        # 🔒 SECURITY: Only log admin credentials in non-production (determined at function start)
         if not is_production:
             logger.info(f"📧 Admin login: admin@admin.com / admin123 (DEV MODE ONLY)")
             logger.warning("⚠️ SECURITY: Change admin password before production deployment!")

@@ -5653,7 +5653,7 @@ def apply_migrations():
                     
                     # Step 3: Update existing rows and add NOT NULL constraint
                     checkpoint("  → Step 3/3: Updating existing rows and adding NOT NULL constraint...")
-                    # Update any NULL values to the default (should be none if column was just added)
+                    # Update any NULL values to the default (should be no NULL values if column was just added)
                     db.session.execute(text("""
                         UPDATE business 
                         SET lead_tabs_config = '{}'::jsonb 
