@@ -2768,9 +2768,15 @@ def process_bulk_call_run(run_id: int):
                             log.debug(f"[BulkCall] Waiting for slot to free up, sleeping 1s")
                             time.sleep(1)
                             continue
-                        elif status in ("inflight", "already_queued"):
-                            # This job is already being processed somehow
-                            log.warning(f"[BulkCall] Job {next_job.id} already {status}, skipping")
+                        elif status == "already_queued":
+                            # 🔥 FIX: Job is already in Redis queue waiting for a slot
+                            # Don't skip - wait for it to be processed by release_slot
+                            log.debug(f"[BulkCall] Job {next_job.id} already in Redis queue, waiting for slot to free up")
+                            time.sleep(1)
+                            continue
+                        elif status == "inflight":
+                            # This job is already being processed by another worker
+                            log.warning(f"[BulkCall] Job {next_job.id} already inflight, skipping")
                             continue
                         # else: error_fallback or no_redis - proceed anyway
                     
@@ -2878,9 +2884,11 @@ def process_bulk_call_run(run_id: int):
                                 "lock_token": lock_token
                             })
                             
-                            log.error(f"[BulkCall] Lock token mismatch for job {next_job.id}, call may be duplicate")
-                            # Call was created but we lost the lock - log warning but continue
-                            # Twilio will handle the duplicate via their idempotency
+                            # 🔥 FIX: Only log error if lock token actually mismatched (rowcount == 0)
+                            if update_result.rowcount == 0:
+                                log.error(f"[BulkCall] Lock token mismatch for job {next_job.id}, call may be duplicate")
+                                # Call was created but we lost the lock - log warning but continue
+                                # Twilio will handle the duplicate via their idempotency
                             
                             call_log.call_sid = call_sid
                             db.session.commit()
