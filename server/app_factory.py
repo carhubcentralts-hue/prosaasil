@@ -831,8 +831,8 @@ def create_app():
         # Must run in app context since cleanup functions expect it
         try:
             logger.info("[STARTUP] Running cleanup on startup...")
+            from server.routes_outbound import cleanup_stuck_runs
             with app.app_context():
-                from server.routes_outbound import cleanup_stuck_runs
                 cleanup_stuck_dialing_jobs()
                 cleanup_stuck_runs()  # 🔥 NEW: Also cleanup stuck runs (ghost active queue fix)
             logger.info("[STARTUP] ✅ Cleanup complete")

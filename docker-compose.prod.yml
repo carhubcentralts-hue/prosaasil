@@ -96,6 +96,8 @@ services:
       dockerfile: Dockerfile.backend.light
     environment:
       FLASK_ENV: production
+      # 🔥 CRITICAL: Must be exactly "1" (not "true", not true, not "1" in quotes from env)
+      RUN_MIGRATIONS: "1"
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
