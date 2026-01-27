@@ -55,11 +55,11 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     
     isCheckingRef.current = true;
     
+    // 🔥 FIX: Create and store AbortController BEFORE fetch to prevent race condition
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    
     try {
-      // 🔥 FIX: Create AbortController for this check
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      
       const response = await fetch(streamUrl, {
         method: 'HEAD', // Just check if ready without downloading
         credentials: 'include',

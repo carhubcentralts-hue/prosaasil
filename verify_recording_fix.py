@@ -8,13 +8,19 @@ This script verifies that the necessary code changes are in place:
 4. Frontend uses AbortController to cancel pending requests
 """
 import re
+import os
+
+
+# Get the script directory to make paths relative
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def verify_backend_routes_calls():
     """Verify routes_calls.py has proper deduplication logic"""
     print("🔍 Checking server/routes_calls.py...")
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/routes_calls.py', 'r') as f:
+    file_path = os.path.join(SCRIPT_DIR, 'server', 'routes_calls.py')
+    with open(file_path, 'r') as f:
         content = f.read()
     
     checks = [
@@ -40,7 +46,8 @@ def verify_backend_tasks_recording():
     """Verify tasks_recording.py has proper deduplication logic"""
     print("\n🔍 Checking server/tasks_recording.py...")
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/tasks_recording.py', 'r') as f:
+    file_path = os.path.join(SCRIPT_DIR, 'server', 'tasks_recording.py')
+    with open(file_path, 'r') as f:
         content = f.read()
     
     checks = [
@@ -78,7 +85,8 @@ def verify_frontend_audio_player():
     """Verify AudioPlayer.tsx has proper guards and abort logic"""
     print("\n🔍 Checking client/src/shared/components/AudioPlayer.tsx...")
     
-    with open('/home/runner/work/prosaasil/prosaasil/client/src/shared/components/AudioPlayer.tsx', 'r') as f:
+    file_path = os.path.join(SCRIPT_DIR, 'client', 'src', 'shared', 'components', 'AudioPlayer.tsx')
+    with open(file_path, 'r') as f:
         content = f.read()
     
     checks = [
@@ -108,7 +116,8 @@ def verify_key_behaviors():
     print("\n🔍 Verifying key behaviors...")
     
     # Check that HEAD requests have abort capability
-    with open('/home/runner/work/prosaasil/prosaasil/client/src/shared/components/AudioPlayer.tsx', 'r') as f:
+    file_path = os.path.join(SCRIPT_DIR, 'client', 'src', 'shared', 'components', 'AudioPlayer.tsx')
+    with open(file_path, 'r') as f:
         content = f.read()
     
     behaviors = []
@@ -130,7 +139,8 @@ def verify_key_behaviors():
         behaviors.append(False)
     
     # Check backend DB check before Redis
-    with open('/home/runner/work/prosaasil/prosaasil/server/tasks_recording.py', 'r') as f:
+    file_path = os.path.join(SCRIPT_DIR, 'server', 'tasks_recording.py')
+    with open(file_path, 'r') as f:
         content = f.read()
     
     # Find position of DB check vs Redis check in enqueue_recording_download_only
