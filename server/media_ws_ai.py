@@ -3092,10 +3092,13 @@ class MediaStreamHandler:
                 force: Set to True to bypass hash check (for retry)
                 send_reason: Reason for send ("initial" or "retry")
             """
-            # 🔥 VOICE VALIDATION: Ensure only Realtime-supported voices are sent
-            if call_voice not in REALTIME_VOICES:
-                _orig_print(f"⚠️ [SESSION_CONFIG] CRITICAL: Invalid voice '{call_voice}' detected in _send_session_config!", flush=True)
-                logger.error(f"[SESSION_CONFIG] Invalid voice '{call_voice}' -> forcing DEFAULT_VOICE '{DEFAULT_VOICE}'")
+            # 🔥 VOICE VALIDATION: Ensure provider-appropriate voices are used
+            # OpenAI: Check against REALTIME_VOICES
+            # Gemini: Check against Gemini voice catalog
+            from server.config.voice_catalog import is_valid_voice
+            if not is_valid_voice(call_voice, ai_provider):
+                _orig_print(f"⚠️ [SESSION_CONFIG] CRITICAL: Invalid voice '{call_voice}' for provider '{ai_provider}'!", flush=True)
+                logger.error(f"[SESSION_CONFIG] Invalid voice '{call_voice}' for provider '{ai_provider}' -> forcing DEFAULT_VOICE '{DEFAULT_VOICE}'")
                 call_voice = DEFAULT_VOICE
             
             # 🔥 CRITICAL: Realtime is sensitive to heavy/dirty instructions.
@@ -3791,10 +3794,11 @@ class MediaStreamHandler:
                         call_voice = DEFAULT_VOICE
                 
                 # Validate voice is in allowed list (final safety check)
-                # 🔥 CRITICAL: Only use Realtime-supported voices to prevent session.update timeouts
-                if call_voice not in REALTIME_VOICES:
-                    logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice value={call_voice} fallback={DEFAULT_VOICE} (not in REALTIME_VOICES)")
-                    _orig_print(f"⚠️ [VOICE_VALIDATION] Rejecting unsupported voice '{call_voice}' -> fallback to '{DEFAULT_VOICE}'")
+                # 🔥 CRITICAL: Only use provider-appropriate voices to prevent session errors
+                from server.config.voice_catalog import is_valid_voice
+                if not is_valid_voice(call_voice, ai_provider):
+                    logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice value={call_voice} provider={ai_provider} fallback={DEFAULT_VOICE}")
+                    _orig_print(f"⚠️ [VOICE_VALIDATION] Rejecting unsupported voice '{call_voice}' for provider '{ai_provider}' -> fallback to '{DEFAULT_VOICE}'")
                     call_voice = DEFAULT_VOICE
             
             self._call_voice = call_voice  # Store for session.update reuse
@@ -4092,22 +4096,30 @@ class MediaStreamHandler:
                             lead_notes  # 🔥 NEW: Pass notes to context builder
                         )
                         
-                        # Inject as conversation system message
-                        name_anchor_event = await client.send_event(
-                            {
-                                "type": "conversation.item.create",
-                                "item": {
-                                    "type": "message",
-                                    "role": "system",
-                                    "content": [
-                                        {
-                                            "type": "input_text",
-                                            "text": name_anchor_text,
-                                        }
-                                    ],
-                                },
-                            }
-                        )
+                        # 🔥 FIX: NAME_ANCHOR injection only supported by OpenAI Realtime API
+                        # Gemini Live API doesn't support conversation.item.create events
+                        ai_provider = getattr(self, '_ai_provider', 'openai')
+                        if ai_provider == 'openai':
+                            # Inject as conversation system message (OpenAI only)
+                            name_anchor_event = await client.send_event(
+                                {
+                                    "type": "conversation.item.create",
+                                    "item": {
+                                        "type": "message",
+                                        "role": "system",
+                                        "content": [
+                                            {
+                                                "type": "input_text",
+                                                "text": name_anchor_text,
+                                            }
+                                        ],
+                                    },
+                                }
+                            )
+                        else:
+                            # Gemini: NAME_ANCHOR is already in system_instructions, no separate injection needed
+                            logger.info(f"[NAME_ANCHOR] Gemini provider detected - NAME_ANCHOR already in system instructions")
+                            name_anchor_event = {"item": {"id": "gemini_name_anchor"}}
                         
                         # Store injection state with hash
                         self._name_anchor_injected = True
@@ -4553,6 +4565,7 @@ class MediaStreamHandler:
                 # 🔥 UNIFIED AUDIO SENDING: Both providers use proper audio format
                 # OpenAI: client.send_audio_chunk() sends base64-encoded μ-law at 8kHz
                 # Gemini: client.send_audio() expects raw PCM16 bytes at 16kHz
+                ai_provider = getattr(self, '_ai_provider', 'openai')
                 if ai_provider == 'gemini':
                     # ✅ AUDIO VALIDATION A: Input to Gemini (Twilio → Gemini)
                     # Gemini expects PCM16 at 16kHz, mono
@@ -5242,22 +5255,30 @@ class MediaStreamHandler:
                     lead_notes  # 🔥 NEW: Pass notes to context builder
                 )
                 
-                # Re-inject NAME_ANCHOR
-                name_anchor_event = await client.send_event(
-                    {
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "message",
-                            "role": "system",
-                            "content": [
-                                {
-                                    "type": "input_text",
-                                    "text": name_anchor_text,
-                                }
-                            ],
-                        },
-                    }
-                )
+                # 🔥 FIX: NAME_ANCHOR injection only supported by OpenAI Realtime API
+                # Gemini Live API doesn't support conversation.item.create events
+                ai_provider = getattr(self, '_ai_provider', 'openai')
+                if ai_provider == 'openai':
+                    # Re-inject NAME_ANCHOR (OpenAI only)
+                    name_anchor_event = await client.send_event(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": name_anchor_text,
+                                    }
+                                ],
+                            },
+                        }
+                    )
+                else:
+                    # Gemini: NAME_ANCHOR is already in system_instructions
+                    logger.info(f"[NAME_ANCHOR] Gemini provider - NAME_ANCHOR already in system instructions")
+                    name_anchor_event = {"item": {"id": "gemini_name_anchor_update"}}
                 
                 # Update stored state with hash
                 self._name_anchor_customer_name = current_name
