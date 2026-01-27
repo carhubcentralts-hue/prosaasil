@@ -19,7 +19,7 @@ import { formatDate } from '../../shared/utils/format';
 import { useStatuses, LeadStatus } from '../../features/statuses/hooks';
 import { getStatusColor, getStatusLabel } from '../../shared/utils/status';
 import { useLeadTabsConfig } from './hooks/useLeadTabsConfig';
-import { DEFAULT_PRIMARY_TABS, DEFAULT_SECONDARY_TABS } from './constants/tabsConfig';
+import { DEFAULT_PRIMARY_TABS, ALL_AVAILABLE_TAB_KEYS } from './constants/tabsConfig';
 
 interface LeadDetailPageProps {}
 
@@ -977,7 +977,10 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         currentSecondary={
           tabsConfig?.secondary !== undefined 
             ? tabsConfig.secondary 
-            : ALL_AVAILABLE_TAB_KEYS.filter(key => !(tabsConfig?.primary || DEFAULT_PRIMARY_TABS).includes(key))
+            : (() => {
+                const primarySet = new Set(tabsConfig?.primary || DEFAULT_PRIMARY_TABS);
+                return ALL_AVAILABLE_TAB_KEYS.filter(key => !primarySet.has(key));
+              })()
         }
         onSave={handleSaveTabsConfig}
       />
