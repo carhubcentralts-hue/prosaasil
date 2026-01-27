@@ -46,7 +46,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   };
 
   // 🔥 CHECK: Use HEAD request to check if recording file exists
-  const checkRecordingReady = async (fileUrl: string, currentRetry = 0): Promise<boolean> => {
+  const checkFileAvailable = async (fileUrl: string, currentRetry = 0): Promise<boolean> => {
     // 🔥 FIX: Prevent concurrent checks - only one check at a time
     if (isCheckingRef.current) {
       console.log('[AudioPlayer] Check already in progress, skipping...');
@@ -82,7 +82,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         return new Promise((resolve) => {
           retryTimeoutRef.current = setTimeout(async () => {
             isCheckingRef.current = false; // Reset before next check
-            const ready = await checkRecordingReady(fileUrl, currentRetry + 1);
+            const ready = await checkFileAvailable(fileUrl, currentRetry + 1);
             resolve(ready);
           }, delay);
         });
@@ -118,7 +118,8 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     }
   }, []);
 
-  // 🔥 NEW: Direct streaming - convert src to /file endpoint and check availability
+  // 🔥 CRITICAL FIX: Use /file endpoint directly - no worker interaction
+  // Worker handles downloads, API just serves files that exist
   useEffect(() => {
     const loadRecording = async () => {
       try {
@@ -141,37 +142,29 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         }
 
         // Reset state
-        isCheckingRef.current = false; // 🔥 FIX: Reset checking flag
+        isCheckingRef.current = false;
         setPreparingRecording(false);
         setIsLoading(true);
         setRetryCount(0);
         setErrorMessage(null);
         setStreamUrl(null);
 
-        // If src is already a direct URL (not /stream), use it directly
-        if (!src.includes('/stream')) {
-          setStreamUrl(src);
-          setIsLoading(false);
-          return;
-        }
-
-        // For /stream URLs, add explicit_user_action parameter for security
-        const streamUrl = src.includes('?') 
-          ? `${src}&explicit_user_action=true`
-          : `${src}?explicit_user_action=true`;
+        // Use src directly - should already be /api/recordings/file/<call_sid> format
+        const fileUrl = src;
         
-        // Check if recording is ready (with retry logic)
-        const isReady = await checkRecordingReady(streamUrl, 0);
+        // Check if recording file exists (HEAD request)
+        const isReady = await checkFileAvailable(fileUrl, 0);
         
         if (isReady) {
-          // Recording is ready - use stream URL directly
-          setStreamUrl(streamUrl);
+          // Recording file exists - use it directly
+          setStreamUrl(fileUrl);
           setPreparingRecording(false);
           setIsLoading(false);
-          console.log(`[AudioPlayer] Streaming from: ${streamUrl}`);
+          console.log(`[AudioPlayer] Playing from: ${fileUrl}`);
         } else {
-          // Recording not available after retries
-          setErrorMessage('ההקלטה לא זמינה. אנא נסה שוב מאוחר יותר.');
+          // Recording file not available
+          // Show user-friendly message explaining worker will download it
+          setErrorMessage('ההקלטה בתהליך הורדה. אנא נסה שוב בעוד מספר שניות.');
           setPreparingRecording(false);
           setIsLoading(false);
         }
@@ -198,7 +191,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         retryTimeoutRef.current = null;
       }
       
-      isCheckingRef.current = false; // 🔥 FIX: Reset checking flag
+      isCheckingRef.current = false;
     };
   }, [src]);
 
