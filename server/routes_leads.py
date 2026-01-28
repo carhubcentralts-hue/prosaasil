@@ -963,6 +963,28 @@ def update_lead_status(lead_id):
         
         db.session.commit()
         
+        # ✅ SCHEDULED MESSAGES: Trigger scheduled WhatsApp messages for this status change
+        try:
+            from server.services import scheduled_messages_service
+            from server.models_sql import LeadStatus
+            
+            # Find the status_id for the new status
+            new_status_obj = LeadStatus.query.filter_by(
+                business_id=lead.tenant_id,
+                name=new_status
+            ).first()
+            
+            if new_status_obj:
+                scheduled_messages_service.schedule_messages_for_lead_status_change(
+                    business_id=lead.tenant_id,
+                    lead_id=lead_id,
+                    new_status_id=new_status_obj.id,
+                    changed_at=datetime.utcnow()
+                )
+        except Exception as e:
+            # Log error but don't fail the status update
+            logger.error(f"Failed to schedule messages for status change: {e}", exc_info=True)
+        
         # Check if webhook should be dispatched
         # Client will handle user preference (always/never/ask) and call webhook dispatch endpoint
         should_dispatch = data.get('dispatch_webhook', False)
@@ -1165,6 +1187,28 @@ def move_lead_in_kanban(lead_id):
             },
             user.get('id') if user else None
         )
+        
+        # ✅ SCHEDULED MESSAGES: Trigger scheduled WhatsApp messages for this status change
+        try:
+            from server.services import scheduled_messages_service
+            from server.models_sql import LeadStatus
+            
+            # Find the status_id for the new status
+            new_status_obj = LeadStatus.query.filter_by(
+                business_id=tenant_id,
+                name=normalized_status
+            ).first()
+            
+            if new_status_obj:
+                scheduled_messages_service.schedule_messages_for_lead_status_change(
+                    business_id=tenant_id,
+                    lead_id=lead_id,
+                    new_status_id=new_status_obj.id,
+                    changed_at=datetime.utcnow()
+                )
+        except Exception as e:
+            # Log error but don't fail the status update
+            logger.error(f"Failed to schedule messages for kanban status change: {e}", exc_info=True)
     
     # Calculate new order_index based on before/after positioning
     new_order_index = 0

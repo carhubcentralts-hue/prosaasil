@@ -6186,6 +6186,168 @@ def apply_migrations():
         checkpoint("   🎯 Created default calendars for existing businesses")
         checkpoint("   🎯 Linked existing appointments to default calendars")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 116: Add scheduled WhatsApp messages system
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 116: Adding scheduled WhatsApp messages system")
+        
+        # Step 1: Create scheduled_message_rules table
+        if not check_table_exists('scheduled_message_rules'):
+            try:
+                checkpoint("  → Creating scheduled_message_rules table...")
+                exec_ddl(db.engine, """
+                    CREATE TABLE scheduled_message_rules (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        is_active BOOLEAN DEFAULT TRUE NOT NULL,
+                        template_name VARCHAR(255),
+                        message_text TEXT NOT NULL,
+                        delay_minutes INTEGER DEFAULT 0 NOT NULL,
+                        send_window_start VARCHAR(5),
+                        send_window_end VARCHAR(5),
+                        created_by_user_id INTEGER REFERENCES users(id),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                checkpoint("  ✅ scheduled_message_rules table created")
+                
+                # Create indexes
+                if not check_index_exists('idx_scheduled_rules_business_active'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_scheduled_rules_business_active 
+                        ON scheduled_message_rules(business_id, is_active)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_rules_business_active created")
+                
+                migrations_applied.append('116_scheduled_message_rules_table')
+            except Exception as e:
+                checkpoint(f"❌ Migration 116 (scheduled_message_rules table) failed: {e}")
+                logger.error(f"Migration 116 scheduled_message_rules error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ scheduled_message_rules table already exists")
+        
+        # Step 2: Create scheduled_rule_statuses junction table
+        if not check_table_exists('scheduled_rule_statuses'):
+            try:
+                checkpoint("  → Creating scheduled_rule_statuses junction table...")
+                exec_ddl(db.engine, """
+                    CREATE TABLE scheduled_rule_statuses (
+                        id SERIAL PRIMARY KEY,
+                        rule_id INTEGER NOT NULL REFERENCES scheduled_message_rules(id) ON DELETE CASCADE,
+                        status_id INTEGER NOT NULL REFERENCES lead_statuses(id) ON DELETE CASCADE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(rule_id, status_id)
+                    )
+                """)
+                checkpoint("  ✅ scheduled_rule_statuses table created")
+                
+                # Create indexes
+                if not check_index_exists('idx_scheduled_rule_statuses_rule'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_scheduled_rule_statuses_rule 
+                        ON scheduled_rule_statuses(rule_id)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_rule_statuses_rule created")
+                
+                if not check_index_exists('idx_scheduled_rule_statuses_status'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_scheduled_rule_statuses_status 
+                        ON scheduled_rule_statuses(status_id)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_rule_statuses_status created")
+                
+                migrations_applied.append('116_scheduled_rule_statuses_table')
+            except Exception as e:
+                checkpoint(f"❌ Migration 116 (scheduled_rule_statuses table) failed: {e}")
+                logger.error(f"Migration 116 scheduled_rule_statuses error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ scheduled_rule_statuses table already exists")
+        
+        # Step 3: Create scheduled_messages_queue table
+        if not check_table_exists('scheduled_messages_queue'):
+            try:
+                checkpoint("  → Creating scheduled_messages_queue table...")
+                exec_ddl(db.engine, """
+                    CREATE TABLE scheduled_messages_queue (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        rule_id INTEGER NOT NULL REFERENCES scheduled_message_rules(id) ON DELETE CASCADE,
+                        lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                        message_text TEXT NOT NULL,
+                        remote_jid VARCHAR(255) NOT NULL,
+                        scheduled_for TIMESTAMP NOT NULL,
+                        status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+                        locked_at TIMESTAMP,
+                        sent_at TIMESTAMP,
+                        error_message TEXT,
+                        dedupe_key VARCHAR(255) UNIQUE NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                checkpoint("  ✅ scheduled_messages_queue table created")
+                
+                # Create indexes
+                if not check_index_exists('idx_scheduled_queue_scheduled_for'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_scheduled_queue_scheduled_for 
+                        ON scheduled_messages_queue(scheduled_for)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_queue_scheduled_for created")
+                
+                if not check_index_exists('idx_scheduled_queue_status'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_scheduled_queue_status 
+                        ON scheduled_messages_queue(status)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_queue_status created")
+                
+                if not check_index_exists('idx_scheduled_queue_business_status_scheduled'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_scheduled_queue_business_status_scheduled 
+                        ON scheduled_messages_queue(business_id, status, scheduled_for)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_queue_business_status_scheduled created")
+                
+                if not check_index_exists('idx_scheduled_queue_rule_status'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_scheduled_queue_rule_status 
+                        ON scheduled_messages_queue(rule_id, status)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_queue_rule_status created")
+                
+                if not check_index_exists('idx_scheduled_queue_lead'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_scheduled_queue_lead 
+                        ON scheduled_messages_queue(lead_id)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_queue_lead created")
+                
+                if not check_index_exists('idx_scheduled_queue_dedupe'):
+                    exec_ddl(db.engine, """
+                        CREATE UNIQUE INDEX idx_scheduled_queue_dedupe 
+                        ON scheduled_messages_queue(dedupe_key)
+                    """)
+                    checkpoint("  ✅ Index idx_scheduled_queue_dedupe created")
+                
+                migrations_applied.append('116_scheduled_messages_queue_table')
+            except Exception as e:
+                checkpoint(f"❌ Migration 116 (scheduled_messages_queue table) failed: {e}")
+                logger.error(f"Migration 116 scheduled_messages_queue error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ scheduled_messages_queue table already exists")
+        
+        checkpoint("✅ Migration 116 complete: Scheduled WhatsApp messages system added")
+        checkpoint("   🎯 Created scheduled_message_rules table for scheduling rules")
+        checkpoint("   🎯 Created scheduled_rule_statuses junction table for rule-status mapping")
+        checkpoint("   🎯 Created scheduled_messages_queue table for pending messages")
+        checkpoint("   🎯 All indexes and constraints created for performance and data integrity")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

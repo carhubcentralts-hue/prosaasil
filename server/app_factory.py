@@ -666,6 +666,11 @@ def create_app():
         app.register_blueprint(internal_whatsapp_bp)
         app.logger.info("✅ WhatsApp blueprints registered")
         
+        # Scheduled WhatsApp Messages - /api/scheduled-messages/*
+        from server.routes_scheduled_messages import scheduled_messages_bp
+        app.register_blueprint(scheduled_messages_bp)
+        app.logger.info("✅ Scheduled Messages blueprint registered")
+        
         # Job Health and Monitoring - /api/jobs/*
         from server.routes_jobs import jobs_bp
         app.register_blueprint(jobs_bp)

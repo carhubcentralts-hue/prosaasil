@@ -120,7 +120,23 @@ def enqueue_periodic_jobs():
     except Exception as e:
         logger.error(f"❌ Failed to enqueue reminders_tick_job: {e}")
     
-    # 2. WhatsApp sessions cleanup (every 5 minutes)
+    # 2. Scheduled messages tick (every minute) - HIGH PRIORITY
+    try:
+        from server.jobs.scheduled_messages_tick_job import scheduled_messages_tick_job
+        enqueue(
+            'default',
+            scheduled_messages_tick_job,
+            job_id=f"scheduled_messages_tick_{int(time.time())}",
+            timeout=180,  # 3 minutes
+            retry=None,  # Don't retry - next tick will handle it
+            ttl=300
+        )
+        jobs_enqueued += 1
+        logger.info("✅ Enqueued: scheduled_messages_tick_job")
+    except Exception as e:
+        logger.error(f"❌ Failed to enqueue scheduled_messages_tick_job: {e}")
+    
+    # 3. WhatsApp sessions cleanup (every 5 minutes)
     if current_minute % 5 == 0:
         try:
             from server.jobs.whatsapp_sessions_cleanup_job import whatsapp_sessions_cleanup_job
@@ -137,7 +153,7 @@ def enqueue_periodic_jobs():
         except Exception as e:
             logger.error(f"❌ Failed to enqueue whatsapp_sessions_cleanup_job: {e}")
     
-    # 3. Reminders cleanup (once per day at 3 AM)
+    # 4. Reminders cleanup (once per day at 3 AM)
     if current_hour == 3 and current_minute == 0:
         try:
             from server.jobs.reminders_tick_job import reminders_cleanup_job
@@ -154,7 +170,7 @@ def enqueue_periodic_jobs():
         except Exception as e:
             logger.error(f"❌ Failed to enqueue reminders_cleanup_job: {e}")
     
-    # 4. Recordings cleanup (once per day at 4 AM)
+    # 5. Recordings cleanup (once per day at 4 AM)
     if current_hour == 4 and current_minute == 0:
         try:
             from server.jobs.cleanup_recordings_job import cleanup_old_recordings_job
