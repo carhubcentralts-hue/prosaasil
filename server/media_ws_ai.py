@@ -2297,6 +2297,13 @@ class MediaStreamHandler:
         self._stats_last_log_ts = 0  # Last time we logged pipeline status
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
         
+        # 🔥 GEMINI AUDIO COUNTERS: Track audio flow for debugging (as per הנחיה)
+        self._gemini_twilio_frames_in = 0  # Twilio frames received
+        self._gemini_audio_bytes_sent = 0  # Bytes sent to Gemini (tracked during send)
+        self._gemini_audio_bytes_recv = 0  # Bytes received from Gemini
+        self._gemini_twilio_frames_out = 0  # Twilio frames sent out
+        logger.info("🎵 [GEMINI_COUNTERS] Audio flow counters initialized")
+        
         # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
         # 🔥 CRITICAL HOTFIX: Import MUSIC_MODE_ENABLED flag
         # Imports config values - see server/config/calls.py for tuning
@@ -2318,15 +2325,23 @@ class MediaStreamHandler:
         self._audio_guard_last_summary_ts = 0.0  # For periodic summary logs
         logger.info(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED}, MusicMode={MUSIC_MODE_ENABLED} (dynamic noise floor, speech gating, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
         
-        # 🔥 GEMINI AUDIO FIX: Buffer for frame alignment
+        # 🔥 GEMINI AUDIO FIX: Buffer for frame alignment (RECEIVING from Gemini)
         # Gemini sends PCM16 audio in chunks that may not align to frame boundaries
         # Buffer accumulates partial frames until we have complete frames to process
         # Frame size for PCM16 mono: 2 bytes per sample
-        self._gemini_audio_buffer = bytearray()  # Accumulates unaligned audio chunks
+        self._gemini_audio_buffer = bytearray()  # Accumulates unaligned audio chunks (RX)
         self._gemini_audio_frame_size = 2  # PCM16 mono: 2 bytes per sample
         self._gemini_audio_chunks_received = 0  # Track chunks for debugging
         self._gemini_audio_first_chunk_logged = False  # Log first chunk details once
-        logger.info("🎵 [GEMINI_AUDIO] Frame alignment buffer initialized (frame_size=2 for PCM16 mono)")
+        
+        # 🔥 GEMINI AUDIO INPUT BUFFER: Ensure exact 640-byte chunks (SENDING to Gemini)
+        # Gemini expects PCM16 16kHz mono: 640 bytes = 320 samples = 20ms
+        # Buffer ensures we only send properly aligned chunks (no 638 bytes!)
+        self._gemini_input_buffer = bytearray()  # Accumulates PCM16 16kHz data before sending
+        self._gemini_input_chunk_size = 640  # Target chunk size (20ms at 16kHz PCM16)
+        self._gemini_audio_bytes_sent = 0  # Track total bytes sent for debugging
+        
+        logger.info("🎵 [GEMINI_AUDIO] Frame alignment buffers initialized (RX: frame_size=2, TX: chunk_size=640)")
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -4671,15 +4686,56 @@ class MediaStreamHandler:
                 ai_provider = getattr(self, '_ai_provider', 'openai')
                 if ai_provider == 'gemini':
                     # ✅ AUDIO VALIDATION A: Input to Gemini (Twilio → Gemini)
-                    # Gemini expects PCM16 at 16kHz, mono
+                    # Gemini expects PCM16 at 16kHz, mono with proper frame alignment
+                    
                     # Step 0: Decode base64 string to raw μ-law bytes (audio_chunk is base64-encoded)
                     mulaw_bytes = base64.b64decode(audio_chunk)
-                    # Step 1: Convert μ-law 8kHz (160 samples/20ms) to PCM16 8kHz (320 bytes/20ms)
+                    
+                    # Step 1: Convert μ-law 8kHz (160 bytes/20ms) to PCM16 8kHz (320 bytes/20ms)
                     pcm16_8k = mulaw_to_pcm16_fast(mulaw_bytes)
-                    # Step 2: Resample from 8kHz to 16kHz for Gemini (320→640 bytes/20ms)
+                    
+                    # Step 2: Resample from 8kHz to 16kHz for Gemini (320 bytes→640 bytes/20ms)
                     # audioop.ratecv preserves 20ms frame duration by doubling samples
-                    pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
-                    await client.send_audio(pcm16_16k, end_of_turn=False)
+                    pcm16_16k, state = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)
+                    
+                    # 🔥 FIX: Buffer and align to exact chunk sizes (640, 1280, 1920...)
+                    # Add to buffer
+                    self._gemini_input_buffer.extend(pcm16_16k)
+                    
+                    # Extract complete chunks of exactly 640 bytes (or multiples)
+                    buffer_len = len(self._gemini_input_buffer)
+                    chunk_size = self._gemini_input_chunk_size  # 640 bytes
+                    
+                    # Send all complete chunks we have
+                    while buffer_len >= chunk_size:
+                        # Extract exactly chunk_size bytes
+                        chunk_to_send = bytes(self._gemini_input_buffer[:chunk_size])
+                        
+                        # Remove from buffer
+                        self._gemini_input_buffer = self._gemini_input_buffer[chunk_size:]
+                        buffer_len = len(self._gemini_input_buffer)
+                        
+                        # Validate chunk size (MUST be multiple of 2 for PCM16)
+                        if len(chunk_to_send) % 2 != 0:
+                            logger.error(f"❌ [GEMINI_SEND] Invalid chunk size {len(chunk_to_send)} (not multiple of 2)")
+                            continue
+                        
+                        # Send to Gemini
+                        await client.send_audio(chunk_to_send, end_of_turn=False)
+                        
+                        # Track bytes sent
+                        self._gemini_audio_bytes_sent += len(chunk_to_send)
+                        
+                        # Log first few chunks
+                        if self._gemini_audio_bytes_sent <= chunk_size * 3:
+                            logger.info(f"🎤 [GEMINI_SEND] Sent chunk: {len(chunk_to_send)} bytes (total: {self._gemini_audio_bytes_sent} bytes)")
+                    
+                    # Log buffer state if accumulating
+                    if buffer_len > 0 and buffer_len < chunk_size:
+                        if not hasattr(self, '_gemini_buffer_warned') or self._gemini_buffer_warned is False:
+                            logger.debug(f"[GEMINI_SEND] Buffering partial chunk: {buffer_len}/{chunk_size} bytes")
+                            self._gemini_buffer_warned = True
+                
                 else:
                     # OpenAI takes μ-law directly at 8kHz (160 bytes/20ms)
                     await client.send_audio_chunk(audio_chunk)
@@ -4853,6 +4909,9 @@ class MediaStreamHandler:
                 
                 # Track chunks
                 self._gemini_audio_chunks_received += 1
+                
+                # 🔥 GEMINI COUNTER: Track bytes received from Gemini
+                self._gemini_audio_bytes_recv += len(audio_bytes)
                 
                 # Add incoming chunk to buffer
                 self._gemini_audio_buffer.extend(audio_bytes)
@@ -5268,15 +5327,17 @@ class MediaStreamHandler:
                 
                 # 🔥 GEMINI GREETING FIX: For GREETING reason, send an empty text to trigger response
                 # WHY EMPTY TEXT: Gemini Live API is VAD-based (auto-responds on user input).
-                # For bot-speaks-first scenarios, sending empty text signals "start speaking now"
-                # without adding any content to the conversation context.
+                # For bot-speaks-first scenarios, sending text signals "start speaking now"
                 # This is the equivalent of OpenAI's response.create for Gemini.
+                # 🔥 FIX: Send proper text instead of empty string to ensure Gemini starts speaking
+                # Empty text can cause issues with function_call events
                 if reason == "GREETING" or is_greeting:
                     try:
-                        # Send empty text to trigger Gemini to start speaking
-                        await _client.send_text("")
-                        logger.info(f"🎯 [GEMINI_SEND] greeting_trigger: sent empty text to start greeting")
-                        _orig_print(f"🎯 [GEMINI_SEND] greeting_trigger: sent empty text to start bot-speaks-first", flush=True)
+                        # Send short greeting trigger text to start conversation
+                        # Using Hebrew "התחל שיחה עכשיו" (Start conversation now)
+                        await _client.send_text("התחל שיחה עכשיו")
+                        logger.info(f"🎯 [GEMINI_SEND] greeting_trigger: sent text to start greeting")
+                        _orig_print(f"🎯 [GEMINI_SEND] greeting_trigger: sent 'התחל שיחה עכשיו' to start bot-speaks-first", flush=True)
                     except Exception as e:
                         logger.error(f"❌ [GEMINI_SEND] Failed to send greeting trigger: {e}")
                         logger.exception(f"[GEMINI_THREAD_CRASH] Exception in greeting trigger", exc_info=True)
@@ -10545,6 +10606,11 @@ class MediaStreamHandler:
                     
                     # 🔥 REMOVED: greeting_lock frame dropping - all frames are now processed
                     
+                    # 🔥 GEMINI COUNTER: Track incoming Twilio frames
+                    ai_provider = getattr(self, '_ai_provider', 'openai')
+                    if ai_provider == 'gemini':
+                        self._gemini_twilio_frames_in += 1
+                    
                     b64 = evt["media"]["payload"]
                     mulaw = base64.b64decode(b64)
                     # ⚡ SPEED: Fast μ-law decode using lookup table (~10-20x faster)
@@ -15504,7 +15570,9 @@ class MediaStreamHandler:
             gemini_function_calls = event.get('_gemini_function_calls', [])
             
             if not gemini_function_calls:
-                logger.warning(f"⚠️ [GEMINI] No function_calls in event")
+                # 🔥 FIX: This is NOT an error - Gemini sends tool_call events without function_calls
+                # for various reasons (e.g., empty greeting trigger). Don't spam logs.
+                logger.debug(f"[GEMINI] tool_call event has no function_calls (likely empty greeting trigger)")
                 return
             
             logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
@@ -16698,6 +16766,12 @@ class MediaStreamHandler:
                     if success:
                         self.tx += 1
                         frames_sent_total += 1
+                        
+                        # 🔥 GEMINI COUNTER: Track frames sent to Twilio
+                        ai_provider = getattr(self, '_ai_provider', 'openai')
+                        if ai_provider == 'gemini':
+                            self._gemini_twilio_frames_out += 1
+                        
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             self._first_audio_sent = True
@@ -17455,6 +17529,28 @@ class MediaStreamHandler:
             logger.info(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
             logger.info(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
             logger.info(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
+            
+            # 🔥 GEMINI AUDIO COUNTERS: Log audio flow for debugging (as per הנחיה)
+            ai_provider = getattr(self, '_ai_provider', 'openai')
+            if ai_provider == 'gemini':
+                gemini_frames_in = getattr(self, '_gemini_twilio_frames_in', 0)
+                gemini_bytes_sent = getattr(self, '_gemini_audio_bytes_sent', 0)
+                gemini_bytes_recv = getattr(self, '_gemini_audio_bytes_recv', 0)
+                gemini_frames_out = getattr(self, '_gemini_twilio_frames_out', 0)
+                logger.info(f"🎵 [GEMINI_COUNTERS] Audio flow summary:")
+                logger.info(f"   twilio_frames_in: {gemini_frames_in}")
+                logger.info(f"   gemini_audio_bytes_sent: {gemini_bytes_sent}")
+                logger.info(f"   gemini_audio_bytes_recv: {gemini_bytes_recv}")
+                logger.info(f"   twilio_frames_out: {gemini_frames_out}")
+                
+                # 🔥 DIAGNOSTIC: If bytes sent > 0 but bytes received == 0, there's a problem
+                if gemini_bytes_sent > 0 and gemini_bytes_recv == 0:
+                    logger.error(f"❌ [GEMINI_DIAGNOSTIC] Audio sent but NO audio received after 3+ seconds! Problem with config/turn start/receive parser")
+                
+                # 🔥 DIAGNOSTIC: If bytes sent is not in multiples of expected, there's framing issues
+                if gemini_bytes_sent > 0 and gemini_bytes_sent % 640 != 0:
+                    logger.warning(f"⚠️ [GEMINI_DIAGNOSTIC] Total bytes sent ({gemini_bytes_sent}) not multiple of 640 - framing/buffering issue")
+            
             if SIMPLE_MODE and frames_dropped_total > 0:
                 logger.warning(f"   ⚠️ NOTE: SIMPLE_MODE drops detected - {frames_dropped_total} frames (see breakdown above)")
             
