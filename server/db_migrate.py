@@ -5692,6 +5692,223 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ business table does not exist - skipping Migration 112")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 113: Enhance OutboundCallRun with tracking fields and security
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 113: Enhancing OutboundCallRun with tracking fields and security constraints")
+        
+        if check_table_exists('outbound_call_runs'):
+            try:
+                # Add created_by_user_id if it doesn't exist
+                if not check_column_exists('outbound_call_runs', 'created_by_user_id'):
+                    checkpoint("  → Adding created_by_user_id column...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_runs 
+                        ADD COLUMN created_by_user_id INTEGER REFERENCES users(id)
+                    """)
+                    checkpoint("  ✅ created_by_user_id column added")
+                else:
+                    checkpoint("  ℹ️ created_by_user_id column already exists")
+                
+                # Add started_at if it doesn't exist
+                if not check_column_exists('outbound_call_runs', 'started_at'):
+                    checkpoint("  → Adding started_at column...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_runs 
+                        ADD COLUMN started_at TIMESTAMP
+                    """)
+                    checkpoint("  ✅ started_at column added")
+                else:
+                    checkpoint("  ℹ️ started_at column already exists")
+                
+                # Add ended_at if it doesn't exist
+                if not check_column_exists('outbound_call_runs', 'ended_at'):
+                    checkpoint("  → Adding ended_at column...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_runs 
+                        ADD COLUMN ended_at TIMESTAMP
+                    """)
+                    checkpoint("  ✅ ended_at column added")
+                else:
+                    checkpoint("  ℹ️ ended_at column already exists")
+                
+                # Add cursor_position if it doesn't exist
+                if not check_column_exists('outbound_call_runs', 'cursor_position'):
+                    checkpoint("  → Adding cursor_position column...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_runs 
+                        ADD COLUMN cursor_position INTEGER DEFAULT 0
+                    """)
+                    checkpoint("  ✅ cursor_position column added")
+                else:
+                    checkpoint("  ℹ️ cursor_position column already exists")
+                
+                # Add locked_by_worker if it doesn't exist
+                if not check_column_exists('outbound_call_runs', 'locked_by_worker'):
+                    checkpoint("  → Adding locked_by_worker column...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_runs 
+                        ADD COLUMN locked_by_worker VARCHAR(128)
+                    """)
+                    checkpoint("  ✅ locked_by_worker column added")
+                else:
+                    checkpoint("  ℹ️ locked_by_worker column already exists")
+                
+                # Add lock_ts if it doesn't exist
+                if not check_column_exists('outbound_call_runs', 'lock_ts'):
+                    checkpoint("  → Adding lock_ts column...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_runs 
+                        ADD COLUMN lock_ts TIMESTAMP
+                    """)
+                    checkpoint("  ✅ lock_ts column added")
+                else:
+                    checkpoint("  ℹ️ lock_ts column already exists")
+                
+                migrations_applied.append('113_outbound_run_tracking')
+                checkpoint("✅ Migration 113 (part 1): OutboundCallRun tracking fields added")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 113 (tracking fields) failed: {e}")
+                logger.error(f"Migration 113 tracking fields error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ outbound_call_runs table does not exist - skipping tracking fields")
+        
+        # Add unique constraint on (run_id, lead_id) in outbound_call_jobs
+        if check_table_exists('outbound_call_jobs'):
+            try:
+                # Check if constraint exists
+                from sqlalchemy import text
+                constraint_check = db.session.execute(text("""
+                    SELECT 1 FROM pg_constraint 
+                    WHERE conname='unique_run_lead'
+                """)).fetchone()
+                
+                if not constraint_check:
+                    checkpoint("  → Adding unique constraint on (run_id, lead_id)...")
+                    
+                    # First, remove any existing duplicates (keep oldest)
+                    # 🔒 SAFETY: Handle NULL values correctly (NULL != NULL in SQL)
+                    checkpoint("  → Removing duplicate jobs (keeping oldest)...")
+                    result = db.session.execute(text("""
+                        DELETE FROM outbound_call_jobs a
+                        USING outbound_call_jobs b
+                        WHERE a.id > b.id
+                          AND a.run_id = b.run_id
+                          AND a.lead_id = b.lead_id
+                          AND a.run_id IS NOT NULL
+                          AND a.lead_id IS NOT NULL
+                    """))
+                    deleted_count = result.rowcount
+                    if deleted_count > 0:
+                        checkpoint(f"  ℹ️ Removed {deleted_count} duplicate jobs")
+                    db.session.commit()
+                    
+                    # Now add the unique constraint
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_jobs 
+                        ADD CONSTRAINT unique_run_lead UNIQUE (run_id, lead_id)
+                    """)
+                    checkpoint("  ✅ unique_run_lead constraint added")
+                    migrations_applied.append('113_outbound_unique_constraint')
+                else:
+                    checkpoint("  ℹ️ unique_run_lead constraint already exists")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 113 (unique constraint) failed: {e}")
+                logger.error(f"Migration 113 unique constraint error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ outbound_call_jobs table does not exist - skipping unique constraint")
+        
+        # Add business_id to outbound_call_jobs if missing (for extra isolation)
+        if check_table_exists('outbound_call_jobs'):
+            try:
+                if not check_column_exists('outbound_call_jobs', 'business_id'):
+                    checkpoint("  → Adding business_id to outbound_call_jobs...")
+                    
+                    # Add business_id with a temporary nullable constraint
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_jobs 
+                        ADD COLUMN business_id INTEGER
+                    """)
+                    checkpoint("  ✅ business_id column added")
+                    
+                    # Populate from parent run
+                    # 🔒 SAFETY: Only update jobs that have a valid parent run with non-NULL business_id
+                    checkpoint("  → Populating business_id from parent runs...")
+                    from sqlalchemy import text
+                    result = db.session.execute(text("""
+                        UPDATE outbound_call_jobs 
+                        SET business_id = subquery.business_id
+                        FROM (
+                            SELECT ocr.id as run_id, ocr.business_id
+                            FROM outbound_call_runs ocr
+                            WHERE ocr.business_id IS NOT NULL
+                        ) as subquery
+                        WHERE outbound_call_jobs.run_id = subquery.run_id
+                          AND outbound_call_jobs.business_id IS NULL
+                    """))
+                    updated_count = result.rowcount
+                    checkpoint(f"  ℹ️ Updated {updated_count} jobs with business_id")
+                    
+                    # Check for orphaned jobs without business_id
+                    orphaned_check = db.session.execute(text("""
+                        SELECT COUNT(*) FROM outbound_call_jobs 
+                        WHERE business_id IS NULL
+                    """)).scalar()
+                    
+                    if orphaned_check > 0:
+                        checkpoint(f"  ⚠️ WARNING: {orphaned_check} orphaned jobs found without valid parent run")
+                        checkpoint(f"     These jobs will need manual cleanup or will fail the NOT NULL constraint")
+                        # Delete orphaned jobs to allow migration to proceed
+                        db.session.execute(text("""
+                            DELETE FROM outbound_call_jobs 
+                            WHERE business_id IS NULL
+                        """))
+                        checkpoint(f"  ℹ️ Deleted {orphaned_check} orphaned jobs")
+                    
+                    db.session.commit()
+                    
+                    # Make it NOT NULL and add FK
+                    checkpoint("  → Adding NOT NULL constraint and foreign key...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_jobs 
+                        ALTER COLUMN business_id SET NOT NULL
+                    """)
+                    
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_jobs 
+                        ADD CONSTRAINT fk_outbound_call_jobs_business 
+                        FOREIGN KEY (business_id) REFERENCES business(id)
+                    """)
+                    
+                    # Add index for performance
+                    if not check_index_exists('idx_outbound_call_jobs_business_id'):
+                        exec_ddl(db.engine, """
+                            CREATE INDEX idx_outbound_call_jobs_business_id 
+                            ON outbound_call_jobs(business_id)
+                        """)
+                        checkpoint("  ✅ Index idx_outbound_call_jobs_business_id created")
+                    
+                    checkpoint("  ✅ business_id column with FK and index added")
+                    migrations_applied.append('113_outbound_business_isolation')
+                else:
+                    checkpoint("  ℹ️ business_id column already exists in outbound_call_jobs")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 113 (business_id) failed: {e}")
+                logger.error(f"Migration 113 business_id error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ outbound_call_jobs table does not exist - skipping business_id")
+        
+        checkpoint("✅ Migration 113 complete: Outbound call queue system enhanced with security")
+        checkpoint("   🎯 Added tracking fields: created_by_user_id, started_at, ended_at, cursor_position, locked_by_worker, lock_ts")
+        checkpoint("   🎯 Added unique constraint to prevent duplicate calls")
+        checkpoint("   🎯 Added business_id to jobs for complete business isolation")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
