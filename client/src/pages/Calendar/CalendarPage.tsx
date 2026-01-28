@@ -42,6 +42,7 @@ interface Appointment {
   contact_phone?: string;
   customer_id?: number;
   lead_id?: number;  // ✅ NEW: Link to lead for navigation
+  calendar_id?: number;  // ✅ NEW: Link to calendar
   source: 'manual' | 'phone_call' | 'whatsapp' | 'ai_suggested';
   auto_generated: boolean;
   call_summary?: string;  // ✅ BUILD 144: AI-generated summary from source call
@@ -568,6 +569,10 @@ export function CalendarPage() {
       contact_name: '',
       contact_phone: ''
     });
+    // Fetch calendars if not already loaded
+    if (calendars.length === 0) {
+      fetchCalendars();
+    }
     setShowAppointmentModal(true);
   };
 
@@ -611,8 +616,13 @@ export function CalendarPage() {
       appointment_type: appointment.appointment_type,
       priority: appointment.priority,
       contact_name: appointment.contact_name || '',
-      contact_phone: appointment.contact_phone || ''
+      contact_phone: appointment.contact_phone || '',
+      calendar_id: appointment.calendar_id
     });
+    // Fetch calendars if not already loaded
+    if (calendars.length === 0) {
+      fetchCalendars();
+    }
     setShowAppointmentModal(true);
   };
 
@@ -1524,6 +1534,25 @@ export function CalendarPage() {
                     <option value="medium">בינוני</option>
                     <option value="high">גבוה</option>
                     <option value="urgent">דחוף</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    לוח שנה
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.calendar_id || ''}
+                    onChange={(e) => setFormData({...formData, calendar_id: e.target.value ? parseInt(e.target.value) : undefined})}
+                    data-testid="select-calendar"
+                  >
+                    <option value="">בחר לוח שנה (אופציונלי)</option>
+                    {calendars.filter(c => c.is_active).map(calendar => (
+                      <option key={calendar.id} value={calendar.id}>
+                        {calendar.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
