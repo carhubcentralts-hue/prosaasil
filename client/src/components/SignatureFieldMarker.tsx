@@ -17,6 +17,9 @@ export interface SignatureField {
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
 const MIN_PDF_CONTAINER_HEIGHT = 400; // Minimum height for PDF container (px)
 const ERROR_LOADING_PDF_INFO = 'שגיאה בטעינת מידע על PDF';
+const IFRAME_PADDING_PX = 16; // Padding around iframe (matches p-4 class = 1rem = 16px)
+const DEFAULT_SIGNATURE_WIDTH_PX = 150; // Default signature width in pixels
+const DEFAULT_SIGNATURE_HEIGHT_PX = 50; // Default signature height in pixels
 
 interface SignatureFieldMarkerProps {
   contractId: number;
@@ -144,21 +147,18 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     }
     
     const iframeRect = iframe.getBoundingClientRect();
-    const containerRect = pdfContainerRef.current.getBoundingClientRect();
     
-    // Get click position relative to iframe (not container)
+    logger.debug('[SignatureFieldMarker] Click at', { clickX: e.clientX, clickY: e.clientY, iframeWidth: iframeRect.width, iframeHeight: iframeRect.height, pdfPageWidth, pdfPageHeight });
+    
+    // Get click position relative to iframe
     const clickX = e.clientX - iframeRect.left;
     const clickY = e.clientY - iframeRect.top;
     
-    logger.debug('[SignatureFieldMarker] Click at', { clickX, clickY, iframeWidth: iframeRect.width, iframeHeight: iframeRect.height, pdfPageWidth, pdfPageHeight });
-    
-    // The iframe displays the PDF with browser's built-in viewer
-    // The PDF is scaled to fit the iframe width (view=FitH)
-    // Calculate the scale factor
+    // The iframe displays the PDF with view=FitH (fit horizontally)
+    // Calculate the scale factor based on width, and use it for both X and Y
     const displayScale = iframeRect.width / pdfPageWidth;
-    const displayedPageHeight = pdfPageHeight * displayScale;
     
-    // Convert click coordinates from display pixels to PDF points, then normalize
+    // Convert click coordinates from display pixels to PDF points
     const pdfX = clickX / displayScale;
     const pdfY = clickY / displayScale;
     
@@ -181,11 +181,9 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     }
 
     // Create new signature field at click location
-    // Default signature size: 150px width, 50px height at 72 DPI (PDF standard)
-    const defaultWidthPx = 150;
-    const defaultHeightPx = 50;
-    const defaultW = defaultWidthPx / pdfPageWidth;
-    const defaultH = defaultHeightPx / pdfPageHeight;
+    // Default signature size in pixels, then convert to normalized based on PDF page dimensions
+    const defaultW = DEFAULT_SIGNATURE_WIDTH_PX / pdfPageWidth;
+    const defaultH = DEFAULT_SIGNATURE_HEIGHT_PX / pdfPageHeight;
     
     const newField: SignatureField = {
       id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
@@ -390,16 +388,22 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     if (!iframe) return null;
     
     const iframeRect = iframe.getBoundingClientRect();
+    
+    // Calculate display scale (same as used in click handler)
     const displayScale = iframeRect.width / pdfPageWidth;
+    
+    // Calculate displayed PDF dimensions based on scale
+    const displayedPageWidth = iframeRect.width;
     const displayedPageHeight = pdfPageHeight * displayScale;
 
     return getCurrentPageFields().map((field) => {
       const fieldNumber = fieldIndexMap.get(field.id) || 1;
       
       // Convert normalized coordinates (0-1) to display pixels
-      const displayX = field.x * iframeRect.width;
+      // Use displayed page dimensions, not iframe dimensions
+      const displayX = field.x * displayedPageWidth;
       const displayY = field.y * displayedPageHeight;
-      const displayW = field.w * iframeRect.width;
+      const displayW = field.w * displayedPageWidth;
       const displayH = field.h * displayedPageHeight;
 
       return (
@@ -444,19 +448,19 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
           {selectedFieldId === field.id && (
             <>
               <div 
-                className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
+                className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'tr')}
               />
               <div 
-                className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
+                className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'tl')}
               />
               <div 
-                className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
+                className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'br')}
               />
               <div 
-                className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
+                className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'bl')}
               />
             </>
@@ -590,13 +594,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                   {/* Transparent overlay for capturing clicks - Positioned exactly over iframe */}
                   {signatureMarkingMode && iframeLoaded && iframeRef.current && pdfPageDimensions[currentPage - 1] && (
                     <div
-                      className="absolute cursor-crosshair transition-all"
+                      className="absolute inset-4 cursor-crosshair transition-all"
                       style={{
-                        // Position overlay to exactly match iframe bounds
-                        left: '16px', // matches p-4 (1rem = 16px)
-                        top: '16px',
-                        right: '16px',
-                        bottom: '16px',
                         backgroundColor: 'rgba(34, 197, 94, 0.08)', // Subtle green tint
                         pointerEvents: 'auto',
                         backgroundImage: 'radial-gradient(circle, rgba(34, 197, 94, 0.15) 1px, transparent 1px)',
@@ -615,13 +614,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                   {/* Overlay for existing signature fields - always visible */}
                   {!signatureMarkingMode && iframeLoaded && iframeRef.current && pdfPageDimensions[currentPage - 1] && (
                     <div
-                      className="absolute"
+                      className="absolute inset-4"
                       style={{
-                        // Position overlay to exactly match iframe bounds
-                        left: '16px',
-                        top: '16px',
-                        right: '16px',
-                        bottom: '16px',
                         pointerEvents: 'none', // Don't block PDF interaction
                         zIndex: 2,
                       }}
