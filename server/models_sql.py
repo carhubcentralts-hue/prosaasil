@@ -1980,3 +1980,116 @@ class BackgroundJob(db.Model):
             'broadcast'
         )""", name='chk_job_type'),
     )
+
+
+# === SCHEDULED WHATSAPP MESSAGES SYSTEM ===
+
+class ScheduledMessageRule(db.Model):
+    """
+    Scheduling rule defining "who, what, when" for WhatsApp messages
+    Creates pending messages when leads enter specified statuses
+    """
+    __tablename__ = "scheduled_message_rules"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Rule configuration
+    name = db.Column(db.String(255), nullable=False)  # User-friendly name
+    is_active = db.Column(db.Boolean, default=True, index=True)  # Enable/disable rule
+    
+    # WhatsApp template to send (for future use - currently will send plain text)
+    template_name = db.Column(db.String(255))  # Template identifier
+    message_text = db.Column(db.Text, nullable=False)  # Message content
+    
+    # Timing configuration
+    delay_minutes = db.Column(db.Integer, nullable=False, default=0)  # Delay after status change
+    send_window_start = db.Column(db.String(5))  # Optional: e.g., "09:00"
+    send_window_end = db.Column(db.String(5))  # Optional: e.g., "20:00"
+    
+    # Metadata
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref="scheduled_message_rules")
+    created_by = db.relationship("User", backref="created_scheduled_rules")
+    statuses = db.relationship(
+        "LeadStatus",
+        secondary="scheduled_rule_statuses",
+        backref="scheduled_rules"
+    )
+    
+    __table_args__ = (
+        db.Index('idx_business_active', 'business_id', 'is_active'),
+    )
+
+
+class ScheduledRuleStatus(db.Model):
+    """
+    Junction table: many-to-many relationship between rules and lead statuses
+    A rule can trigger on multiple statuses, and a status can have multiple rules
+    """
+    __tablename__ = "scheduled_rule_statuses"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    rule_id = db.Column(db.Integer, db.ForeignKey("scheduled_message_rules.id", ondelete="CASCADE"), nullable=False, index=True)
+    status_id = db.Column(db.Integer, db.ForeignKey("lead_statuses.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Unique constraint: one rule-status pair only
+    __table_args__ = (
+        db.UniqueConstraint('rule_id', 'status_id', name='_rule_status_uc'),
+    )
+
+
+class ScheduledMessagesQueue(db.Model):
+    """
+    Queue of scheduled WhatsApp messages to be sent
+    Each row represents one future send for a specific lead
+    """
+    __tablename__ = "scheduled_messages_queue"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    rule_id = db.Column(db.Integer, db.ForeignKey("scheduled_message_rules.id", ondelete="CASCADE"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Message details
+    message_text = db.Column(db.Text, nullable=False)  # Rendered message text
+    remote_jid = db.Column(db.String(255), nullable=False)  # WhatsApp JID (phone@s.whatsapp.net)
+    
+    # Scheduling
+    scheduled_for = db.Column(db.DateTime, nullable=False, index=True)  # When to send
+    
+    # Status tracking
+    status = db.Column(
+        db.String(20), 
+        nullable=False, 
+        default='pending',
+        index=True
+    )  # pending|sent|failed|canceled
+    
+    locked_at = db.Column(db.DateTime)  # Claim timestamp (prevents double-send)
+    sent_at = db.Column(db.DateTime)  # Actual send timestamp
+    error_message = db.Column(db.Text)  # Error details if failed
+    
+    # Deduplication key (CRITICAL for idempotency)
+    dedupe_key = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref="scheduled_messages")
+    rule = db.relationship("ScheduledMessageRule", backref="scheduled_messages")
+    lead = db.relationship("Lead", backref="scheduled_messages")
+    
+    __table_args__ = (
+        db.Index('idx_business_status_scheduled', 'business_id', 'status', 'scheduled_for'),
+        db.Index('idx_rule_status', 'rule_id', 'status'),
+    )
