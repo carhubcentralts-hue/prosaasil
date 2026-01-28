@@ -79,16 +79,19 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       });
 
       if (response.ok || response.status === 206) {
-        // File exists and is ready
+        // File exists and is ready (200 or 206 partial content)
         isCheckingRef.current = false;
         return true;
       }
 
-      if (response.status === 404 && currentRetry < MAX_RETRIES) {
-        // 404 - file not yet downloaded by worker, retry with backoff
-        const delay = getRetryDelay(currentRetry);
+      if (response.status === 202 && currentRetry < MAX_RETRIES) {
+        // 🔥 NEW: 202 Accepted - file is being prepared, retry with backoff
+        // Extract Retry-After header if present (in seconds)
+        const retryAfterHeader = response.headers.get('Retry-After');
+        const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : getRetryDelay(currentRetry);
+        
         const totalWaitSoFar = calculateTotalWaitTime(currentRetry);
-        console.log(`[AudioPlayer] File not ready (404), retrying in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES}, waited ${Math.floor(totalWaitSoFar)}s so far)`);
+        console.log(`[AudioPlayer] File being prepared (202), retrying in ${retryAfter/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES}, waited ${Math.floor(totalWaitSoFar)}s so far)`);
         setRetryCount(currentRetry + 1);
         setPreparingRecording(true);
         
@@ -97,8 +100,15 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
             isCheckingRef.current = false; // Reset before next check
             const ready = await checkFileAvailable(fileUrl, currentRetry + 1);
             resolve(ready);
-          }, delay);
+          }, retryAfter);
         });
+      }
+
+      if (response.status === 404) {
+        // 🔥 NEW: 404 means recording truly doesn't exist - don't retry
+        console.log('[AudioPlayer] Recording not found (404) - stopping retries');
+        isCheckingRef.current = false;
+        return false;
       }
 
       // Other error or max retries reached
@@ -180,10 +190,12 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
           // Show user-friendly message with retry option
           const totalWaitTime = calculateTotalWaitTime(retryCount);
           setErrorMessage(
-            `ההקלטה עדיין בתהליך הורדה (חיכינו ${Math.floor(totalWaitTime)} שניות). ` +
-            `זה יכול לקחת עד 3 דקות להקלטות ארוכות.`
+            retryCount > 0 
+              ? `ההקלטה עדיין בתהליך הכנה (חיכינו ${Math.floor(totalWaitTime)} שניות). ` +
+                `זה יכול לקחת עד 3 דקות להקלטות ארוכות.`
+              : 'ההקלטה לא נמצאה. ייתכן שלא קיימת הקלטה לשיחה זו.'
           );
-          setManualRetryAvailable(true);
+          setManualRetryAvailable(retryCount > 0);
           setPreparingRecording(false);
           setIsLoading(false);
         }

@@ -112,6 +112,113 @@ def get_active_recording_runs():
     })
 
 
+@recordings_bp.route('/<call_sid>/prepare', methods=['POST'])
+@require_api_auth
+def prepare_recording(call_sid):
+    """
+    🔥 NEW: Prepare recording endpoint - ensures recording job is queued/processing
+    
+    This endpoint ensures there's a job to download/prepare the recording file.
+    Returns the current status of the recording preparation.
+    
+    Returns:
+    - 202 Accepted with {"status": "queued"|"processing"|"ready"}
+    - 404 if call doesn't exist or doesn't belong to user
+    """
+    try:
+        business_id = g.business_id
+        if not business_id:
+            return jsonify({"error": "Business ID required"}), 400
+        
+        # Check if call exists and belongs to this business
+        call = CallLog.query.filter(
+            CallLog.call_sid == call_sid,
+            CallLog.business_id == business_id
+        ).first()
+        
+        if not call:
+            log.warning(f"Prepare recording: Call not found call_sid={call_sid}, business_id={business_id}")
+            return jsonify({"error": "Recording not found"}), 404
+        
+        # Check if file already exists locally
+        if check_local_recording_exists(call_sid):
+            log.info(f"[PREPARE] Recording already ready for call_sid={call_sid}")
+            return jsonify({
+                "status": "ready",
+                "message": "Recording is ready for playback",
+                "message_he": "ההקלטה מוכנה לניגון"
+            }), 202
+        
+        # Check if recording URL exists
+        if not call.recording_url:
+            log.warning(f"[PREPARE] No recording_url for call_sid={call_sid}")
+            return jsonify({"error": "No recording available for this call"}), 404
+        
+        # Check for existing job
+        existing_run = RecordingRun.query.filter(
+            RecordingRun.call_sid == call_sid,
+            RecordingRun.job_type.in_(['download', 'full']),
+            RecordingRun.status.in_(['queued', 'running'])
+        ).first()
+        
+        if existing_run:
+            # Job already exists
+            log.info(f"[PREPARE] Job already exists for call_sid={call_sid}, status={existing_run.status}")
+            status = "processing" if existing_run.status == "running" else "queued"
+            return jsonify({
+                "status": status,
+                "run_id": existing_run.id,
+                "message": f"Recording is being prepared ({status})",
+                "message_he": f"ההקלטה בתהליך הכנה ({status})"
+            }), 202
+        
+        # Create new download job
+        try:
+            from server.tasks_recording import enqueue_recording_download_only
+            
+            run_id = enqueue_recording_download_only(
+                call_sid=call_sid,
+                recording_url=call.recording_url,
+                business_id=business_id,
+                from_number=call.from_number or "",
+                to_number=call.to_number or "",
+                recording_sid=call.recording_sid
+            )
+            
+            if run_id:
+                log.info(f"[PREPARE] Created download job for call_sid={call_sid}, run_id={run_id}")
+                return jsonify({
+                    "status": "queued",
+                    "run_id": run_id,
+                    "message": "Recording download job created",
+                    "message_he": "משימת הורדת הקלטה נוצרה"
+                }), 202
+            else:
+                log.warning(f"[PREPARE] Failed to create job for call_sid={call_sid}")
+                return jsonify({
+                    "status": "queued",
+                    "message": "Recording preparation initiated",
+                    "message_he": "הכנת ההקלטה החלה"
+                }), 202
+                
+        except Exception as e:
+            log.error(f"[PREPARE] Error creating job for call_sid={call_sid}: {e}")
+            return jsonify({
+                "status": "queued",
+                "message": "Recording preparation initiated",
+                "message_he": "הכנת ההקלטה החלה"
+            }), 202
+            
+    except Exception as e:
+        log.error(f"Error in prepare_recording for {call_sid}: {e}")
+        import traceback
+        log.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "error": "Internal server error",
+            "message": str(e)
+        }), 500
+
+
 @recordings_bp.route('/file/<call_sid>', methods=['GET', 'HEAD', 'OPTIONS'])
 @require_api_auth
 def serve_recording_file(call_sid):
@@ -123,7 +230,8 @@ def serve_recording_file(call_sid):
     
     Returns:
     - 200 + audio/mpeg file if recording exists on disk (GET) or headers only (HEAD)
-    - 404 + JSON if file not found
+    - 202 Accepted + Retry-After header if file is being prepared
+    - 404 + JSON if recording doesn't exist at all
     - 403 if call doesn't belong to user's tenant
     """
     try:
@@ -154,7 +262,7 @@ def serve_recording_file(call_sid):
         if not check_local_recording_exists(call_sid):
             # 🔥 FIX: Trigger download if recording_url exists but file not on disk
             if call.recording_url:
-                log.info(f"Serve recording file: File not on disk, triggering download for call_sid={call_sid}")
+                log.info(f"Serve recording file: File not on disk, checking job status for call_sid={call_sid}")
                 
                 # Try to trigger download job if not already in progress
                 try:
@@ -179,13 +287,52 @@ def serve_recording_file(call_sid):
                             to_number=call.to_number or "",
                             recording_sid=call.recording_sid
                         )
+                        # Return 202 - file is being prepared
+                        log.info(f"[RECORDING] Returning 202 Accepted - job created for call_sid={call_sid}")
+                        if is_head_request:
+                            response = Response(status=202)
+                            response.headers['Retry-After'] = '2'
+                            return response
+                        return jsonify({
+                            "status": "processing",
+                            "message": "Recording is being prepared. Please retry in a few seconds.",
+                            "message_he": "ההקלטה בתהליך הכנה. אנא נסה שוב בעוד כמה שניות."
+                        }), 202, {'Retry-After': '2'}
                     else:
-                        log.info(f"[RECORDING] Download already in progress for call_sid={call_sid}, job_type={existing_run.job_type}, status={existing_run.status}, run_id={existing_run.id}")
+                        # Job exists - return 202 with status
+                        log.info(f"[RECORDING] Job in progress for call_sid={call_sid}, job_type={existing_run.job_type}, status={existing_run.status}, run_id={existing_run.id}")
+                        if is_head_request:
+                            response = Response(status=202)
+                            response.headers['Retry-After'] = '2'
+                            return response
+                        return jsonify({
+                            "status": "processing",
+                            "message": f"Recording is being prepared ({existing_run.status}). Please retry in a few seconds.",
+                            "message_he": f"ההקלטה בתהליך הכנה ({existing_run.status}). אנא נסה שוב בעוד כמה שניות."
+                        }), 202, {'Retry-After': '2'}
                         
                 except Exception as e:
-                    log.error(f"[RECORDING] Failed to enqueue download job: {e}")
+                    log.error(f"[RECORDING] Failed to check/enqueue download job: {e}")
+                    # Return 202 anyway - assume job will be created
+                    if is_head_request:
+                        response = Response(status=202)
+                        response.headers['Retry-After'] = '3'
+                        return response
+                    return jsonify({
+                        "status": "processing",
+                        "message": "Recording is being prepared. Please retry in a few seconds.",
+                        "message_he": "ההקלטה בתהליך הכנה. אנא נסה שוב בעוד כמה שניות."
+                    }), 202, {'Retry-After': '3'}
             else:
+                # No recording_url - truly doesn't exist
                 log.warning(f"Serve recording file: No recording_url available for call_sid={call_sid}")
+                if is_head_request:
+                    return Response(status=404)
+                return jsonify({
+                    "error": "Recording not found",
+                    "message": "No recording is available for this call.",
+                    "message_he": "אין הקלטה זמינה לשיחה זו."
+                }), 404
                 
             log.warning(f"Serve recording file: File not found on disk for call_sid={call_sid}")
             if is_head_request:
