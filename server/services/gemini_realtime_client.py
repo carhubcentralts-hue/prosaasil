@@ -202,10 +202,20 @@ class GeminiRealtimeClient:
             }
         }
         
+        # 🔥 FIX 3: Explicitly disable tool use to prevent function_call issues
+        # Ensure no tools are configured in the session
+        # Note: Even without tools config, Gemini might infer function calls from prompts
+        # So we also add explicit instruction in system_instructions
+        
         # Add system instructions if provided
         if system_instructions:
             sanitized_instructions = _sanitize_text_for_realtime(system_instructions)
+            # Append explicit "no tools" instruction
+            sanitized_instructions += "\n\nIMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
             config["system_instruction"] = sanitized_instructions
+        else:
+            # Even without system instructions, add the no-tools instruction
+            config["system_instruction"] = "IMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
         
         # Add voice if provided
         if voice_id:
@@ -492,14 +502,33 @@ class GeminiRealtimeClient:
                     # Check for function calls
                     # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
                     if hasattr(server_message, 'tool_call'):
+                        tool_call = server_message.tool_call
+                        
+                        # 🔥 FIX 1: Log raw function_call payload (MANDATORY)
+                        # Extract all details to understand why function name might be empty
+                        function_calls = []
+                        if hasattr(tool_call, 'function_calls'):
+                            for fc in tool_call.function_calls:
+                                fc_data = {
+                                    'id': getattr(fc, 'id', 'NO_ID'),
+                                    'name': getattr(fc, 'name', 'NO_NAME'),
+                                    'args': getattr(fc, 'args', {})
+                                }
+                                function_calls.append(fc_data)
+                                # 🔥 MANDATORY: Log full function_call details
+                                logger.info(f"🔧 [GEMINI_RECV] function_call.name={fc_data['name']} call_id={fc_data['id']} args={fc_data['args']}")
+                                _orig_print(f"🔧 [GEMINI_RECV] function_call.name={fc_data['name']} call_id={fc_data['id'][:20]}... args={str(fc_data['args'])[:100]}", flush=True)
+                        else:
+                            logger.warning(f"⚠️ [GEMINI_RECV] tool_call has no function_calls attribute: {tool_call}")
+                        
+                        if not IS_PROD or REALTIME_VERBOSE:
+                            logger.info(f"[GEMINI_LIVE] Function call received: {function_calls}")
+                        
                         event = {
                             'type': 'function_call',
-                            'data': server_message.tool_call
+                            'data': tool_call,
+                            'function_calls': function_calls  # Include parsed data for easier handling
                         }
-                        
-                        logger.info("🔧 [GEMINI_RECV] function_call")
-                        if not IS_PROD or REALTIME_VERBOSE:
-                            logger.info("[GEMINI_LIVE] Function call received")
                         
                         yield event
                 
@@ -511,6 +540,34 @@ class GeminiRealtimeClient:
         except Exception as e:
             logger.error(f"❌ [GEMINI_RECV] Error in receive loop: {e}")
             logger.exception(f"[GEMINI_THREAD_CRASH] Exception in recv_events loop", exc_info=True)
+            raise
+    
+    async def send_tool_response(self, function_responses: list):
+        """
+        Send tool/function response back to Gemini Live API
+        
+        Args:
+            function_responses: List of FunctionResponse objects
+                Each response should have: id, name, response (dict with result)
+        
+        Example:
+            function_response = types.FunctionResponse(
+                id=fc.id,
+                name=fc.name,
+                response={"result": "success", "data": {...}}
+            )
+            await client.send_tool_response([function_response])
+        """
+        if not self._connected or not self.session:
+            raise RuntimeError("Not connected. Call connect() first.")
+        
+        try:
+            logger.info(f"🔧 [GEMINI_SEND] Sending {len(function_responses)} tool response(s)")
+            await self.session.send_tool_response(function_responses=function_responses)
+            logger.debug(f"[GEMINI_LIVE] Tool responses sent successfully")
+        except Exception as e:
+            logger.error(f"❌ [GEMINI_SEND] Failed to send tool response: {e}")
+            logger.exception(f"[GEMINI_THREAD_CRASH] Exception in send_tool_response", exc_info=True)
             raise
     
     async def cancel_response(self, response_id: Optional[str] = None):
