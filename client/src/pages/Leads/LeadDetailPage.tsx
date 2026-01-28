@@ -1809,7 +1809,10 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-gray-700">הקלטת שיחה</p>
                           <button
-                            onClick={() => handleDownload(getCallId(call))}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownload(getCallId(call));
+                            }}
                             className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1819,15 +1822,9 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                           </button>
                         </div>
                         {/* Audio Player with direct streaming (no blob URLs) */}
-                        {call.hasRecording ? (
-                          <AudioPlayer
-                            src={`/api/recordings/file/${getCallId(call)}`}
-                          />
-                        ) : (
-                          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                            <p className="text-sm text-gray-600">אין הקלטה זמינה</p>
-                          </div>
-                        )}
+                        <AudioPlayer
+                          src={`/api/recordings/file/${getCallId(call)}`}
+                        />
                       </div>
                     ) : (
                       <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
