@@ -1,0 +1,113 @@
+================================================================================
+    OUTBOUND SINGLE CONSUMER FIX - IMPLEMENTATION COMPLETE ✅
+================================================================================
+
+PROBLEM (Hebrew):
+  הבעיה היא כפילות Consumers (threads/worker) + ניקוי "stuck" שלא רץ
+
+PROBLEM (English):
+  Duplicate consumers (threads/workers) + cleanup of stuck jobs not running
+  → Duplicate calls to leads
+  → UI showing progress when no calls active
+  → Inconsistent queue state
+
+================================================================================
+SOLUTION SUMMARY
+================================================================================
+
+1. REMOVED DUPLICATE CONSUMER ✅
+   Before: Thread(target=process_bulk_call_run) in API process
+   After:  queue.enqueue(enqueue_outbound_calls_batch_job) to RQ worker
+   Result: ONLY RQ worker processes outbound calls
+
+2. ADDED DB LOCKING ✅
+   Implementation: SELECT FOR UPDATE SKIP LOCKED
+   Result: Multiple workers can't pick same job
+
+3. FIXED RUN LIFECYCLE ✅
+   Before: run.status = "running" immediately
+   After:  run.status = "pending" → worker updates to "running"
+   Result: Clear distinction between queued and active
+
+4. ADDED RECONCILE ENDPOINT ✅
+   Endpoint: POST /api/outbound/runs/reconcile
+   Features:
+   - Fixes stuck runs with no active jobs
+   - Clears worker locks
+   - Rate limited (1 req/min)
+   - Optimized queries (no N+1)
+   Result: Can fix stuck UI progress during runtime
+
+5. ENHANCED LOGGING ✅
+   Added: WORKER_ID, consumer_source, lock_acquired, dedup_conflict
+   Result: Easy to debug duplicate issues
+
+================================================================================
+TESTING RESULTS
+================================================================================
+
+Test Suite: test_outbound_single_consumer_fix.py
+  ✅ No Thread Consumer
+  ✅ DB Locking Present
+  ✅ Reconcile Endpoint
+  ✅ Enhanced Logging
+  ✅ Unique Constraint
+
+Security: CodeQL Analysis
+  ✅ No vulnerabilities detected
+
+Code Review:
+  ✅ All critical feedback addressed
+
+================================================================================
+FILES CHANGED
+================================================================================
+
+1. server/routes_outbound.py
+   - Removed thread-based consumer
+   - Added RQ enqueue
+   - Added DB locking
+   - Added reconcile endpoint
+   - Enhanced logging
+
+2. test_outbound_single_consumer_fix.py
+   - Comprehensive test suite
+
+3. OUTBOUND_SINGLE_CONSUMER_FIX.md
+   - Complete documentation
+   - Deployment guide
+   - Troubleshooting
+
+================================================================================
+DEPLOYMENT CHECKLIST
+================================================================================
+
+Prerequisites:
+  □ Redis running
+  □ RQ worker running (python server/worker.py)
+  □ Environment variables set (REDIS_URL, DATABASE_URL)
+
+Steps:
+  □ Deploy code
+  □ Restart API (cleanup runs on startup)
+  □ Restart RQ worker
+  □ Verify worker logs show "WORKER_START"
+  □ Test outbound calls
+  □ Monitor for duplicates (should be 0)
+
+================================================================================
+STATUS: ✅ COMPLETE - READY FOR PRODUCTION
+================================================================================
+
+All requirements from problem statement addressed:
+  ✅ Single consumer pattern enforced
+  ✅ No duplicate calls
+  ✅ UI accurately reflects queue status
+  ✅ Stuck runs properly cleaned up
+  ✅ Enhanced debugging capabilities
+
+Documentation: OUTBOUND_SINGLE_CONSUMER_FIX.md
+Test Suite:    test_outbound_single_consumer_fix.py
+Security:      No vulnerabilities
+
+================================================================================
