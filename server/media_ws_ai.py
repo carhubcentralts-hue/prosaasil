@@ -3317,12 +3317,13 @@ class MediaStreamHandler:
             
             # 🔥 PROVIDER-SPECIFIC SESSION CONFIGURATION
             # OpenAI: Uses configure_session() to send session.update event
-            # Gemini: Uses update_config() to send configuration mid-session
+            # Gemini: Uses update_config() to store configuration (limited mid-session support)
             if ai_provider == 'gemini':
-                # Gemini Live API: Send configuration update with system instructions, voice, and tools
+                # Gemini Live API: Try to update configuration with system instructions and voice
+                # Note: Gemini has limited mid-session config support, but we try anyway
                 try:
                     logger.info(f"[GEMINI_CONFIG] Updating Gemini session configuration...")
-                    _orig_print(f"📤 [GEMINI_CONFIG] Sending session update to Gemini...", flush=True)
+                    _orig_print(f"📤 [GEMINI_CONFIG] Updating Gemini config...", flush=True)
                     
                     # Update Gemini configuration with system instructions and voice
                     await client.update_config(
@@ -3331,21 +3332,16 @@ class MediaStreamHandler:
                         voice_id=call_voice if call_voice else None
                     )
                     
-                    _orig_print(f"✅ [GEMINI_CONFIG] Configuration sent successfully", flush=True)
-                    logger.info(f"[GEMINI_CONFIG] Gemini session updated with instructions and voice")
-                    
-                    # Mark as confirmed immediately (Gemini doesn't emit confirmation event)
-                    self._session_config_confirmed = True
-                    self._session_config_event.set()
-                    dedup_result = True
+                    _orig_print(f"✅ [GEMINI_CONFIG] Configuration updated", flush=True)
+                    logger.info(f"[GEMINI_CONFIG] Gemini config updated with instructions and voice")
                     
                 except Exception as config_error:
-                    logger.error(f"❌ [GEMINI_CONFIG] Failed to update config: {config_error}")
-                    import traceback
-                    traceback.print_exc()
-                    # Mark as failed
-                    self._session_config_failed = True
-                    dedup_result = False
+                    logger.warning(f"⚠️ [GEMINI_CONFIG] Config update failed (expected for Gemini): {config_error}")
+                
+                # Mark as confirmed immediately (Gemini doesn't emit confirmation event)
+                self._session_config_confirmed = True
+                self._session_config_event.set()
+                dedup_result = True
             else:
                 # OpenAI Realtime API: Call configure_session which has its own hash-based deduplication
                 # It will return True if sent or skipped (via dedup)

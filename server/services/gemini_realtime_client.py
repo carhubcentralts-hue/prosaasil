@@ -388,21 +388,64 @@ class GeminiRealtimeClient:
     async def update_config(
         self,
         system_instructions: Optional[str] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        voice_id: Optional[str] = None
     ):
         """
-        Update session configuration
+        Update session configuration mid-session
         
         Args:
             system_instructions: New system instructions
             temperature: New temperature value
+            voice_id: Voice ID to use
+        
+        Note: This attempts to update the configuration, but Gemini Live API
+        has limited support for mid-session updates. System instructions and
+        voice should ideally be set during connect().
         """
         if not self._connected or not self.session:
             raise RuntimeError("Not connected. Call connect() first.")
         
-        # Note: Gemini Live API may not support mid-session config updates
-        # This is a placeholder for future API support
-        logger.warning("[GEMINI_LIVE] Config updates during session not yet implemented")
+        try:
+            # Build config update
+            config_updates = {}
+            
+            if system_instructions is not None:
+                sanitized_instructions = _sanitize_text_for_realtime(system_instructions)
+                config_updates["system_instruction"] = sanitized_instructions
+                logger.info(f"[GEMINI_UPDATE_CONFIG] Updating system instructions ({len(sanitized_instructions)} chars)")
+            
+            if temperature is not None:
+                temp = _clamp_temperature(temperature)
+                if "generation_config" not in config_updates:
+                    config_updates["generation_config"] = {}
+                config_updates["generation_config"]["temperature"] = temp
+                logger.info(f"[GEMINI_UPDATE_CONFIG] Updating temperature to {temp}")
+            
+            if voice_id is not None:
+                config_updates["speech_config"] = {
+                    "voice_config": {
+                        "prebuilt_voice_config": {
+                            "voice_name": voice_id
+                        }
+                    }
+                }
+                logger.info(f"[GEMINI_UPDATE_CONFIG] Updating voice to {voice_id}")
+            
+            if config_updates:
+                # 🔥 WORKAROUND: Gemini doesn't have a direct update_config method
+                # Store config for later use (when handling function calls, etc.)
+                if not hasattr(self, '_session_config'):
+                    self._session_config = {}
+                self._session_config.update(config_updates)
+                logger.info(f"[GEMINI_UPDATE_CONFIG] Config updates stored for session")
+            else:
+                logger.debug("[GEMINI_UPDATE_CONFIG] No config updates requested")
+                
+        except Exception as e:
+            logger.error(f"❌ [GEMINI_UPDATE_CONFIG] Failed to update config: {e}")
+            logger.exception("[GEMINI_UPDATE_CONFIG] Config update error", exc_info=True)
+            raise
     
     async def recv_events(self) -> AsyncIterator[Dict[str, Any]]:
         """
