@@ -180,14 +180,14 @@ def enqueue(
     }
     
     # Build job kwargs
-    # ✅ CRITICAL FIX: Use 'job_timeout' not 'timeout'
-    # RQ's parse_args() expects 'job_timeout' parameter (line 23 of rq/queue.py)
-    # If we use 'timeout', RQ will pass it as a kwarg to the function itself
+    # Note: RQ expects 'job_timeout' (not 'timeout') as the parameter name
+    # to configure job execution timeout. Using 'timeout' would pass it as
+    # a kwarg to the job function instead.
     job_kwargs = {
         'job_id': job_id,
         'meta': meta,
         'ttl': ttl,
-        'job_timeout': timeout,  # Changed from 'timeout' to 'job_timeout'
+        'job_timeout': timeout,
         'description': description or f"{func.__name__}",
     }
     
