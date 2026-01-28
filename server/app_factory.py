@@ -1497,17 +1497,29 @@ def create_app():
         # ====================================================================
         # Background Schedulers and Workers
         # ====================================================================
-        # 🔥 CRITICAL: Only run schedulers in worker service to prevent duplicates
-        # Use ENABLE_SCHEDULERS=true env var to enable (default: disabled in api/calls)
-        # Worker service should set ENABLE_SCHEDULERS=true
+        # 🔥 CRITICAL: Service role enforcement for clean separation
+        # SERVICE_ROLE can be 'api', 'worker', or 'all' (default)
+        # - api: Only HTTP endpoints, enqueues jobs
+        # - worker: Only processes jobs from queues
+        # - all: Both API and worker (for development/small deployments)
+        SERVICE_ROLE = os.getenv('SERVICE_ROLE', 'all').lower()
         ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'false').lower() == 'true'
-        SERVICE_ROLE = os.getenv('SERVICE_ROLE', 'unknown')
         
-        if ENABLE_SCHEDULERS:
+        if SERVICE_ROLE not in ['api', 'worker', 'all']:
+            logger.warning(f"⚠️ Invalid SERVICE_ROLE '{SERVICE_ROLE}', defaulting to 'all'")
+            SERVICE_ROLE = 'all'
+        
+        logger.info(f"🔧 [CONFIG] SERVICE_ROLE={SERVICE_ROLE}, ENABLE_SCHEDULERS={ENABLE_SCHEDULERS}")
+        
+        # Only enable schedulers in worker mode or all mode
+        if ENABLE_SCHEDULERS and SERVICE_ROLE in ['worker', 'all']:
             logger.info(f"✅ [BACKGROUND] Schedulers ENABLED for service: {SERVICE_ROLE}")
         else:
-            logger.info(f"⚠️ [BACKGROUND] Schedulers DISABLED for service: {SERVICE_ROLE}")
-            logger.info("   To enable schedulers, set: ENABLE_SCHEDULERS=true")
+            if ENABLE_SCHEDULERS:
+                logger.warning(f"⚠️ [BACKGROUND] Schedulers requested but SERVICE_ROLE={SERVICE_ROLE} (not worker/all)")
+            else:
+                logger.info(f"⚠️ [BACKGROUND] Schedulers DISABLED for service: {SERVICE_ROLE}")
+            logger.info("   To enable schedulers, set: ENABLE_SCHEDULERS=true and SERVICE_ROLE=worker or SERVICE_ROLE=all")
         
         # 🔥 REMOVED THREADING: Recording cleanup now runs as scheduled RQ job
         # Worker should schedule: cleanup_old_recordings_job
