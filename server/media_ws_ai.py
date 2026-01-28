@@ -5081,7 +5081,29 @@ class MediaStreamHandler:
                 return None
             except Exception as e:
                 # 🔥 CRITICAL: Don't crash on single bad chunk - log and continue
+                # Log detailed diagnostic information for audio conversion failures
+                import traceback
+                
+                buffer_state = {
+                    'audio_buffer_len': len(self._gemini_audio_buffer),
+                    'mulaw_buffer_len': len(self._gemini_mulaw_buffer),
+                    'chunk_num': self._gemini_audio_chunks_received,
+                    'frame_size': self._gemini_audio_frame_size,
+                }
+                
+                # Add conversion progress info if available
+                try:
+                    if 'usable_len' in locals():
+                        buffer_state['usable_len'] = usable_len
+                    if 'audio_to_convert' in locals():
+                        buffer_state['audio_to_convert_len'] = len(audio_to_convert)
+                except:
+                    pass  # Ignore errors while building diagnostics
+                
                 logger.error(f"[GEMINI_NORMALIZE] Audio conversion failed (chunk #{self._gemini_audio_chunks_received}): {e}")
+                logger.error(f"[GEMINI_NORMALIZE] Buffer state: {buffer_state}")
+                logger.error(f"[GEMINI_NORMALIZE] Traceback: {traceback.format_exc()}")
+                
                 # Clear both buffers on error to prevent corruption from propagating
                 self._gemini_audio_buffer.clear()
                 self._gemini_mulaw_buffer.clear()
@@ -15733,10 +15755,32 @@ class MediaStreamHandler:
             gemini_function_calls = event.get('_gemini_function_calls', [])
             
             if not gemini_function_calls:
-                # 🔥 FIX: This is NOT an error - Gemini sends tool_call events without function_calls
-                # for various reasons (e.g., empty greeting trigger). Don't spam logs.
-                logger.debug(f"[GEMINI] tool_call event has no function_calls (likely empty greeting trigger)")
-                return
+                # 🔥 CRITICAL FIX: Even empty tool_call events need a response
+                # Gemini can send tool_call events without function_calls (e.g., greeting trigger)
+                # According to problem statement: Don't ignore empty tool_calls - they can still
+                # cause the model to wait for a response and get stuck
+                logger.debug(f"[GEMINI] tool_call event has no function_calls (empty/greeting trigger)")
+                
+                # Check if there's a raw tool_call we can extract an ID from
+                raw_tool_call = event.get('_gemini_raw', {})
+                if hasattr(raw_tool_call, 'function_calls') and raw_tool_call.function_calls:
+                    # Try to extract from raw data
+                    logger.debug(f"[GEMINI] Attempting to extract from raw tool_call data")
+                    try:
+                        for fc in raw_tool_call.function_calls:
+                            fc_data = {
+                                'id': getattr(fc, 'id', 'NO_ID'),
+                                'name': getattr(fc, 'name', ''),
+                                'args': getattr(fc, 'args', {})
+                            }
+                            gemini_function_calls.append(fc_data)
+                    except Exception as extract_error:
+                        logger.warning(f"[GEMINI] Failed to extract from raw: {extract_error}")
+                
+                # If still empty after extraction attempt, skip (no ID to respond to)
+                if not gemini_function_calls:
+                    logger.debug(f"[GEMINI] No extractable function_calls, skipping tool_response")
+                    return
             
             logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
             

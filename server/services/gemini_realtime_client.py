@@ -406,8 +406,20 @@ class GeminiRealtimeClient:
                     # We must check ALL attributes, not use if/elif
                     # A message can have both setup_complete AND server_content!
                     
+                    # 🔥 FIX: Log event keys to verify structure (as requested in problem statement)
+                    # This helps debug which attributes Gemini actually sends
+                    event_attrs = [attr for attr in dir(server_message) if not attr.startswith('_')]
+                    if not IS_PROD or REALTIME_VERBOSE:
+                        logger.info(f"[GEMINI_EVENT_KEYS] {event_attrs}")
+                    
                     # Check for setup complete (only yield first time)
-                    if hasattr(server_message, 'setup_complete') and not _setup_complete_seen:
+                    # 🔥 FIX: Support both setupComplete (camelCase) and setup_complete (snake_case)
+                    # Different SDK versions may use different naming conventions
+                    has_setup_complete = (
+                        hasattr(server_message, 'setup_complete') or 
+                        hasattr(server_message, 'setupComplete')
+                    )
+                    if has_setup_complete and not _setup_complete_seen:
                         _setup_complete_seen = True
                         event = {
                             'type': 'setup_complete',
@@ -419,9 +431,18 @@ class GeminiRealtimeClient:
                         yield event
                     
                     # Check for server content (audio/text response)
-                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
-                    if hasattr(server_message, 'server_content'):
-                        content = server_message.server_content
+                    # 🔥 FIX: Support both serverContent (camelCase) and server_content (snake_case)
+                    # Changed from elif to if - messages can have multiple attributes!
+                    has_server_content = (
+                        hasattr(server_message, 'server_content') or 
+                        hasattr(server_message, 'serverContent')
+                    )
+                    if has_server_content:
+                        # Use explicit attribute check to handle falsy values correctly
+                        if hasattr(server_message, 'server_content'):
+                            content = server_message.server_content
+                        else:
+                            content = server_message.serverContent
                         
                         # Check if it's audio
                         if hasattr(content, 'model_turn') and content.model_turn:
@@ -472,8 +493,13 @@ class GeminiRealtimeClient:
                                     yield event
                     
                     # Check for turn complete
-                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
-                    if hasattr(server_message, 'turn_complete'):
+                    # 🔥 FIX: Support both turnComplete (camelCase) and turn_complete (snake_case)
+                    # Changed from elif to if - messages can have multiple attributes!
+                    has_turn_complete = (
+                        hasattr(server_message, 'turn_complete') or 
+                        hasattr(server_message, 'turnComplete')
+                    )
+                    if has_turn_complete:
                         event = {
                             'type': 'turn_complete',
                             'data': None
@@ -489,8 +515,10 @@ class GeminiRealtimeClient:
                         yield event
                     
                     # Check for interruption
-                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
-                    if hasattr(server_message, 'interrupted'):
+                    # 🔥 FIX: Support both interrupted (snake_case) and potentially Interrupted (camelCase)
+                    # Changed from elif to if - messages can have multiple attributes!
+                    has_interrupted = hasattr(server_message, 'interrupted')
+                    if has_interrupted:
                         event = {
                             'type': 'interrupted',
                             'data': None
@@ -500,15 +528,35 @@ class GeminiRealtimeClient:
                         yield event
                     
                     # Check for function calls
-                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
-                    if hasattr(server_message, 'tool_call'):
-                        tool_call = server_message.tool_call
+                    # 🔥 FIX: Support both toolCall (camelCase) and tool_call (snake_case)
+                    # Changed from elif to if - messages can have multiple attributes!
+                    has_tool_call = (
+                        hasattr(server_message, 'tool_call') or 
+                        hasattr(server_message, 'toolCall')
+                    )
+                    if has_tool_call:
+                        # Use explicit attribute check to handle falsy values correctly
+                        if hasattr(server_message, 'tool_call'):
+                            tool_call = server_message.tool_call
+                        else:
+                            tool_call = server_message.toolCall
                         
                         # 🔥 FIX 1: Log raw function_call payload (MANDATORY)
                         # Extract all details to understand why function name might be empty
+                        # 🔥 CRITICAL: Support both functionCalls (camelCase) and function_calls (snake_case)
                         function_calls = []
-                        if hasattr(tool_call, 'function_calls'):
-                            for fc in tool_call.function_calls:
+                        has_function_calls = (
+                            hasattr(tool_call, 'function_calls') or 
+                            hasattr(tool_call, 'functionCalls')
+                        )
+                        if has_function_calls:
+                            # Get function_calls array using explicit attribute check to handle empty lists
+                            if hasattr(tool_call, 'function_calls'):
+                                fc_array = tool_call.function_calls
+                            else:
+                                fc_array = tool_call.functionCalls
+                            
+                            for fc in fc_array:
                                 fc_data = {
                                     'id': getattr(fc, 'id', 'NO_ID'),
                                     'name': getattr(fc, 'name', 'NO_NAME'),
