@@ -918,6 +918,93 @@ class Appointment(db.Model):
     # AI-generated flag (if appointment was auto-created from call/WhatsApp)
     auto_generated = db.Column(db.Boolean, default=False)
     source = db.Column(db.String(32), default="manual")  # manual/phone_call/whatsapp/ai_suggested
+    
+    # 🔥 NEW: Calendar association - which calendar was this appointment created in
+    calendar_id = db.Column(db.Integer, db.ForeignKey("business_calendars.id"), nullable=True, index=True)
+
+class BusinessCalendar(db.Model):
+    """
+    Dynamic calendar configuration for businesses
+    Allows businesses to manage multiple calendars with different purposes
+    Example: "פגישות", "הובלות", "ד״ר אלונה – מרפאה תל אביב"
+    """
+    __tablename__ = "business_calendars"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Calendar identification
+    name = db.Column(db.String(255), nullable=False)  # Display name: "פגישות", "הובלות", etc.
+    type_key = db.Column(db.String(64), nullable=True)  # Optional identifier: meetings, moves, doctor_alona_tlv
+    
+    # Provider configuration
+    provider = db.Column(db.String(32), default="internal")  # internal/google/outlook
+    calendar_external_id = db.Column(db.String(255), nullable=True)  # External calendar ID for Google/Outlook
+    
+    # Status and priority
+    is_active = db.Column(db.Boolean, default=True, index=True)
+    priority = db.Column(db.Integer, default=0)  # Higher priority = preferred when multiple match
+    
+    # Default scheduling settings
+    default_duration_minutes = db.Column(db.Integer, default=60)
+    buffer_before_minutes = db.Column(db.Integer, default=0)  # Time buffer before appointments
+    buffer_after_minutes = db.Column(db.Integer, default=0)   # Time buffer after appointments
+    
+    # Usage labels for AI routing (JSON array)
+    allowed_tags = db.Column(db.JSON, nullable=False, default=list)  # ["פגישה", "ייעוץ", "הובלה", "טיפול"]
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("calendars", lazy="dynamic"))
+    appointments = db.relationship("Appointment", backref="calendar", lazy="dynamic")
+    
+    # Indexes
+    __table_args__ = (
+        db.Index('idx_business_calendars_business_active', 'business_id', 'is_active'),
+        db.Index('idx_business_calendars_priority', 'business_id', 'priority'),
+    )
+
+class CalendarRoutingRule(db.Model):
+    """
+    Smart routing rules for calendar selection
+    Allows businesses to define when to use which calendar
+    Example: "אם לקוח מדבר על הובלה → השתמש בלוח הובלות"
+    """
+    __tablename__ = "calendar_routing_rules"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    calendar_id = db.Column(db.Integer, db.ForeignKey("business_calendars.id"), nullable=False, index=True)
+    
+    # Matching criteria (JSON arrays)
+    match_labels = db.Column(db.JSON, nullable=False, default=list)  # ["הובלה", "העברת דירה"]
+    match_keywords = db.Column(db.JSON, nullable=False, default=list)  # ["הובלה", "מוביל", "דירה"]
+    
+    # Channel scope
+    channel_scope = db.Column(db.String(32), default="all")  # all/calls/whatsapp
+    
+    # Ambiguity handling
+    when_ambiguous_ask = db.Column(db.Boolean, default=False)
+    question_text = db.Column(db.String(500), nullable=True)  # "זה פגישה או הובלה?"
+    
+    # Priority and status
+    priority = db.Column(db.Integer, default=0)  # Higher priority = checked first
+    is_active = db.Column(db.Boolean, default=True, index=True)
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("calendar_routing_rules", lazy="dynamic"))
+    calendar = db.relationship("BusinessCalendar", backref=db.backref("routing_rules", lazy="dynamic"))
+    
+    # Indexes
+    __table_args__ = (
+        db.Index('idx_calendar_routing_business_active', 'business_id', 'is_active'),
+        db.Index('idx_calendar_routing_calendar', 'calendar_id'),
+    )
 
 class CRMTask(db.Model):
     """משימות CRM - ניהול משימות לעסקים"""

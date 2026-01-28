@@ -59,6 +59,7 @@ class FindSlotsInput(BaseModel):
     date_iso: str = Field(..., description="Date in ISO format (YYYY-MM-DD) like '2025-11-04'")
     duration_min: int = Field(60, description="Duration in minutes", ge=15, le=240)
     preferred_time: Optional[str] = Field(None, description="Customer's preferred time in HH:MM format (e.g., '17:00'). System will return 2 slots closest to this time.")
+    calendar_id: Optional[int] = Field(None, description="Specific calendar ID to check availability for. If not provided, checks all calendars.")
 
 class Slot(BaseModel):
     """Single available time slot"""
@@ -83,6 +84,7 @@ class CreateAppointmentInput(BaseModel):
     source: str = Field("ai_agent", description="Source of appointment")
     call_summary: Optional[str] = Field(None, description="AI-generated summary from the call")
     call_transcript: Optional[str] = Field(None, description="Full transcript from the call")
+    calendar_id: Optional[int] = Field(None, description="Specific calendar ID for this appointment. If not provided, uses default calendar.")
 
 class CreateAppointmentOutput(BaseModel):
     """Appointment creation result"""
@@ -141,12 +143,19 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
         start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
         end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=None)
         
-        existing = Appointment.query.filter(
+        # Query appointments - optionally filter by calendar_id
+        query = Appointment.query.filter(
             Appointment.business_id == input.business_id,
             Appointment.start_time >= start_of_day,
             Appointment.start_time < end_of_day,
             Appointment.status.in_(['scheduled', 'confirmed'])
-        ).all()
+        )
+        
+        if input.calendar_id:
+            query = query.filter(Appointment.calendar_id == input.calendar_id)
+            logger.info(f"📅 Filtering by calendar_id={input.calendar_id}")
+        
+        existing = query.all()
         
         logger.info(f"📊 Found {len(existing)} existing appointments on {input.date_iso}")
         
@@ -528,8 +537,25 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                 logger.exception(f"❌ Unexpected error looking up call_log: {lookup_err}")
                 # Continue without call_log_id - appointment can still be created
         
+        # 🔥 NEW: Resolve calendar_id if not provided
+        calendar_id = input.calendar_id
+        if not calendar_id:
+            # Get default calendar for business
+            from server.models_sql import BusinessCalendar
+            default_cal = BusinessCalendar.query.filter(
+                BusinessCalendar.business_id == input.business_id,
+                BusinessCalendar.is_active.is_(True)
+            ).order_by(BusinessCalendar.priority.desc()).first()
+            
+            if default_cal:
+                calendar_id = default_cal.id
+                logger.info(f"📅 Using default calendar_id={calendar_id} ('{default_cal.name}')")
+            else:
+                logger.warning(f"⚠️ No active calendars found for business_id={input.business_id}")
+        
         appointment = Appointment(
             business_id=input.business_id,
+            calendar_id=calendar_id,  # 🔥 NEW: Link to calendar
             call_log_id=call_log_id,  # 🔥 FIX: Link to call_log
             title=f"{input.treatment_type} - {customer_name}",
             description=input.notes,
@@ -800,3 +826,233 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
 def calendar_create_appointment(input: CreateAppointmentInput) -> CreateAppointmentOutput:
     """Create a new appointment - Agent SDK wrapper"""
     return _calendar_create_appointment_impl(input)
+
+# ================================================================================
+# NEW: MULTI-CALENDAR SUPPORT TOOLS
+# ================================================================================
+
+class CalendarListInput(BaseModel):
+    """Input for listing calendars"""
+    business_id: int = Field(..., description="Business ID to list calendars for", ge=1)
+
+class CalendarInfo(BaseModel):
+    """Single calendar information"""
+    calendar_id: int = Field(..., description="Calendar ID")
+    name: str = Field(..., description="Calendar name (e.g., 'פגישות', 'הובלות')")
+    type_key: Optional[str] = Field(None, description="Calendar type key")
+    priority: int = Field(..., description="Priority (higher = preferred)")
+    default_duration_minutes: int = Field(..., description="Default appointment duration")
+    allowed_tags: List[str] = Field(default_factory=list, description="Usage labels for this calendar")
+
+class CalendarListOutput(BaseModel):
+    """List of available calendars"""
+    calendars: List[CalendarInfo]
+    default_calendar_id: Optional[int] = Field(None, description="Default calendar ID if only one exists")
+
+@function_tool
+def calendar_list(input: CalendarListInput) -> CalendarListOutput:
+    """
+    List all active calendars for a business
+    
+    Use this before scheduling appointments to know which calendars are available.
+    If only one calendar exists, automatically use it.
+    If multiple calendars exist, use calendar_resolve_target() or ask the customer.
+    """
+    try:
+        from server.models_sql import BusinessCalendar
+        
+        # Query active calendars for business, ordered by priority
+        calendars = BusinessCalendar.query.filter(
+            BusinessCalendar.business_id == input.business_id,
+            BusinessCalendar.is_active.is_(True)
+        ).order_by(BusinessCalendar.priority.desc()).all()
+        
+        logger.info(f"📅 Found {len(calendars)} active calendar(s) for business_id={input.business_id}")
+        
+        # Convert to output format
+        calendar_infos = [
+            CalendarInfo(
+                calendar_id=cal.id,
+                name=cal.name,
+                type_key=cal.type_key or "",
+                priority=cal.priority,
+                default_duration_minutes=cal.default_duration_minutes,
+                allowed_tags=cal.allowed_tags or []
+            )
+            for cal in calendars
+        ]
+        
+        # Determine default calendar (if only one)
+        default_calendar_id = calendar_infos[0].calendar_id if len(calendar_infos) == 1 else None
+        
+        return CalendarListOutput(
+            calendars=calendar_infos,
+            default_calendar_id=default_calendar_id
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error listing calendars: {e}")
+        # Return empty list on error (backward compatible)
+        return CalendarListOutput(calendars=[], default_calendar_id=None)
+
+
+class CalendarResolveInput(BaseModel):
+    """Input for resolving which calendar to use"""
+    business_id: int = Field(..., description="Business ID", ge=1)
+    intent_text: str = Field(..., description="Customer's intent/conversation text")
+    service_label: Optional[str] = Field(None, description="Service type mentioned (e.g., 'פגישה', 'הובלה')")
+
+class CalendarResolveOutput(BaseModel):
+    """Result of calendar resolution"""
+    calendar_id: Optional[int] = Field(None, description="Resolved calendar ID (if found)")
+    needs_clarification: bool = Field(False, description="Whether to ask customer for clarification")
+    question_text: Optional[str] = Field(None, description="Question to ask customer")
+    suggested_calendars: List[CalendarInfo] = Field(default_factory=list, description="Calendars that match")
+
+@function_tool
+def calendar_resolve_target(input: CalendarResolveInput) -> CalendarResolveOutput:
+    """
+    Intelligently resolve which calendar to use based on customer intent
+    
+    Uses routing rules to match customer intent to the appropriate calendar.
+    Returns:
+    - Single calendar_id if unambiguous match found
+    - needs_clarification=True if multiple calendars match (with question_text)
+    - Empty result if no specific routing rules exist (use default)
+    """
+    try:
+        from server.models_sql import BusinessCalendar, CalendarRoutingRule
+        
+        # Get all active calendars
+        calendars = BusinessCalendar.query.filter(
+            BusinessCalendar.business_id == input.business_id,
+            BusinessCalendar.is_active.is_(True)
+        ).all()
+        
+        # If only one calendar, return it immediately
+        if len(calendars) == 1:
+            cal = calendars[0]
+            logger.info(f"📅 Only one calendar exists, returning calendar_id={cal.id}")
+            return CalendarResolveOutput(
+                calendar_id=cal.id,
+                needs_clarification=False,
+                suggested_calendars=[CalendarInfo(
+                    calendar_id=cal.id,
+                    name=cal.name,
+                    type_key=cal.type_key or "",
+                    priority=cal.priority,
+                    default_duration_minutes=cal.default_duration_minutes,
+                    allowed_tags=cal.allowed_tags or []
+                )]
+            )
+        
+        # Get active routing rules, ordered by priority
+        rules = CalendarRoutingRule.query.filter(
+            CalendarRoutingRule.business_id == input.business_id,
+            CalendarRoutingRule.is_active.is_(True)
+        ).order_by(CalendarRoutingRule.priority.desc()).all()
+        
+        logger.info(f"📋 Found {len(rules)} routing rule(s) for business_id={input.business_id}")
+        
+        # Match rules against intent
+        matched_calendars = []
+        intent_lower = input.intent_text.lower()
+        service_lower = (input.service_label or "").lower()
+        
+        for rule in rules:
+            # Check if any keyword matches
+            keywords = rule.match_keywords or []
+            labels = rule.match_labels or []
+            
+            keyword_match = any(kw.lower() in intent_lower for kw in keywords)
+            label_match = any(lbl.lower() in service_lower for lbl in labels)
+            
+            if keyword_match or label_match:
+                # Find the calendar for this rule
+                calendar = BusinessCalendar.query.get(rule.calendar_id)
+                if calendar and calendar.is_active:
+                    matched_calendars.append((rule, calendar))
+                    logger.info(f"✅ Matched rule {rule.id} → calendar '{calendar.name}'")
+        
+        # Resolve based on matches
+        if len(matched_calendars) == 0:
+            # No specific match - return all calendars for AI to choose
+            logger.info("📅 No routing rules matched, returning all calendars")
+            calendar_infos = [
+                CalendarInfo(
+                    calendar_id=cal.id,
+                    name=cal.name,
+                    type_key=cal.type_key or "",
+                    priority=cal.priority,
+                    default_duration_minutes=cal.default_duration_minutes,
+                    allowed_tags=cal.allowed_tags or []
+                )
+                for cal in calendars
+            ]
+            return CalendarResolveOutput(
+                calendar_id=None,
+                needs_clarification=True,
+                question_text="איזה סוג פגישה את/ה מעוניין/ת לקבוע?",
+                suggested_calendars=calendar_infos
+            )
+        
+        elif len(matched_calendars) == 1:
+            # Single match - use it
+            rule, calendar = matched_calendars[0]
+            logger.info(f"✅ Single match: calendar_id={calendar.id} ('{calendar.name}')")
+            return CalendarResolveOutput(
+                calendar_id=calendar.id,
+                needs_clarification=False,
+                suggested_calendars=[CalendarInfo(
+                    calendar_id=calendar.id,
+                    name=calendar.name,
+                    type_key=calendar.type_key or "",
+                    priority=calendar.priority,
+                    default_duration_minutes=calendar.default_duration_minutes,
+                    allowed_tags=calendar.allowed_tags or []
+                )]
+            )
+        
+        else:
+            # Multiple matches - need clarification
+            logger.info(f"⚠️ Multiple matches ({len(matched_calendars)}), need clarification")
+            
+            # Check if any rule wants to ask a specific question
+            question = None
+            for rule, _ in matched_calendars:
+                if rule.when_ambiguous_ask and rule.question_text:
+                    question = rule.question_text
+                    break
+            
+            # Default question if none specified
+            if not question:
+                calendar_names = [cal.name for _, cal in matched_calendars]
+                question = f"האם את/ה מעוניין/ת ב-{' או '.join(calendar_names)}?"
+            
+            calendar_infos = [
+                CalendarInfo(
+                    calendar_id=cal.id,
+                    name=cal.name,
+                    type_key=cal.type_key or "",
+                    priority=cal.priority,
+                    default_duration_minutes=cal.default_duration_minutes,
+                    allowed_tags=cal.allowed_tags or []
+                )
+                for _, cal in matched_calendars
+            ]
+            
+            return CalendarResolveOutput(
+                calendar_id=None,
+                needs_clarification=True,
+                question_text=question,
+                suggested_calendars=calendar_infos
+            )
+        
+    except Exception as e:
+        logger.error(f"❌ Error resolving calendar: {e}")
+        # Return empty result on error
+        return CalendarResolveOutput(
+            calendar_id=None,
+            needs_clarification=False,
+            suggested_calendars=[]
+        )
