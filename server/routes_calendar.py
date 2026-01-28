@@ -715,3 +715,437 @@ def get_calendar_stats():
     except Exception as e:
         logger.error(f"Error fetching calendar stats: {e}")
         return jsonify({'error': 'שגיאה בטעינת סטטיסטיקות'}), 500
+
+# ================================================================================
+# BUSINESS CALENDARS MANAGEMENT
+# ================================================================================
+
+@calendar_bp.route('/calendars', methods=['GET'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def get_business_calendars():
+    """Get all calendars for the current user's business"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import BusinessCalendar
+        
+        calendars = BusinessCalendar.query.filter(
+            BusinessCalendar.business_id == business_id
+        ).order_by(BusinessCalendar.priority.desc(), BusinessCalendar.name).all()
+        
+        result = [{
+            'id': cal.id,
+            'business_id': cal.business_id,
+            'name': cal.name,
+            'type_key': cal.type_key,
+            'provider': cal.provider,
+            'calendar_external_id': cal.calendar_external_id,
+            'is_active': cal.is_active,
+            'priority': cal.priority,
+            'default_duration_minutes': cal.default_duration_minutes,
+            'buffer_before_minutes': cal.buffer_before_minutes,
+            'buffer_after_minutes': cal.buffer_after_minutes,
+            'allowed_tags': cal.allowed_tags or [],
+            'created_at': cal.created_at.isoformat() if cal.created_at else None,
+            'updated_at': cal.updated_at.isoformat() if cal.updated_at else None,
+        } for cal in calendars]
+        
+        return jsonify({'calendars': result})
+        
+    except Exception as e:
+        logger.error(f"Error fetching calendars: {e}")
+        return jsonify({'error': 'שגיאה בטעינת לוחות שנה'}), 500
+
+@calendar_bp.route('/calendars', methods=['POST'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def create_calendar():
+    """Create a new calendar for the business"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body required'}), 400
+        
+        # Validate required fields
+        if not data.get('name'):
+            return jsonify({'error': 'שם לוח השנה נדרש'}), 400
+        
+        from server.models_sql import BusinessCalendar
+        
+        # Create new calendar
+        calendar = BusinessCalendar(
+            business_id=business_id,
+            name=data['name'],
+            type_key=data.get('type_key'),
+            provider=data.get('provider', 'internal'),
+            calendar_external_id=data.get('calendar_external_id'),
+            is_active=data.get('is_active', True),
+            priority=data.get('priority', 0),
+            default_duration_minutes=data.get('default_duration_minutes', 60),
+            buffer_before_minutes=data.get('buffer_before_minutes', 0),
+            buffer_after_minutes=data.get('buffer_after_minutes', 0),
+            allowed_tags=data.get('allowed_tags', [])
+        )
+        
+        db.session.add(calendar)
+        db.session.commit()
+        
+        logger.info(f"✅ Created calendar '{calendar.name}' (id={calendar.id}) for business_id={business_id}")
+        
+        return jsonify({
+            'success': True,
+            'calendar': {
+                'id': calendar.id,
+                'name': calendar.name,
+                'type_key': calendar.type_key,
+                'provider': calendar.provider,
+                'is_active': calendar.is_active,
+                'priority': calendar.priority,
+                'default_duration_minutes': calendar.default_duration_minutes,
+                'buffer_before_minutes': calendar.buffer_before_minutes,
+                'buffer_after_minutes': calendar.buffer_after_minutes,
+                'allowed_tags': calendar.allowed_tags or []
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creating calendar: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה ביצירת לוח שנה'}), 500
+
+@calendar_bp.route('/calendars/<int:calendar_id>', methods=['PUT'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def update_calendar(calendar_id):
+    """Update an existing calendar"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import BusinessCalendar
+        
+        # Find calendar and verify ownership
+        calendar = BusinessCalendar.query.filter(
+            BusinessCalendar.id == calendar_id,
+            BusinessCalendar.business_id == business_id
+        ).first()
+        
+        if not calendar:
+            return jsonify({'error': 'לוח שנה לא נמצא'}), 404
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body required'}), 400
+        
+        # Update fields
+        if 'name' in data:
+            calendar.name = data['name']
+        if 'type_key' in data:
+            calendar.type_key = data['type_key']
+        if 'provider' in data:
+            calendar.provider = data['provider']
+        if 'calendar_external_id' in data:
+            calendar.calendar_external_id = data['calendar_external_id']
+        if 'is_active' in data:
+            calendar.is_active = data['is_active']
+        if 'priority' in data:
+            calendar.priority = data['priority']
+        if 'default_duration_minutes' in data:
+            calendar.default_duration_minutes = data['default_duration_minutes']
+        if 'buffer_before_minutes' in data:
+            calendar.buffer_before_minutes = data['buffer_before_minutes']
+        if 'buffer_after_minutes' in data:
+            calendar.buffer_after_minutes = data['buffer_after_minutes']
+        if 'allowed_tags' in data:
+            calendar.allowed_tags = data['allowed_tags']
+        
+        db.session.commit()
+        
+        logger.info(f"✅ Updated calendar id={calendar_id} for business_id={business_id}")
+        
+        return jsonify({
+            'success': True,
+            'calendar': {
+                'id': calendar.id,
+                'name': calendar.name,
+                'type_key': calendar.type_key,
+                'provider': calendar.provider,
+                'is_active': calendar.is_active,
+                'priority': calendar.priority,
+                'default_duration_minutes': calendar.default_duration_minutes,
+                'buffer_before_minutes': calendar.buffer_before_minutes,
+                'buffer_after_minutes': calendar.buffer_after_minutes,
+                'allowed_tags': calendar.allowed_tags or []
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating calendar: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה בעדכון לוח שנה'}), 500
+
+@calendar_bp.route('/calendars/<int:calendar_id>', methods=['DELETE'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def delete_calendar(calendar_id):
+    """Deactivate a calendar (soft delete)"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import BusinessCalendar
+        
+        # Find calendar and verify ownership
+        calendar = BusinessCalendar.query.filter(
+            BusinessCalendar.id == calendar_id,
+            BusinessCalendar.business_id == business_id
+        ).first()
+        
+        if not calendar:
+            return jsonify({'error': 'לוח שנה לא נמצא'}), 404
+        
+        # Soft delete - just deactivate
+        calendar.is_active = False
+        db.session.commit()
+        
+        logger.info(f"✅ Deactivated calendar id={calendar_id} for business_id={business_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'לוח השנה הושבת בהצלחה'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting calendar: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה במחיקת לוח שנה'}), 500
+
+# ================================================================================
+# CALENDAR ROUTING RULES MANAGEMENT
+# ================================================================================
+
+@calendar_bp.route('/routing-rules', methods=['GET'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def get_routing_rules():
+    """Get all routing rules for the current user's business"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import CalendarRoutingRule
+        
+        rules = CalendarRoutingRule.query.filter(
+            CalendarRoutingRule.business_id == business_id
+        ).order_by(CalendarRoutingRule.priority.desc()).all()
+        
+        result = [{
+            'id': rule.id,
+            'business_id': rule.business_id,
+            'calendar_id': rule.calendar_id,
+            'match_labels': rule.match_labels or [],
+            'match_keywords': rule.match_keywords or [],
+            'channel_scope': rule.channel_scope,
+            'when_ambiguous_ask': rule.when_ambiguous_ask,
+            'question_text': rule.question_text,
+            'priority': rule.priority,
+            'is_active': rule.is_active,
+            'created_at': rule.created_at.isoformat() if rule.created_at else None,
+            'updated_at': rule.updated_at.isoformat() if rule.updated_at else None,
+        } for rule in rules]
+        
+        return jsonify({'rules': result})
+        
+    except Exception as e:
+        logger.error(f"Error fetching routing rules: {e}")
+        return jsonify({'error': 'שגיאה בטעינת חוקי ניתוב'}), 500
+
+@calendar_bp.route('/routing-rules', methods=['POST'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def create_routing_rule():
+    """Create a new routing rule"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body required'}), 400
+        
+        # Validate required fields
+        if not data.get('calendar_id'):
+            return jsonify({'error': 'מזהה לוח שנה נדרש'}), 400
+        
+        from server.models_sql import CalendarRoutingRule, BusinessCalendar
+        
+        # Verify calendar belongs to this business
+        calendar = BusinessCalendar.query.filter(
+            BusinessCalendar.id == data['calendar_id'],
+            BusinessCalendar.business_id == business_id
+        ).first()
+        
+        if not calendar:
+            return jsonify({'error': 'לוח שנה לא נמצא'}), 404
+        
+        # Create new routing rule
+        rule = CalendarRoutingRule(
+            business_id=business_id,
+            calendar_id=data['calendar_id'],
+            match_labels=data.get('match_labels', []),
+            match_keywords=data.get('match_keywords', []),
+            channel_scope=data.get('channel_scope', 'all'),
+            when_ambiguous_ask=data.get('when_ambiguous_ask', False),
+            question_text=data.get('question_text'),
+            priority=data.get('priority', 0),
+            is_active=data.get('is_active', True)
+        )
+        
+        db.session.add(rule)
+        db.session.commit()
+        
+        logger.info(f"✅ Created routing rule (id={rule.id}) for calendar_id={data['calendar_id']}")
+        
+        return jsonify({
+            'success': True,
+            'rule': {
+                'id': rule.id,
+                'calendar_id': rule.calendar_id,
+                'match_labels': rule.match_labels or [],
+                'match_keywords': rule.match_keywords or [],
+                'channel_scope': rule.channel_scope,
+                'when_ambiguous_ask': rule.when_ambiguous_ask,
+                'question_text': rule.question_text,
+                'priority': rule.priority,
+                'is_active': rule.is_active
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creating routing rule: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה ביצירת חוק ניתוב'}), 500
+
+@calendar_bp.route('/routing-rules/<int:rule_id>', methods=['PUT'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def update_routing_rule(rule_id):
+    """Update an existing routing rule"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import CalendarRoutingRule
+        
+        # Find rule and verify ownership
+        rule = CalendarRoutingRule.query.filter(
+            CalendarRoutingRule.id == rule_id,
+            CalendarRoutingRule.business_id == business_id
+        ).first()
+        
+        if not rule:
+            return jsonify({'error': 'חוק ניתוב לא נמצא'}), 404
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body required'}), 400
+        
+        # Update fields
+        if 'calendar_id' in data:
+            # Verify new calendar belongs to this business
+            from server.models_sql import BusinessCalendar
+            calendar = BusinessCalendar.query.filter(
+                BusinessCalendar.id == data['calendar_id'],
+                BusinessCalendar.business_id == business_id
+            ).first()
+            if not calendar:
+                return jsonify({'error': 'לוח שנה לא נמצא'}), 404
+            rule.calendar_id = data['calendar_id']
+        
+        if 'match_labels' in data:
+            rule.match_labels = data['match_labels']
+        if 'match_keywords' in data:
+            rule.match_keywords = data['match_keywords']
+        if 'channel_scope' in data:
+            rule.channel_scope = data['channel_scope']
+        if 'when_ambiguous_ask' in data:
+            rule.when_ambiguous_ask = data['when_ambiguous_ask']
+        if 'question_text' in data:
+            rule.question_text = data['question_text']
+        if 'priority' in data:
+            rule.priority = data['priority']
+        if 'is_active' in data:
+            rule.is_active = data['is_active']
+        
+        db.session.commit()
+        
+        logger.info(f"✅ Updated routing rule id={rule_id}")
+        
+        return jsonify({
+            'success': True,
+            'rule': {
+                'id': rule.id,
+                'calendar_id': rule.calendar_id,
+                'match_labels': rule.match_labels or [],
+                'match_keywords': rule.match_keywords or [],
+                'channel_scope': rule.channel_scope,
+                'when_ambiguous_ask': rule.when_ambiguous_ask,
+                'question_text': rule.question_text,
+                'priority': rule.priority,
+                'is_active': rule.is_active
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating routing rule: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה בעדכון חוק ניתוב'}), 500
+
+@calendar_bp.route('/routing-rules/<int:rule_id>', methods=['DELETE'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def delete_routing_rule(rule_id):
+    """Delete a routing rule"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import CalendarRoutingRule
+        
+        # Find rule and verify ownership
+        rule = CalendarRoutingRule.query.filter(
+            CalendarRoutingRule.id == rule_id,
+            CalendarRoutingRule.business_id == business_id
+        ).first()
+        
+        if not rule:
+            return jsonify({'error': 'חוק ניתוב לא נמצא'}), 404
+        
+        # Hard delete routing rules (they can be recreated)
+        db.session.delete(rule)
+        db.session.commit()
+        
+        logger.info(f"✅ Deleted routing rule id={rule_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'חוק הניתוב נמחק בהצלחה'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting routing rule: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה במחיקת חוק ניתוב'}), 500
