@@ -57,13 +57,18 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                 trace_id = None
                 try:
                     # Parse message
+                    # 🔥 FIX: Use remoteJid as the single source of truth for the chat JID
+                    # DO NOT reconstruct the JID - use it exactly as received from WhatsApp
                     from_jid = msg.get('key', {}).get('remoteJid', '')
                     message_id = msg.get('key', {}).get('id', '')
                     phone_number = from_jid.split('@')[0] if '@' in from_jid else from_jid
                     
                     # Generate trace ID
                     trace_id = generate_trace_id(business_id, from_jid, message_id)
-                    logger.info(f"📨 [WEBHOOK_JOB] trace_id={trace_id} from={from_jid[:30]}")
+                    
+                    # 🔥 FIX: Add debug logging to prove no mismatch
+                    # Log the incoming remoteJid before any processing
+                    logger.info(f"📨 [WEBHOOK_JOB] trace_id={trace_id} incoming_remoteJid={from_jid}")
                     
                     # Extract text from message
                     message_text, message_format = extract_inbound_text(msg)
@@ -79,7 +84,14 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                     
                     logger.info(f"📝 [TEXT_EXTRACTED] trace_id={trace_id} format={message_format} len={len(message_text)}")
                     
-                    jid = f"{phone_number}@s.whatsapp.net"
+                    # 🔥 CRITICAL FIX: Use remoteJid directly as the JID for all operations
+                    # This is the "iron rule" - NEVER reconstruct the JID from phone_number
+                    # For DMs: remoteJid ends with @s.whatsapp.net
+                    # For Groups: remoteJid ends with @g.us
+                    jid = from_jid  # Use remoteJid directly, DO NOT reconstruct
+                    
+                    # 🔥 FIX: Add verification logging to ensure no mismatch
+                    logger.info(f"🎯 [JID_COMPUTED] trace_id={trace_id} computed_to={jid}")
                     typing_started = False
                     
                     try:
@@ -179,13 +191,21 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                             ai_response = "סליחה, אני לא יכול לעזור לך כרגע. בבקשה נסה שוב או התקשר אלינו."
                         
                         # Send response
+                        # 🔥 FIX: Add final verification before sending
+                        # Verify that computed target JID matches incoming remoteJid
+                        if jid != from_jid:
+                            logger.error(f"⚠️ [JID_MISMATCH_WARNING] trace_id={trace_id} incoming={from_jid} computed={jid}")
+                            # Force correction to use incoming remoteJid
+                            jid = from_jid
+                            logger.info(f"🔧 [JID_CORRECTED] trace_id={trace_id} forced_to={jid}")
+                        
                         logger.info(f"📤 [SEND_ATTEMPT] trace_id={trace_id} to={jid[:30]} len={len(ai_response)}")
                         send_start = time.time()
                         
                         try:
                             send_result = wa_service.send_message(jid, ai_response)
                             send_time = time.time() - send_start
-                            logger.info(f"✅ [SEND_RESULT] trace_id={trace_id} status={send_result.get('status')} latency_ms={send_time*1000:.0f}")
+                            logger.info(f"✅ [SEND_RESULT] trace_id={trace_id} status={send_result.get('status')} latency_ms={send_time*1000:.0f} final_to={jid[:30]}")
                         except Exception as send_error:
                             send_time = time.time() - send_start
                             logger.error(f"❌ [SEND_ERROR] trace_id={trace_id} error={send_error} latency_ms={send_time*1000:.0f}")

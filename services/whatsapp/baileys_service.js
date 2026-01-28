@@ -243,6 +243,16 @@ setInterval(() => {
 
 // Helper function to check if a message has actual content
 function hasTextContent(msgObj) {
+  // 🔥 FIX: Filter out non-chat events that shouldn't go to Flask
+  // These events create noise and should never be forwarded
+  if (msgObj.pollUpdateMessage || 
+      msgObj.protocolMessage || 
+      msgObj.historySyncNotification ||
+      msgObj.reactionMessage) {
+    return false;
+  }
+  
+  // Check for actual content
   return !!(
     msgObj.conversation ||
     msgObj.extendedTextMessage?.text ||
@@ -1559,8 +1569,25 @@ async function startSession(tenantId, forceRelink = false) {
           
           // 🔥 FIX: Filter out non-message events (protocol messages, empty messages, etc.)
           const msgObj = msg.message || {};
+          
+          // Check for non-chat events that should be filtered
+          if (msgObj.pollUpdateMessage) {
+            console.log(`[${tenantId}] ⏭️ Skipping pollUpdateMessage ${messageId} - not a chat message`);
+            continue;
+          }
+          if (msgObj.protocolMessage) {
+            console.log(`[${tenantId}] ⏭️ Skipping protocolMessage ${messageId} - not a chat message`);
+            continue;
+          }
+          if (msgObj.historySyncNotification) {
+            console.log(`[${tenantId}] ⏭️ Skipping historySyncNotification ${messageId} - not a chat message`);
+            continue;
+          }
+          
+          // Check for actual text content
           if (!hasTextContent(msgObj)) {
-            console.log(`[${tenantId}] ⏭️ Skipping non-message event ${messageId} - no text content`);
+            const msgKeys = Object.keys(msgObj);
+            console.log(`[${tenantId}] ⏭️ Skipping non-message event ${messageId} - no text content, keys: ${msgKeys.join(',')}`);
             continue;
           }
           
