@@ -75,7 +75,8 @@ const menuItems = [
     icon: Clock, 
     label: 'תזמון הודעות',
     to: '/app/scheduled-messages',
-    roles: ['system_admin', 'owner', 'admin']
+    roles: ['system_admin', 'owner', 'admin'],
+    pageKey: 'scheduled_messages'
   },
   { 
     icon: Phone, 

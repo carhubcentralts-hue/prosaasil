@@ -269,9 +269,13 @@ def schedule_messages_for_lead_status_change(
     if not remote_jid:
         # Try to construct from phone
         if lead.phone_raw:
-            # Remove + and add @s.whatsapp.net
-            phone_clean = lead.phone_raw.replace('+', '').replace('-', '').replace(' ', '')
-            remote_jid = f"{phone_clean}@s.whatsapp.net"
+            # Remove non-digit characters, ensure only digits
+            phone_clean = ''.join(c for c in lead.phone_raw if c.isdigit())
+            if phone_clean:
+                remote_jid = f"{phone_clean}@s.whatsapp.net"
+            else:
+                logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} phone_raw contains no digits - skipping")
+                return
         else:
             logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} has no WhatsApp JID or phone - skipping")
             return

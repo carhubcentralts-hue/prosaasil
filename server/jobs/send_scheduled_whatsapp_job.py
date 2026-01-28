@@ -100,10 +100,13 @@ def send_scheduled_whatsapp_job(message_id: int):
                     try:
                         from server.models_sql import WhatsAppMessage
                         
+                        # Extract recipient phone safely
+                        recipient_phone = message.remote_jid.split('@')[0] if '@' in message.remote_jid else message.remote_jid
+                        
                         outgoing_msg = WhatsAppMessage(
                             business_id=message.business_id,
                             sender='bot',
-                            recipient=message.remote_jid.split('@')[0],
+                            recipient=recipient_phone,
                             message_text=message.message_text,
                             timestamp=datetime.utcnow(),
                             direction='outbound',
@@ -137,7 +140,7 @@ def send_scheduled_whatsapp_job(message_id: int):
             # Try to mark as failed
             try:
                 scheduled_messages_service.mark_failed(message_id, error_msg)
-            except:
+            except Exception:
                 pass
             
             return {'status': 'error', 'error': error_msg}

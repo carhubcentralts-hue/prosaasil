@@ -983,8 +983,7 @@ def update_lead_status(lead_id):
                 )
         except Exception as e:
             # Log error but don't fail the status update
-            import logging
-            logging.getLogger(__name__).error(f"Failed to schedule messages for status change: {e}", exc_info=True)
+            logger.error(f"Failed to schedule messages for status change: {e}", exc_info=True)
         
         # Check if webhook should be dispatched
         # Client will handle user preference (always/never/ask) and call webhook dispatch endpoint
@@ -1209,8 +1208,7 @@ def move_lead_in_kanban(lead_id):
                 )
         except Exception as e:
             # Log error but don't fail the status update
-            import logging
-            logging.getLogger(__name__).error(f"Failed to schedule messages for kanban status change: {e}", exc_info=True)
+            logger.error(f"Failed to schedule messages for kanban status change: {e}", exc_info=True)
     
     # Calculate new order_index based on before/after positioning
     new_order_index = 0

@@ -167,7 +167,11 @@ def create_rule():
         if 'delay_minutes' not in data:
             return jsonify({'error': 'delay_minutes is required'}), 400
         
-        delay_minutes = int(data['delay_minutes'])
+        try:
+            delay_minutes = int(data['delay_minutes'])
+        except (TypeError, ValueError):
+            return jsonify({'error': 'delay_minutes must be a valid integer'}), 400
+            
         if delay_minutes < 1 or delay_minutes > 43200:
             return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
         
@@ -245,9 +249,14 @@ def update_rule(rule_id: int):
         
         # Validate delay_minutes if provided
         if 'delay_minutes' in data:
-            delay_minutes = int(data['delay_minutes'])
+            try:
+                delay_minutes = int(data['delay_minutes'])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'delay_minutes must be a valid integer'}), 400
+                
             if delay_minutes < 1 or delay_minutes > 43200:
                 return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
+            data['delay_minutes'] = delay_minutes
         
         # Update rule
         rule = scheduled_messages_service.update_rule(
