@@ -3197,8 +3197,8 @@ def process_bulk_call_run(run_id: int):
                 # 🔒 DB LOCK: Get next queued job with SELECT FOR UPDATE SKIP LOCKED
                 # This prevents multiple workers from picking the same job
                 # SKIP LOCKED means if another worker has locked a row, we skip it and get the next one
-                next_job = db.session.execute(text("""
-                    SELECT id, run_id, lead_id, business_id, status 
+                next_job_row = db.session.execute(text("""
+                    SELECT id
                     FROM outbound_call_jobs
                     WHERE run_id = :run_id 
                         AND status = 'queued'
@@ -3208,9 +3208,12 @@ def process_bulk_call_run(run_id: int):
                     FOR UPDATE SKIP LOCKED
                 """), {"run_id": run_id, "business_id": run.business_id}).first()
                 
-                if next_job:
-                    # Convert to ORM object
-                    next_job = OutboundCallJob.query.get(next_job[0])
+                if next_job_row:
+                    job_id = next_job_row[0]
+                    # 🔥 FIX: Get ORM object within same transaction to maintain lock
+                    next_job = OutboundCallJob.query.filter_by(id=job_id).with_for_update().first()
+                else:
+                    next_job = None
                 
                 if next_job:
                     # 🔥 SEMAPHORE: Try to acquire slot before starting call
@@ -3699,6 +3702,8 @@ def reconcile_stuck_runs():
     - Worker died and didn't clean up properly
     - Database got into inconsistent state
     
+    Rate limited to 1 request per minute per business to prevent abuse.
+    
     Returns:
     {
         "success": true,
@@ -3721,6 +3726,21 @@ def reconcile_stuck_runs():
         else:
             return jsonify({"error": "אין גישה לעסק"}), 403
     
+    # 🔒 RATE LIMITING: Check if reconcile was called in the last minute
+    # This is per-worker, which is acceptable for this admin endpoint
+    cache_key = f"reconcile_last_call_{tenant_id or 'all'}"
+    from server.stream_state import stream_registry
+    last_call = stream_registry.get_metadata('global', cache_key)
+    
+    if last_call:
+        last_call_time = datetime.fromisoformat(last_call)
+        if datetime.utcnow() - last_call_time < timedelta(minutes=1):
+            seconds_remaining = 60 - (datetime.utcnow() - last_call_time).seconds
+            return jsonify({
+                "error": f"יש להמתין {seconds_remaining} שניות לפני תיקון נוסף",
+                "retry_after": seconds_remaining
+            }), 429
+    
     try:
         reconciled = []
         
@@ -3734,18 +3754,45 @@ def reconcile_stuck_runs():
         
         stuck_runs = query.all()
         
+        if not stuck_runs:
+            # Update last call time even if no runs to reconcile
+            stream_registry.set_metadata('global', cache_key, datetime.utcnow().isoformat())
+            return jsonify({
+                "success": True,
+                "reconciled_count": 0,
+                "runs": [],
+                "message": "אין ריצות תקועות לתיקון"
+            })
+        
+        # 🔥 OPTIMIZATION: Get job counts for all runs in one query to avoid N+1 problem
+        run_ids = [run.id for run in stuck_runs]
+        
+        # Query to get active job counts per run
+        active_counts_query = db.session.query(
+            OutboundCallJob.run_id,
+            func.count(OutboundCallJob.id).label('count')
+        ).filter(
+            OutboundCallJob.run_id.in_(run_ids),
+            OutboundCallJob.status.in_(['queued', 'dialing', 'calling'])
+        ).group_by(OutboundCallJob.run_id).all()
+        
+        active_counts = {run_id: count for run_id, count in active_counts_query}
+        
+        # Query to get completed job counts per run
+        completed_counts_query = db.session.query(
+            OutboundCallJob.run_id,
+            func.count(OutboundCallJob.id).label('count')
+        ).filter(
+            OutboundCallJob.run_id.in_(run_ids),
+            OutboundCallJob.status.in_(['completed', 'failed'])
+        ).group_by(OutboundCallJob.run_id).all()
+        
+        completed_counts = {run_id: count for run_id, count in completed_counts_query}
+        
         for run in stuck_runs:
-            # Count active jobs
-            active_jobs = OutboundCallJob.query.filter(
-                OutboundCallJob.run_id == run.id,
-                OutboundCallJob.status.in_(['queued', 'dialing', 'calling'])
-            ).count()
-            
-            # Count completed/failed jobs
-            completed_jobs = OutboundCallJob.query.filter(
-                OutboundCallJob.run_id == run.id,
-                OutboundCallJob.status.in_(['completed', 'failed'])
-            ).count()
+            # Get counts from preloaded data
+            active_jobs = active_counts.get(run.id, 0)
+            completed_jobs = completed_counts.get(run.id, 0)
             
             # If no active jobs, reconcile the run
             if active_jobs == 0:
@@ -3780,8 +3827,6 @@ def reconcile_stuck_runs():
                 run.queued_count = 0
                 run.in_progress_count = 0
                 
-                db.session.commit()
-                
                 reconciled.append({
                     'run_id': run.id,
                     'old_status': old_status,
@@ -3792,6 +3837,12 @@ def reconcile_stuck_runs():
                 })
                 
                 log.info(f"[RECONCILE] Run {run.id}: {old_status} → {run.status} ({reason})")
+        
+        # 🔥 FIX: Commit all changes at once to ensure consistency
+        db.session.commit()
+        
+        # Update last call time after successful reconcile
+        stream_registry.set_metadata('global', cache_key, datetime.utcnow().isoformat())
         
         return jsonify({
             "success": True,
