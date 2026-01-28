@@ -17,6 +17,9 @@ export interface SignatureField {
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
 const MIN_PDF_CONTAINER_HEIGHT = 400; // Minimum height for PDF container (px)
 const ERROR_LOADING_PDF_INFO = 'שגיאה בטעינת מידע על PDF';
+const IFRAME_PADDING_PX = 16; // Padding around iframe (matches p-4 class = 1rem = 16px)
+const DEFAULT_SIGNATURE_WIDTH_PX = 150; // Default signature width in pixels
+const DEFAULT_SIGNATURE_HEIGHT_PX = 50; // Default signature height in pixels
 
 interface SignatureFieldMarkerProps {
   contractId: number;
@@ -38,6 +41,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
   const [loadingInfo, setLoadingInfo] = useState(true);
   const [pdfUrl, setPdfUrl] = useState<string>('');
+  const [pdfPageDimensions, setPdfPageDimensions] = useState<{ width: number; height: number }[]>([]);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
   
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -47,6 +52,11 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     loadSignatureFields();
     loadPdfInfo();
   }, [contractId]);
+  
+  // Reset iframe loaded state when page changes
+  useEffect(() => {
+    setIframeLoaded(false);
+  }, [currentPage, pdfUrl]);
 
   const loadPdfInfo = async () => {
     try {
@@ -58,7 +68,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
         const data = await response.json();
         setTotalPages(data.page_count || 1);
         setPdfUrl(`/api/contracts/${contractId}/pdf`);
-        logger.debug('[SignatureFieldMarker] PDF info loaded, pages:', data.page_count);
+        setPdfPageDimensions(data.pages || []);
+        logger.debug('[SignatureFieldMarker] PDF info loaded, pages:', data.page_count, 'dimensions:', data.pages);
       } else {
         logger.error('[SignatureFieldMarker] Failed to load PDF info:', response.status);
         setError(ERROR_LOADING_PDF_INFO);
@@ -117,15 +128,45 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pdfContainerRef.current || !signatureMarkingMode) return;
     
-    const rect = pdfContainerRef.current.getBoundingClientRect();
+    // Get current page dimensions from backend PDF info
+    const pageIndex = currentPage - 1; // Convert to 0-indexed
+    if (!pdfPageDimensions[pageIndex]) {
+      logger.error('[SignatureFieldMarker] No page dimensions available for page:', currentPage);
+      return;
+    }
     
-    // Get click position in pixels relative to container
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    const pageDimensions = pdfPageDimensions[pageIndex];
+    const pdfPageWidth = pageDimensions.width;
+    const pdfPageHeight = pageDimensions.height;
     
-    // Convert to relative units (0-1) based on container dimensions
-    const relX = clickX / rect.width;
-    const relY = clickY / rect.height;
+    // Get the iframe dimensions to calculate the scale
+    const iframe = iframeRef.current;
+    if (!iframe) {
+      logger.error('[SignatureFieldMarker] iframe ref not available');
+      return;
+    }
+    
+    const iframeRect = iframe.getBoundingClientRect();
+    
+    logger.debug('[SignatureFieldMarker] Click at', { clickX: e.clientX, clickY: e.clientY, iframeWidth: iframeRect.width, iframeHeight: iframeRect.height, pdfPageWidth, pdfPageHeight });
+    
+    // Get click position relative to iframe
+    const clickX = e.clientX - iframeRect.left;
+    const clickY = e.clientY - iframeRect.top;
+    
+    // The iframe displays the PDF with view=FitH (fit horizontally)
+    // Calculate the scale factor based on width, and use it for both X and Y
+    const displayScale = iframeRect.width / pdfPageWidth;
+    
+    // Convert click coordinates from display pixels to PDF points
+    const pdfX = clickX / displayScale;
+    const pdfY = clickY / displayScale;
+    
+    // Normalize to 0-1 range based on actual PDF page dimensions
+    const relX = pdfX / pdfPageWidth;
+    const relY = pdfY / pdfPageHeight;
+    
+    logger.debug('[SignatureFieldMarker] Normalized coords:', { relX, relY });
 
     // Check if clicking on existing field
     const clickedField = fields.find(f => 
@@ -140,15 +181,21 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     }
 
     // Create new signature field at click location
+    // Default signature size in pixels, then convert to normalized based on PDF page dimensions
+    const defaultW = DEFAULT_SIGNATURE_WIDTH_PX / pdfPageWidth;
+    const defaultH = DEFAULT_SIGNATURE_HEIGHT_PX / pdfPageHeight;
+    
     const newField: SignatureField = {
       id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       page: currentPage,
-      x: Math.max(0, Math.min(1 - 0.15, relX - 0.075)), // Center the box on click
-      y: Math.max(0, Math.min(1 - 0.08, relY - 0.04)),
-      w: 0.15, // Default width 15%
-      h: 0.08, // Default height 8%
+      x: Math.max(0, Math.min(1 - defaultW, relX - defaultW / 2)), // Center the box on click
+      y: Math.max(0, Math.min(1 - defaultH, relY - defaultH / 2)),
+      w: defaultW,
+      h: defaultH,
       required: true,
     };
+    
+    logger.debug('[SignatureFieldMarker] Created field:', newField);
     
     setFields(prev => [...prev, newField]);
     setSelectedFieldId(newField.id);
@@ -162,12 +209,31 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
 
   const handleFieldMouseDown = (e: React.MouseEvent | React.PointerEvent, field: SignatureField, handle?: string) => {
     e.stopPropagation();
-    if (!pdfContainerRef.current) return;
+    if (!pdfContainerRef.current || !iframeRef.current) return;
     
-    const rect = pdfContainerRef.current.getBoundingClientRect();
-    // Get position as relative coordinates (0-1)
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
+    // Get current page dimensions
+    const pageIndex = currentPage - 1;
+    if (!pdfPageDimensions[pageIndex]) {
+      logger.error('[SignatureFieldMarker] No page dimensions for drag operation');
+      return;
+    }
+    
+    const pageDimensions = pdfPageDimensions[pageIndex];
+    const pdfPageWidth = pageDimensions.width;
+    const pdfPageHeight = pageDimensions.height;
+    
+    const iframeRect = iframeRef.current.getBoundingClientRect();
+    
+    // Calculate display scale
+    const displayScale = iframeRect.width / pdfPageWidth;
+    
+    // Get position relative to iframe, convert to PDF points, then normalize
+    const clickX = e.clientX - iframeRect.left;
+    const clickY = e.clientY - iframeRect.top;
+    const pdfX = clickX / displayScale;
+    const pdfY = clickY / displayScale;
+    const x = pdfX / pdfPageWidth;
+    const y = pdfY / pdfPageHeight;
     
     if (handle) {
       setIsResizing(handle);
@@ -187,12 +253,28 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!pdfContainerRef.current || !dragStart || !selectedFieldId) return;
+    if (!pdfContainerRef.current || !iframeRef.current || !dragStart || !selectedFieldId) return;
     
-    const rect = pdfContainerRef.current.getBoundingClientRect();
-    // Get position as relative coordinates (0-1)
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
+    // Get current page dimensions
+    const pageIndex = currentPage - 1;
+    if (!pdfPageDimensions[pageIndex]) return;
+    
+    const pageDimensions = pdfPageDimensions[pageIndex];
+    const pdfPageWidth = pageDimensions.width;
+    const pdfPageHeight = pageDimensions.height;
+    
+    const iframeRect = iframeRef.current.getBoundingClientRect();
+    
+    // Calculate display scale
+    const displayScale = iframeRect.width / pdfPageWidth;
+    
+    // Get position relative to iframe, convert to PDF points, then normalize
+    const clickX = e.clientX - iframeRect.left;
+    const clickY = e.clientY - iframeRect.top;
+    const pdfX = clickX / displayScale;
+    const pdfY = clickY / displayScale;
+    const x = pdfX / pdfPageWidth;
+    const y = pdfY / pdfPageHeight;
     
     const dx = x - dragStart.x;
     const dy = y - dragStart.y;
@@ -289,9 +371,40 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const renderSignatureFields = () => {
     // Create a map of field IDs to their global index for efficient lookup
     const fieldIndexMap = new Map(fields.map((f, i) => [f.id, i + 1]));
+    
+    // Get current page dimensions
+    const pageIndex = currentPage - 1;
+    if (!pdfPageDimensions[pageIndex]) {
+      logger.warn('[SignatureFieldMarker] No page dimensions for rendering fields');
+      return null;
+    }
+    
+    const pageDimensions = pdfPageDimensions[pageIndex];
+    const pdfPageWidth = pageDimensions.width;
+    const pdfPageHeight = pageDimensions.height;
+    
+    // Get iframe dimensions for display
+    const iframe = iframeRef.current;
+    if (!iframe) return null;
+    
+    const iframeRect = iframe.getBoundingClientRect();
+    
+    // Calculate display scale (same as used in click handler)
+    const displayScale = iframeRect.width / pdfPageWidth;
+    
+    // Calculate displayed PDF dimensions based on scale
+    const displayedPageWidth = iframeRect.width;
+    const displayedPageHeight = pdfPageHeight * displayScale;
 
     return getCurrentPageFields().map((field) => {
       const fieldNumber = fieldIndexMap.get(field.id) || 1;
+      
+      // Convert normalized coordinates (0-1) to display pixels
+      // Use displayed page dimensions, not iframe dimensions
+      const displayX = field.x * displayedPageWidth;
+      const displayY = field.y * displayedPageHeight;
+      const displayW = field.w * displayedPageWidth;
+      const displayH = field.h * displayedPageHeight;
 
       return (
         <div
@@ -302,10 +415,10 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
               : 'border-green-600 bg-green-200 hover:border-green-700'
           } bg-opacity-40 cursor-move`}
           style={{
-            left: `${field.x * 100}%`,
-            top: `${field.y * 100}%`,
-            width: `${field.w * 100}%`,
-            height: `${field.h * 100}%`,
+            left: `${displayX}px`,
+            top: `${displayY}px`,
+            width: `${displayW}px`,
+            height: `${displayH}px`,
             pointerEvents: 'auto',
             zIndex: selectedFieldId === field.id ? 10 : 5,
             backgroundColor: selectedFieldId === field.id 
@@ -335,19 +448,19 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
           {selectedFieldId === field.id && (
             <>
               <div 
-                className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
+                className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'tr')}
               />
               <div 
-                className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
+                className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'tl')}
               />
               <div 
-                className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
+                className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'br')}
               />
               <div 
-                className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
+                className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'bl')}
               />
             </>
@@ -469,6 +582,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                     src={`${pdfUrl}#page=${currentPage}&view=FitH`}
                     className="w-full h-full min-h-[500px] rounded-lg shadow-lg bg-white"
                     title="PDF Document"
+                    onLoad={() => setIframeLoaded(true)}
                     style={{ 
                       border: 'none',
                       display: 'block',
@@ -477,8 +591,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                     }}
                   />
                   
-                  {/* Transparent overlay for capturing clicks - ONLY when signature mode is active */}
-                  {signatureMarkingMode && (
+                  {/* Transparent overlay for capturing clicks - Positioned exactly over iframe */}
+                  {signatureMarkingMode && iframeLoaded && iframeRef.current && pdfPageDimensions[currentPage - 1] && (
                     <div
                       className="absolute inset-4 cursor-crosshair transition-all"
                       style={{
@@ -498,7 +612,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                   )}
                   
                   {/* Overlay for existing signature fields - always visible */}
-                  {!signatureMarkingMode && (
+                  {!signatureMarkingMode && iframeLoaded && iframeRef.current && pdfPageDimensions[currentPage - 1] && (
                     <div
                       className="absolute inset-4"
                       style={{
