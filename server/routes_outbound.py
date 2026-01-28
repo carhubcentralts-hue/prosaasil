@@ -2724,8 +2724,257 @@ def get_recent_inbound_calls():
         return jsonify({"error": "שגיאה בטעינת השיחות הנכנסות האחרונות"}), 500
 
 
+def process_next_queued_job(job_id: int, run_id: int):
+    """
+    🔥 NEW: Process a single job from the Redis queue
+    
+    Called by webhook when a call completes and Redis queue returns next job.
+    This is the event-driven approach that works with Redis semaphore.
+    
+    Args:
+        job_id: The job_id to process (returned by release_slot())
+        run_id: The run_id this job belongs to
+    """
+    from server.app_factory import get_process_app
+    from server.models_sql import OutboundCallRun, OutboundCallJob, Lead, Business, CallLog
+    from datetime import datetime
+    import uuid
+    from sqlalchemy import text
+    
+    app = get_process_app()
+    
+    with app.app_context():
+        try:
+            # Get the job
+            job = OutboundCallJob.query.get(job_id)
+            if not job:
+                log.warning(f"[ProcessNext] Job {job_id} not found")
+                return
+            
+            # Verify it's queued
+            if job.status != "queued":
+                log.warning(f"[ProcessNext] Job {job_id} is not queued (status={job.status})")
+                return
+            
+            # Get the run
+            run = OutboundCallRun.query.get(run_id)
+            if not run or run.status != "running":
+                log.info(f"[ProcessNext] Run {run_id} not running, skipping job {job_id}")
+                return
+            
+            log.info(f"[ProcessNext] Processing job {job_id} from Redis queue for run {run_id}")
+            
+            # Get business details
+            business = Business.query.get(run.business_id)
+            if not business or not business.phone_e164:
+                log.error(f"[ProcessNext] Business {run.business_id} has no phone")
+                job.status = "failed"
+                job.error_message = "אין מספר טלפון לעסק"
+                job.completed_at = datetime.utcnow()
+                run.failed_count += 1
+                run.queued_count -= 1
+                db.session.commit()
+                return
+            
+            from_phone = business.phone_e164
+            business_name = business.name or "העסק"
+            
+            # Get public host for webhooks
+            try:
+                host = get_public_host()
+            except RuntimeError as e:
+                log.error(f"[ProcessNext] No public host: {e}")
+                job.status = "failed"
+                job.error_message = "No public host configured"
+                job.completed_at = datetime.utcnow()
+                run.failed_count += 1
+                run.queued_count -= 1
+                db.session.commit()
+                return
+            
+            # Get lead
+            lead = Lead.query.get(job.lead_id)
+            if not lead or not lead.phone_e164:
+                job.status = "failed"
+                job.error_message = "אין מספר טלפון לליד"
+                job.completed_at = datetime.utcnow()
+                run.failed_count += 1
+                run.queued_count -= 1
+                db.session.commit()
+                return
+            
+            # 🔒 ATOMIC LOCKING: Acquire lock before dialing
+            lock_token = str(uuid.uuid4())
+            
+            # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL AND dial_lock_token IS NULL
+            result = db.session.execute(text("""
+                UPDATE outbound_call_jobs 
+                SET status='dialing', 
+                    dial_started_at=NOW(), 
+                    dial_lock_token=:lock_token
+                WHERE id=:job_id 
+                    AND status='queued' 
+                    AND twilio_call_sid IS NULL
+                    AND dial_lock_token IS NULL
+            """), {"job_id": job.id, "lock_token": lock_token})
+            
+            db.session.commit()
+            
+            # Check if we acquired the lock
+            if result.rowcount == 0:
+                # Someone else already started this call or it's no longer queued
+                log.warning(f"[ProcessNext] Job {job.id} already being processed, skipping")
+                return
+            
+            # Successfully acquired lock, proceed with call
+            run.in_progress_count += 1
+            run.queued_count -= 1
+            db.session.commit()
+            
+            # Normalize phone
+            normalized_phone = normalize_israeli_phone(lead.phone_e164)
+            
+            # Create call log
+            call_log = CallLog()
+            call_log.business_id = run.business_id
+            call_log.lead_id = lead.id
+            call_log.from_number = from_phone
+            call_log.to_number = normalized_phone
+            call_log.direction = "outbound"
+            call_log.status = "initiated"
+            call_log.call_status = "initiated"
+            # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
+            call_log.customer_name = _get_lead_display_name(lead)
+            # 🎯 PROJECT TRACKING: Associate call with project if job has project_id
+            if job.project_id:
+                call_log.project_id = job.project_id
+            db.session.add(call_log)
+            db.session.flush()
+            
+            job.call_log_id = call_log.id
+            db.session.commit()
+            
+            # 🔥 SSOT: Use centralized outbound call service
+            from server.services.twilio_outbound_service import create_outbound_call
+            
+            # 🔥 NAME SSOT: Extract lead name
+            lead_name = _get_lead_display_name(lead)
+            
+            try:
+                result = create_outbound_call(
+                    to_phone=normalized_phone,
+                    from_phone=from_phone,
+                    business_id=run.business_id,
+                    host=host,
+                    lead_id=lead.id,
+                    job_id=job.id,
+                    business_name=business_name,
+                    lead_name=lead_name
+                )
+                
+                call_sid = result["call_sid"]
+                is_duplicate = result.get("is_duplicate", False)
+                
+                if is_duplicate:
+                    log.warning(f"[ProcessNext] [DEDUP] Duplicate call detected for job {job.id}, marking as failed")
+                    job.status = "failed"
+                    job.error_message = "Duplicate call detected"
+                    job.completed_at = datetime.utcnow()
+                    run.in_progress_count -= 1
+                    run.failed_count += 1
+                    db.session.commit()
+                    return
+                
+                # 🔒 ATOMIC UPDATE: Update with Twilio call SID only if lock token matches
+                update_result = db.session.execute(text("""
+                    UPDATE outbound_call_jobs 
+                    SET twilio_call_sid=:twilio_sid, 
+                        call_sid=:twilio_sid,
+                        status='calling',
+                        started_at=NOW()
+                    WHERE id=:job_id 
+                        AND dial_lock_token=:lock_token
+                """), {
+                    "job_id": job.id, 
+                    "twilio_sid": call_sid, 
+                    "lock_token": lock_token
+                })
+                
+                if update_result.rowcount == 0:
+                    log.error(f"[ProcessNext] Lock token mismatch for job {job.id}, call may be duplicate")
+                
+                call_log.call_sid = call_sid
+                db.session.commit()
+                
+                log.info(f"[ProcessNext] ✅ Started call for lead {lead.id}, job {job.id}, call_sid={call_sid}")
+                
+            except Exception as twilio_error:
+                # 🔒 DEDUPLICATION: Handle Twilio timeout/exception
+                log.error(f"[ProcessNext] Twilio error for job {job.id}: {twilio_error}")
+                
+                # Check if call was actually created despite the error
+                db.session.refresh(job)
+                if not job.twilio_call_sid:
+                    # Call was not created - reset to queued for retry and release slot
+                    result = db.session.execute(text("""
+                        UPDATE outbound_call_jobs 
+                        SET status='queued',
+                            dial_lock_token=NULL,
+                            dial_started_at=NULL
+                        WHERE id=:job_id 
+                            AND twilio_call_sid IS NULL
+                            AND dial_lock_token=:lock_token
+                    """), {"job_id": job.id, "lock_token": lock_token})
+                    
+                    run.in_progress_count -= 1
+                    run.queued_count += 1
+                    db.session.commit()
+                    
+                    # 🔥 CRITICAL: Release the slot since call failed
+                    from server.services.outbound_semaphore import release_slot
+                    next_job_id = release_slot(run.business_id, job.id)
+                    if next_job_id:
+                        log.info(f"[ProcessNext] Released slot after error, processing next job {next_job_id}")
+                        # Recursively process next job
+                        process_next_queued_job(next_job_id, run_id)
+                    
+                    log.warning(f"[ProcessNext] Reset job {job.id} to queued for retry")
+                    raise twilio_error
+        
+        except Exception as e:
+            log.error(f"[ProcessNext] Error processing job {job_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Try to mark job as failed if it hasn't started yet
+            try:
+                job = OutboundCallJob.query.get(job_id)
+                if job and not job.twilio_call_sid and job.status != "failed":
+                    job.status = "failed"
+                    job.error_message = str(e)[:200]
+                    job.completed_at = datetime.utcnow()
+                    
+                    run = OutboundCallRun.query.get(run_id)
+                    if run:
+                        run.in_progress_count = max(0, run.in_progress_count - 1)
+                        run.failed_count += 1
+                    
+                    db.session.commit()
+                    
+                    # 🔥 CRITICAL: Release the slot since job failed
+                    from server.services.outbound_semaphore import release_slot
+                    next_job_id = release_slot(run.business_id, job_id)
+                    if next_job_id:
+                        log.info(f"[ProcessNext] Released slot after exception, processing next job {next_job_id}")
+                        process_next_queued_job(next_job_id, run_id)
+            except Exception as cleanup_err:
+                log.error(f"[ProcessNext] Cleanup error: {cleanup_err}")
+
+
 def fill_queue_slots_for_job(job_id: int):
     """
+    DEPRECATED: Legacy function kept for backward compatibility
+    
     Called when a call completes - tries to fill available slots in the queue
     This is the event-driven approach instead of polling
     """

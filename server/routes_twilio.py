@@ -1439,8 +1439,8 @@ def call_status():
             save_call_status(call_sid, call_status_val, int(call_duration), 
                            normalized_direction, twilio_direction, parent_call_sid)
             
-            # 🔥 NEW: Check if this call is part of a queue run and fill slots
-            # This is the event-driven queue processing
+            # 🔥 NEW: Check if this call is part of a queue run and release Redis slot
+            # This is the event-driven queue processing with Redis semaphore
             try:
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 if call_log:
@@ -1468,16 +1468,24 @@ def call_status():
                                 run.failed_count += 1
                             db.session.commit()
                             
-                            # Fill available slots - this is the key part!
-                            from server.routes_outbound import fill_queue_slots_for_job
-                            import threading
-                            threading.Thread(
-                                target=fill_queue_slots_for_job,
-                                args=(job.id,),
-                                daemon=True,
-                                name=f"FillSlots-{job.id}"
-                            ).start()
-                            logger.info(f"✅ [QUEUE] Call completed for job {job.id}, filling slots")
+                            # 🔥 CRITICAL: Release Redis semaphore slot and process next job from queue
+                            # This is the key fix - atomically releases slot and gets next job
+                            from server.services.outbound_semaphore import release_slot
+                            next_job_id = release_slot(run.business_id, job.id)
+                            
+                            if next_job_id:
+                                # Redis queue has work waiting - process it
+                                logger.info(f"✅ [QUEUE] Call completed for job {job.id}, starting next job {next_job_id} from Redis queue")
+                                from server.routes_outbound import process_next_queued_job
+                                import threading
+                                threading.Thread(
+                                    target=process_next_queued_job,
+                                    args=(next_job_id, run.id),
+                                    daemon=True,
+                                    name=f"ProcessNext-{next_job_id}"
+                                ).start()
+                            else:
+                                logger.info(f"✅ [QUEUE] Call completed for job {job.id}, no more jobs in Redis queue")
                         else:
                             db.session.commit()
             except Exception as queue_err:
