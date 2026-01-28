@@ -2341,7 +2341,14 @@ class MediaStreamHandler:
         self._gemini_input_chunk_size = 640  # Target chunk size (20ms at 16kHz PCM16)
         self._gemini_buffer_warned = False  # Track if we've warned about partial buffering
         
-        logger.info("🎵 [GEMINI_AUDIO] Frame alignment buffers initialized (RX: frame_size=2, TX: chunk_size=640)")
+        # 🔥 GEMINI AUDIO OUTPUT BUFFER: Break large chunks into 20ms frames (OUTPUT to Twilio)
+        # After resampling 24kHz→8kHz and PCM16→μ-law conversion, break into 160-byte frames
+        # This ensures Twilio receives proper 20ms pacing (160 bytes = 20ms at 8kHz μ-law)
+        self._gemini_mulaw_buffer = bytearray()  # Accumulates partial μ-law frames for output
+        self._gemini_frame_stats_logged = 0  # Track frames enqueued for statistics
+        self._first_audio_out_enqueued = False  # Milestone: first audio frame queued
+        
+        logger.info("🎵 [GEMINI_AUDIO] Frame alignment buffers initialized (RX: PCM16/24kHz, TX_IN: PCM16/16kHz, TX_OUT: μ-law/8kHz 20ms frames)")
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -2557,23 +2564,39 @@ class MediaStreamHandler:
         """
         🔥 GEMINI WATCHDOG: Monitor for first audio chunk after RESPONSE_CREATE
         
-        If no audio chunk arrives within 2.5 seconds after RESPONSE_CREATE (greeting),
+        If no audio chunk arrives within timeout after RESPONSE_CREATE (greeting),
         log diagnostic snapshot and potentially trigger reconnect.
+        
+        Grace periods:
+        - OpenAI: 2.5 seconds (fast, reliable)
+        - Gemini: 8.0 seconds (longer latency, more conservative)
         
         Args:
             provider: The AI provider ('gemini' or 'openai')
         """
         def watchdog_thread():
             import time
-            time.sleep(2.5)  # Wait 2.5 seconds
+            
+            # Set timeout based on provider
+            # Gemini needs longer grace period due to audio processing pipeline
+            timeout_sec = 8.0 if provider == 'gemini' else 2.5
+            
+            time.sleep(timeout_sec)  # Wait for timeout
             
             # Check if first audio has arrived
             first_audio_received = getattr(self, '_greeting_audio_started_logged', False)
+            first_audio_enqueued = getattr(self, '_first_audio_out_enqueued', False)  # Gemini milestone
             
-            if not first_audio_received:
+            # For Gemini, check the enqueued flag as well (more accurate)
+            if provider == 'gemini':
+                audio_arrived = first_audio_received or first_audio_enqueued
+            else:
+                audio_arrived = first_audio_received
+            
+            if not audio_arrived:
                 # No audio received - log diagnostic snapshot
                 _orig_print(
-                    f"⚠️ [AUDIO_WATCHDOG] No audio received 2.5s after RESPONSE_CREATE!",
+                    f"⚠️ [AUDIO_WATCHDOG] No audio received {timeout_sec}s after RESPONSE_CREATE! (provider={provider})",
                     flush=True
                 )
                 
@@ -2591,18 +2614,43 @@ class MediaStreamHandler:
                 last_audio_chunk_ts = getattr(self, '_last_audio_chunk_ts', None)
                 last_audio_delta_ts = getattr(self, '_last_audio_delta_ts', None)
                 
-                _orig_print(
-                    f"📊 [WATCHDOG_SNAPSHOT] provider={ai_provider}, model={model}, voice={call_voice}, "
-                    f"ws_state={ws_state}, tx_q={tx_q_size}, out_q={out_q_size}, "
-                    f"last_audio_chunk_ts={last_audio_chunk_ts}, last_audio_delta_ts={last_audio_delta_ts}",
-                    flush=True
-                )
-                
-                logger.error(
-                    f"[AUDIO_WATCHDOG] No first audio after 2.5s - "
-                    f"provider={ai_provider}, model={model}, voice={call_voice}, "
-                    f"ws_state={ws_state}, tx_q={tx_q_size}, out_q={out_q_size}"
-                )
+                # Gemini-specific diagnostics
+                if provider == 'gemini':
+                    gemini_bytes_recv = getattr(self, '_gemini_audio_bytes_recv', 0)
+                    gemini_chunks_recv = getattr(self, '_gemini_audio_chunks_received', 0)
+                    gemini_frames_out = getattr(self, '_gemini_twilio_frames_out', 0)
+                    gemini_frames_enqueued = getattr(self, '_gemini_frame_stats_logged', 0)
+                    
+                    _orig_print(
+                        f"📊 [GEMINI_WATCHDOG] provider={ai_provider}, model={model}, voice={call_voice}, "
+                        f"ws_state={ws_state}, tx_q={tx_q_size}, out_q={out_q_size}, "
+                        f"gemini_bytes_recv={gemini_bytes_recv}, gemini_chunks={gemini_chunks_recv}, "
+                        f"frames_enqueued={gemini_frames_enqueued}, frames_sent={gemini_frames_out}",
+                        flush=True
+                    )
+                    
+                    logger.error(
+                        f"[GEMINI_WATCHDOG] No first audio after {timeout_sec}s - "
+                        f"provider={ai_provider}, model={model}, voice={call_voice}, "
+                        f"bytes_recv={gemini_bytes_recv}, chunks={gemini_chunks_recv}, "
+                        f"frames_enqueued={gemini_frames_enqueued}, frames_sent={gemini_frames_out}"
+                    )
+                else:
+                    _orig_print(
+                        f"📊 [WATCHDOG_SNAPSHOT] provider={ai_provider}, model={model}, voice={call_voice}, "
+                        f"ws_state={ws_state}, tx_q={tx_q_size}, out_q={out_q_size}, "
+                        f"last_audio_chunk_ts={last_audio_chunk_ts}, last_audio_delta_ts={last_audio_delta_ts}",
+                        flush=True
+                    )
+                    
+                    logger.error(
+                        f"[AUDIO_WATCHDOG] No first audio after {timeout_sec}s - "
+                        f"provider={ai_provider}, model={model}, voice={call_voice}, "
+                        f"ws_state={ws_state}, tx_q={tx_q_size}, out_q={out_q_size}"
+                    )
+            else:
+                # Audio arrived successfully
+                logger.info(f"✅ [AUDIO_WATCHDOG] First audio received within {timeout_sec}s (provider={provider})")
         
         # Start watchdog thread
         watchdog = threading.Thread(target=watchdog_thread, daemon=True, name="AudioWatchdog")
@@ -3388,6 +3436,28 @@ class MediaStreamHandler:
                 self._openai_connect_attempts = 1
                 self._metrics_openai_connect_ms = int(connect_ms)
                 _orig_print(f"✅ [{client_type}] Connected in {connect_ms:.0f}ms (max_retries=3)", flush=True)
+                
+                # 🔥 AUDIO CONTRACT LOGGING: Document expected audio formats for troubleshooting
+                if ai_provider == 'gemini':
+                    _orig_print("═" * 70, flush=True)
+                    _orig_print("🎵 GEMINI LIVE AUDIO CONTRACT", flush=True)
+                    _orig_print("═" * 70, flush=True)
+                    _orig_print("📥 TWILIO  → GEMINI (INBOUND):", flush=True)
+                    _orig_print("   1. Twilio:  μ-law 8kHz, 20ms frames (160 bytes)", flush=True)
+                    _orig_print("   2. Decode:  base64 → raw μ-law bytes", flush=True)
+                    _orig_print("   3. Convert: μ-law 8kHz → PCM16 8kHz (160→320 bytes)", flush=True)
+                    _orig_print("   4. Resample: PCM16 8kHz → PCM16 16kHz (320→640 bytes)", flush=True)
+                    _orig_print("   5. Send:    PCM16 16kHz mono, mime='audio/pcm;rate=16000'", flush=True)
+                    _orig_print("", flush=True)
+                    _orig_print("📤 GEMINI → TWILIO (OUTBOUND):", flush=True)
+                    _orig_print("   1. Receive: PCM16 24kHz mono (variable chunk sizes)", flush=True)
+                    _orig_print("   2. Buffer:  Align to 2-byte boundaries (handle odd chunks)", flush=True)
+                    _orig_print("   3. Resample: PCM16 24kHz → PCM16 8kHz (3:1 ratio)", flush=True)
+                    _orig_print("   4. Convert: PCM16 8kHz → μ-law 8kHz", flush=True)
+                    _orig_print("   5. Chunk:   Break into 20ms frames (160 bytes each)", flush=True)
+                    _orig_print("   6. Queue:   Send to Twilio with 20ms pacing", flush=True)
+                    _orig_print("═" * 70, flush=True)
+                    logger.info("🎵 [GEMINI_AUDIO] Audio contract established: 16kHz PCM16 IN, 24kHz PCM16 OUT")
                 
             except asyncio.TimeoutError:
                 connect_ms = (time.time() - t_connect_start) * 1000
@@ -4941,23 +5011,80 @@ class MediaStreamHandler:
                 # audioop.ratecv requires aligned frames - now guaranteed by buffer logic above
                 pcm16_8k = audioop.ratecv(audio_to_convert, 2, 1, 24000, 8000, None)[0]
                 
-                # Step 2: Convert PCM16 to μ-law (320 bytes PCM16 → 160 bytes μ-law = 20ms frame)
+                # Step 2: Convert PCM16 to μ-law (each sample becomes 1 byte)
                 mulaw_bytes = audioop.lin2ulaw(pcm16_8k, 2)
                 
-                # Step 3: Encode to base64 for OpenAI-compatible format
-                # This creates proper 20ms frames (160 samples at 8kHz = 160 bytes μ-law)
-                audio_b64 = base64.b64encode(mulaw_bytes).decode('utf-8')
+                # Step 3: 🔥 CRITICAL FIX: Break into proper 20ms frames (160 bytes μ-law each)
+                # As per audio contract requirement: Twilio needs constant 20ms pacing
+                # Don't send large chunks - break them into 160-byte frames
+                MULAW_FRAME_SIZE = 160  # 20ms at 8kHz = 160 samples = 160 bytes μ-law
                 
-                return {
-                    'type': 'response.audio.delta',
-                    'delta': audio_b64,
-                    'response_id': getattr(self, 'active_response_id', 'gemini_response')
-                }
+                # If we have less than one frame, buffer it
+                if len(mulaw_bytes) < MULAW_FRAME_SIZE:
+                    # Add to buffer
+                    self._gemini_mulaw_buffer.extend(mulaw_bytes)
+                    
+                    # Wait until we have at least one complete frame
+                    if len(self._gemini_mulaw_buffer) < MULAW_FRAME_SIZE:
+                        logger.debug(f"🔄 [GEMINI_OUTPUT] Buffering partial μ-law frame: {len(self._gemini_mulaw_buffer)}/{MULAW_FRAME_SIZE} bytes")
+                        return None
+                    
+                    # We now have enough buffered data - process it
+                    mulaw_bytes = bytes(self._gemini_mulaw_buffer)
+                
+                # Break into 160-byte (20ms) frames and queue them
+                frames_queued = 0
+                offset = 0
+                buffer_len = len(mulaw_bytes)
+                
+                while offset + MULAW_FRAME_SIZE <= buffer_len:
+                    # Extract exactly one frame (160 bytes)
+                    frame = mulaw_bytes[offset:offset+MULAW_FRAME_SIZE]
+                    
+                    # Encode to base64 for transmission
+                    frame_b64 = base64.b64encode(frame).decode('utf-8')
+                    
+                    # Queue frame for transmission (will be sent with proper 20ms pacing)
+                    try:
+                        self.realtime_audio_out_queue.put_nowait(frame_b64)
+                        frames_queued += 1
+                        
+                        # Track first audio output milestone
+                        if not self._first_audio_out_enqueued:
+                            self._first_audio_out_enqueued = True
+                            logger.info(f"🎵 [GEMINI_OUTPUT] First audio frame enqueued for Twilio (20ms frame, 160 bytes μ-law)")
+                    except _queue_module.Full:
+                        # Queue full - log warning but continue processing
+                        logger.warning(f"⚠️ [GEMINI_OUTPUT] Output queue full, dropping frame")
+                    
+                    offset += MULAW_FRAME_SIZE
+                
+                # Buffer any remaining bytes (partial frame) for next chunk
+                remainder = buffer_len - offset
+                if remainder > 0:
+                    # Keep partial frame in buffer
+                    self._gemini_mulaw_buffer = bytearray(mulaw_bytes[offset:])
+                    logger.debug(f"🔄 [GEMINI_OUTPUT] Buffering partial frame: {remainder} bytes")
+                else:
+                    # No remainder - clear buffer
+                    self._gemini_mulaw_buffer.clear()
+                
+                # Log frame statistics (rate-limited)
+                self._gemini_frame_stats_logged += frames_queued
+                
+                # Log every 50 frames
+                if self._gemini_frame_stats_logged >= 50 and self._gemini_frame_stats_logged % 50 < frames_queued:
+                    logger.info(f"📊 [GEMINI_OUTPUT] Frames enqueued: {self._gemini_frame_stats_logged} (chunk: {frames_queued} frames, {len(mulaw_bytes)} bytes)")
+                
+                # Return None since we've already queued the frames
+                # The TX loop will handle sending them with proper timing
+                return None
             except Exception as e:
                 # 🔥 CRITICAL: Don't crash on single bad chunk - log and continue
                 logger.error(f"[GEMINI_NORMALIZE] Audio conversion failed (chunk #{self._gemini_audio_chunks_received}): {e}")
-                # Clear buffer on error to prevent corruption from propagating
+                # Clear both buffers on error to prevent corruption from propagating
                 self._gemini_audio_buffer.clear()
+                self._gemini_mulaw_buffer.clear()
                 return None
         
         elif gemini_type == 'text':
@@ -5635,6 +5762,42 @@ class MediaStreamHandler:
                 # Gemini returns: {'type': 'audio'|'text'|'turn_complete'|'interrupted'|'setup_complete', 'data': ...}
                 # We need to normalize to OpenAI format for unified handling
                 if ai_provider == 'gemini':
+                    # 🔥 LOG RAW GEMINI EVENT: Track all event types received
+                    gemini_event_type = event.get('type', 'unknown')
+                    
+                    # Log event types for diagnostics (rate-limited to avoid spam)
+                    if not hasattr(self, '_gemini_event_types_logged'):
+                        self._gemini_event_types_logged = set()
+                    
+                    # Log first occurrence of each event type
+                    if gemini_event_type not in self._gemini_event_types_logged:
+                        self._gemini_event_types_logged.add(gemini_event_type)
+                        logger.info(f"📥 [GEMINI_RECV] New event type: {gemini_event_type}")
+                        _orig_print(f"📥 [GEMINI_RECV] New event type: {gemini_event_type}", flush=True)
+                    
+                    # Log key events always (setup_complete, turn_complete, audio chunks)
+                    if gemini_event_type == 'setup_complete':
+                        _orig_print(f"✅ [GEMINI_RECV] setup_complete (session ready)", flush=True)
+                    elif gemini_event_type == 'turn_complete':
+                        _orig_print(f"✅ [GEMINI_RECV] turn_complete (AI finished speaking)", flush=True)
+                    elif gemini_event_type == 'audio':
+                        audio_data = event.get('data', b'')
+                        if isinstance(audio_data, bytes):
+                            # Track audio statistics
+                            if not hasattr(self, '_gemini_total_audio_bytes'):
+                                self._gemini_total_audio_bytes = 0
+                                self._gemini_total_audio_chunks = 0
+                            self._gemini_total_audio_bytes += len(audio_data)
+                            self._gemini_total_audio_chunks += 1
+                            
+                            # Log first few audio chunks with details
+                            if self._gemini_total_audio_chunks <= 5:
+                                logger.info(f"🔊 [GEMINI_RECV] audio_chunk #{self._gemini_total_audio_chunks}: {len(audio_data)} bytes (total: {self._gemini_total_audio_bytes} bytes)")
+                            # Log statistics every 100 chunks
+                            elif self._gemini_total_audio_chunks % 100 == 0:
+                                avg_chunk_size = self._gemini_total_audio_bytes / self._gemini_total_audio_chunks
+                                logger.info(f"📊 [GEMINI_RECV] Audio stats: chunks={self._gemini_total_audio_chunks}, total_bytes={self._gemini_total_audio_bytes}, avg_chunk_size={avg_chunk_size:.1f}")
+                    
                     event = self._normalize_gemini_event(event)
                     if event is None:
                         continue  # Skip events that don't need processing
@@ -16771,6 +16934,14 @@ class MediaStreamHandler:
                         ai_provider = getattr(self, '_ai_provider', 'openai')
                         if ai_provider == 'gemini':
                             self._gemini_twilio_frames_out += 1
+                            
+                            # Log frame milestones for Gemini
+                            if self._gemini_twilio_frames_out == 1:
+                                _orig_print(f"🎵 [GEMINI_TX] First frame sent to Twilio", flush=True)
+                                logger.info(f"🎵 [GEMINI_TX] First audio frame sent to Twilio successfully")
+                            elif self._gemini_twilio_frames_out % 100 == 0:
+                                # Log every 100 frames
+                                logger.info(f"📊 [GEMINI_TX] Frames sent: {self._gemini_twilio_frames_out}")
                         
                         if not _first_frame_sent:
                             _first_frame_sent = True
