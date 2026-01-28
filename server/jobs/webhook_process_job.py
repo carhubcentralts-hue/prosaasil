@@ -88,7 +88,22 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                     # This is the "iron rule" - NEVER reconstruct the JID from phone_number
                     # For DMs: remoteJid ends with @s.whatsapp.net
                     # For Groups: remoteJid ends with @g.us
-                    jid = from_jid  # Use remoteJid directly, DO NOT reconstruct
+                    # For Android LID: remoteJid ends with @lid, use participant as actual JID
+                    
+                    # 🔥 ANDROID FIX: Handle LID (Linked ID) from Android devices
+                    # Android uses @lid instead of @s.whatsapp.net, but we need the participant
+                    if from_jid.endswith('@lid'):
+                        # Extract participant (the actual sender's JID)
+                        participant_jid = msg.get('key', {}).get('participant')
+                        if participant_jid:
+                            jid = participant_jid  # Use participant instead of @lid
+                            logger.info(f"📱 [ANDROID_LID] trace_id={trace_id} lid={from_jid} using_participant={jid}")
+                        else:
+                            # Fallback: construct JID from phone number
+                            jid = f"{phone_number}@s.whatsapp.net"
+                            logger.warning(f"⚠️ [ANDROID_LID_FALLBACK] trace_id={trace_id} no_participant, using_phone={jid}")
+                    else:
+                        jid = from_jid  # Use remoteJid directly for non-LID messages
                     
                     # 🔥 FIX: Add verification logging to ensure no mismatch
                     logger.info(f"🎯 [JID_COMPUTED] trace_id={trace_id} computed_to={jid}")

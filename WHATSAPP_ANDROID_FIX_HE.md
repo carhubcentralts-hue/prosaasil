@@ -13,26 +13,63 @@ WhatsApp connects successfully from Android (QR code works, status shows "connec
 
 ## השורש / Root Cause
 
-הבעיה הייתה באג ב-RQ (Redis Queue) שגרם ל-Worker לקרוס:
+היו **שתי בעיות נפרדות**:
 
+### בעיה #1: RQ Timeout Bug (תוקן)
+באג ב-RQ (Redis Queue) שגרם ל-Worker לקרוס:
 ```
 TypeError: reminders_tick_job() got an unexpected keyword argument 'timeout'
 ```
 
+### בעיה #2: Android LID Not Handled (תוקן עכשיו!)  
+**זו הבעיה האמיתית למה אנדרואיד לא עובד!**
+
+אנדרואיד משתמש ב-**LID (Linked ID)** - `@lid` במקום `@s.whatsapp.net`.
+
 **מה קרה?**
-1. ה-Worker ניסה לעבד jobs עם פרמטר `timeout` לא נכון
-2. כל job נכשל עם TypeError
-3. ההודעות מאנדרואיד הגיעו ל-webhook ✅
-4. webhook יצר job לעיבוד ✅
-5. אבל ה-job נכשל מיד בגלל הבאג ❌
+1. ההודעות מאנדרואיד הגיעו ל-webhook ✅
+2. webhook יצר job לעיבוד ✅
+3. הבוט יצר תשובה ✅
+4. **אבל** ניסה לשלוח חזרה ל-JID שמסתיים ב-`@lid` ❌
+5. Baileys לא יודע לשלוח ל-`@lid` - צריך את ה-`participant` האמיתי! ❌
 6. לכן הבוט לא ענה ❌
+
+**למה זה עובד מאייפון?**
+אייפון משתמש ב-JID רגיל `@s.whatsapp.net` - לא LID. לכן זה עובד!
 
 ---
 
 ## התיקון / The Fix
 
-### שלב 1: וידוא שהתיקון קיים
-**Verify the fix is in place**
+### שלב 1: תיקון Android LID (החשוב!)
+**Fix Android LID handling - THE ACTUAL FIX**
+
+**קובץ**: `server/jobs/webhook_process_job.py`
+**שורות**: 88-111
+
+**מה תוקן**:
+```python
+# BEFORE (לא מטפל ב-LID):
+jid = from_jid  # Use remoteJid directly
+
+# AFTER (מטפל ב-LID נכון):
+if from_jid.endsWith('@lid'):
+    # Android LID - use participant instead!
+    participant_jid = msg.get('key', {}).get('participant')
+    if participant_jid:
+        jid = participant_jid  # ✅ Use actual sender JID
+    else:
+        jid = f"{phone_number}@s.whatsapp.net"  # Fallback
+else:
+    jid = from_jid  # Regular JID (iPhone, etc.)
+```
+
+**זה התיקון שפותר את הבעיה!**
+
+---
+
+### שלב 2: וידוא RQ timeout תוקן
+**Verify RQ timeout fix is in place**
 
 הקוד כבר תוקן ב-`server/services/jobs.py`:
 
@@ -75,7 +112,7 @@ systemctl status rq-worker
 
 ---
 
-### שלב 3: ניקוי Failed Jobs
+### שלב 4: ניקוי Failed Jobs
 **Clean failed jobs**
 
 אם יש jobs שנכשלו עם timeout error:
@@ -88,7 +125,7 @@ python cleanup_failed_jobs.py
 
 ---
 
-### שלב 4: הפעלה מחדש
+### שלב 5: הפעלה מחדש
 **Restart services**
 
 ```bash
@@ -104,7 +141,7 @@ systemctl status baileys
 
 ---
 
-### שלב 5: בדיקה
+### שלב 6: בדיקה
 **Test the fix**
 
 1. **שלח הודעה מאנדרואיד** - "שלום"
@@ -117,12 +154,13 @@ systemctl status baileys
    tail -f /var/log/flask.log | grep "whatsapp_incoming"
    ```
 
-3. **מה אמור לקרות**:
+3. **מה אמור לקרות** (עכשיו צריך לעבוד גם מאנדרואיד!):
    ```
    ✅ [WEBHOOK_JOB] tenant=... messages=1
+   ✅ [ANDROID_LID] lid=...@lid using_participant=972501234567@s.whatsapp.net  ← זה חדש!
    ✅ [LEAD_UPSERT_DONE] lead_id=123
    ✅ [AGENTKIT_DONE] latency_ms=500
-   ✅ [SEND_RESULT] status=sent
+   ✅ [SEND_RESULT] status=sent final_to=972501234567@s.whatsapp.net  ← צריך לראות את המספר האמיתי!
    ```
 
 4. **אם זה לא עובד**, בדוק:
