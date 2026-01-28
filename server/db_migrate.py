@@ -5952,6 +5952,240 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ outbound_call_runs table does not exist - skipping migration 114")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 115: Add business calendars and routing rules system
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 115: Adding business calendars and routing rules system")
+        
+        # Step 1: Create business_calendars table
+        if not check_table_exists('business_calendars'):
+            try:
+                checkpoint("  → Creating business_calendars table...")
+                exec_ddl(db.engine, """
+                    CREATE TABLE business_calendars (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        type_key VARCHAR(64),
+                        provider VARCHAR(32) DEFAULT 'internal' NOT NULL,
+                        calendar_external_id VARCHAR(255),
+                        is_active BOOLEAN DEFAULT TRUE NOT NULL,
+                        priority INTEGER DEFAULT 0 NOT NULL,
+                        default_duration_minutes INTEGER DEFAULT 60,
+                        buffer_before_minutes INTEGER DEFAULT 0,
+                        buffer_after_minutes INTEGER DEFAULT 0,
+                        allowed_tags JSONB DEFAULT '[]'::jsonb NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                checkpoint("  ✅ business_calendars table created")
+                
+                # Create indexes
+                if not check_index_exists('idx_business_calendars_business_active'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_business_calendars_business_active 
+                        ON business_calendars(business_id, is_active)
+                    """)
+                    checkpoint("  ✅ Index idx_business_calendars_business_active created")
+                
+                if not check_index_exists('idx_business_calendars_priority'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_business_calendars_priority 
+                        ON business_calendars(business_id, priority)
+                    """)
+                    checkpoint("  ✅ Index idx_business_calendars_priority created")
+                
+                migrations_applied.append('115_business_calendars_table')
+            except Exception as e:
+                checkpoint(f"❌ Migration 115 (business_calendars table) failed: {e}")
+                logger.error(f"Migration 115 business_calendars error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ business_calendars table already exists")
+        
+        # Step 2: Create calendar_routing_rules table
+        if not check_table_exists('calendar_routing_rules'):
+            try:
+                checkpoint("  → Creating calendar_routing_rules table...")
+                exec_ddl(db.engine, """
+                    CREATE TABLE calendar_routing_rules (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        calendar_id INTEGER NOT NULL REFERENCES business_calendars(id) ON DELETE CASCADE,
+                        match_labels JSONB DEFAULT '[]'::jsonb NOT NULL,
+                        match_keywords JSONB DEFAULT '[]'::jsonb NOT NULL,
+                        channel_scope VARCHAR(32) DEFAULT 'all' NOT NULL,
+                        when_ambiguous_ask BOOLEAN DEFAULT FALSE,
+                        question_text VARCHAR(500),
+                        priority INTEGER DEFAULT 0 NOT NULL,
+                        is_active BOOLEAN DEFAULT TRUE NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                checkpoint("  ✅ calendar_routing_rules table created")
+                
+                # Create indexes
+                if not check_index_exists('idx_calendar_routing_business_active'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_calendar_routing_business_active 
+                        ON calendar_routing_rules(business_id, is_active)
+                    """)
+                    checkpoint("  ✅ Index idx_calendar_routing_business_active created")
+                
+                if not check_index_exists('idx_calendar_routing_calendar'):
+                    exec_ddl(db.engine, """
+                        CREATE INDEX idx_calendar_routing_calendar 
+                        ON calendar_routing_rules(calendar_id)
+                    """)
+                    checkpoint("  ✅ Index idx_calendar_routing_calendar created")
+                
+                migrations_applied.append('115_calendar_routing_rules_table')
+            except Exception as e:
+                checkpoint(f"❌ Migration 115 (calendar_routing_rules table) failed: {e}")
+                logger.error(f"Migration 115 calendar_routing_rules error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ calendar_routing_rules table already exists")
+        
+        # Step 3: Add calendar_id to appointments table
+        if check_table_exists('appointments'):
+            if not check_column_exists('appointments', 'calendar_id'):
+                try:
+                    checkpoint("  → Adding calendar_id to appointments table...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE appointments 
+                        ADD COLUMN calendar_id INTEGER REFERENCES business_calendars(id) ON DELETE SET NULL
+                    """)
+                    checkpoint("  ✅ calendar_id column added to appointments")
+                    
+                    # Create index
+                    if not check_index_exists('idx_appointments_calendar_id'):
+                        exec_ddl(db.engine, """
+                            CREATE INDEX idx_appointments_calendar_id 
+                            ON appointments(calendar_id)
+                        """)
+                        checkpoint("  ✅ Index idx_appointments_calendar_id created")
+                    
+                    migrations_applied.append('115_appointments_calendar_id')
+                except Exception as e:
+                    checkpoint(f"❌ Migration 115 (appointments.calendar_id) failed: {e}")
+                    logger.error(f"Migration 115 appointments.calendar_id error: {e}", exc_info=True)
+                    db.session.rollback()
+            else:
+                checkpoint("  ℹ️ calendar_id column already exists in appointments")
+        else:
+            checkpoint("  ℹ️ appointments table does not exist - skipping calendar_id column")
+        
+        # Step 4: Create default calendars for existing businesses
+        if check_table_exists('business') and check_table_exists('business_calendars'):
+            try:
+                from sqlalchemy import text
+                
+                # Check if we need to create default calendars
+                businesses_without_calendars = db.session.execute(text("""
+                    SELECT COUNT(*) FROM business b
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM business_calendars bc 
+                        WHERE bc.business_id = b.id
+                    )
+                """)).scalar() or 0
+                
+                if businesses_without_calendars > 0:
+                    checkpoint(f"  → Creating default calendars for {businesses_without_calendars} business(es)...")
+                    
+                    # Create default calendar for businesses that don't have one
+                    result = db.session.execute(text("""
+                        INSERT INTO business_calendars (
+                            business_id, 
+                            name, 
+                            type_key, 
+                            provider, 
+                            is_active, 
+                            priority,
+                            default_duration_minutes,
+                            allowed_tags
+                        )
+                        SELECT 
+                            b.id,
+                            'לוח ברירת מחדל' as name,
+                            'default' as type_key,
+                            'internal' as provider,
+                            TRUE as is_active,
+                            1 as priority,
+                            COALESCE(
+                                (SELECT bs.slot_size_min FROM business_settings bs WHERE bs.business_id = b.id LIMIT 1),
+                                60
+                            ) as default_duration_minutes,
+                            '[]'::jsonb as allowed_tags
+                        FROM business b
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM business_calendars bc 
+                            WHERE bc.business_id = b.id
+                        )
+                    """))
+                    
+                    created_count = result.rowcount
+                    db.session.commit()
+                    checkpoint(f"  ✅ Created default calendars for {created_count} business(es)")
+                    migrations_applied.append('115_default_calendars')
+                else:
+                    checkpoint("  ℹ️ All businesses already have calendars")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 115 (default calendars) failed: {e}")
+                logger.error(f"Migration 115 default calendars error: {e}", exc_info=True)
+                db.session.rollback()
+        
+        # Step 5: Link existing appointments to default calendars
+        if check_table_exists('appointments') and check_table_exists('business_calendars'):
+            if check_column_exists('appointments', 'calendar_id'):
+                try:
+                    from sqlalchemy import text
+                    
+                    # Check how many appointments need linking
+                    unlinked_appointments = db.session.execute(text("""
+                        SELECT COUNT(*) FROM appointments a
+                        WHERE a.calendar_id IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM business_calendars bc 
+                            WHERE bc.business_id = a.business_id 
+                            AND bc.type_key = 'default'
+                        )
+                    """)).scalar() or 0
+                    
+                    if unlinked_appointments > 0:
+                        checkpoint(f"  → Linking {unlinked_appointments} appointment(s) to default calendars...")
+                        
+                        result = db.session.execute(text("""
+                            UPDATE appointments a
+                            SET calendar_id = bc.id
+                            FROM business_calendars bc
+                            WHERE a.business_id = bc.business_id
+                              AND bc.type_key = 'default'
+                              AND a.calendar_id IS NULL
+                        """))
+                        
+                        linked_count = result.rowcount
+                        db.session.commit()
+                        checkpoint(f"  ✅ Linked {linked_count} appointment(s) to default calendars")
+                        migrations_applied.append('115_link_appointments')
+                    else:
+                        checkpoint("  ℹ️ All appointments already linked to calendars")
+                    
+                except Exception as e:
+                    checkpoint(f"❌ Migration 115 (link appointments) failed: {e}")
+                    logger.error(f"Migration 115 link appointments error: {e}", exc_info=True)
+                    db.session.rollback()
+        
+        checkpoint("✅ Migration 115 complete: Business calendars and routing rules system added")
+        checkpoint("   🎯 Created business_calendars table for multi-calendar management")
+        checkpoint("   🎯 Created calendar_routing_rules table for intelligent AI routing")
+        checkpoint("   🎯 Added calendar_id to appointments for calendar association")
+        checkpoint("   🎯 Created default calendars for existing businesses")
+        checkpoint("   🎯 Linked existing appointments to default calendars")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

@@ -58,11 +58,12 @@ ALTER TABLE appointments ADD COLUMN calendar_id INTEGER REFERENCES business_cale
 ```
 
 #### Migration Script
-- Location: `migration_add_business_calendars.py`
+- Location: **`server/db_migrate.py` - Migration 115**
 - Creates tables with proper indexes
 - Migrates existing businesses to have "לוח ברירת מחדל"
 - Links existing appointments to default calendar
 - Backward compatible (calendar_id nullable)
+- Runs automatically on server startup or via `python -m server.db_migrate`
 
 ### 2. AI Tools ✅
 
@@ -279,8 +280,8 @@ response = calendar_resolve_target(
 ✅ server/models_sql.py                        - Added BusinessCalendar, CalendarRoutingRule models
 ✅ server/agent_tools/tools_calendar.py        - Added calendar_list, calendar_resolve_target tools
 ✅ server/routes_calendar.py                   - Added 8 new API endpoints
-✅ migration_add_business_calendars.py         - Migration script
-✅ test_business_calendars_migration.py        - Migration tests
+✅ server/db_migrate.py                        - Added Migration 115 for calendar tables
+✅ test_business_calendars_migration.py        - Migration tests (validation only)
 ✅ test_business_calendars_api.py             - API tests
 ```
 
@@ -325,12 +326,14 @@ The system is fully documented with:
 
 Before deploying to production:
 
-1. ✅ Run migration: `python migration_add_business_calendars.py`
-2. ✅ Verify default calendars created for all businesses
-3. ✅ Test API endpoints with Postman/curl
-4. ✅ Verify single-calendar flow still works
-5. ✅ Test multi-calendar routing with sample rules
-6. ✅ Monitor logs for any errors during first day
+1. ✅ Migration integrated into `server/db_migrate.py` as Migration 115
+2. ✅ Migration runs automatically on server startup
+3. ✅ Alternatively run manually: `python -m server.db_migrate`
+4. ✅ Verify default calendars created for all businesses
+5. ✅ Test API endpoints with Postman/curl
+6. ✅ Verify single-calendar flow still works
+7. ✅ Test multi-calendar routing with sample rules
+8. ✅ Monitor logs for any errors during first day
 
 ## Success Criteria
 
