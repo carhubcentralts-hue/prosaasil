@@ -66,17 +66,35 @@ def whatsapp_incoming():
         messages = events.get('messages', [])
         
         if messages:
-            # ⚡ BUILD 112: Check thread capacity before spawning
-            global _active_wa_threads
-            with _wa_threads_lock:
-                if _active_wa_threads >= MAX_CONCURRENT_WA_THREADS:
-                    logger.warning(f"⚠️ WhatsApp thread pool full ({_active_wa_threads}/{MAX_CONCURRENT_WA_THREADS}) - processing synchronously")
-                    # Process inline to avoid dropping messages
-                    _process_whatsapp_fast(tenant_id, messages)
-                else:
-                    # ⚡ FAST PATH: Spawn thread with tracking
-                    _active_wa_threads += 1
-                    Thread(target=_process_whatsapp_with_cleanup, args=(tenant_id, messages), daemon=True).start()
+            # ⚡ RQ: Enqueue webhook processing job instead of threading
+            try:
+                from redis import Redis
+                from rq import Queue
+                import os
+                
+                redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+                redis_conn = Redis.from_url(redis_url)
+                queue = Queue('default', connection=redis_conn)
+                
+                # Resolve business_id for faster job processing
+                from server.services.business_resolver import resolve_business_with_fallback
+                business_id, _ = resolve_business_with_fallback('whatsapp', tenant_id)
+                
+                # Enqueue job
+                from server.jobs.webhook_process_job import webhook_process_job
+                queue.enqueue(
+                    webhook_process_job,
+                    tenant_id=tenant_id,
+                    messages=messages,
+                    business_id=business_id,
+                    job_timeout='5m',
+                    result_ttl=3600
+                )
+                logger.info(f"✅ Enqueued webhook_process_job for tenant={tenant_id}, messages={len(messages)}")
+            except Exception as e:
+                logger.error(f"❌ Failed to enqueue webhook job: {e}")
+                # Fallback to inline processing if enqueue fails
+                _process_whatsapp_fast(tenant_id, messages)
         
         # ⚡ ACK immediately - don't wait for processing
         return '', 200
@@ -358,8 +376,20 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         else:
                             lead.notes = new_note
                         
-                        # ⚡ Background: conversation summary (don't block)
-                        Thread(target=_async_conversation_analysis, args=(ci, lead, message_text, phone_number), daemon=True).start()
+                        # Generate conversation summary asynchronously via RQ
+                        try:
+                            from redis import Redis
+                            from rq import Queue
+                            
+                            redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+                            redis_conn = Redis.from_url(redis_url)
+                            low_queue = Queue('low', connection=redis_conn)
+                            
+                            # Note: conversation_analysis_job needs to be created
+                            # For now, we'll skip this and handle it in the main job
+                            logger.info(f"⏭️ Skipping async conversation analysis (handled in main job)")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Failed to enqueue conversation analysis: {e}")
                         
                         db.session.commit()
                     finally:

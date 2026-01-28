@@ -389,80 +389,24 @@ def _send_reminder_push(reminder, lead, minutes_before: int):
 
 def start_reminder_scheduler(app):
     """
-    Start the background scheduler for reminder notifications.
+    DEPRECATED: Reminder scheduler now runs as RQ job
     
-    Args:
-        app: Flask application instance
+    This function is kept for backwards compatibility but does nothing.
+    The scheduler service (server/scheduler/run_scheduler.py) now handles
+    periodic job enqueueing.
+    
+    To enable reminders:
+    1. Ensure scheduler service is running (SERVICE_ROLE=scheduler)
+    2. Jobs are automatically enqueued every minute
     """
-    global _scheduler_running, _scheduler_thread
-    
-    if _scheduler_running:
-        log.warning("Reminder scheduler already running")
-        return
-    
-    # 🔥 CRITICAL: Fail fast if DATABASE_URL is not configured
-    # This prevents confusing DNS errors from invalid database URLs
-    database_url = os.getenv('DATABASE_URL', '')
-    if not database_url:
-        error_msg = (
-            "❌ CRITICAL: Push notification scheduler cannot start - DATABASE_URL is not set!\n"
-            "   Set DATABASE_URL in your .env file or environment.\n"
-            "   Example: DATABASE_URL=postgresql://user:pass@host:5432/dbname"
-        )
-        log.error(error_msg)
-        raise RuntimeError(error_msg)
-    
-    # Verify app config matches environment
-    app_db_url = app.config.get('SQLALCHEMY_DATABASE_URI', '')
-    if app_db_url != database_url:
-        # Mask credentials for logging
-        try:
-            from urllib.parse import urlparse
-            env_parsed = urlparse(database_url)
-            app_parsed = urlparse(app_db_url)
-            env_safe = f"{env_parsed.scheme}://{env_parsed.hostname}:{env_parsed.port}/{env_parsed.path.lstrip('/')}" if env_parsed.hostname else database_url[:20]
-            app_safe = f"{app_parsed.scheme}://{app_parsed.hostname}:{app_parsed.port}/{app_parsed.path.lstrip('/')}" if app_parsed.hostname else app_db_url[:20]
-        except Exception:
-            env_safe = "***"
-            app_safe = "***"
-        
-        log.warning(
-            f"[REMINDER_SCHEDULER] DATABASE_URL mismatch detected:\n"
-            f"  Environment: {env_safe}\n"
-            f"  App config:  {app_safe}\n"
-            f"  Using app config (may need restart if environment changed)"
-        )
-    
-    def scheduler_loop():
-        global _scheduler_running
-        log.info("🔔 Reminder notification scheduler started")
-        
-        # Wait a bit before first check
-        time.sleep(INITIAL_DELAY_SECONDS)
-        
-        while _scheduler_running:
-            try:
-                check_and_send_reminder_notifications(app)
-            except Exception as e:
-                log.error(f"Scheduler error: {e}")
-            
-            # Check at configured interval
-            time.sleep(CHECK_INTERVAL_SECONDS)
-        
-        log.info("🔔 Reminder notification scheduler stopped")
-    
-    _scheduler_running = True
-    _scheduler_thread = threading.Thread(
-        target=scheduler_loop,
-        daemon=True,
-        name="ReminderNotificationScheduler"
-    )
-    _scheduler_thread.start()
-    log.info("🔔 Reminder notification scheduler thread started")
+    log.warning("⚠️ [REMINDER_SCHEDULER] start_reminder_scheduler() is deprecated")
+    log.warning("   Reminders are now handled by scheduler service + RQ jobs")
+    log.warning("   See: server/scheduler/run_scheduler.py")
+    log.warning("   Jobs: server/jobs/reminders_tick_job.py")
+    return
 
 
 def stop_reminder_scheduler():
-    """Stop the reminder scheduler"""
-    global _scheduler_running
-    _scheduler_running = False
-    log.info("🔔 Reminder scheduler stop requested")
+    """DEPRECATED: Stop the reminder scheduler"""
+    log.warning("⚠️ [REMINDER_SCHEDULER] stop_reminder_scheduler() is deprecated")
+    return
