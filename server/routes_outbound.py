@@ -3149,43 +3149,61 @@ def cleanup_stuck_dialing_jobs():
 
 def cleanup_stuck_runs():
     """
-    🔥 CRITICAL: Cleanup runs stuck in 'running' status after server restart
+    🔥 CRITICAL: Cleanup runs stuck in 'running' status with TTL-based heartbeat check
     
     This prevents "ghost active queue" bug where old runs from before a crash/restart
     continue showing as active even though no actual processing is happening.
     
     A run is considered stuck if:
     - status = 'running' 
-    - updated_at > 30 minutes ago (no recent activity)
+    - lock_ts > TTL_MINUTES ago (no heartbeat from worker)
     - OR queued_count = 0 AND in_progress_count = 0 (nothing actually running)
     
-    These runs are marked as 'completed' to prevent showing false "active" status.
+    🔒 TTL-BASED RECLAIM: Uses lock_ts (heartbeat) instead of updated_at
+    - Workers update lock_ts every iteration (heartbeat)
+    - If lock_ts is stale (> 5 minutes), worker is considered dead
+    - Run is marked as 'failed' with proper error message
     
     NOTE: This function assumes it's called from within an app context
     (typically during app startup or from a periodic cleanup task)
     """
     from server.models_sql import OutboundCallRun
     
+    # 🔒 TTL for worker heartbeat: 5 minutes
+    TTL_MINUTES = 5
+    
     try:
-        # Mark runs as completed if they're stuck (old and inactive)
-        cutoff_time = datetime.utcnow() - timedelta(minutes=30)
+        # Mark runs as failed if heartbeat is stale (worker died)
+        heartbeat_cutoff = datetime.utcnow() - timedelta(minutes=TTL_MINUTES)
+        
+        # Also check updated_at as fallback (for runs started before this fix)
+        updated_cutoff = datetime.utcnow() - timedelta(minutes=30)
         
         result = db.session.execute(text("""
             UPDATE outbound_call_runs 
-            SET status='completed',
-                completed_at=NOW()
+            SET status='failed',
+                ended_at=NOW(),
+                completed_at=NOW(),
+                last_error=CONCAT('Worker timeout - no heartbeat from ', locked_by_worker, ' since ', lock_ts)
             WHERE status='running'
                 AND (
-                    updated_at < :cutoff_time
+                    -- 🔒 PRIMARY: Check heartbeat (lock_ts)
+                    (lock_ts IS NOT NULL AND lock_ts < :heartbeat_cutoff)
+                    -- Fallback: Old updated_at check
+                    OR (lock_ts IS NULL AND updated_at < :updated_cutoff)
+                    -- Empty queue (nothing to process)
                     OR (queued_count = 0 AND in_progress_count = 0)
                 )
-        """), {"cutoff_time": cutoff_time})
+        """), {
+            "heartbeat_cutoff": heartbeat_cutoff,
+            "updated_cutoff": updated_cutoff
+        })
         
         db.session.commit()
         
         cleaned_count = result.rowcount
         if cleaned_count > 0:
-            log.info(f"[CLEANUP] ✅ Marked {cleaned_count} stuck runs as completed (ghost active queue cleanup)")
+            log.warning(f"[CLEANUP] ⚠️  Reclaimed {cleaned_count} stuck runs (TTL-based heartbeat check, TTL={TTL_MINUTES}min)")
         
         return cleaned_count
         
