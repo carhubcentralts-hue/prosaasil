@@ -438,7 +438,11 @@ class GeminiRealtimeClient:
                         hasattr(server_message, 'serverContent')
                     )
                     if has_server_content:
-                        content = getattr(server_message, 'server_content', None) or getattr(server_message, 'serverContent', None)
+                        # Use explicit attribute check to handle falsy values correctly
+                        if hasattr(server_message, 'server_content'):
+                            content = server_message.server_content
+                        else:
+                            content = server_message.serverContent
                         
                         # Check if it's audio
                         if hasattr(content, 'model_turn') and content.model_turn:
@@ -511,8 +515,10 @@ class GeminiRealtimeClient:
                         yield event
                     
                     # Check for interruption
-                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
-                    if hasattr(server_message, 'interrupted'):
+                    # 🔥 FIX: Support both interrupted (snake_case) and potentially Interrupted (camelCase)
+                    # Changed from elif to if - messages can have multiple attributes!
+                    has_interrupted = hasattr(server_message, 'interrupted')
+                    if has_interrupted:
                         event = {
                             'type': 'interrupted',
                             'data': None
@@ -529,7 +535,11 @@ class GeminiRealtimeClient:
                         hasattr(server_message, 'toolCall')
                     )
                     if has_tool_call:
-                        tool_call = getattr(server_message, 'tool_call', None) or getattr(server_message, 'toolCall', None)
+                        # Use explicit attribute check to handle falsy values correctly
+                        if hasattr(server_message, 'tool_call'):
+                            tool_call = server_message.tool_call
+                        else:
+                            tool_call = server_message.toolCall
                         
                         # 🔥 FIX 1: Log raw function_call payload (MANDATORY)
                         # Extract all details to understand why function name might be empty
@@ -540,8 +550,12 @@ class GeminiRealtimeClient:
                             hasattr(tool_call, 'functionCalls')
                         )
                         if has_function_calls:
-                            # Get function_calls array from either attribute name
-                            fc_array = getattr(tool_call, 'function_calls', None) or getattr(tool_call, 'functionCalls', None)
+                            # Get function_calls array using explicit attribute check to handle empty lists
+                            if hasattr(tool_call, 'function_calls'):
+                                fc_array = tool_call.function_calls
+                            else:
+                                fc_array = tool_call.functionCalls
+                            
                             for fc in fc_array:
                                 fc_data = {
                                     'id': getattr(fc, 'id', 'NO_ID'),
