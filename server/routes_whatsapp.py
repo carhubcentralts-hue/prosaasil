@@ -1277,21 +1277,33 @@ def baileys_webhook():
                 
                 # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
                 # This ensures Android messages with @lid, @g.us, etc. get proper replies
-                log.info(f"[WA-OUTGOING] Scheduling background send to remoteJid={remote_jid}, text={str(response_text)[:50]}...")
+                log.info(f"[WA-OUTGOING] Enqueuing WhatsApp send to remoteJid={remote_jid}, text={str(response_text)[:50]}...")
                 
-                # 🔥 STEP 3 FIX: Get current app instance to pass to background thread
-                from flask import current_app
-                app_instance = current_app._get_current_object()
-                
-                # Start background thread for sending
-                send_thread = threading.Thread(
-                    target=_send_whatsapp_message_background,
-                    args=(app_instance, business_id, tenant_id, remote_jid, response_text, wa_msg.id),
-                    daemon=True
-                )
-                log.info(f"[WA-OUTGOING] Thread created for message {wa_msg.id}")
-                send_thread.start()
-                log.info(f"[WA-OUTGOING] Thread started for message {wa_msg.id}")
+                # 🔥 REMOVED THREADING: Use RQ job for WhatsApp sending
+                # This ensures proper retry, error handling, and no thread proliferation
+                try:
+                    from server.services.jobs import enqueue_job
+                    from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
+                    
+                    job = enqueue_job(
+                        queue_name='default',
+                        func=send_whatsapp_message_job,
+                        business_id=business_id,
+                        tenant_id=tenant_id,
+                        remote_jid=remote_jid,
+                        response_text=response_text,
+                        wa_msg_id=wa_msg.id,
+                        business_id=business_id,  # For job metadata
+                        timeout=60,
+                        retry=2,
+                        description=f"Send WhatsApp to {remote_jid[:15]}"
+                    )
+                    log.info(f"[WA-OUTGOING] Job enqueued: {job.id[:8]} for message {wa_msg.id}")
+                except Exception as enqueue_error:
+                    log.error(f"[WA-OUTGOING] ❌ Failed to enqueue WhatsApp send: {enqueue_error}")
+                    # Fall back to synchronous send if enqueue fails
+                    log.warning(f"[WA-OUTGOING] Falling back to synchronous send")
+                    send_whatsapp_message_job(business_id, tenant_id, remote_jid, response_text, wa_msg.id)
                 
                 # Mark as processed immediately (actual sending happens in background)
                 processed_count += 1
