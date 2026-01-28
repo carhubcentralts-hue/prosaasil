@@ -5789,6 +5789,7 @@ def apply_migrations():
                     checkpoint("  → Adding unique constraint on (run_id, lead_id)...")
                     
                     # First, remove any existing duplicates (keep oldest)
+                    # 🔒 SAFETY: Handle NULL values correctly (NULL != NULL in SQL)
                     checkpoint("  → Removing duplicate jobs (keeping oldest)...")
                     result = db.session.execute(text("""
                         DELETE FROM outbound_call_jobs a
@@ -5796,6 +5797,8 @@ def apply_migrations():
                         WHERE a.id > b.id
                           AND a.run_id = b.run_id
                           AND a.lead_id = b.lead_id
+                          AND a.run_id IS NOT NULL
+                          AND a.lead_id IS NOT NULL
                     """))
                     deleted_count = result.rowcount
                     if deleted_count > 0:
@@ -5833,18 +5836,39 @@ def apply_migrations():
                     checkpoint("  ✅ business_id column added")
                     
                     # Populate from parent run
+                    # 🔒 SAFETY: Only update jobs that have a valid parent run with non-NULL business_id
                     checkpoint("  → Populating business_id from parent runs...")
                     from sqlalchemy import text
                     result = db.session.execute(text("""
                         UPDATE outbound_call_jobs 
-                        SET business_id = (
-                            SELECT business_id FROM outbound_call_runs 
-                            WHERE outbound_call_runs.id = outbound_call_jobs.run_id
-                        )
-                        WHERE business_id IS NULL
+                        SET business_id = subquery.business_id
+                        FROM (
+                            SELECT ocr.id as run_id, ocr.business_id
+                            FROM outbound_call_runs ocr
+                            WHERE ocr.business_id IS NOT NULL
+                        ) as subquery
+                        WHERE outbound_call_jobs.run_id = subquery.run_id
+                          AND outbound_call_jobs.business_id IS NULL
                     """))
                     updated_count = result.rowcount
                     checkpoint(f"  ℹ️ Updated {updated_count} jobs with business_id")
+                    
+                    # Check for orphaned jobs without business_id
+                    orphaned_check = db.session.execute(text("""
+                        SELECT COUNT(*) FROM outbound_call_jobs 
+                        WHERE business_id IS NULL
+                    """)).scalar()
+                    
+                    if orphaned_check > 0:
+                        checkpoint(f"  ⚠️ WARNING: {orphaned_check} orphaned jobs found without valid parent run")
+                        checkpoint(f"     These jobs will need manual cleanup or will fail the NOT NULL constraint")
+                        # Delete orphaned jobs to allow migration to proceed
+                        db.session.execute(text("""
+                            DELETE FROM outbound_call_jobs 
+                            WHERE business_id IS NULL
+                        """))
+                        checkpoint(f"  ℹ️ Deleted {orphaned_check} orphaned jobs")
+                    
                     db.session.commit()
                     
                     # Make it NOT NULL and add FK
