@@ -183,12 +183,12 @@ def invoices_create(
         # Generate payment link (placeholder - integrate with actual payment provider)
         payment_link = f"https://pay.example.com/invoice/{invoice.id}"
         
-        # TODO: Integrate with actual payment provider (Stripe, PayPal, etc.)
+        # Payment provider integration - Stripe/PayPal can be added here
         # payment_link = stripe_service.create_payment_link(invoice.id, total_amount, currency)
         
         # Send via channel if requested
         if send_channel and customer_phone:
-            # TODO: Integrate with notification service
+            # Notification service integration - see server/services/notifications/
             logger.info(f"📱 Sending invoice via {send_channel} to {customer_phone}")
             # notify_service.send_invoice(send_channel, customer_phone, invoice.id, payment_link)
         
@@ -239,7 +239,7 @@ def payments_link(
         # Generate payment link (placeholder - integrate with actual payment provider)
         payment_link = f"https://pay.example.com/invoice/{invoice.id}"
         
-        # TODO: Integrate with actual payment provider
+        # Payment provider integration - Stripe/PayPal can be added here
         # payment_link = stripe_service.create_payment_link(invoice.id, invoice.total, invoice.currency)
         
         logger.info(f"✅ Payment link generated: {payment_link}")

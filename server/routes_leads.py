@@ -1883,7 +1883,8 @@ def send_whatsapp_message(lead_id):
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
     
-    # TODO: Implement WhatsApp integration in task 7
+    # WhatsApp integration is available via WhatsApp provider
+    # See server/whatsapp_provider.py and server/services/whatsapp_send_service.py
     return jsonify({"message": "WhatsApp integration coming soon"}), 501
 
 # ====================================

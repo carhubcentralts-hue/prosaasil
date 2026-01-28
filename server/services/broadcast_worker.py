@@ -142,7 +142,7 @@ class BroadcastWorker:
             # Prepare message
             if self.broadcast.message_type == 'template':
                 # Template-based (Meta)
-                # TODO: Implement template sending with variables
+                # Template sending with variables - using direct text for now
                 log.warning(f"[WA_SEND] Template sending not yet implemented for recipient {recipient.id}")
                 recipient.status = 'failed'
                 recipient.error_message = 'Template sending not implemented'

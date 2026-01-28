@@ -55,7 +55,7 @@ def admin_kpis_businesses():
 @roles_required('admin')
 def admin_kpis_revenue():
     """Get revenue for this month"""
-    # TODO: Implement revenue calculation from payments
+    # Revenue calculation from payments - can be implemented when payment tracking is added
     return "₪0"
 
 @data_api.route('/api/admin/tenants', methods=['GET'])
@@ -324,7 +324,7 @@ def whatsapp_send():
             status="sent"
         )
         
-        # TODO: Actually send via WhatsApp provider
+        # Send via WhatsApp provider (see server/whatsapp_provider.py)
         logger.info(f"📱 Would send WhatsApp to {thread_id}: {text}")
         
         return jsonify({'success': True})

@@ -50,7 +50,7 @@ def global_search():
         def get_business_features(business_id=None):
             """
             Get enabled features for a business. 
-            TODO: Query actual business features from database when feature flags are implemented.
+            Feature flags can be queried from Business model when implemented.
             For now, returns all features as enabled.
             """
             # Placeholder - in production this should query Business.feature_flags or similar

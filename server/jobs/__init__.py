@@ -20,6 +20,7 @@ from .send_whatsapp_message_job import send_whatsapp_message_job
 from .call_log_jobs import create_call_log_job, save_conversation_turn_job, finalize_call_log_job
 from .twilio_call_jobs import create_lead_from_call_job, prebuild_prompt_job
 from .send_webhook_job import send_webhook_job
+from .outbound_worker_job import process_outbound_run_job
 
 __all__ = [
     'sync_gmail_receipts_job',
@@ -39,5 +40,6 @@ __all__ = [
     'finalize_call_log_job',
     'create_lead_from_call_job',
     'prebuild_prompt_job',
-    'send_webhook_job'
+    'send_webhook_job',
+    'process_outbound_run_job'
 ]

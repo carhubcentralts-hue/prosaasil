@@ -80,7 +80,7 @@ def contracts_generate_and_send(
             "service_count": service_count,
             "validity_date": validity_date or datetime.now().strftime("%Y-%m-%d"),
             "date": datetime.now().strftime("%Y-%m-%d"),
-            "business_name": "העסק"  # TODO: Load from business settings
+            "business_name": business.name if business else "העסק"
         }
         
         # 🔥 BUILD 200: GENERIC templates - no hardcoded service types!
@@ -188,7 +188,7 @@ def contracts_generate_and_send(
         # Generate signature URL (placeholder - integrate with DocuSign/HelloSign/etc.)
         sign_url = f"https://sign.example.com/contract/{contract.id}"
         
-        # TODO: Integrate with actual e-signature provider
+        # E-signature integration - placeholder for future implementation
         # sign_url = docusign_service.create_signature_request(contract.id, contract_content, customer_email)
         
         logger.info(f"✅ Contract created: ID={contract.id}, template={template_id}")

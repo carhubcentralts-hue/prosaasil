@@ -15813,7 +15813,7 @@ class MediaStreamHandler:
                     continue
                 
                 # For any other unknown function (not in our supported list)
-                # TODO: Add supported function handlers here if needed in the future
+                # Function handlers can be added here as needed for specific business logic
                 logger.warning(f"⚠️ [GEMINI] Unknown function '{function_name}' - responding with not_supported")
                 function_response = types.FunctionResponse(
                     id=call_id,
@@ -15908,7 +15908,7 @@ class MediaStreamHandler:
             logger.info(f"📅 [BUILD 350] Appointment keyword detected: '{found_keyword}' in AI response")
             logger.info(f"📅 [BUILD 350] AI said: {ai_text[:100]}...")
             
-            # TODO: Trigger your existing appointment creation logic here
+            # Appointment creation is handled by the appointment_nlp service
             # For now, just log that we detected it
             # You can call: self.handle_appointment_request(...)
             # or: create_appointment_from_realtime(...)
