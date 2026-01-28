@@ -643,7 +643,9 @@ def get_outbound_job_status(job_id: int):
 @require_page_access('calls_outbound')
 def cancel_outbound_job(job_id: int):
     """
-    Request cancellation of an outbound call queue job
+    Request cancellation of an outbound call queue job/run
+    
+    🔒 SECURITY: Enforces business isolation - users can only cancel runs for their business
     
     Sets cancel_requested=True. The worker will:
     1. Stop starting new calls
@@ -673,23 +675,29 @@ def cancel_outbound_job(job_id: int):
         if not run:
             return jsonify({"error": "תור לא נמצא"}), 404
         
-        # Verify access if not system admin
+        # 🔒 SECURITY: Verify access if not system admin
         if tenant_id and run.business_id != tenant_id:
+            # 🔒 SECURITY: Log potential cross-business access attempt
+            log.warning(f"[SECURITY] User from business {tenant_id} attempted to cancel run {job_id} which belongs to business {run.business_id}")
             return jsonify({"error": "אין גישה לתור זה"}), 403
         
+        # 🔒 SECURITY: Double-check business_id matches (defensive programming)
+        if tenant_id:
+            assert run.business_id == tenant_id, f"Business ID mismatch: run.business_id={run.business_id} != tenant_id={tenant_id}"
+        
         # Check if already cancelled or completed
-        if run.status in ('cancelled', 'completed', 'failed'):
+        if run.status in ('cancelled', 'completed', 'failed', 'stopped'):
             return jsonify({
                 "success": False,
                 "message": f"התור כבר במצב {run.status}"
             }), 400
         
-        # Set cancel_requested flag
+        # 🔒 STATE MACHINE: Set cancel_requested flag
         run.cancel_requested = True
         run.updated_at = datetime.utcnow()
         db.session.commit()
         
-        log.info(f"📞 Cancellation requested for run {job_id} by business {tenant_id or 'system_admin'}")
+        log.info(f"📞 [business_id={run.business_id}] Cancellation requested for run {job_id} by business {tenant_id or 'system_admin'}")
         
         return jsonify({
             "success": True,
@@ -1778,22 +1786,25 @@ def bulk_enqueue_outbound_calls():
         if len(leads) != len(lead_ids):
             return jsonify({"error": "לא נמצאו כל הלידים שנבחרו"}), 404
         
-        # Create run
+        # 🔒 SECURITY: Create run with proper audit trail
         run = OutboundCallRun()
         run.business_id = tenant_id
+        run.created_by_user_id = user.get('id')  # Audit trail
         run.outbound_list_id = outbound_list_id
         run.concurrency = concurrency
         run.total_leads = len(lead_ids)
         run.queued_count = len(lead_ids)
-        run.status = "queued"  # Start as queued, worker will update to running when processing starts
+        run.cursor_position = 0  # Start at beginning
+        run.status = "pending"  # Start as pending, worker will update to running when processing starts
         db.session.add(run)
         db.session.flush()
         
-        # Create jobs for each lead
+        # 🔒 SECURITY: Create jobs with business_id for isolation
         for lead_id in lead_ids:
             job = OutboundCallJob()
             job.run_id = run.id
             job.lead_id = lead_id
+            job.business_id = tenant_id  # Business isolation
             job.status = "queued"
             # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
             lead_obj = next((l for l in leads if l.id == lead_id), None)
@@ -1897,6 +1908,8 @@ def get_run_status(run_id: int):
     """
     Get status of bulk call run
     
+    🔒 SECURITY: Enforces business isolation - users can only see runs for their business
+    
     Returns:
     {
         "run_id": 123,
@@ -1905,6 +1918,7 @@ def get_run_status(run_id: int):
         "in_progress": 3,
         "completed": 47,
         "failed": 0,
+        "cursor_position": 47,
         "last_error": null
     }
     """
@@ -1923,14 +1937,19 @@ def get_run_status(run_id: int):
         else:
             return jsonify({"error": "אין גישה לעסק"}), 403
     else:
-        # Regular user: verify run belongs to their tenant
+        # 🔒 SECURITY: Regular user - MUST verify run belongs to their tenant
         run = OutboundCallRun.query.filter_by(
             id=run_id,
             business_id=tenant_id
         ).first()
         
         if not run:
+            # 🔒 SECURITY: Log potential cross-business access attempt
+            log.warning(f"[SECURITY] User from business {tenant_id} attempted to access run {run_id} which doesn't exist or belongs to different business")
             return jsonify({"error": "הרצה לא נמצאה"}), 404
+        
+        # 🔒 SECURITY: Double-check business_id matches (defensive programming)
+        assert run.business_id == tenant_id, f"Business ID mismatch: run.business_id={run.business_id} != tenant_id={tenant_id}"
     
     return jsonify({
         "run_id": run.id,
@@ -1939,11 +1958,16 @@ def get_run_status(run_id: int):
         "in_progress": run.in_progress_count,
         "completed": run.completed_count,
         "failed": run.failed_count,
+        "cursor_position": run.cursor_position or 0,
         "last_error": run.last_error,
         "total_leads": run.total_leads,
         "concurrency": run.concurrency,
         "created_at": run.created_at.isoformat() if run.created_at else None,
-        "completed_at": run.completed_at.isoformat() if run.completed_at else None
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "ended_at": run.ended_at.isoformat() if run.ended_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "can_cancel": run.status in ('pending', 'running') and not run.cancel_requested,
+        "cancel_requested": run.cancel_requested
     })
 
 
@@ -1953,6 +1977,8 @@ def get_run_status(run_id: int):
 def stop_queue():
     """
     Stop an active bulk call queue/run
+    
+    🔒 SECURITY: Enforces business isolation - users can only stop runs for their business
     
     Request body:
     {
@@ -1981,23 +2007,39 @@ def stop_queue():
         return jsonify({"error": "חסר run_id"}), 400
     
     try:
-        # Get run (verify it belongs to tenant if not system admin)
+        # 🔒 SECURITY: Get run and verify it belongs to tenant if not system admin
         if tenant_id:
             run = OutboundCallRun.query.filter_by(
                 id=run_id,
                 business_id=tenant_id
             ).first()
+            
+            if not run:
+                # 🔒 SECURITY: Log potential cross-business access attempt
+                log.warning(f"[SECURITY] User from business {tenant_id} attempted to stop run {run_id} which doesn't exist or belongs to different business")
+                return jsonify({"error": "הרצה לא נמצאה"}), 404
+            
+            # 🔒 SECURITY: Double-check business_id matches (defensive programming)
+            assert run.business_id == tenant_id, f"Business ID mismatch: run.business_id={run.business_id} != tenant_id={tenant_id}"
         else:
             run = OutboundCallRun.query.get(run_id)
+            if not run:
+                return jsonify({"error": "הרצה לא נמצאה"}), 404
         
-        if not run:
-            return jsonify({"error": "הרצה לא נמצאה"}), 404
+        # Check if already stopped/completed
+        if run.status in ('stopped', 'completed', 'cancelled', 'failed'):
+            return jsonify({
+                "success": True,
+                "message": f"התור כבר הסתיים (סטטוס: {run.status})",
+                "cancelled_jobs": 0
+            })
         
-        # 🔥 FIX: Mark as STOPPED and set completed_at
+        # 🔒 STATE MACHINE: Mark as stopped and set ended_at
         run.status = "stopped"
-        run.completed_at = datetime.utcnow()
+        run.ended_at = datetime.utcnow()
+        run.completed_at = datetime.utcnow()  # Legacy field
         
-        # 🔥 FIX: Cancel all queued jobs (not started yet)
+        # 🔒 SECURITY: Cancel all queued jobs - only for this business
         # Use raw SQL for performance with large queues
         cancelled_count = db.session.execute(text("""
             UPDATE outbound_call_jobs 
@@ -2005,10 +2047,11 @@ def stop_queue():
                 error_message='Queue stopped by user',
                 completed_at=NOW()
             WHERE run_id=:run_id 
+                AND business_id=:business_id
                 AND status='queued'
-        """), {"run_id": run_id}).rowcount
+        """), {"run_id": run_id, "business_id": run.business_id}).rowcount
         
-        # 🔥 FIX: Update run counters to reflect reality
+        # 🔒 STATE MACHINE: Update run counters to reflect reality
         # Move queued jobs to failed count (they won't run)
         run.failed_count += cancelled_count
         run.queued_count = 0
@@ -2018,7 +2061,7 @@ def stop_queue():
         
         db.session.commit()
         
-        log.info(f"✅ Stopped queue run {run_id}: cancelled {cancelled_count} queued jobs")
+        log.info(f"✅ [business_id={run.business_id}] Stopped queue run {run_id}: cancelled {cancelled_count} queued jobs")
         
         return jsonify({
             "success": True,
@@ -2028,6 +2071,8 @@ def stop_queue():
         
     except Exception as e:
         log.error(f"Error stopping queue {run_id}: {e}")
+        import traceback
+        traceback.print_exc()
         db.session.rollback()
         return jsonify({"error": "שגיאה בעצירת התור"}), 500
 
@@ -2665,10 +2710,14 @@ def process_bulk_call_run(run_id: int):
     """
     Background worker to process bulk call run
     Respects concurrency limits and processes queue
+    
+    🔒 STATE MACHINE: pending → running → completed/cancelled/failed
+    🔒 SECURITY: Enforces business isolation throughout processing
     """
     from server.app_factory import get_process_app
     from server.models_sql import OutboundCallRun, OutboundCallJob, Lead, Business, CallLog
     import time
+    import socket
     
     app = get_process_app()
     
@@ -2683,12 +2732,26 @@ def process_bulk_call_run(run_id: int):
                 log.error(f"Run {run_id} not found")
                 return
             
-            log.info(f"[BulkCall] Starting run {run_id} with concurrency={run.concurrency}")
+            # 🔒 STATE MACHINE: Update from pending to running and set started_at
+            if run.status == "pending":
+                run.status = "running"
+                run.started_at = datetime.utcnow()
+                
+                # 🔒 WORKER LOCK: Set worker lock with hostname+pid
+                worker_id = f"{socket.gethostname()}:{os.getpid()}"
+                run.locked_by_worker = worker_id
+                run.lock_ts = datetime.utcnow()
+                db.session.commit()
+                
+                log.info(f"[BulkCall] Run {run_id} started by worker {worker_id} with concurrency={run.concurrency}")
+            else:
+                log.info(f"[BulkCall] Resuming run {run_id} with concurrency={run.concurrency}")
             
             # Get business details
             business = Business.query.get(run.business_id)
             if not business or not business.phone_e164:
                 run.status = "failed"
+                run.ended_at = datetime.utcnow()
                 run.last_error = "מספר טלפון של העסק לא מוגדר"
                 db.session.commit()
                 return
@@ -2703,6 +2766,7 @@ def process_bulk_call_run(run_id: int):
             except RuntimeError as e:
                 log.error(f"[BulkCall] Run {run_id} FAILED: {e}")
                 run.status = "failed"
+                run.ended_at = datetime.utcnow()
                 run.last_error = "No public host configured for webhooks"
                 db.session.commit()
                 return
@@ -2714,28 +2778,35 @@ def process_bulk_call_run(run_id: int):
             
             # Process jobs in queue
             while True:
-                # Check if queue was stopped or cancellation requested
+                # 🔒 STATE MACHINE: Check if queue was stopped or cancellation requested
                 db.session.refresh(run)
                 
-                # 🔥 CANCEL: Check if user requested cancellation
+                # 🔒 WORKER HEARTBEAT: Update lock timestamp to show worker is alive
+                run.lock_ts = datetime.utcnow()
+                run.updated_at = datetime.utcnow()
+                db.session.commit()
+                
+                # 🔒 CANCEL CHECK: Check if user requested cancellation BEFORE processing next call
                 if run.cancel_requested and run.status != "cancelled":
                     log.info(f"[BulkCall] Run {run_id} cancellation requested, stopping...")
                     
-                    # Mark all remaining queued jobs as cancelled
+                    # 🔒 SECURITY: Mark all queued jobs as cancelled - only for this business
                     result = db.session.execute(text("""
                         UPDATE outbound_call_jobs 
                         SET status='failed',
                             error_message='Cancelled by user',
                             completed_at=NOW()
                         WHERE run_id=:run_id 
+                            AND business_id=:business_id
                             AND status='queued'
-                    """), {"run_id": run_id})
+                    """), {"run_id": run_id, "business_id": run.business_id})
                     
                     cancelled_count = result.rowcount
                     
-                    # Update run status
+                    # 🔒 STATE MACHINE: Update run status to cancelled
                     run.status = "cancelled"
-                    run.completed_at = datetime.utcnow()
+                    run.ended_at = datetime.utcnow()
+                    run.completed_at = datetime.utcnow()  # Legacy field
                     run.queued_count = 0
                     run.failed_count += cancelled_count
                     db.session.commit()
@@ -2745,9 +2816,10 @@ def process_bulk_call_run(run_id: int):
                 
                 if run.status in ("stopping", "stopped", "cancelled"):
                     log.info(f"[BulkCall] Run {run_id} was stopped (status={run.status}), exiting")
-                    # Mark as stopped if it was in stopping state
+                    # 🔒 STATE MACHINE: Mark as stopped if it was in stopping state
                     if run.status == "stopping":
                         run.status = "stopped"
+                        run.ended_at = datetime.utcnow()
                         db.session.commit()
                     break
                 
@@ -2967,15 +3039,24 @@ def process_bulk_call_run(run_id: int):
                     ).count()
                     
                     if active_jobs_count == 0:
-                        # All done
+                        # 🔒 STATE MACHINE: All done - mark as completed
                         run.status = "completed"
-                        run.completed_at = datetime.utcnow()
+                        run.ended_at = datetime.utcnow()
+                        run.completed_at = datetime.utcnow()  # Legacy field
+                        run.cursor_position = run.total_leads  # Processed all
                         db.session.commit()
-                        log.info(f"[BulkCall] Run {run_id} completed")
+                        log.info(f"[BulkCall] Run {run_id} completed: {run.completed_count} succeeded, {run.failed_count} failed")
                         break
                     else:
                         # Wait for active calls to complete
                         time.sleep(2)
+                
+                # 🔒 CURSOR: Update cursor position after processing
+                completed_jobs = OutboundCallJob.query.filter(
+                    OutboundCallJob.run_id == run_id,
+                    OutboundCallJob.status.in_(["completed", "failed", "cancelled"])
+                ).count()
+                run.cursor_position = completed_jobs
                 
                 # Refresh run to get latest counts
                 db.session.refresh(run)
@@ -2985,11 +3066,12 @@ def process_bulk_call_run(run_id: int):
             import traceback
             traceback.print_exc()
             
-            # Mark run as failed
+            # 🔒 STATE MACHINE: Mark run as failed on unexpected error
             try:
                 run = OutboundCallRun.query.get(run_id)
                 if run:
                     run.status = "failed"
+                    run.ended_at = datetime.utcnow()
                     run.last_error = str(e)[:500]
                     db.session.commit()
             except:
