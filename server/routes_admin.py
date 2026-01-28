@@ -1138,6 +1138,8 @@ def reset_business_progress(business_id):
     4. Clears any Redis progress keys (if needed)
     
     Use this to unblock businesses with stuck progress bars.
+    
+    Auth: system_admin can reset any business, owner/admin can only reset their own business
     """
     from server.models_sql import ReceiptSyncRun, WhatsAppBroadcast, RecordingRun
     from datetime import timezone
@@ -1147,8 +1149,12 @@ def reset_business_progress(business_id):
         if not current_user:
             return jsonify({'error': 'Not authenticated'}), 401
         
-        # Verify access to this business
+        # ✅ FIX: Verify access based on role
         current_role = current_user.get('role')
+        if current_role not in ['system_admin', 'owner', 'admin']:
+            return jsonify({'error': 'Insufficient permissions'}), 403
+        
+        # Non-system admins can only reset their own business
         if current_role != 'system_admin':
             current_business_id = current_user.get('business_id')
             if current_business_id != business_id:

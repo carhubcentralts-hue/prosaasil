@@ -51,16 +51,23 @@ export function useLongTaskPersistence(businessId: number, taskType: string) {
     localStorage.removeItem(storageKey);
   };
   
-  // ✅ FIX: Auto-clear task reference after 1 hour (not status-dependent)
-  // Status is always fetched from server, so we just clear the reference
+  // ✅ FIX: Auto-clear task reference after 1 hour
+  // Uses setTimeout to schedule clearing at exact expiry time
   useEffect(() => {
     if (activeTask) {
       const age = Date.now() - activeTask.timestamp;
-      if (age > 3600000) { // 1 hour
+      const remainingTime = 3600000 - age; // 1 hour in ms
+      
+      if (remainingTime <= 0) {
+        // Already expired, clear immediately
         clearTask();
+      } else {
+        // Schedule clearing when it expires
+        const timer = setTimeout(clearTask, remainingTime);
+        return () => clearTimeout(timer);
       }
     }
-  }, [activeTask]);
+  }, [activeTask, storageKey]); // storageKey is stable, clearTask is defined above
   
   return { activeTask, saveTask, clearTask };
 }

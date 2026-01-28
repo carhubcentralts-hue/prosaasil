@@ -3213,8 +3213,8 @@ def get_broadcast_status(broadcast_id):
         ).first_or_404()
         
         # ✅ FIX: Detect stale broadcasts and auto-mark as failed
+        # Wrapped in try-except to ensure status can still be returned even if auto-marking fails
         STALE_THRESHOLD_SECONDS = 5 * 60  # 5 minutes
-        is_stale = False
         
         if broadcast.status == 'running':
             from datetime import timezone
@@ -3230,15 +3230,25 @@ def get_broadcast_status(broadcast_id):
             seconds_since_update = int((now - last_activity).total_seconds())
             
             if seconds_since_update > STALE_THRESHOLD_SECONDS:
-                is_stale = True
-                log.warning(f"⚠️ STALE BROADCAST DETECTED: broadcast_id={broadcast.id}, business_id={business_id}, "
-                           f"seconds_since_update={seconds_since_update}")
-                
-                # Auto-mark as failed to prevent stuck progress bars
-                broadcast.status = 'failed'
-                broadcast.completed_at = now
-                db.session.commit()
-                log.info(f"✅ Auto-marked stale broadcast as failed: broadcast_id={broadcast.id}")
+                try:
+                    log.warning(f"⚠️ STALE BROADCAST DETECTED: broadcast_id={broadcast.id}, business_id={business_id}, "
+                               f"seconds_since_update={seconds_since_update}")
+                    
+                    # Re-check status before marking (prevent race condition with worker)
+                    broadcast = WhatsAppBroadcast.query.filter_by(id=broadcast_id).with_for_update().first()
+                    if broadcast and broadcast.status == 'running':
+                        # Auto-mark as failed to prevent stuck progress bars
+                        broadcast.status = 'failed'
+                        broadcast.completed_at = now
+                        db.session.commit()
+                        log.info(f"✅ Auto-marked stale broadcast as failed: broadcast_id={broadcast.id}")
+                    else:
+                        # Status changed (worker completed it), just rollback
+                        db.session.rollback()
+                except Exception as e:
+                    log.error(f"Failed to auto-mark stale broadcast as failed: {e}")
+                    db.session.rollback()
+                    # Continue to return current status even if auto-marking failed
         
         # Get detailed recipient status (paginated)
         page = request.args.get('page', 1, type=int)
@@ -3291,6 +3301,7 @@ def get_broadcast_status(broadcast_id):
             'created_at': broadcast.created_at.isoformat() if broadcast.created_at else None,
             'started_at': broadcast.started_at.isoformat() if hasattr(broadcast, 'started_at') and broadcast.started_at else None,
             'completed_at': broadcast.completed_at.isoformat() if hasattr(broadcast, 'completed_at') and broadcast.completed_at else None,
+            'updated_at': broadcast.updated_at.isoformat() if hasattr(broadcast, 'updated_at') and broadcast.updated_at else None,  # ✅ FIX: Add for frontend staleness detection
             'created_by': creator.name if creator else 'לא ידוע',
             'stopped_by': stopper.name if stopper else None,
             'recipients': recipient_details,
