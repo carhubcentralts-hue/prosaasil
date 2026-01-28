@@ -29,6 +29,73 @@ log = logging.getLogger(__name__)
 # ✅ Compile regex pattern once at module level for performance
 STATUS_FILTER_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
+# Background job stale threshold - jobs stuck longer than this are marked as failed
+BACKGROUND_JOB_STALE_THRESHOLD_MINUTES = 10
+
+
+def check_and_handle_duplicate_background_job(job_type: str, business_id: int, error_message: str):
+    """
+    Check for existing active background job and handle it appropriately.
+    
+    This function prevents duplicate key violations on the idx_background_jobs_unique_active
+    constraint by checking for existing active jobs before creating a new one.
+    
+    Args:
+        job_type: The type of background job (e.g., 'enqueue_outbound_calls')
+        business_id: The business ID
+        error_message: Hebrew error message to show user if active job exists
+        
+    Returns:
+        tuple: (can_proceed: bool, error_response: dict or None, status_code: int or None)
+        - If can_proceed is True, caller should create the new job
+        - If can_proceed is False, caller should return the error_response with status_code
+    """
+    from server.models_sql import BackgroundJob
+    
+    # 🔒 CHECK: Look for existing active job to avoid unique constraint violation
+    # The idx_background_jobs_unique_active constraint prevents multiple active jobs
+    # (status in 'queued', 'running', 'paused') of the same type per business
+    existing_job = BackgroundJob.query.filter_by(
+        business_id=business_id,
+        job_type=job_type
+    ).filter(
+        BackgroundJob.status.in_(['queued', 'running', 'paused'])
+    ).first()
+    
+    if not existing_job:
+        # No existing job, safe to proceed
+        return (True, None, None)
+    
+    # Check if job is stale (stuck for more than threshold without heartbeat)
+    now = datetime.utcnow()
+    stale_threshold = timedelta(minutes=BACKGROUND_JOB_STALE_THRESHOLD_MINUTES)
+    
+    # Determine if job is stale based on heartbeat or created_at
+    last_activity = existing_job.heartbeat_at or existing_job.created_at
+    is_stale = (now - last_activity) > stale_threshold
+    
+    if is_stale:
+        # Mark stale job as failed and allow new job to be created
+        log.warning(f"⚠️ Found stale background job {existing_job.id} (status={existing_job.status}, last_activity={last_activity}). Marking as failed.")
+        existing_job.status = 'failed'
+        existing_job.last_error = 'Job marked as stale - exceeded timeout without heartbeat'
+        existing_job.finished_at = now
+        db.session.commit()
+        return (True, None, None)
+    else:
+        # Active job exists, cannot create new one
+        log.error(f"❌ Active background job {existing_job.id} already exists for business {business_id}")
+        db.session.rollback()
+        error_response = {
+            "error": error_message,
+            "active_job_id": existing_job.id,
+            "active_job_status": existing_job.status
+        }
+        # Add success: False for endpoints that expect it
+        if 'success' not in error_response:
+            error_response['success'] = False
+        return (False, error_response, 409)
+
 
 def normalize_israeli_phone(phone: str) -> str:
     """
@@ -1580,6 +1647,16 @@ def bulk_delete_imported_leads():
         from rq import Queue
         import redis
         
+        # Check for existing active job and handle duplicates
+        can_proceed, error_response, status_code = check_and_handle_duplicate_background_job(
+            job_type='delete_imported_leads',
+            business_id=tenant_id,
+            error_message="מחיקה המונית פעילה כבר קיימת. אנא המתן לסיום המחיקה הנוכחית."
+        )
+        
+        if not can_proceed:
+            return jsonify(error_response), status_code
+        
         bg_job = BackgroundJob()
         bg_job.business_id = tenant_id
         bg_job.requested_by_user_id = user.get('id')
@@ -1825,6 +1902,16 @@ def bulk_enqueue_outbound_calls():
         from server.models_sql import BackgroundJob
         from rq import Queue
         import redis
+        
+        # Check for existing active job and handle duplicates
+        can_proceed, error_response, status_code = check_and_handle_duplicate_background_job(
+            job_type='enqueue_outbound_calls',
+            business_id=tenant_id,
+            error_message="תור שיחות פעיל כבר קיים. אנא המתן לסיום התור הנוכחי או צור קשר עם התמיכה."
+        )
+        
+        if not can_proceed:
+            return jsonify(error_response), status_code
         
         bg_job = BackgroundJob()
         bg_job.business_id = tenant_id
