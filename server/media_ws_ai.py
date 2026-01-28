@@ -2318,6 +2318,16 @@ class MediaStreamHandler:
         self._audio_guard_last_summary_ts = 0.0  # For periodic summary logs
         logger.info(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED}, MusicMode={MUSIC_MODE_ENABLED} (dynamic noise floor, speech gating, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
         
+        # 🔥 GEMINI AUDIO FIX: Buffer for frame alignment
+        # Gemini sends PCM16 audio in chunks that may not align to frame boundaries
+        # Buffer accumulates partial frames until we have complete frames to process
+        # Frame size for PCM16 mono: 2 bytes per sample
+        self._gemini_audio_buffer = bytearray()  # Accumulates unaligned audio chunks
+        self._gemini_audio_frame_size = 2  # PCM16 mono: 2 bytes per sample
+        self._gemini_audio_chunks_received = 0  # Track chunks for debugging
+        self._gemini_audio_first_chunk_logged = False  # Log first chunk details once
+        logger.info("🎵 [GEMINI_AUDIO] Frame alignment buffer initialized (frame_size=2 for PCM16 mono)")
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
@@ -4816,17 +4826,63 @@ class MediaStreamHandler:
                 # Log synthetic response creation
                 logger.info(f"[GEMINI] Synthesized response.created: {response_id[:20]}...")
             
-            # Gemini returns PCM16 at 24kHz, need to convert to μ-law at 8kHz
+            # 🔥 GEMINI AUDIO FIX: Validate and debug audio format
+            # Track chunks and log first chunk details for debugging
+            self._gemini_audio_chunks_received += 1
+            if not self._gemini_audio_first_chunk_logged:
+                self._gemini_audio_first_chunk_logged = True
+                mime_type = gemini_event.get('mime_type', 'unknown')
+                data_type = type(audio_bytes).__name__
+                first_20_hex = audio_bytes[:20].hex() if len(audio_bytes) >= 20 else audio_bytes.hex()
+                logger.info(f"🔍 [GEMINI_AUDIO] First chunk: bytes={len(audio_bytes)}, mime_type={mime_type}, data_type={data_type}, first_20_hex={first_20_hex}")
+            
+            # 🔥 CRITICAL FIX: Frame alignment buffer for unaligned chunks
+            # Gemini can send partial frames (e.g., 47 bytes) that aren't aligned to PCM16 boundaries
+            # Buffer accumulates chunks until we have complete frames to process
             try:
                 import audioop
                 import base64
+                
+                # Validate audio_bytes is actually bytes
+                if not isinstance(audio_bytes, bytes):
+                    logger.warning(f"⚠️ [GEMINI_AUDIO] Received non-bytes audio data: {type(audio_bytes)}")
+                    return None
+                
+                # Skip empty chunks
+                if len(audio_bytes) == 0:
+                    return None
+                
+                # Add incoming chunk to buffer
+                self._gemini_audio_buffer.extend(audio_bytes)
+                
+                # Calculate how many complete frames we have
+                # PCM16 mono: 2 bytes per sample (frame_size = 2)
+                buffer_len = len(self._gemini_audio_buffer)
+                usable_len = (buffer_len // self._gemini_audio_frame_size) * self._gemini_audio_frame_size
+                
+                # If we don't have at least one complete frame, wait for more data
+                if usable_len == 0:
+                    logger.debug(f"🔄 [GEMINI_AUDIO] Buffering partial frame: {buffer_len} bytes (need {self._gemini_audio_frame_size})")
+                    return None
+                
+                # Extract complete frames for processing
+                audio_to_convert = bytes(self._gemini_audio_buffer[:usable_len])
+                # Keep remainder in buffer for next chunk
+                self._gemini_audio_buffer = self._gemini_audio_buffer[usable_len:]
+                
+                # Log buffer state every 100 chunks for monitoring
+                if self._gemini_audio_chunks_received % 100 == 0:
+                    logger.debug(f"📊 [GEMINI_AUDIO] Chunk #{self._gemini_audio_chunks_received}: converted={usable_len} bytes, buffered={len(self._gemini_audio_buffer)} bytes")
+                
                 # ✅ AUDIO VALIDATION B: Output from Gemini (Gemini → Twilio)
                 # Gemini outputs PCM16 at 24kHz, we need μ-law at 8kHz for Twilio
                 # Step 1: Resample from 24kHz to 8kHz (3:1 ratio - reduces samples by 66%)
-                # audioop.ratecv handles this correctly, preserving audio quality
-                pcm16_8k = audioop.ratecv(audio_bytes, 2, 1, 24000, 8000, None)[0]
+                # audioop.ratecv requires aligned frames - now guaranteed by buffer logic above
+                pcm16_8k = audioop.ratecv(audio_to_convert, 2, 1, 24000, 8000, None)[0]
+                
                 # Step 2: Convert PCM16 to μ-law (320 bytes PCM16 → 160 bytes μ-law = 20ms frame)
                 mulaw_bytes = audioop.lin2ulaw(pcm16_8k, 2)
+                
                 # Step 3: Encode to base64 for OpenAI-compatible format
                 # This creates proper 20ms frames (160 samples at 8kHz = 160 bytes μ-law)
                 audio_b64 = base64.b64encode(mulaw_bytes).decode('utf-8')
@@ -4837,7 +4893,10 @@ class MediaStreamHandler:
                     'response_id': getattr(self, 'active_response_id', 'gemini_response')
                 }
             except Exception as e:
-                logger.error(f"[GEMINI_NORMALIZE] Audio conversion failed: {e}")
+                # 🔥 CRITICAL: Don't crash on single bad chunk - log and continue
+                logger.error(f"[GEMINI_NORMALIZE] Audio conversion failed (chunk #{self._gemini_audio_chunks_received}): {e}")
+                # Clear buffer on error to prevent corruption from propagating
+                self._gemini_audio_buffer.clear()
                 return None
         
         elif gemini_type == 'text':
