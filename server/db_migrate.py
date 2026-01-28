@@ -5909,6 +5909,49 @@ def apply_migrations():
         checkpoint("   🎯 Added unique constraint to prevent duplicate calls")
         checkpoint("   🎯 Added business_id to jobs for complete business isolation")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 114: Add last_heartbeat_at for stale run detection
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 114: Adding last_heartbeat_at for stale run detection")
+        
+        if check_table_exists('outbound_call_runs'):
+            try:
+                # Add last_heartbeat_at if it doesn't exist
+                if not check_column_exists('outbound_call_runs', 'last_heartbeat_at'):
+                    checkpoint("  → Adding last_heartbeat_at column...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE outbound_call_runs 
+                        ADD COLUMN last_heartbeat_at TIMESTAMP
+                    """)
+                    checkpoint("  ✅ last_heartbeat_at column added")
+                    
+                    # Initialize heartbeat for running runs from lock_ts
+                    checkpoint("  → Initializing heartbeat for running runs...")
+                    from sqlalchemy import text
+                    result = db.session.execute(text("""
+                        UPDATE outbound_call_runs 
+                        SET last_heartbeat_at = COALESCE(lock_ts, updated_at, created_at)
+                        WHERE status IN ('running', 'pending')
+                    """))
+                    updated_count = result.rowcount
+                    checkpoint(f"  ℹ️ Initialized {updated_count} running runs with heartbeat")
+                    db.session.commit()
+                    
+                    migrations_applied.append('114_outbound_heartbeat')
+                else:
+                    checkpoint("  ℹ️ last_heartbeat_at column already exists")
+                
+                checkpoint("✅ Migration 114 complete: Added heartbeat tracking for stale run detection")
+                checkpoint("   🎯 Added last_heartbeat_at field for independent heartbeat tracking")
+                checkpoint("   🎯 Initialized heartbeat for existing running runs")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 114 failed: {e}")
+                logger.error(f"Migration 114 error: {e}", exc_info=True)
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ outbound_call_runs table does not exist - skipping migration 114")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

@@ -781,6 +781,111 @@ def cancel_outbound_job(job_id: int):
         return jsonify({"error": "שגיאה בביטול התור"}), 500
 
 
+@outbound_bp.route("/api/outbound_calls/jobs/<int:job_id>/force-cancel", methods=["POST"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
+def force_cancel_outbound_job(job_id: int):
+    """
+    Force cancel an outbound call queue job/run
+    
+    🔥 FORCE CANCEL: Works even if worker is dead/unresponsive
+    - Immediately marks run as 'cancelled'
+    - Marks all queued jobs as failed
+    - Clears worker lock
+    - Cleans up Redis semaphore slots
+    
+    🔒 SECURITY: Enforces business isolation - users can only cancel runs for their business
+    
+    Returns:
+    {
+        "success": true,
+        "message": "התור בוטל מיידית",
+        "jobs_cancelled": 15
+    }
+    """
+    from flask import session
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            # System admin can force cancel any job
+            pass
+        else:
+            return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        run = OutboundCallRun.query.get(job_id)
+        
+        if not run:
+            return jsonify({"error": "תור לא נמצא"}), 404
+        
+        # 🔒 SECURITY: Verify access if not system admin
+        if tenant_id and run.business_id != tenant_id:
+            # 🔒 SECURITY: Log potential cross-business access attempt
+            log.warning(f"[SECURITY] User from business {tenant_id} attempted to force-cancel run {job_id} which belongs to business {run.business_id}")
+            return jsonify({"error": "אין גישה לתור זה"}), 403
+        
+        # Check if already in terminal state
+        if run.status in ('cancelled', 'completed', 'failed', 'stopped'):
+            return jsonify({
+                "success": True,
+                "message": f"התור כבר במצב {run.status}",
+                "jobs_cancelled": 0
+            })
+        
+        # 🔥 FORCE CANCEL: Immediately mark as cancelled
+        now = datetime.utcnow()
+        run.status = 'cancelled'
+        run.cancel_requested = True
+        run.ended_at = now
+        run.updated_at = now
+        
+        # Clear worker lock and heartbeat
+        run.locked_by_worker = None
+        run.lock_ts = None
+        run.last_heartbeat_at = None  # Clear heartbeat for consistency
+        
+        # Mark all queued jobs as failed
+        from sqlalchemy import text
+        result = db.session.execute(text("""
+            UPDATE outbound_call_jobs 
+            SET status='failed',
+                error_message='Force cancelled by user',
+                completed_at=NOW()
+            WHERE run_id=:run_id 
+                AND business_id=:business_id
+                AND status IN ('queued', 'pending')
+        """), {"run_id": job_id, "business_id": run.business_id})
+        
+        cancelled_count = result.rowcount
+        db.session.commit()
+        
+        # 🔥 CLEANUP: Clean up Redis semaphore slots for this business
+        try:
+            from server.services.outbound_semaphore import cleanup_expired_slots
+            cleaned_slots = cleanup_expired_slots(run.business_id)
+            if cleaned_slots > 0:
+                log.info(f"🧹 [FORCE_CANCEL] Cleaned {cleaned_slots} Redis slots for business {run.business_id}")
+        except Exception as e:
+            log.warning(f"⚠️ [FORCE_CANCEL] Failed to cleanup Redis slots: {e}")
+        
+        log.info(f"🔥 [FORCE_CANCEL] Run {job_id} force-cancelled by business {tenant_id or 'system_admin'}. Cancelled {cancelled_count} jobs.")
+        
+        return jsonify({
+            "success": True,
+            "message": f"התור בוטל מיידית ({cancelled_count} שיחות בוטלו)",
+            "jobs_cancelled": cancelled_count
+        })
+        
+    except Exception as e:
+        log.error(f"Error force-cancelling job: {e}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({"error": "שגיאה בביטול התור"}), 500
+
+
 @outbound_bp.route("/api/outbound_calls/jobs/active", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 @require_page_access('calls_outbound')
@@ -790,6 +895,9 @@ def get_active_outbound_job():
     
     Returns the most recent job that is in 'running' or 'queued' status.
     Used by frontend to restore progress bar after page refresh.
+    
+    🔥 STALE DETECTION: Automatically marks stale runs as 'stopped' if:
+    - status='running' but last_heartbeat_at > 30 seconds old
     
     Returns:
     {
@@ -818,6 +926,50 @@ def get_active_outbound_job():
         
         if not run:
             return jsonify({"error": "אין תור פעיל"}), 404
+        
+        # 🔥 STALE DETECTION: Check if run is stale (no heartbeat for 30+ seconds)
+        now = datetime.utcnow()
+        stale_threshold = timedelta(seconds=30)
+        
+        # Determine last activity time
+        last_activity = run.last_heartbeat_at or run.lock_ts or run.updated_at
+        
+        if run.status == 'running' and last_activity:
+            time_since_heartbeat = now - last_activity
+            
+            if time_since_heartbeat > stale_threshold:
+                # Mark as stopped and clean up
+                elapsed_seconds = int(time_since_heartbeat.total_seconds())
+                log.warning(f"🔥 [STALE_DETECTION] Run {run.id} is stale (last_heartbeat={last_activity}, {elapsed_seconds}s ago). Marking as stopped.")
+                
+                run.status = 'stopped'
+                run.ended_at = now
+                run.last_error = f"Worker stopped responding (last heartbeat: {elapsed_seconds}s ago)"
+                
+                # Clear lock fields
+                run.locked_by_worker = None
+                run.lock_ts = None
+                run.last_heartbeat_at = None  # Clear heartbeat for consistency
+                
+                # Mark remaining queued jobs as failed
+                from sqlalchemy import text
+                result = db.session.execute(text("""
+                    UPDATE outbound_call_jobs 
+                    SET status='failed',
+                        error_message='Run stopped - worker unresponsive',
+                        completed_at=NOW()
+                    WHERE run_id=:run_id 
+                        AND business_id=:business_id
+                        AND status='queued'
+                """), {"run_id": run.id, "business_id": run.business_id})
+                
+                cancelled_count = result.rowcount
+                log.info(f"🔥 [STALE_DETECTION] Marked {cancelled_count} queued jobs as failed")
+                
+                db.session.commit()
+                
+                # Return 404 as there's no active run anymore
+                return jsonify({"error": "אין תור פעיל"}), 404
         
         # Calculate processed count
         processed = run.completed_count + run.failed_count
@@ -2836,6 +2988,7 @@ def process_bulk_call_run(run_id: int):
                 # 🔒 WORKER LOCK: Set worker lock with hostname+pid
                 run.locked_by_worker = worker_id
                 run.lock_ts = datetime.utcnow()
+                run.last_heartbeat_at = datetime.utcnow()  # Initialize heartbeat
                 db.session.commit()
                 
                 log.info(f"[BulkCall] Run {run_id} started by worker {worker_id} with concurrency={run.concurrency}")
@@ -2843,6 +2996,7 @@ def process_bulk_call_run(run_id: int):
                 # 🔒 WORKER LOCK: Update lock fields when resuming
                 run.locked_by_worker = worker_id
                 run.lock_ts = datetime.utcnow()
+                run.last_heartbeat_at = datetime.utcnow()  # Initialize heartbeat on resume
                 db.session.commit()
                 log.info(f"[BulkCall] Resuming run {run_id} with worker {worker_id}, concurrency={run.concurrency}")
             
@@ -2882,6 +3036,7 @@ def process_bulk_call_run(run_id: int):
                 
                 # 🔒 WORKER HEARTBEAT: Update lock timestamp to show worker is alive
                 run.lock_ts = datetime.utcnow()
+                run.last_heartbeat_at = datetime.utcnow()  # Heartbeat for stale detection
                 run.updated_at = datetime.utcnow()
                 db.session.commit()
                 
@@ -3297,13 +3452,15 @@ def cleanup_stuck_runs(on_startup: bool = False):
                 SET status='failed',
                     ended_at=NOW(),
                     completed_at=NOW(),
-                    last_error=CONCAT('Worker timeout - no heartbeat from ', locked_by_worker, ' since ', lock_ts)
+                    last_error=CONCAT('Worker timeout - no heartbeat from ', locked_by_worker, ' since ', COALESCE(last_heartbeat_at, lock_ts))
                 WHERE status='running'
                     AND (
-                        -- 🔒 PRIMARY: Check heartbeat (lock_ts)
-                        (lock_ts IS NOT NULL AND lock_ts < :heartbeat_cutoff)
-                        -- Fallback: Old updated_at check
-                        OR (lock_ts IS NULL AND updated_at < :updated_cutoff)
+                        -- 🔒 PRIMARY: Check heartbeat (last_heartbeat_at)
+                        (last_heartbeat_at IS NOT NULL AND last_heartbeat_at < :heartbeat_cutoff)
+                        -- Fallback: Check lock_ts if last_heartbeat_at is NULL
+                        OR (last_heartbeat_at IS NULL AND lock_ts IS NOT NULL AND lock_ts < :heartbeat_cutoff)
+                        -- Legacy fallback: Old updated_at check
+                        OR (last_heartbeat_at IS NULL AND lock_ts IS NULL AND updated_at < :updated_cutoff)
                         -- Empty queue (nothing to process)
                         OR (queued_count = 0 AND in_progress_count = 0)
                     )

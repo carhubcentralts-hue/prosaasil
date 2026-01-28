@@ -1153,6 +1153,7 @@ class OutboundCallRun(db.Model):
     # Worker coordination
     locked_by_worker = db.Column(db.String(128), nullable=True)  # Worker ID holding the lock
     lock_ts = db.Column(db.DateTime, nullable=True)  # Lock timestamp for timeout detection
+    last_heartbeat_at = db.Column(db.DateTime, nullable=True)  # Last worker heartbeat (for stale detection)
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
