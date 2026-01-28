@@ -2697,10 +2697,21 @@ class MediaStreamHandler:
                             _orig_print(f"⏳ [WATCHDOG] idle={idle:.1f}s but polite hangup in progress - allowing completion", flush=True)
                         continue
                     
+                    # Check 3: 🔥 FIX 4: Function call pending response (Gemini waiting for tool_result)
+                    # This is NOT true silence - model is waiting for our response
+                    pending_function_call = getattr(self, '_pending_function_call', False)
+                    if pending_function_call:
+                        if DEBUG:
+                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but pending_function_call=True - waiting for tool_response")
+                        else:
+                            _orig_print(f"⏳ [WATCHDOG] idle={idle:.1f}s but function_call pending - model waiting for response", flush=True)
+                        continue
+                    
                     # All checks passed:
                     # - 20 seconds of TRUE silence (no bot speaking, no user speaking) ✅
                     # - No audio in queues ✅
                     # - No hangup in progress ✅
+                    # - No function_call pending response ✅
                     # → Disconnect due to silence
                     
                     logger.warning(f"[WATCHDOG] {idle:.1f}s of true silence (no user OR bot activity) → DISCONNECT")
@@ -4757,6 +4768,12 @@ class MediaStreamHandler:
         """
         gemini_type = gemini_event.get('type')
         
+        # 🔥 FIX 4: Reset activity timestamp for all Gemini events to prevent false watchdog disconnects
+        # This includes setup_complete, function_call, turn_complete, audio, text, interrupted
+        if gemini_type in ['setup_complete', 'function_call', 'turn_complete', 'audio', 'text']:
+            self._last_activity_ts = time.time()
+            logger.debug(f"[WATCHDOG] Activity reset on Gemini event: {gemini_type}")
+        
         if gemini_type == 'setup_complete':
             # Gemini setup_complete → OpenAI session.updated
             return {
@@ -4872,9 +4889,20 @@ class MediaStreamHandler:
         elif gemini_type == 'function_call':
             # Gemini function_call → OpenAI response.function_call_arguments.done
             tool_call_data = gemini_event.get('data', {})
+            function_calls = gemini_event.get('function_calls', [])  # Get parsed function_calls from gemini_realtime_client
+            
+            # Extract first function call for OpenAI compatibility
+            # Note: Gemini can send multiple function calls, OpenAI format expects one
+            first_call = function_calls[0] if function_calls else {}
+            
             return {
                 'type': 'response.function_call_arguments.done',
-                'function_call': tool_call_data
+                'function_call': tool_call_data,
+                'name': first_call.get('name', ''),
+                'call_id': first_call.get('id', ''),
+                'arguments': json.dumps(first_call.get('args', {})),
+                '_gemini_raw': tool_call_data,  # Keep raw Gemini data for proper response
+                '_gemini_function_calls': function_calls  # Keep all function calls
             }
         
         else:
@@ -14256,16 +14284,26 @@ class MediaStreamHandler:
     
     async def _handle_function_call(self, event: dict, client):
         """
-        🔥 BUILD 313: Handle OpenAI function calls for lead capture
+        🔥 BUILD 313: Handle function calls for lead capture (OpenAI & Gemini)
         
         When AI calls save_lead_info, we extract the fields and update lead_capture_state.
-        No fuzzy matching, no word lists - just trust what OpenAI extracted!
+        No fuzzy matching, no word lists - just trust what the AI extracted!
         
+        ⚠️ CRITICAL: For Gemini, ALWAYS send tool_response back to avoid model getting stuck
         ⚠️ CRITICAL: ALL response.create calls in this function MUST use trigger_response_from_tool()
         DO NOT use client.send_event({"type": "response.create"}) directly!
         This ensures session gate, user_speaking, hangup checks, and cost tracking apply.
         """
         import json
+        
+        # Determine provider
+        ai_provider = getattr(self, '_ai_provider', 'openai')
+        is_gemini = ai_provider == 'gemini'
+        
+        # 🔥 FIX: For Gemini, handle tool calls differently
+        if is_gemini:
+            await self._handle_gemini_function_call(event, client)
+            return
         
         function_name = event.get("name", "")
         call_id = event.get("call_id", "")
@@ -15331,7 +15369,137 @@ class MediaStreamHandler:
                 await self.trigger_response_from_tool(client, "unknown_success", force=False)
         
         else:
+            # 🔥 FIX 2 (CRITICAL): Unknown function - MUST respond with tool_result
+            # Never leave function_call without response - this causes model to get stuck waiting
             logger.warning(f"⚠️ [BUILD 313] Unknown function: {function_name}")
+            logger.info(f"🔧 [BUILD 313] Responding to unknown function '{function_name}' with error tool_result")
+            
+            # Send tool_result with error
+            await client.send_event({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps({
+                        "success": False,
+                        "error": "אין כלים זמינים. המשך לענות בלי כלים.",
+                        "error_code": "tool_not_available"
+                    }, ensure_ascii=False)
+                }
+            })
+            
+            # Send explicit instruction to continue without tools
+            await client.send_event({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "SERVER: No tools available. Continue the conversation without calling any functions. Respond with audio only."
+                        }
+                    ]
+                }
+            })
+            
+            # Trigger response to continue conversation
+            await self.trigger_response_from_tool(client, "unknown_function", force=False)
+    
+    async def _handle_gemini_function_call(self, event: dict, client):
+        """
+        🔥 FIX 2: Handle Gemini function calls - ALWAYS respond with tool_result
+        
+        Gemini requires a different approach:
+        1. Extract function_calls from the event
+        2. Process each function call
+        3. Send tool_response back via client.send_tool_response()
+        4. Send text instruction to continue without tools (if unknown)
+        
+        Rule: EVERY function_call MUST receive function_response within ≤ 500ms
+        """
+        import json
+        from google import genai
+        from google.genai import types
+        
+        # 🔥 FIX 4: Mark function_call as pending to prevent watchdog disconnect
+        self._pending_function_call = True
+        
+        # Extract Gemini-specific data
+        gemini_function_calls = event.get('_gemini_function_calls', [])
+        
+        if not gemini_function_calls:
+            logger.warning(f"⚠️ [GEMINI] No function_calls in event")
+            self._pending_function_call = False
+            return
+        
+        logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
+        
+        # Process each function call and build responses
+        function_responses = []
+        
+        for fc_data in gemini_function_calls:
+            function_name = fc_data.get('name', '')
+            call_id = fc_data.get('id', '')
+            args = fc_data.get('args', {})
+            
+            logger.info(f"🔧 [GEMINI] Function: {function_name}, ID: {call_id}, Args: {args}")
+            
+            # 🔥 CRITICAL: For unknown/unsupported functions, send error response
+            # Never leave function_call without a response - model gets stuck
+            if not function_name or function_name in ['', 'NO_NAME']:
+                logger.warning(f"⚠️ [GEMINI] Empty or missing function name - responding with error")
+                function_response = types.FunctionResponse(
+                    id=call_id,
+                    name=function_name or "unknown",
+                    response={
+                        "success": False,
+                        "error": "No tools available",
+                        "message": "אין כלים זמינים. המשך לענות בלי כלים, רק אודיו."
+                    }
+                )
+                function_responses.append(function_response)
+                continue
+            
+            # For any other unknown function (not in our supported list)
+            # TODO: Add supported function handlers here if needed in the future
+            logger.warning(f"⚠️ [GEMINI] Unknown function '{function_name}' - responding with not_supported")
+            function_response = types.FunctionResponse(
+                id=call_id,
+                name=function_name,
+                response={
+                    "success": False,
+                    "error": "Function not supported",
+                    "message": "אין כלים זמינים. המשך לענות בלי כלים, רק אודיו."
+                }
+            )
+            function_responses.append(function_response)
+        
+        # 🔥 CRITICAL: Send tool_response within 500ms
+        try:
+            await client.send_tool_response(function_responses)
+            logger.info(f"✅ [GEMINI] Sent {len(function_responses)} tool response(s)")
+            
+            # Clear pending flag - response sent
+            self._pending_function_call = False
+            
+            # Reset activity timestamp - function_call handling is activity
+            self._last_activity_ts = time.time()
+            logger.debug(f"[WATCHDOG] Activity timestamp reset after function_call")
+            
+        except Exception as e:
+            logger.error(f"❌ [GEMINI] Failed to send tool_response: {e}")
+            import traceback
+            traceback.print_exc()
+            # Clear flag even on error to prevent permanent blocking
+            self._pending_function_call = False
+        
+        # Send text instruction to continue without tools
+        try:
+            await client.send_text("Continue the conversation. No tools available, respond with audio only.")
+            logger.info(f"📝 [GEMINI] Sent text instruction to continue without tools")
+        except Exception as e:
+            logger.warning(f"⚠️ [GEMINI] Failed to send text instruction: {e}")
     
     def _check_lead_complete(self):
         """
