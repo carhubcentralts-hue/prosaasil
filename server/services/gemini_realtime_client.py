@@ -202,10 +202,20 @@ class GeminiRealtimeClient:
             }
         }
         
+        # 🔥 FIX 3: Explicitly disable tool use to prevent function_call issues
+        # Ensure no tools are configured in the session
+        # Note: Even without tools config, Gemini might infer function calls from prompts
+        # So we also add explicit instruction in system_instructions
+        
         # Add system instructions if provided
         if system_instructions:
             sanitized_instructions = _sanitize_text_for_realtime(system_instructions)
+            # Append explicit "no tools" instruction
+            sanitized_instructions += "\n\nIMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
             config["system_instruction"] = sanitized_instructions
+        else:
+            # Even without system instructions, add the no-tools instruction
+            config["system_instruction"] = "You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
         
         # Add voice if provided
         if voice_id:
