@@ -74,7 +74,7 @@ def test_odd_chunk_handling():
     
     # Verify we can process the aligned portion
     try:
-        # This should work (46 bytes = 23 frames)
+        # This should work (46 bytes = 23 samples of PCM16 data)
         pcm16_8k = audioop.ratecv(audio_to_convert, 2, 1, 24000, 8000, None)[0]
         print(f"✅ Successfully converted {len(audio_to_convert)} bytes (aligned)")
         print(f"✅ Remainder buffered: {len(remainder)} bytes")

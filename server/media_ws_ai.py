@@ -5019,12 +5019,9 @@ class MediaStreamHandler:
                 # Don't send large chunks - break them into 160-byte frames
                 MULAW_FRAME_SIZE = 160  # 20ms at 8kHz = 160 samples = 160 bytes μ-law
                 
-                # If we have less than one frame, buffer it (shouldn't happen due to input buffering)
+                # If we have less than one frame, buffer it
                 if len(mulaw_bytes) < MULAW_FRAME_SIZE:
-                    # Rare case - buffer too small for even one frame
-                    # This shouldn't occur often due to upstream buffering, but handle it
-                    if not hasattr(self, '_gemini_mulaw_buffer'):
-                        self._gemini_mulaw_buffer = bytearray()
+                    # Add to buffer
                     self._gemini_mulaw_buffer.extend(mulaw_bytes)
                     
                     # Wait until we have at least one complete frame
@@ -5032,49 +5029,47 @@ class MediaStreamHandler:
                         logger.debug(f"🔄 [GEMINI_OUTPUT] Buffering partial μ-law frame: {len(self._gemini_mulaw_buffer)}/{MULAW_FRAME_SIZE} bytes")
                         return None
                     
-                    # Extract complete frames from buffer
+                    # We now have enough buffered data - process it
                     mulaw_bytes = bytes(self._gemini_mulaw_buffer)
-                    self._gemini_mulaw_buffer.clear()
                 
                 # Break into 160-byte (20ms) frames and queue them
                 frames_queued = 0
-                for i in range(0, len(mulaw_bytes), MULAW_FRAME_SIZE):
-                    frame = mulaw_bytes[i:i+MULAW_FRAME_SIZE]
+                offset = 0
+                buffer_len = len(mulaw_bytes)
+                
+                while offset + MULAW_FRAME_SIZE <= buffer_len:
+                    # Extract exactly one frame (160 bytes)
+                    frame = mulaw_bytes[offset:offset+MULAW_FRAME_SIZE]
                     
-                    # Only send complete frames (exactly 160 bytes)
-                    if len(frame) == MULAW_FRAME_SIZE:
-                        # Encode to base64 for OpenAI-compatible format
-                        frame_b64 = base64.b64encode(frame).decode('utf-8')
+                    # Encode to base64 for transmission
+                    frame_b64 = base64.b64encode(frame).decode('utf-8')
+                    
+                    # Queue frame for transmission (will be sent with proper 20ms pacing)
+                    try:
+                        self.realtime_audio_out_queue.put_nowait(frame_b64)
+                        frames_queued += 1
                         
-                        # Queue frame for transmission (will be sent with proper 20ms pacing)
-                        frame_event = {
-                            'type': 'response.audio.delta',
-                            'delta': frame_b64,
-                            'response_id': getattr(self, 'active_response_id', 'gemini_response')
-                        }
-                        
-                        # Put frame in output queue - will be sent by TX loop with 20ms timing
-                        try:
-                            self.realtime_audio_out_queue.put_nowait(frame_b64)
-                            frames_queued += 1
-                            
-                            # Track first audio output milestone
-                            if not getattr(self, '_first_audio_out_enqueued', False):
-                                self._first_audio_out_enqueued = True
-                                logger.info(f"🎵 [GEMINI_OUTPUT] First audio frame enqueued for Twilio (20ms frame, 160 bytes μ-law)")
-                        except _queue_module.Full:
-                            # Queue full - log warning but continue processing
-                            logger.warning(f"⚠️ [GEMINI_OUTPUT] Output queue full, dropping frame")
-                    else:
-                        # Partial frame (less than 160 bytes) - buffer it for next chunk
-                        if not hasattr(self, '_gemini_mulaw_buffer'):
-                            self._gemini_mulaw_buffer = bytearray()
-                        self._gemini_mulaw_buffer.extend(frame)
-                        logger.debug(f"🔄 [GEMINI_OUTPUT] Buffering partial frame: {len(frame)} bytes")
+                        # Track first audio output milestone
+                        if not self._first_audio_out_enqueued:
+                            self._first_audio_out_enqueued = True
+                            logger.info(f"🎵 [GEMINI_OUTPUT] First audio frame enqueued for Twilio (20ms frame, 160 bytes μ-law)")
+                    except _queue_module.Full:
+                        # Queue full - log warning but continue processing
+                        logger.warning(f"⚠️ [GEMINI_OUTPUT] Output queue full, dropping frame")
+                    
+                    offset += MULAW_FRAME_SIZE
+                
+                # Buffer any remaining bytes (partial frame) for next chunk
+                remainder = buffer_len - offset
+                if remainder > 0:
+                    # Keep partial frame in buffer
+                    self._gemini_mulaw_buffer = bytearray(mulaw_bytes[offset:])
+                    logger.debug(f"🔄 [GEMINI_OUTPUT] Buffering partial frame: {remainder} bytes")
+                else:
+                    # No remainder - clear buffer
+                    self._gemini_mulaw_buffer.clear()
                 
                 # Log frame statistics (rate-limited)
-                if not hasattr(self, '_gemini_frame_stats_logged'):
-                    self._gemini_frame_stats_logged = 0
                 self._gemini_frame_stats_logged += frames_queued
                 
                 # Log every 50 frames
@@ -5087,8 +5082,9 @@ class MediaStreamHandler:
             except Exception as e:
                 # 🔥 CRITICAL: Don't crash on single bad chunk - log and continue
                 logger.error(f"[GEMINI_NORMALIZE] Audio conversion failed (chunk #{self._gemini_audio_chunks_received}): {e}")
-                # Clear buffer on error to prevent corruption from propagating
+                # Clear both buffers on error to prevent corruption from propagating
                 self._gemini_audio_buffer.clear()
+                self._gemini_mulaw_buffer.clear()
                 return None
         
         elif gemini_type == 'text':
