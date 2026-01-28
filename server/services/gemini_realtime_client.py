@@ -406,6 +406,12 @@ class GeminiRealtimeClient:
                     # We must check ALL attributes, not use if/elif
                     # A message can have both setup_complete AND server_content!
                     
+                    # 🔥 FIX: Log event keys to verify structure (as requested in problem statement)
+                    # This helps debug which attributes Gemini actually sends
+                    event_attrs = [attr for attr in dir(server_message) if not attr.startswith('_')]
+                    if not IS_PROD or REALTIME_VERBOSE:
+                        logger.info(f"[GEMINI_EVENT_KEYS] {event_attrs}")
+                    
                     # Check for setup complete (only yield first time)
                     if hasattr(server_message, 'setup_complete') and not _setup_complete_seen:
                         _setup_complete_seen = True

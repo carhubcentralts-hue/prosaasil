@@ -5081,7 +5081,22 @@ class MediaStreamHandler:
                 return None
             except Exception as e:
                 # 🔥 CRITICAL: Don't crash on single bad chunk - log and continue
+                # Log detailed diagnostic information for audio conversion failures
+                buffer_state = {
+                    'audio_buffer_len': len(self._gemini_audio_buffer),
+                    'mulaw_buffer_len': len(self._gemini_mulaw_buffer),
+                    'chunk_num': self._gemini_audio_chunks_received,
+                    'frame_size': self._gemini_audio_frame_size,
+                    'usable_len': usable_len if 'usable_len' in locals() else 'N/A',
+                    'audio_to_convert_len': len(audio_to_convert) if 'audio_to_convert' in locals() else 'N/A'
+                }
                 logger.error(f"[GEMINI_NORMALIZE] Audio conversion failed (chunk #{self._gemini_audio_chunks_received}): {e}")
+                logger.error(f"[GEMINI_NORMALIZE] Buffer state: {buffer_state}")
+                
+                # Log exception traceback for debugging
+                import traceback
+                logger.error(f"[GEMINI_NORMALIZE] Traceback: {traceback.format_exc()}")
+                
                 # Clear both buffers on error to prevent corruption from propagating
                 self._gemini_audio_buffer.clear()
                 self._gemini_mulaw_buffer.clear()
