@@ -405,7 +405,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               />
               
               {/* Primary Action Buttons - Grouped together */}
-              <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
+              <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1" role="group" aria-label="פעולות ראשיות">
                 <Button 
                   size="sm"
                   className="min-h-[44px]"
