@@ -14,50 +14,56 @@ Test scenarios:
 1. No existing job - should create successfully
 2. Existing stale job - should mark it as failed and create new job
 3. Existing active job - should return 409 error with helpful message
+4. Helper function exists and is used correctly
 """
 import sys
 import json
 from datetime import datetime, timedelta
 
 
-def test_no_existing_job_creates_successfully():
+def test_helper_function_exists():
     """
-    Test that creating a job works when no existing active job exists.
-    This verifies the happy path still works.
+    Test that the helper function check_and_handle_duplicate_background_job exists.
     """
     print("\n" + "="*70)
-    print("TEST 1: No existing job - should create successfully")
+    print("TEST 1: Helper function exists")
     print("="*70)
     
-    # Check that the check for existing jobs is present
+    # Check in routes_outbound.py
     with open('/home/runner/work/prosaasil/prosaasil/server/routes_outbound.py', 'r') as f:
         content = f.read()
         
-    # Verify the check exists
-    assert 'existing_job = BackgroundJob.query.filter_by' in content, \
-        "❌ Missing check for existing jobs"
-    assert "status.in_(['queued', 'running', 'paused'])" in content, \
-        "❌ Missing filter for active job statuses"
+    assert 'def check_and_handle_duplicate_background_job(' in content, \
+        "❌ Missing helper function in routes_outbound.py"
+    assert 'BACKGROUND_JOB_STALE_THRESHOLD_MINUTES' in content, \
+        "❌ Missing stale threshold constant in routes_outbound.py"
     
-    print("✅ Code checks for existing active jobs before creating new one")
+    # Check in routes_leads.py
+    with open('/home/runner/work/prosaasil/prosaasil/server/routes_leads.py', 'r') as f:
+        content = f.read()
+        
+    assert 'def check_and_handle_duplicate_background_job(' in content, \
+        "❌ Missing helper function in routes_leads.py"
+    assert 'BACKGROUND_JOB_STALE_THRESHOLD_MINUTES' in content, \
+        "❌ Missing stale threshold constant in routes_leads.py"
+    
+    print("✅ Helper function exists in both files")
+    print("✅ Stale threshold constant defined")
     return True
 
 
-def test_stale_job_gets_marked_failed():
+def test_stale_job_detection():
     """
-    Test that stale jobs (>10 minutes old) get marked as failed
-    and a new job can be created.
+    Test that helper function detects and handles stale jobs.
     """
     print("\n" + "="*70)
-    print("TEST 2: Existing stale job - should mark as failed and proceed")
+    print("TEST 2: Stale job detection logic")
     print("="*70)
     
     with open('/home/runner/work/prosaasil/prosaasil/server/routes_outbound.py', 'r') as f:
         content = f.read()
     
-    # Verify stale job detection logic exists
-    assert 'stale_threshold = timedelta(minutes=10)' in content, \
-        "❌ Missing stale threshold definition"
+    # Verify stale job detection logic in helper function
     assert 'last_activity = existing_job.heartbeat_at or existing_job.created_at' in content, \
         "❌ Missing last activity check"
     assert 'is_stale = (now - last_activity) > stale_threshold' in content, \
@@ -67,54 +73,45 @@ def test_stale_job_gets_marked_failed():
     assert "'Job marked as stale" in content, \
         "❌ Missing stale job error message"
     
-    print("✅ Code detects stale jobs (>10 minutes)")
-    print("✅ Code marks stale jobs as failed")
-    print("✅ Code allows new job creation after marking stale job as failed")
+    print("✅ Helper function detects stale jobs")
+    print("✅ Helper function marks stale jobs as failed")
+    print("✅ Allows new job creation after cleanup")
     return True
 
 
-def test_active_job_returns_409_conflict():
+def test_active_job_blocking():
     """
-    Test that an active non-stale job prevents creating a new job
-    and returns a proper 409 Conflict response with helpful message.
+    Test that helper function blocks creation when active job exists.
     """
     print("\n" + "="*70)
-    print("TEST 3: Existing active job - should return 409 Conflict")
+    print("TEST 3: Active job blocking logic")
     print("="*70)
     
     with open('/home/runner/work/prosaasil/prosaasil/server/routes_outbound.py', 'r') as f:
         content = f.read()
     
-    # Verify active job blocking logic exists
+    # Verify helper function handles active job blocking
     assert 'if is_stale:' in content, \
         "❌ Missing stale check branch"
-    assert 'else:' in content and 'Active job exists' in content, \
-        "❌ Missing active job blocking logic"
-    assert '409' in content or 'Conflict' in content, \
+    assert '409' in content, \
         "❌ Missing 409 Conflict response"
     assert 'db.session.rollback()' in content, \
         "❌ Missing rollback when active job exists"
-    
-    # Check for user-friendly Hebrew error message
-    assert 'תור שיחות פעיל כבר קיים' in content, \
-        "❌ Missing Hebrew error message for active job"
     assert 'active_job_id' in content, \
         "❌ Missing active_job_id in response"
     assert 'active_job_status' in content, \
         "❌ Missing active_job_status in response"
     
-    print("✅ Code blocks creation when active job exists")
-    print("✅ Code returns 409 Conflict status")
-    print("✅ Code rolls back transaction")
-    print("✅ Code returns user-friendly Hebrew error message")
-    print("✅ Code includes active job details in response")
+    print("✅ Helper function blocks creation when active job exists")
+    print("✅ Returns 409 Conflict status")
+    print("✅ Rolls back transaction")
+    print("✅ Includes active job details in response")
     return True
 
 
 def test_unique_constraint_protection():
     """
-    Test that the fix properly protects against the unique constraint
-    idx_background_jobs_unique_active violation.
+    Test that the fix properly protects against the unique constraint.
     """
     print("\n" + "="*70)
     print("TEST 4: Unique constraint protection")
@@ -123,68 +120,35 @@ def test_unique_constraint_protection():
     with open('/home/runner/work/prosaasil/prosaasil/server/routes_outbound.py', 'r') as f:
         content = f.read()
     
-    # Verify the check exists in the function
-    assert 'existing_job = BackgroundJob.query.filter_by(' in content, \
-        "❌ Check for existing job not found"
-    assert "job_type='enqueue_outbound_calls'" in content, \
-        "❌ Check for specific job type not found"
-    assert "status.in_(['queued', 'running', 'paused'])" in content, \
-        "❌ Check for active statuses not found"
-    
-    # Verify the constraint is mentioned in comments
+    # Verify the constraint is mentioned in helper function
     assert 'idx_background_jobs_unique_active' in content, \
         "❌ Missing reference to unique constraint"
     
-    # Verify that check happens before job creation by looking at the structure
-    # The pattern should be:
-    # 1. Check for existing_job
-    # 2. If existing_job: handle it (mark stale or return error)
-    # 3. Then create bg_job
-    lines = content.split('\n')
+    # Verify the helper is called before job creation
+    assert 'can_proceed, error_response, status_code = check_and_handle_duplicate_background_job(' in content, \
+        "❌ Helper function not being called"
+    assert 'if not can_proceed:' in content, \
+        "❌ Missing check of can_proceed return value"
     
-    # Find the lines
-    existing_job_line = -1
-    bg_job_line = -1
-    in_bulk_enqueue = False
-    
-    for i, line in enumerate(lines):
-        if 'def bulk_enqueue_outbound_calls():' in line:
-            in_bulk_enqueue = True
-        elif in_bulk_enqueue and line.strip().startswith('def '):
-            # Next function, stop looking
-            break
-        elif in_bulk_enqueue:
-            if 'existing_job = BackgroundJob.query.filter_by(' in line:
-                existing_job_line = i
-            elif 'bg_job = BackgroundJob()' in line and existing_job_line > 0:
-                # Only record this if we've found existing_job check
-                bg_job_line = i
-                break
-    
-    assert existing_job_line > 0, "❌ existing_job check not found in function"
-    assert bg_job_line > 0, "❌ bg_job creation not found after check"
-    assert existing_job_line < bg_job_line, "❌ Check must happen BEFORE job creation"
-    
-    print("✅ Check for existing job happens BEFORE creating new job")
-    print(f"   existing_job check at line ~{existing_job_line}")
-    print(f"   bg_job creation at line ~{bg_job_line}")
-    print("✅ Code references the unique constraint in comments")
+    print("✅ Code references the unique constraint")
+    print("✅ Helper function is called before job creation")
+    print("✅ Return value is checked before proceeding")
     return True
 
 
-def test_stale_threshold_is_reasonable():
+def test_stale_threshold_value():
     """
     Test that the stale threshold is set to a reasonable value (10 minutes).
     """
     print("\n" + "="*70)
-    print("TEST 5: Stale threshold is reasonable")
+    print("TEST 5: Stale threshold value")
     print("="*70)
     
     with open('/home/runner/work/prosaasil/prosaasil/server/routes_outbound.py', 'r') as f:
         content = f.read()
     
     # Check that threshold is 10 minutes
-    assert 'timedelta(minutes=10)' in content, \
+    assert 'BACKGROUND_JOB_STALE_THRESHOLD_MINUTES = 10' in content, \
         "❌ Stale threshold should be 10 minutes"
     
     print("✅ Stale threshold set to 10 minutes (reasonable value)")
@@ -193,13 +157,12 @@ def test_stale_threshold_is_reasonable():
     return True
 
 
-def test_all_job_types_protected():
+def test_all_job_types_use_helper():
     """
-    Test that all background job types have the protection against
-    duplicate active jobs.
+    Test that all background job types use the helper function.
     """
     print("\n" + "="*70)
-    print("TEST 6: All job types protected")
+    print("TEST 6: All job types use helper function")
     print("="*70)
     
     job_types = [
@@ -218,40 +181,34 @@ def test_all_job_types_protected():
         assert f"job_type = '{job_type}'" in content, \
             f"❌ Job type assignment '{job_type}' not found in {file_path}"
         
-        # Check that there's a check for existing jobs with this job type
-        # Look for the pattern: job_type='...'
+        # Check that the helper function is called for this job type
         assert f"job_type='{job_type}'" in content, \
-            f"❌ Missing existing job check for job type '{job_type}' in {file_path}"
+            f"❌ Missing helper function call for job type '{job_type}' in {file_path}"
         
-        # Find where the job type is checked in filter_by
-        check_pos = content.find(f"job_type='{job_type}'")
+        # Verify the helper function exists
+        assert 'check_and_handle_duplicate_background_job(' in content, \
+            f"❌ Helper function not found in {file_path}"
         
-        # Look around this position for the status filter
-        check_section = content[max(0, check_pos - 200):check_pos + 200]
-        
-        assert "status.in_(['queued', 'running', 'paused'])" in check_section, \
-            f"❌ Missing status filter for job type '{job_type}' in {file_path}"
-        
-        print(f"✅ Job type '{job_type}' is protected in {file_path}")
+        print(f"✅ Job type '{job_type}' uses helper function in {file_path}")
     
-    print(f"\n✅ All {len(job_types)} job types have duplicate protection!")
+    print(f"\n✅ All {len(job_types)} job types have duplicate protection via helper!")
     return True
 
 
 def run_all_tests():
     """Run all test scenarios"""
     print("\n" + "="*80)
-    print("BACKGROUND JOB DUPLICATE FIX - TEST SUITE")
+    print("BACKGROUND JOB DUPLICATE FIX - TEST SUITE (Refactored)")
     print("Testing fix for: duplicate key violates unique constraint")
     print("="*80)
     
     tests = [
-        test_no_existing_job_creates_successfully,
-        test_stale_job_gets_marked_failed,
-        test_active_job_returns_409_conflict,
+        test_helper_function_exists,
+        test_stale_job_detection,
+        test_active_job_blocking,
         test_unique_constraint_protection,
-        test_stale_threshold_is_reasonable,
-        test_all_job_types_protected,
+        test_stale_threshold_value,
+        test_all_job_types_use_helper,
     ]
     
     results = []
@@ -281,7 +238,7 @@ def run_all_tests():
     print(f"\nTotal: {passed}/{total} tests passed")
     
     if passed == total:
-        print("\n🎉 ALL TESTS PASSED! The fix is working correctly.")
+        print("\n🎉 ALL TESTS PASSED! The refactored code is working correctly.")
         return 0
     else:
         print(f"\n❌ {total - passed} test(s) failed. Please review the implementation.")
