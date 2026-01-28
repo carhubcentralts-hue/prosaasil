@@ -289,6 +289,9 @@ export function CalendarPage() {
 
   useEffect(() => {
     fetchAppointments();
+  }, []);
+
+  useEffect(() => {
     if (activeTab === 'calendars') {
       fetchCalendars();
     }
@@ -569,10 +572,8 @@ export function CalendarPage() {
       contact_name: '',
       contact_phone: ''
     });
-    // Fetch calendars if not already loaded
-    if (calendars.length === 0) {
-      fetchCalendars();
-    }
+    // Always fetch calendars to ensure up-to-date list
+    fetchCalendars();
     setShowAppointmentModal(true);
   };
 
@@ -619,10 +620,8 @@ export function CalendarPage() {
       contact_phone: appointment.contact_phone || '',
       calendar_id: appointment.calendar_id
     });
-    // Fetch calendars if not already loaded
-    if (calendars.length === 0) {
-      fetchCalendars();
-    }
+    // Always fetch calendars to ensure up-to-date list
+    fetchCalendars();
     setShowAppointmentModal(true);
   };
 
@@ -1544,7 +1543,11 @@ export function CalendarPage() {
                   <select
                     className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     value={formData.calendar_id || ''}
-                    onChange={(e) => setFormData({...formData, calendar_id: e.target.value ? parseInt(e.target.value) : undefined})}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const parsed = value ? parseInt(value, 10) : undefined;
+                      setFormData({...formData, calendar_id: parsed && !isNaN(parsed) ? parsed : undefined});
+                    }}
                     data-testid="select-calendar"
                   >
                     <option value="">בחר לוח שנה (אופציונלי)</option>
