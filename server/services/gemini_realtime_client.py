@@ -519,7 +519,9 @@ class GeminiRealtimeClient:
                                 logger.info(f"🔧 [GEMINI_RECV] function_call.name={fc_data['name']} call_id={fc_data['id']} args={fc_data['args']}")
                                 _orig_print(f"🔧 [GEMINI_RECV] function_call.name={fc_data['name']} call_id={fc_data['id'][:20]}... args={str(fc_data['args'])[:100]}", flush=True)
                         else:
-                            logger.warning(f"⚠️ [GEMINI_RECV] tool_call has no function_calls attribute: {tool_call}")
+                            # 🔥 FIX: Downgrade to debug to prevent spam for empty tool_calls
+                            # This can happen when Gemini sends empty text (greeting trigger)
+                            logger.debug(f"[GEMINI_RECV] tool_call has no function_calls attribute (likely empty greeting trigger)")
                         
                         if not IS_PROD or REALTIME_VERBOSE:
                             logger.info(f"[GEMINI_LIVE] Function call received: {function_calls}")
