@@ -1539,6 +1539,43 @@ def bulk_delete_leads():
         from rq import Queue
         import redis
         
+        # 🔒 CHECK: Look for existing active job to avoid unique constraint violation
+        # The idx_background_jobs_unique_active constraint prevents multiple active jobs
+        # (status in 'queued', 'running', 'paused') of the same type per business
+        existing_job = BackgroundJob.query.filter_by(
+            business_id=business_id,
+            job_type='delete_leads'
+        ).filter(
+            BackgroundJob.status.in_(['queued', 'running', 'paused'])
+        ).first()
+        
+        if existing_job:
+            # Check if job is stale (stuck for more than 10 minutes without heartbeat)
+            now = datetime.utcnow()
+            stale_threshold = timedelta(minutes=10)
+            
+            # Determine if job is stale based on heartbeat or created_at
+            last_activity = existing_job.heartbeat_at or existing_job.created_at
+            is_stale = (now - last_activity) > stale_threshold
+            
+            if is_stale:
+                # Mark stale job as failed and proceed with new job
+                log.warning(f"⚠️ Found stale background job {existing_job.id} (status={existing_job.status}, last_activity={last_activity}). Marking as failed.")
+                existing_job.status = 'failed'
+                existing_job.last_error = 'Job marked as stale - exceeded timeout without heartbeat'
+                existing_job.finished_at = now
+                db.session.commit()
+            else:
+                # Active job exists, cannot create new one
+                log.error(f"❌ Active background job {existing_job.id} already exists for business {business_id}")
+                db.session.rollback()
+                return jsonify({
+                    "error": "מחיקה המונית פעילה כבר קיימת. אנא המתן לסיום המחיקה הנוכחית.",
+                    "active_job_id": existing_job.id,
+                    "active_job_status": existing_job.status,
+                    "success": False
+                }), 409  # 409 Conflict
+        
         bg_job = BackgroundJob()
         bg_job.business_id = business_id
         bg_job.requested_by_user_id = user.get('id') if user else None
@@ -1691,6 +1728,43 @@ def bulk_update_leads():
         from server.models_sql import BackgroundJob
         from rq import Queue
         import redis
+        
+        # 🔒 CHECK: Look for existing active job to avoid unique constraint violation
+        # The idx_background_jobs_unique_active constraint prevents multiple active jobs
+        # (status in 'queued', 'running', 'paused') of the same type per business
+        existing_job = BackgroundJob.query.filter_by(
+            business_id=tenant_id,
+            job_type='update_leads'
+        ).filter(
+            BackgroundJob.status.in_(['queued', 'running', 'paused'])
+        ).first()
+        
+        if existing_job:
+            # Check if job is stale (stuck for more than 10 minutes without heartbeat)
+            now = datetime.utcnow()
+            stale_threshold = timedelta(minutes=10)
+            
+            # Determine if job is stale based on heartbeat or created_at
+            last_activity = existing_job.heartbeat_at or existing_job.created_at
+            is_stale = (now - last_activity) > stale_threshold
+            
+            if is_stale:
+                # Mark stale job as failed and proceed with new job
+                log.warning(f"⚠️ Found stale background job {existing_job.id} (status={existing_job.status}, last_activity={last_activity}). Marking as failed.")
+                existing_job.status = 'failed'
+                existing_job.last_error = 'Job marked as stale - exceeded timeout without heartbeat'
+                existing_job.finished_at = now
+                db.session.commit()
+            else:
+                # Active job exists, cannot create new one
+                log.error(f"❌ Active background job {existing_job.id} already exists for business {tenant_id}")
+                db.session.rollback()
+                return jsonify({
+                    "error": "עדכון המוני פעיל כבר קיים. אנא המתן לסיום העדכון הנוכחי.",
+                    "active_job_id": existing_job.id,
+                    "active_job_status": existing_job.status,
+                    "success": False
+                }), 409  # 409 Conflict
         
         bg_job = BackgroundJob()
         bg_job.business_id = tenant_id

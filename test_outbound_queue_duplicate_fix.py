@@ -1,8 +1,14 @@
 """
-Test: Outbound Queue Duplicate Background Job Fix
+Test: Background Job Duplicate Constraint Fix
 
 Tests the fix for the duplicate key constraint violation error when
-trying to create a bulk outbound call queue with an existing active job.
+trying to create background jobs with an existing active job.
+
+Applies to all background job types:
+- enqueue_outbound_calls
+- delete_imported_leads
+- delete_leads
+- update_leads
 
 Test scenarios:
 1. No existing job - should create successfully
@@ -187,10 +193,55 @@ def test_stale_threshold_is_reasonable():
     return True
 
 
+def test_all_job_types_protected():
+    """
+    Test that all background job types have the protection against
+    duplicate active jobs.
+    """
+    print("\n" + "="*70)
+    print("TEST 6: All job types protected")
+    print("="*70)
+    
+    job_types = [
+        ('enqueue_outbound_calls', 'server/routes_outbound.py'),
+        ('delete_imported_leads', 'server/routes_outbound.py'),
+        ('delete_leads', 'server/routes_leads.py'),
+        ('update_leads', 'server/routes_leads.py'),
+    ]
+    
+    for job_type, file_path in job_types:
+        full_path = f'/home/runner/work/prosaasil/prosaasil/{file_path}'
+        with open(full_path, 'r') as f:
+            content = f.read()
+        
+        # Check that the job type is assigned
+        assert f"job_type = '{job_type}'" in content, \
+            f"❌ Job type assignment '{job_type}' not found in {file_path}"
+        
+        # Check that there's a check for existing jobs with this job type
+        # Look for the pattern: job_type='...'
+        assert f"job_type='{job_type}'" in content, \
+            f"❌ Missing existing job check for job type '{job_type}' in {file_path}"
+        
+        # Find where the job type is checked in filter_by
+        check_pos = content.find(f"job_type='{job_type}'")
+        
+        # Look around this position for the status filter
+        check_section = content[max(0, check_pos - 200):check_pos + 200]
+        
+        assert "status.in_(['queued', 'running', 'paused'])" in check_section, \
+            f"❌ Missing status filter for job type '{job_type}' in {file_path}"
+        
+        print(f"✅ Job type '{job_type}' is protected in {file_path}")
+    
+    print(f"\n✅ All {len(job_types)} job types have duplicate protection!")
+    return True
+
+
 def run_all_tests():
     """Run all test scenarios"""
     print("\n" + "="*80)
-    print("OUTBOUND QUEUE DUPLICATE FIX - TEST SUITE")
+    print("BACKGROUND JOB DUPLICATE FIX - TEST SUITE")
     print("Testing fix for: duplicate key violates unique constraint")
     print("="*80)
     
@@ -200,6 +251,7 @@ def run_all_tests():
         test_active_job_returns_409_conflict,
         test_unique_constraint_protection,
         test_stale_threshold_is_reasonable,
+        test_all_job_types_protected,
     ]
     
     results = []
