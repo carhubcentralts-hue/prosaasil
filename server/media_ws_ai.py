@@ -46,6 +46,8 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 from server.config.voices import DEFAULT_VOICE, OPENAI_VOICES, REALTIME_VOICES  # 🎤 Voice Library
+from server.services.jobs import enqueue_job
+from server.jobs.call_log_jobs import create_call_log_job, save_conversation_turn_job, finalize_call_log_job
 
 # 🔥 GEMINI FIX: Global thread exception handler (Python 3.8+)
 # This catches any uncaught exceptions in threads that might otherwise be silent
@@ -17124,202 +17126,62 @@ class MediaStreamHandler:
             # 🔥 CALL METRICS: Log comprehensive metrics before finalizing
             self._log_call_metrics()
             
-            from server.models_sql import CallLog
-            from server.db import db
-            import threading
+            # 🔥 RQ MIGRATION: Enqueue as background job instead of thread
+            business_id = getattr(self, 'business_id', None)
+            if not business_id:
+                logger.warning(f"⚠️ No business_id set - cannot finalize call_log")
+                return
             
-            def finalize_in_background():
-                """Lightweight finalization - only save what's already in memory"""
+            # Build transcript from conversation_history (already in memory)
+            full_conversation = ""
+            if hasattr(self, 'conversation_history') and self.conversation_history:
+                conv_lines = []
+                for turn in self.conversation_history:
+                    if 'speaker' in turn and 'text' in turn:
+                        speaker_label = "לקוח" if turn['speaker'] == 'user' else "עוזר"
+                        conv_lines.append(f"{speaker_label}: {turn['text']}")
+                    elif 'user' in turn and 'bot' in turn:
+                        conv_lines.append(f"לקוח: {turn['user']}\nעוזר: {turn['bot']}")
+                full_conversation = "\n".join(conv_lines)
+            
+            # Get recording URL if available
+            recording_url = None
+            if hasattr(self, '_recording_sid') and self._recording_sid:
+                recording_url = f"https://api.twilio.com/2010-04-01/Accounts/{os.getenv('TWILIO_ACCOUNT_SID')}/Recordings/{self._recording_sid}"
+            
+            try:
+                job = enqueue_job(
+                    'high',
+                    finalize_call_log_job,
+                    call_sid=self.call_sid,
+                    business_id=business_id,
+                    status='completed',
+                    duration_seconds=None,
+                    transcript=full_conversation,
+                    recording_url=recording_url,
+                    timeout=30,
+                    description=f"Finalize call_log for {self.call_sid}"
+                )
+                logger.info(f"✅ Enqueued call_log finalization job: {job.id}")
+                logger.info(f"✅ [TX_STALL_FIX] Call {self.call_sid} closed - offline worker will handle heavy processing")
+            except Exception as enqueue_error:
+                # 🔥 FALLBACK: If RQ is unavailable, fall back to synchronous finalization
+                logger.error(f"⚠️ Failed to enqueue finalization, falling back to sync: {enqueue_error}")
                 try:
-                    app = _get_flask_app()  # ✅ Use singleton
+                    from server.models_sql import CallLog
+                    from server.db import db
+                    app = _get_flask_app()
                     with app.app_context():
-                        # 🔁 IMPORTANT: Load fresh CallLog from DB (not cached)
                         call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                        if not call_log:
-                            logger.warning(f"⚠️ No call_log found for finalization: {self.call_sid}")
-                            return
-                        
-                        # 🔥 TX_STALL FIX: Only save realtime transcript (already in memory)
-                        # Do NOT generate AI summary here - that's heavy and runs AFTER call ends
-                        full_conversation = ""
-                        if hasattr(self, 'conversation_history') and self.conversation_history:
-                            # ✅ Support both formats: old {'user': X, 'bot': Y} and new {'speaker': X, 'text': Y}
-                            conv_lines = []
-                            for turn in self.conversation_history:
-                                if 'speaker' in turn and 'text' in turn:
-                                    # New Realtime API format
-                                    speaker_label = "לקוח" if turn['speaker'] == 'user' else "עוזר"
-                                    conv_lines.append(f"{speaker_label}: {turn['text']}")
-                                elif 'user' in turn and 'bot' in turn:
-                                    # Old Google STT/TTS format
-                                    conv_lines.append(f"לקוח: {turn['user']}\nעוזר: {turn['bot']}")
-                            full_conversation = "\n".join(conv_lines)
-                        
-                        # ✅ Save lightweight data only (no AI processing!)
-                        call_log.status = "completed"
-                        call_log.transcription = full_conversation  # Realtime transcript (already in memory)
-                        # summary and ai_summary will be filled by offline worker
-                        
-                        # 🔥 FIX: Save recording_sid if available
-                        if hasattr(self, '_recording_sid') and self._recording_sid:
-                            call_log.recording_sid = self._recording_sid
-                            if DEBUG:
-                                logger.info(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
-                        
-                        db.session.commit()
-                        
-                        # 🔥 SEMAPHORE: Release outbound call slot if this was a bulk call
-                        # This MUST happen after commit to ensure job status is saved
-                        from server.models_sql import OutboundCallJob
-                        from server.services.outbound_semaphore import release_slot
-                        
-                        # Check if this call was part of a bulk outbound run
-                        outbound_job = OutboundCallJob.query.filter_by(
-                            twilio_call_sid=self.call_sid
-                        ).first()
-                        
-                        if outbound_job:
-                            # Update job status to completed
-                            if outbound_job.status != "completed":
-                                outbound_job.status = "completed"
-                                outbound_job.completed_at = datetime.utcnow()
-                                
-                                # Update run counters
-                                if outbound_job.run:
-                                    outbound_job.run.in_progress_count = max(0, outbound_job.run.in_progress_count - 1)
-                                    outbound_job.run.completed_count += 1
-                                    db.session.commit()
-                            
-                            # Release semaphore slot
-                            next_job_id = release_slot(call_log.business_id, outbound_job.id)
-                            
-                            if next_job_id:
-                                logger.info(f"[OUTBOUND_SEM] Released slot for job {outbound_job.id}, next job {next_job_id} can proceed")
-                            else:
-                                logger.info(f"[OUTBOUND_SEM] Released slot for job {outbound_job.id}, no jobs waiting")
-                        
-                        # 🔥 NEW: Update appointment with transcript and summary
-                        try:
-                            from server.models_sql import Appointment
-                            appointment = Appointment.query.filter_by(call_log_id=call_log.id).first()
-                            if appointment:
-                                # Save full transcript
-                                appointment.call_transcript = full_conversation
-                                
-                                # Generate summary if possible
-                                if full_conversation and len(full_conversation) > 50:
-                                    try:
-                                        from server.services.summary_service import summarize_conversation
-                                        from server.services.customer_intelligence import CustomerIntelligence
-                                        from server.models_sql import Business
-                                        
-                                        business = Business.query.get(call_log.business_id)
-                                        business_name = business.name if business else None
-                                        call_summary = summarize_conversation(
-                                            transcription=full_conversation,
-                                            call_sid=self.call_sid,
-                                            business_name=business_name
-                                        )
-                                        appointment.call_summary = call_summary
-                                        
-                                        # Generate dynamic conversation summary
-                                        ci = CustomerIntelligence(call_log.business_id)
-                                        dynamic_summary_data = ci.generate_conversation_summary(full_conversation)
-                                        appointment.dynamic_summary = json.dumps(dynamic_summary_data, ensure_ascii=False)
-                                        
-                                        # Link to lead if exists
-                                        if call_log.lead_id and not appointment.lead_id:
-                                            appointment.lead_id = call_log.lead_id
-                                        
-                                        logger.info(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript, summary, and dynamic analysis")
-                                    except Exception as sum_err:
-                                        logger.warning(f"⚠️ [FINALIZE] Failed to generate summary for appointment: {sum_err}")
-                                        # Continue without summary - transcript is saved
-                                else:
-                                    logger.info(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript")
-                        except Exception as apt_err:
-                            logger.warning(f"⚠️ [FINALIZE] Failed to update appointment: {apt_err}")
-                            # Continue - appointment update is not critical
-                        
-                        db.session.commit()
-                        logger.info(f"✅ [FINALIZE] Call metadata saved (realtime only): {self.call_sid}")
-                        
-                        # 🔥 NEW: Create lead note with call summary/transcript
-                        # This ensures the AI has context from previous interactions in future calls
-                        if call_log.lead_id and full_conversation and len(full_conversation) > 20:
-                            try:
-                                from server.models_sql import LeadNote
-                                from datetime import datetime
-                                
-                                # 🔥 NEW: Create a temporary customer-service summary
-                                # NOTE: This is a quick summary during the call. The offline worker
-                                # will create a better, AI-analyzed summary later.
-                                
-                                # Try to extract key points from conversation
-                                summary_lines = []
-                                
-                                # Get first 300 chars as quick context
-                                quick_summary = full_conversation[:300].strip()
-                                if quick_summary:
-                                    summary_lines.append(f"💬 {quick_summary}")
-                                    if len(full_conversation) > 300:
-                                        summary_lines.append("\n📝 (סיכום מפורט יתווסף אוטומטית)")
-                                
-                                note_content = "\n".join(summary_lines)
-                                
-                                # Check if note already exists for this call to avoid duplicates
-                                existing_note = LeadNote.query.filter_by(
-                                    lead_id=call_log.lead_id,
-                                    call_id=call_log.id
-                                ).first()
-                                
-                                if not existing_note:
-                                    lead_note = LeadNote(
-                                        lead_id=call_log.lead_id,
-                                        tenant_id=call_log.business_id,
-                                        note_type='call_summary',
-                                        content=note_content,
-                                        call_id=call_log.id,
-                                        created_at=datetime.utcnow(),
-                                        created_by=None  # AI-generated
-                                    )
-                                    db.session.add(lead_note)
-                                    db.session.commit()
-                                    logger.info(f"✅ [FINALIZE] Created quick call summary note for lead_id={call_log.lead_id}")
-                                else:
-                                    logger.info(f"ℹ️ [FINALIZE] Lead note already exists for this call, skipping duplicate")
-                            except Exception as note_err:
-                                logger.warning(f"⚠️ [FINALIZE] Failed to create lead note: {note_err}")
-                                # Continue - note creation is not critical for call to complete
-                                try:
-                                    db.session.rollback()
-                                except:
-                                    pass
-                        
-                        # 🔥 TX_STALL FIX: Defer ALL heavy processing to offline worker
-                        # The offline worker (tasks_recording.py) will handle:
-                        #   1. Download recording
-                        #   2. Offline Whisper transcription (higher quality than realtime)
-                        #   3. AI summary generation
-                        #   4. Extract city/service from summary
-                        #   5. Update lead with summary
-                        #   6. Send webhook call.completed
-                        logger.info(f"✅ [TX_STALL_FIX] Call {self.call_sid} closed - offline worker will handle heavy processing")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Failed to finalize call: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    # 🔥 CRITICAL FIX: Rollback on DB errors to prevent InFailedSqlTransaction
-                    try:
-                        db.session.rollback()
-                    except:
-                        pass
-            
-            # רוץ ברקע
-            thread = threading.Thread(target=finalize_in_background, daemon=True)
-            thread.start()
-            self.background_threads.append(thread)  # ✅ Track for cleanup
+                        if call_log:
+                            call_log.status = "completed"
+                            call_log.transcription = full_conversation
+                            if hasattr(self, '_recording_sid') and self._recording_sid:
+                                call_log.recording_sid = self._recording_sid
+                            db.session.commit()
+                            logger.info(f"✅ Finalized call_log synchronously: {self.call_sid}")
+                except Exception as sync_error:
+                    logger.error(f"❌ Synchronous call finalization also failed: {sync_error}")
             
         except Exception as e:
             logger.error(f"❌ Call finalization setup failed: {e}")
@@ -17430,78 +17292,47 @@ class MediaStreamHandler:
     def _create_call_log_on_start(self):
         """✅ יצירת call_log מיד בהתחלת שיחה - למניעת 'Call SID not found' errors"""
         try:
-            from server.models_sql import CallLog
-            from server.app_factory import create_app
-            from server.db import db
-            import threading
+            # 🔥 RQ MIGRATION: Enqueue as background job instead of thread
+            business_id = getattr(self, 'business_id', None)
+            if not business_id:
+                logger.error(f"❌ No business_id set - cannot create call_log")
+                return
             
-            def create_in_background():
+            try:
+                job = enqueue_job(
+                    'high',
+                    create_call_log_job,
+                    call_sid=self.call_sid,
+                    business_id=business_id,
+                    from_number=str(self.phone_number or ""),
+                    to_number=str(getattr(self, 'to_number', '') or ''),
+                    direction=getattr(self, 'direction', 'inbound'),
+                    stream_sid=getattr(self, 'stream_sid', None),
+                    timeout=30,
+                    description=f"Create call_log for {self.call_sid}"
+                )
+                logger.info(f"✅ Enqueued call_log creation job: {job.id}")
+            except Exception as enqueue_error:
+                # 🔥 FALLBACK: If RQ is unavailable, fall back to synchronous creation
+                logger.error(f"⚠️ Failed to enqueue call_log creation, falling back to sync: {enqueue_error}")
                 try:
-                    app = _get_flask_app()  # ✅ Use singleton
+                    from server.models_sql import CallLog
+                    from server.db import db
+                    app = _get_flask_app()
                     with app.app_context():
-                        # ✅ LOG DATABASE CONNECTION (per הנחיות)
-                        db_url = os.getenv('DATABASE_URL', 'NOT_SET')
-                        db_driver = db_url.split(':')[0] if db_url else 'none'
-                        logger.info(f"🔧 DB_URL_AT_WRITE: driver={db_driver}, BIZ={getattr(self, 'business_id', 'N/A')}, SID={self.call_sid}")
-                        
-                        # בדוק אם כבר קיים
                         existing = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                        if existing:
-                            logger.info(f"✅ Call log already exists for {self.call_sid}")
-                            return
-                        
-                        # צור call_log חדש
-                        call_log = CallLog()  # type: ignore[call-arg]
-                        business_id = getattr(self, 'business_id', None)
-                        if not business_id:
-                            logger.error(f"❌ No business_id set - cannot create call_log")
-                            return
-                        call_log.business_id = business_id
-                        call_log.call_sid = self.call_sid
-                        call_log.from_number = str(self.phone_number or "")
-                        call_log.to_number = str(getattr(self, 'to_number', '') or '')
-                        
-                        # 🔥 SSOT: Set initial status ONLY on creation
-                        # ⚠️ CRITICAL: After creation, NEVER update call_status/status
-                        # ✅ OWNER: Webhooks own all status updates after this point
-                        call_log.call_status = "in_progress"
-                        
-                        db.session.add(call_log)
-                        
-                        # 🔥 יצירת/טעינת CallSession לdeduplication יציב
-                        from server.models_sql import CallSession
-                        call_session = CallSession.query.filter_by(call_sid=self.call_sid).first()
-                        if not call_session:
-                            call_session = CallSession()  # type: ignore[call-arg]
-                            call_session.call_sid = self.call_sid
-                            call_session.business_id = business_id
-                            # lead_id will be set later by ensure_lead
-                            db.session.add(call_session)
-                            logger.info(f"✅ Created CallSession for {self.call_sid}")
-                        else:
-                            logger.info(f"✅ CallSession already exists for {self.call_sid}")
-                        
-                        try:
+                        if not existing:
+                            call_log = CallLog()  # type: ignore[call-arg]
+                            call_log.business_id = business_id
+                            call_log.call_sid = self.call_sid
+                            call_log.from_number = str(self.phone_number or "")
+                            call_log.to_number = str(getattr(self, 'to_number', '') or '')
+                            call_log.call_status = "in_progress"
+                            db.session.add(call_log)
                             db.session.commit()
-                            logger.info(f"✅ Created call_log + CallSession on start: call_sid={self.call_sid}, phone={self.phone_number}")
-                        except Exception as commit_error:
-                            # Handle duplicate key error (race condition)
-                            db.session.rollback()
-                            error_msg = str(commit_error).lower()
-                            if 'unique' in error_msg or 'duplicate' in error_msg:
-                                logger.warning(f"⚠️ Call log already exists (race condition): {self.call_sid}")
-                            else:
-                                raise
-                        
-                except Exception as e:
-                    logger.error(f"❌ Failed to create call_log on start: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # רוץ ברקע
-            thread = threading.Thread(target=create_in_background, daemon=True)
-            thread.start()
-            self.background_threads.append(thread)  # ✅ Track for cleanup
+                            logger.info(f"✅ Created call_log synchronously: {self.call_sid}")
+                except Exception as sync_error:
+                    logger.error(f"❌ Synchronous call_log creation also failed: {sync_error}")
             
         except Exception as e:
             logger.error(f"❌ Call log creation setup failed: {e}")
@@ -17509,54 +17340,28 @@ class MediaStreamHandler:
     def _save_conversation_turn(self, user_text: str, bot_reply: str):
         """✅ שמירת תור שיחה במסד נתונים לזיכרון קבוע"""
         try:
-            from server.models_sql import ConversationTurn, CallLog
-            from server.app_factory import create_app
-            from server.db import db
-            import threading
+            # 🔥 RQ MIGRATION: Enqueue as background job instead of thread
+            business_id = getattr(self, 'business_id', None)
+            if not business_id:
+                logger.warning(f"⚠️ No business_id set - cannot save conversation turn")
+                return
             
-            def save_in_background():
-                try:
-                    app = _get_flask_app()  # ✅ Use singleton
-                    with app.app_context():
-                        # מצא call_log קיים (אמור להיות כבר נוצר ב-_create_call_log_on_start)
-                        call_log = None
-                        if hasattr(self, 'call_sid') and self.call_sid:
-                            call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                        
-                        if not call_log:
-                            logger.warning(f"⚠️ Call log not found for {self.call_sid} - conversation turn not saved")
-                            return
-                        
-                        # שמור תור משתמש
-                        user_turn = ConversationTurn()  # type: ignore[call-arg]
-                        user_turn.call_log_id = call_log.id
-                        user_turn.call_sid = self.call_sid or f"live_{int(time.time())}"
-                        user_turn.speaker = 'user'
-                        user_turn.message = user_text
-                        user_turn.confidence_score = 1.0
-                        db.session.add(user_turn)
-                        
-                        # שמור תור AI
-                        bot_turn = ConversationTurn()  # type: ignore[call-arg]
-                        bot_turn.call_log_id = call_log.id
-                        bot_turn.call_sid = self.call_sid or f"live_{int(time.time())}"
-                        bot_turn.speaker = 'assistant'
-                        bot_turn.message = bot_reply
-                        bot_turn.confidence_score = 1.0
-                        db.session.add(bot_turn)
-                        
-                        db.session.commit()
-                        logger.info(f"✅ Saved conversation turn to DB: call_log_id={call_log.id}")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Failed to save conversation turn: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # רוץ ברקע כדי לא לחסום
-            thread = threading.Thread(target=save_in_background, daemon=True)
-            thread.start()
-            self.background_threads.append(thread)  # ✅ Track for cleanup
+            try:
+                job = enqueue_job(
+                    'default',
+                    save_conversation_turn_job,
+                    call_sid=self.call_sid,
+                    business_id=business_id,
+                    user_text=user_text,
+                    bot_reply=bot_reply,
+                    turn_index=None,
+                    timeout=30,
+                    description=f"Save conversation turn for {self.call_sid}"
+                )
+                logger.info(f"✅ Enqueued conversation turn save job: {job.id}")
+            except Exception as enqueue_error:
+                # 🔥 FALLBACK: If RQ is unavailable, log but don't crash the call
+                logger.error(f"⚠️ Failed to enqueue conversation turn save: {enqueue_error}")
             
         except Exception as e:
             logger.error(f"❌ Conversation turn save setup failed: {e}")

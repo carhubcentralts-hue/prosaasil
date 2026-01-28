@@ -16,6 +16,8 @@ from .cleanup_recordings_job import cleanup_old_recordings_job
 from .warmup_agents_job import warmup_agents_job
 from .whatsapp_session_job import process_whatsapp_sessions_job
 from .reminder_notification_job import send_reminder_notifications_job
+from .send_whatsapp_message_job import send_whatsapp_message_job
+from .call_log_jobs import create_call_log_job, save_conversation_turn_job, finalize_call_log_job
 
 __all__ = [
     'sync_gmail_receipts_job',
@@ -28,5 +30,9 @@ __all__ = [
     'cleanup_old_recordings_job',
     'warmup_agents_job',
     'process_whatsapp_sessions_job',
-    'send_reminder_notifications_job'
+    'send_reminder_notifications_job',
+    'send_whatsapp_message_job',
+    'create_call_log_job',
+    'save_conversation_turn_job',
+    'finalize_call_log_job'
 ]
