@@ -2558,6 +2558,9 @@ def get_sync_status():
     # Calculate time since last heartbeat (for monitoring stale runs)
     seconds_since_heartbeat = None
     last_activity = None
+    is_stale = False
+    STALE_THRESHOLD_SECONDS = 5 * 60  # 5 minutes
+    
     if sync_run.status == 'running':
         now = datetime.now(timezone.utc)
         # Use last_heartbeat_at if available, fallback to updated_at, then started_at
@@ -2568,6 +2571,30 @@ def get_sync_status():
             last_activity = last_activity.replace(tzinfo=timezone.utc)
         
         seconds_since_heartbeat = int((now - last_activity).total_seconds())
+        
+        # ✅ FIX: Detect stale runs and auto-mark as failed
+        # Wrapped in try-except to ensure status can still be returned even if auto-marking fails
+        if seconds_since_heartbeat > STALE_THRESHOLD_SECONDS:
+            try:
+                logger.warning(f"⚠️ STALE RUN DETECTED: sync_run_id={sync_run.id}, business_id={business_id}, "
+                              f"seconds_since_heartbeat={seconds_since_heartbeat}")
+                
+                # Re-check status before marking (prevent race condition with worker)
+                sync_run = ReceiptSyncRun.query.filter_by(id=sync_run.id).with_for_update().first()
+                if sync_run and sync_run.status == 'running':
+                    # Auto-mark as failed to prevent stuck progress bars
+                    sync_run.status = 'failed'
+                    sync_run.finished_at = now
+                    sync_run.error_message = f'Run marked as failed due to no heartbeat for {seconds_since_heartbeat}s (threshold: {STALE_THRESHOLD_SECONDS}s)'
+                    db.session.commit()
+                    logger.info(f"✅ Auto-marked stale run as failed: sync_run_id={sync_run.id}")
+                else:
+                    # Status changed (worker completed it), just rollback
+                    db.session.rollback()
+            except Exception as e:
+                logger.error(f"Failed to auto-mark stale run as failed: {e}")
+                db.session.rollback()
+                # Continue to return current status even if auto-marking failed
     
     return jsonify({
         "success": True,
@@ -2578,6 +2605,7 @@ def get_sync_status():
             "started_at": sync_run.started_at.isoformat(),
             "finished_at": sync_run.finished_at.isoformat() if sync_run.finished_at else None,
             "last_heartbeat_at": sync_run.last_heartbeat_at.isoformat() if sync_run.last_heartbeat_at else None,
+            "updated_at": sync_run.updated_at.isoformat() if sync_run.updated_at else None,  # ✅ FIX: Add for frontend staleness detection
             "seconds_since_heartbeat": seconds_since_heartbeat,
             "duration_seconds": duration_seconds,
             "progress_percentage": progress_pct,

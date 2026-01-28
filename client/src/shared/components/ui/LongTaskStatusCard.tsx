@@ -20,6 +20,9 @@ interface LongTaskStatusCardProps {
   onRefresh?: () => void;  // Callback for refreshing status
   autoRefresh?: boolean;  // Auto-poll every 2-3 seconds
   refreshInterval?: number; // Milliseconds (default 2500)
+  // ✅ FIX: Add heartbeat for stale run detection
+  heartbeatAt?: string | null; // ISO timestamp of last heartbeat
+  updatedAt?: string | null; // ISO timestamp of last update
 }
 
 export function LongTaskStatusCard({
@@ -38,9 +41,32 @@ export function LongTaskStatusCard({
   onDismiss,
   onRefresh,
   autoRefresh = false,
-  refreshInterval = 2500
+  refreshInterval = 2500,
+  heartbeatAt,
+  updatedAt
 }: LongTaskStatusCardProps) {
   const [polling, setPolling] = useState(autoRefresh);
+  
+  // ✅ FIX: Detect stale runs based on heartbeat/updated_at age
+  const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+  const isStale = () => {
+    if (['completed', 'failed', 'cancelled'].includes(status)) {
+      return false; // Final states are never stale
+    }
+    
+    const timestamp = heartbeatAt || updatedAt;
+    if (!timestamp) return false;
+    
+    try {
+      const lastUpdate = new Date(timestamp).getTime();
+      const age = Date.now() - lastUpdate;
+      return age > STALE_THRESHOLD_MS;
+    } catch (e) {
+      return false;
+    }
+  };
+  
+  const stale = isStale();
   
   // Auto-refresh polling
   useEffect(() => {
@@ -121,6 +147,12 @@ export function LongTaskStatusCard({
         <div className="flex items-center gap-2">
           {statusDisplay.icon}
           <span className="font-semibold text-lg">{statusDisplay.text}</span>
+          {/* ✅ FIX: Show stale warning */}
+          {stale && (
+            <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
+              תקוע - אין עדכון
+            </span>
+          )}
         </div>
         {onDismiss && (
           <Button variant="ghost" size="sm" onClick={onDismiss}>
@@ -128,6 +160,14 @@ export function LongTaskStatusCard({
           </Button>
         )}
       </div>
+      
+      {/* ✅ FIX: Show stale run message */}
+      {stale && (
+        <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm">
+          <AlertTriangle className="w-4 h-4 inline mr-2" />
+          המשימה לא התעדכנה מזה 5 דקות. יכול להיות שהיא נתקעה.
+        </div>
+      )}
       
       {/* Progress bar */}
       <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-3">

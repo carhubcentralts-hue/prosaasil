@@ -3,13 +3,17 @@ import { useEffect, useState } from 'react';
 interface TaskState {
   taskId: number;
   taskType: string;
-  status: string;
+  // ✅ CRITICAL FIX: Removed status and progress fields from localStorage
+  // Progress bars must ALWAYS fetch state from server, never from cache
+  // This prevents stuck progress bars when runs are stale/completed
   timestamp: number;
 }
 
 export function useLongTaskPersistence(businessId: number, taskType: string) {
   const storageKey = `longTask_${businessId}_${taskType}`;
   
+  // ✅ FIX: Only restore taskId reference, not status/progress
+  // Status must always come from server to prevent stale state
   const [activeTask, setActiveTask] = useState<TaskState | null>(() => {
     try {
       const stored = localStorage.getItem(storageKey);
@@ -17,7 +21,12 @@ export function useLongTaskPersistence(businessId: number, taskType: string) {
         const parsed = JSON.parse(stored);
         // Only restore if less than 1 hour old
         if (Date.now() - parsed.timestamp < 3600000) {
-          return parsed;
+          // Return only the taskId reference, server will provide status
+          return {
+            taskId: parsed.taskId,
+            taskType: parsed.taskType,
+            timestamp: parsed.timestamp
+          };
         }
       }
     } catch (e) {
@@ -26,9 +35,11 @@ export function useLongTaskPersistence(businessId: number, taskType: string) {
     return null;
   });
   
+  // ✅ FIX: Only save taskId reference, not progress/status
   const saveTask = (task: Omit<TaskState, 'timestamp'>) => {
     const state: TaskState = {
-      ...task,
+      taskId: task.taskId,
+      taskType: task.taskType,
       timestamp: Date.now()
     };
     setActiveTask(state);
@@ -40,13 +51,23 @@ export function useLongTaskPersistence(businessId: number, taskType: string) {
     localStorage.removeItem(storageKey);
   };
   
-  // Auto-clear completed tasks after 5 minutes
+  // ✅ FIX: Auto-clear task reference after 1 hour
+  // Uses setTimeout to schedule clearing at exact expiry time
   useEffect(() => {
-    if (activeTask && ['completed', 'failed', 'cancelled'].includes(activeTask.status)) {
-      const timer = setTimeout(clearTask, 300000); // 5 minutes
-      return () => clearTimeout(timer);
+    if (activeTask) {
+      const age = Date.now() - activeTask.timestamp;
+      const remainingTime = 3600000 - age; // 1 hour in ms
+      
+      if (remainingTime <= 0) {
+        // Already expired, clear immediately
+        clearTask();
+      } else {
+        // Schedule clearing when it expires
+        const timer = setTimeout(clearTask, remainingTime);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [activeTask]);
+  }, [activeTask, storageKey]); // storageKey is stable, clearTask is defined above
   
   return { activeTask, saveTask, clearTask };
 }

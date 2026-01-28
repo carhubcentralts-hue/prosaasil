@@ -1123,3 +1123,104 @@ def get_business_minutes():
         return jsonify({"error": str(e)}), 500
 
 
+@admin_bp.route("/api/admin/business/<int:business_id>/reset-progress", methods=['POST'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def reset_business_progress(business_id):
+    """
+    POST /api/admin/business/<business_id>/reset-progress
+    
+    ✅ FIX: Admin endpoint to reset stuck progress for a business
+    
+    This endpoint:
+    1. Marks all running receipt sync runs as failed
+    2. Marks all running broadcasts as failed
+    3. Marks all running recording runs as failed
+    4. Clears any Redis progress keys (if needed)
+    
+    Use this to unblock businesses with stuck progress bars.
+    
+    Auth: system_admin can reset any business, owner/admin can only reset their own business
+    """
+    from server.models_sql import ReceiptSyncRun, WhatsAppBroadcast, RecordingRun
+    from datetime import timezone
+    
+    try:
+        current_user = session.get('user')
+        if not current_user:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        # ✅ FIX: Verify access based on role
+        current_role = current_user.get('role')
+        if current_role not in ['system_admin', 'owner', 'admin']:
+            return jsonify({'error': 'Insufficient permissions'}), 403
+        
+        # Non-system admins can only reset their own business
+        if current_role != 'system_admin':
+            current_business_id = current_user.get('business_id')
+            if current_business_id != business_id:
+                return jsonify({'error': 'Cannot reset progress for other businesses'}), 403
+        
+        # Verify business exists
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({'error': 'Business not found'}), 404
+        
+        now = datetime.now(timezone.utc)
+        reset_count = 0
+        
+        # 1. Reset stuck receipt sync runs
+        stuck_syncs = ReceiptSyncRun.query.filter_by(
+            business_id=business_id,
+            status='running'
+        ).all()
+        
+        for sync in stuck_syncs:
+            sync.status = 'failed'
+            sync.finished_at = now
+            sync.error_message = 'Manually reset by admin - run was stuck'
+            reset_count += 1
+            logger.info(f"✅ Reset stuck receipt sync: run_id={sync.id}, business_id={business_id}")
+        
+        # 2. Reset stuck broadcasts
+        stuck_broadcasts = WhatsAppBroadcast.query.filter_by(
+            business_id=business_id,
+            status='running'
+        ).all()
+        
+        for broadcast in stuck_broadcasts:
+            broadcast.status = 'failed'
+            broadcast.completed_at = now
+            reset_count += 1
+            logger.info(f"✅ Reset stuck broadcast: broadcast_id={broadcast.id}, business_id={business_id}")
+        
+        # 3. Reset stuck recording runs
+        stuck_recordings = RecordingRun.query.filter_by(
+            business_id=business_id,
+            status='running'
+        ).all()
+        
+        for recording in stuck_recordings:
+            recording.status = 'failed'
+            recording.completed_at = now
+            reset_count += 1
+            logger.info(f"✅ Reset stuck recording run: run_id={recording.id}, business_id={business_id}")
+        
+        # Commit all changes
+        db.session.commit()
+        
+        logger.info(f"✅ Progress reset complete for business_id={business_id}: {reset_count} runs reset")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully reset {reset_count} stuck runs',
+            'reset_count': reset_count
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error resetting progress for business {business_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
