@@ -180,11 +180,14 @@ def enqueue(
     }
     
     # Build job kwargs
+    # Note: RQ expects 'job_timeout' (not 'timeout') as the parameter name
+    # to configure job execution timeout. Using 'timeout' would pass it as
+    # a kwarg to the job function instead.
     job_kwargs = {
         'job_id': job_id,
         'meta': meta,
         'ttl': ttl,
-        'timeout': timeout,
+        'job_timeout': timeout,
         'description': description or f"{func.__name__}",
     }
     
