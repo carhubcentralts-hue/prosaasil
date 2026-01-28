@@ -1102,13 +1102,11 @@ def create_app():
                     import redis
                     REDIS_URL = os.getenv('REDIS_URL')
                     if REDIS_URL:
-                        from server.services.outbound_semaphore import cleanup_expired_slots
-                        redis_conn = redis.from_url(REDIS_URL)
-                        # Clean up slots for all businesses (rough cleanup on startup)
-                        # This prevents ghost queue issues after restart
-                        logger.info("[STARTUP] Cleaning up Redis outbound slots...")
-                        # Note: cleanup_expired_slots is per-business, but we can't enumerate all businesses here
+                        # Note: cleanup_expired_slots() is per-business and requires business_id
+                        # We can't enumerate all businesses here without additional DB queries
                         # The per-business cleanup will happen when each business starts a new run
+                        # Just log that Redis is available for cleanup
+                        logger.info("[STARTUP] Redis available - per-business slot cleanup will occur on demand")
                     else:
                         logger.warning("[STARTUP] REDIS_URL not set, skipping Redis cleanup")
                 except Exception as redis_err:
