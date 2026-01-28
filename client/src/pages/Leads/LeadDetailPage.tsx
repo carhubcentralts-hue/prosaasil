@@ -1809,7 +1809,10 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-gray-700">הקלטת שיחה</p>
                           <button
-                            onClick={() => handleDownload(getCallId(call))}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownload(getCallId(call));
+                            }}
                             className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
