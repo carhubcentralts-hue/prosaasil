@@ -18,13 +18,132 @@ recordings_bp = Blueprint('recordings', __name__, url_prefix='/api/recordings')
 # 🔥 FIX: Job timeout threshold - jobs stuck longer than this are marked as failed
 JOB_TIMEOUT_MINUTES = 5
 
+# 🔥 CRITICAL: Fail-fast protection - prevent infinite job creation when worker is offline
+MAX_RETRY_ATTEMPTS = 3  # Maximum failed attempts before giving up
+RETRY_WINDOW_MINUTES = 10  # Time window to count retry attempts
+
+
+def get_redis_connection():
+    """Get Redis connection for rate limiting and attempt tracking."""
+    import os
+    import redis
+    
+    REDIS_URL = os.getenv('REDIS_URL')
+    if not REDIS_URL:
+        log.warning("[REDIS] REDIS_URL not set - rate limiting disabled")
+        return None
+    
+    try:
+        return redis.from_url(REDIS_URL)
+    except Exception as e:
+        log.error(f"[REDIS] Failed to connect: {e}")
+        return None
+
+
+def check_and_increment_retry_attempts(call_sid):
+    """
+    🔥 CRITICAL: Check retry attempts for call_sid and increment counter.
+    
+    This prevents infinite job creation when worker is offline or stuck.
+    Uses Redis with TTL to track attempts in rolling time window.
+    
+    Args:
+        call_sid: Twilio Call SID
+        
+    Returns:
+        tuple: (can_retry: bool, attempt_count: int, reason: str)
+            - If can retry: (True, count, "")
+            - If too many attempts: (False, count, "worker_not_processing_queue")
+    """
+    redis_conn = get_redis_connection()
+    if not redis_conn:
+        # Redis not available - allow retry (fail-open for now)
+        log.warning(f"[FAIL_FAST] Redis unavailable, allowing retry for {call_sid}")
+        return (True, 0, "")
+    
+    try:
+        # Key to track retry attempts with TTL
+        attempts_key = f"recording_retry_attempts:{call_sid}"
+        
+        # Get current attempt count
+        current_attempts = redis_conn.get(attempts_key)
+        attempt_count = int(current_attempts) if current_attempts else 0
+        
+        # Check if we've exceeded max attempts
+        if attempt_count >= MAX_RETRY_ATTEMPTS:
+            log.error(f"[FAIL_FAST] Too many retry attempts for {call_sid}: {attempt_count}/{MAX_RETRY_ATTEMPTS}")
+            return (False, attempt_count, "worker_not_processing_queue")
+        
+        # Increment attempt count with TTL
+        redis_conn.incr(attempts_key)
+        redis_conn.expire(attempts_key, RETRY_WINDOW_MINUTES * 60)
+        
+        new_count = attempt_count + 1
+        log.info(f"[FAIL_FAST] Retry attempt {new_count}/{MAX_RETRY_ATTEMPTS} for {call_sid} (window: {RETRY_WINDOW_MINUTES} min)")
+        
+        return (True, new_count, "")
+        
+    except Exception as e:
+        log.error(f"[FAIL_FAST] Error checking retry attempts for {call_sid}: {e}")
+        # Fail-open: allow retry on error
+        return (True, 0, "")
+
+
+def is_job_stuck_smart(recording_run):
+    """
+    🔥 IMPROVED: Smart stuck detection using started_at/updated_at instead of just created_at.
+    
+    A job is stuck if:
+    1. Status is 'queued' and no started_at after timeout (worker never picked it up)
+    2. Status is 'running' but started_at is too old (worker crashed/stuck mid-job)
+    
+    This is more accurate than just checking created_at because:
+    - Jobs might sit in queue legitimately if worker is busy
+    - We care about actual processing time, not queue time
+    
+    Args:
+        recording_run: RecordingRun object to check
+        
+    Returns:
+        tuple: (is_stuck: bool, reason: str)
+    """
+    from datetime import datetime, timedelta
+    
+    now = datetime.utcnow()
+    timeout_delta = timedelta(minutes=JOB_TIMEOUT_MINUTES)
+    
+    # Check if job is queued but never started
+    if recording_run.status == 'queued':
+        job_age = now - recording_run.created_at
+        if job_age > timeout_delta:
+            return (True, f"queued for {job_age.total_seconds():.0f}s without being picked up by worker")
+    
+    # Check if job is running but stuck (no progress)
+    elif recording_run.status == 'running':
+        if recording_run.started_at:
+            # Job started but hasn't completed - check if it's been too long
+            running_time = now - recording_run.started_at
+            if running_time > timeout_delta:
+                return (True, f"running for {running_time.total_seconds():.0f}s without completion")
+        else:
+            # Job marked as running but no started_at timestamp - data inconsistency
+            job_age = now - recording_run.created_at
+            return (True, f"marked running but no started_at (age: {job_age.total_seconds():.0f}s)")
+    
+    return (False, "")
+
 
 def handle_stuck_job_and_retry(existing_run, call_sid, call, business_id, is_head_request=False):
     """
-    🔥 NEW: Handle stuck recording job - mark as failed and trigger new download.
+    🔥 IMPROVED: Handle stuck recording job with fail-fast protection.
     
     This is a helper function to avoid code duplication between prepare_recording
     and serve_recording_file endpoints.
+    
+    Changes from v1:
+    - Uses smart stuck detection (started_at/updated_at based)
+    - Implements fail-fast protection (max retry attempts)
+    - Returns 500 with clear message when worker appears offline
     
     Args:
         existing_run: RecordingRun object that might be stuck
@@ -37,30 +156,54 @@ def handle_stuck_job_and_retry(existing_run, call_sid, call, business_id, is_hea
         tuple: (is_stuck: bool, response: Response|None)
             - If not stuck: (False, None) - caller should handle normally
             - If stuck and new job created: (True, Response with 202)
+            - If stuck but worker offline: (True, Response with 500 "worker_not_processing_queue")
             - If stuck but recovery failed: (True, Response with 500)
     """
     from datetime import datetime, timedelta
     from server.tasks_recording import enqueue_recording_download_only
     
-    # Check if job is stuck (age > timeout threshold)
-    job_age = datetime.utcnow() - existing_run.created_at
-    is_stuck = job_age > timedelta(minutes=JOB_TIMEOUT_MINUTES)
+    # 🔥 IMPROVED: Use smart stuck detection
+    is_stuck, stuck_reason = is_job_stuck_smart(existing_run)
     
     if not is_stuck:
         # Job is not stuck - let caller handle it normally
         return (False, None)
     
-    # Job is stuck - mark it as failed and trigger new download
-    original_status = existing_run.status  # 🔥 FIX: Capture original status before changing it
-    log.warning(f"[STUCK_JOB] Job {existing_run.id} for call_sid={call_sid} is stuck (age: {job_age}, status: {original_status})")
+    # Job is stuck - capture details before modification
+    original_status = existing_run.status
+    log.warning(f"[STUCK_JOB] Job {existing_run.id} for call_sid={call_sid} is stuck: {stuck_reason} (status: {original_status})")
+    
+    # 🔥 CRITICAL: Check retry attempts before creating new job (fail-fast protection)
+    can_retry, attempt_count, fail_reason = check_and_increment_retry_attempts(call_sid)
+    
+    if not can_retry:
+        # Too many retry attempts - worker appears offline
+        log.error(f"[FAIL_FAST] Worker not processing queue for {call_sid} after {attempt_count} attempts")
+        
+        # Mark stuck job as failed with clear reason
+        existing_run.status = 'failed'
+        existing_run.error_message = f'Worker not processing queue after {attempt_count} attempts in {RETRY_WINDOW_MINUTES} minutes. Original issue: {stuck_reason}'
+        existing_run.completed_at = datetime.utcnow()
+        db.session.commit()
+        
+        # Return 500 with clear message that worker is offline
+        if is_head_request:
+            return (True, Response(status=500))
+        return (True, (jsonify({
+            "error": "worker_not_processing_queue",
+            "message": f"Recording worker appears offline. Tried {attempt_count} times in {RETRY_WINDOW_MINUTES} minutes. Please contact support.",
+            "message_he": f"מעבד ההקלטות לא מגיב. נוסה {attempt_count} פעמים ב-{RETRY_WINDOW_MINUTES} דקות. אנא פנה לתמיכה.",
+            "attempt_count": attempt_count,
+            "max_attempts": MAX_RETRY_ATTEMPTS
+        }), 500))
     
     # Mark stuck job as failed
     existing_run.status = 'failed'
-    existing_run.error_message = f'Job timeout after {JOB_TIMEOUT_MINUTES} minutes (stuck in {original_status} state)'
+    existing_run.error_message = f'Job stuck: {stuck_reason}. Retry attempt {attempt_count}/{MAX_RETRY_ATTEMPTS}'
     existing_run.completed_at = datetime.utcnow()
     db.session.commit()
     
-    log.info(f"[STUCK_JOB] Marked stuck job {existing_run.id} as failed, triggering new download for call_sid={call_sid}")
+    log.info(f"[STUCK_JOB] Marked stuck job {existing_run.id} as failed, triggering new download (attempt {attempt_count}/{MAX_RETRY_ATTEMPTS}) for call_sid={call_sid}")
     
     # Trigger new download job
     job_success, reason = enqueue_recording_download_only(
@@ -74,16 +217,18 @@ def handle_stuck_job_and_retry(existing_run, call_sid, call, business_id, is_hea
     
     if job_success or reason == "duplicate":
         # New job created successfully
-        log.info(f"[STUCK_JOB] New job created after stuck job recovery for call_sid={call_sid}")
+        log.info(f"[STUCK_JOB] New job created after stuck job recovery for call_sid={call_sid} (attempt {attempt_count}/{MAX_RETRY_ATTEMPTS})")
         if is_head_request:
             response = Response(status=202)
-            response.headers['Retry-After'] = '3'
+            response.headers['Retry-After'] = '5'  # Longer retry for recovery attempts
             return (True, response)
         return (True, (jsonify({
             "status": "processing",
-            "message": "Recording download restarted. Please retry in a few seconds.",
-            "message_he": "הורדת ההקלטה התחילה מחדש. אנא נסה שוב בעוד כמה שניות."
-        }), 202, {'Retry-After': '3'}))
+            "message": f"Recording download restarted (attempt {attempt_count}/{MAX_RETRY_ATTEMPTS}). Please retry in a few seconds.",
+            "message_he": f"הורדת ההקלטה התחילה מחדש (ניסיון {attempt_count}/{MAX_RETRY_ATTEMPTS}). אנא נסה שוב בעוד כמה שניות.",
+            "attempt_count": attempt_count,
+            "max_attempts": MAX_RETRY_ATTEMPTS
+        }), 202, {'Retry-After': '5'}))
     else:
         # Failed to create new job - return error
         log.error(f"[STUCK_JOB] Failed to recover from stuck job for call_sid={call_sid}, reason={reason}")
@@ -98,10 +243,12 @@ def handle_stuck_job_and_retry(existing_run, call_sid, call, business_id, is_hea
 
 def cleanup_stuck_recording_jobs(business_id=None):
     """
-    🔥 NEW: Cleanup stuck recording jobs that have been in queued/running state for too long.
+    🔥 IMPROVED: Cleanup stuck recording jobs using smart detection.
     
     This prevents infinite UI loops by automatically marking stuck jobs as failed.
     Called periodically or before checking job status.
+    
+    Uses smart detection: checks started_at and actual processing time, not just queue time.
     
     Args:
         business_id: Optional business ID to limit cleanup scope
@@ -110,36 +257,38 @@ def cleanup_stuck_recording_jobs(business_id=None):
         int: Number of stuck jobs cleaned up
     """
     try:
-        timeout_threshold = datetime.utcnow() - timedelta(minutes=JOB_TIMEOUT_MINUTES)
-        
-        # Find stuck jobs
+        # Find potentially stuck jobs (in queued or running state)
         query = RecordingRun.query.filter(
-            RecordingRun.status.in_(['queued', 'running']),
-            RecordingRun.created_at < timeout_threshold
+            RecordingRun.status.in_(['queued', 'running'])
         )
         
         if business_id:
             query = query.filter(RecordingRun.business_id == business_id)
         
-        stuck_jobs = query.all()
+        potential_stuck_jobs = query.all()
+        cleaned_count = 0
         
-        if stuck_jobs:
-            log.info(f"[CLEANUP] Found {len(stuck_jobs)} stuck recording jobs")
+        if potential_stuck_jobs:
+            log.info(f"[CLEANUP] Checking {len(potential_stuck_jobs)} potentially stuck recording jobs")
             
-            for job in stuck_jobs:
-                job_age = datetime.utcnow() - job.created_at
-                original_status = job.status  # 🔥 FIX: Capture original status before changing it
-                log.warning(f"[CLEANUP] Marking stuck job as failed: run_id={job.id}, call_sid={job.call_sid}, age={job_age}, status={original_status}")
+            for job in potential_stuck_jobs:
+                # Use smart stuck detection
+                is_stuck, stuck_reason = is_job_stuck_smart(job)
                 
-                job.status = 'failed'
-                job.error_message = f'Job timeout after {JOB_TIMEOUT_MINUTES} minutes (stuck in {original_status} state)'
-                job.completed_at = datetime.utcnow()
+                if is_stuck:
+                    original_status = job.status
+                    log.warning(f"[CLEANUP] Marking stuck job as failed: run_id={job.id}, call_sid={job.call_sid}, reason={stuck_reason}, status={original_status}")
+                    
+                    job.status = 'failed'
+                    job.error_message = f'Job cleanup: {stuck_reason}'
+                    job.completed_at = datetime.utcnow()
+                    cleaned_count += 1
             
-            db.session.commit()
-            log.info(f"[CLEANUP] Cleaned up {len(stuck_jobs)} stuck jobs")
-            return len(stuck_jobs)
+            if cleaned_count > 0:
+                db.session.commit()
+                log.info(f"[CLEANUP] Cleaned up {cleaned_count} stuck jobs out of {len(potential_stuck_jobs)} checked")
         
-        return 0
+        return cleaned_count
         
     except Exception as e:
         log.error(f"[CLEANUP] Error cleaning up stuck jobs: {e}")

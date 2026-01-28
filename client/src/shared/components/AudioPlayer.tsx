@@ -32,6 +32,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const [preparingRecording, setPreparingRecording] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<'not_found' | 'worker_offline' | 'timeout' | null>(null);
   const [manualRetryAvailable, setManualRetryAvailable] = useState(false);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSrcRef = useRef<string>(''); // Track last src to prevent duplicate processing
@@ -58,11 +59,12 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   };
 
   // 🔥 CHECK: Use HEAD request to check if recording file exists
-  const checkFileAvailable = async (fileUrl: string, currentRetry = 0): Promise<boolean> => {
+  // Returns: { ready: boolean, errorType?: string }
+  const checkFileAvailable = async (fileUrl: string, currentRetry = 0): Promise<{ ready: boolean, errorType?: 'not_found' | 'worker_offline' | 'timeout' }> => {
     // 🔥 FIX: Prevent concurrent checks - only one check at a time
     if (isCheckingRef.current) {
       console.log('[AudioPlayer] Check already in progress, skipping...');
-      return false;
+      return { ready: false };
     }
     
     isCheckingRef.current = true;
@@ -81,7 +83,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       if (response.ok || response.status === 206) {
         // File exists and is ready (200 or 206 partial content)
         isCheckingRef.current = false;
-        return true;
+        return { ready: true };
       }
 
       if (response.status === 202 && currentRetry < MAX_RETRIES) {
@@ -98,22 +100,29 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         return new Promise((resolve) => {
           retryTimeoutRef.current = setTimeout(async () => {
             isCheckingRef.current = false; // Reset before next check
-            const ready = await checkFileAvailable(fileUrl, currentRetry + 1);
-            resolve(ready);
+            const result = await checkFileAvailable(fileUrl, currentRetry + 1);
+            resolve(result);
           }, retryAfter);
         });
       }
 
       if (response.status === 404) {
-        // 🔥 NEW: 404 means recording truly doesn't exist - don't retry
-        console.log('[AudioPlayer] Recording not found (404) - stopping retries');
+        // 🔥 404 = No recording URL for this call (never will exist)
+        console.log('[AudioPlayer] Recording not found (404) - no recording URL for this call');
         isCheckingRef.current = false;
-        return false;
+        return { ready: false, errorType: 'not_found' };
+      }
+
+      if (response.status === 500) {
+        // 🔥 500 = Worker offline or internal error - don't retry
+        console.error('[AudioPlayer] Server error (500) - worker may be offline, stopping retries');
+        isCheckingRef.current = false;
+        return { ready: false, errorType: 'worker_offline' };
       }
 
       // Other error or max retries reached
       isCheckingRef.current = false;
-      return false;
+      return { ready: false, errorType: currentRetry >= MAX_RETRIES ? 'timeout' : undefined };
     } catch (error) {
       // 🔥 FIX: Don't log abort errors as errors
       if (error instanceof Error && error.name === 'AbortError') {
@@ -122,7 +131,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         console.error('[AudioPlayer] Error checking recording:', error);
       }
       isCheckingRef.current = false;
-      return false;
+      return { ready: false };
     }
   };
 
@@ -177,9 +186,9 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         const fileUrl = src;
         
         // Check if recording file exists (HEAD request)
-        const isReady = await checkFileAvailable(fileUrl, 0);
+        const result = await checkFileAvailable(fileUrl, 0);
         
-        if (isReady) {
+        if (result.ready) {
           // Recording file exists - use it directly
           setStreamUrl(fileUrl);
           setPreparingRecording(false);
@@ -187,15 +196,35 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
           console.log(`[AudioPlayer] Playing from: ${fileUrl}`);
         } else {
           // Recording file not available after all retries
-          // Show user-friendly message with retry option
+          // Show user-friendly message based on error type
           const totalWaitTime = calculateTotalWaitTime(retryCount);
-          setErrorMessage(
-            retryCount > 0 
-              ? `ההקלטה עדיין בתהליך הכנה (חיכינו ${Math.floor(totalWaitTime)} שניות). ` +
-                `זה יכול לקחת עד 3 דקות להקלטות ארוכות.`
-              : 'ההקלטה לא נמצאה. ייתכן שלא קיימת הקלטה לשיחה זו.'
-          );
-          setManualRetryAvailable(retryCount > 0);
+          
+          // Set error type for specific handling
+          setErrorType(result.errorType || null);
+          
+          // Set appropriate error message based on error type
+          if (result.errorType === 'not_found') {
+            setErrorMessage('ההקלטה לא נמצאה. אין כתובת הקלטה לשיחה זו.');
+            setManualRetryAvailable(false);
+          } else if (result.errorType === 'worker_offline') {
+            setErrorMessage('שרת ההקלטות לא מגיב. אנא נסה שוב מאוחר יותר או פנה לתמיכה.');
+            setManualRetryAvailable(true); // Allow manual retry for worker issues
+          } else if (result.errorType === 'timeout') {
+            setErrorMessage(
+              `ההקלטה עדיין בתהליך הכנה (חיכינו ${Math.floor(totalWaitTime)} שניות). ` +
+              `זה יכול לקחת עד 3 דקות להקלטות ארוכות.`
+            );
+            setManualRetryAvailable(true);
+          } else {
+            setErrorMessage(
+              retryCount > 0 
+                ? `ההקלטה עדיין בתהליך הכנה (חיכינו ${Math.floor(totalWaitTime)} שניות). ` +
+                  `זה יכול לקחת עד 3 דקות להקלטות ארוכות.`
+                : 'ההקלטה לא נמצאה. ייתכן שלא קיימת הקלטה לשיחה זו.'
+            );
+            setManualRetryAvailable(retryCount > 0);
+          }
+          
           setPreparingRecording(false);
           setIsLoading(false);
         }
