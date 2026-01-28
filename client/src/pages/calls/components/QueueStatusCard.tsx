@@ -86,7 +86,7 @@ export function QueueStatusCard({
 
   const statusDisplay = getStatusDisplay();
   const isActive = status === 'running' && !cancelRequested;
-  const canDismiss = ['completed', 'cancelled', 'failed'].includes(status) && onDismiss;
+  const canDismiss = ['completed', 'cancelled', 'failed'].indexOf(status) !== -1 && onDismiss;
   
   // 🔥 FIX: Always show dismiss button for running queues with no activity
   // This handles "ghost queues" that appear after server restart
