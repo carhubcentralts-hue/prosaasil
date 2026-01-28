@@ -846,7 +846,7 @@ def create_app():
             logger.info("[STARTUP] Running cleanup on startup...")
             with app.app_context():
                 cleanup_stuck_dialing_jobs()
-                cleanup_stuck_runs()  # 🔥 NEW: Also cleanup stuck runs (ghost active queue fix)
+                cleanup_stuck_runs(on_startup=True)  # 🔥 NEW: Pass on_startup=True to mark ALL running runs as failed
             logger.info("[STARTUP] ✅ Cleanup complete")
         except Exception as e:
             logger.error(f"[STARTUP] ⚠️ Cleanup failed: {e}")

@@ -3234,7 +3234,7 @@ def cleanup_stuck_dialing_jobs():
         return 0
 
 
-def cleanup_stuck_runs():
+def cleanup_stuck_runs(on_startup: bool = False):
     """
     🔥 CRITICAL: Cleanup runs stuck in 'running' status with TTL-based heartbeat check
     
@@ -3245,54 +3245,80 @@ def cleanup_stuck_runs():
     - status = 'running' 
     - lock_ts > TTL_MINUTES ago (no heartbeat from worker)
     - OR queued_count = 0 AND in_progress_count = 0 (nothing actually running)
+    - OR on_startup=True (server restart = all workers are dead)
     
     🔒 TTL-BASED RECLAIM: Uses lock_ts (heartbeat) instead of updated_at
     - Workers update lock_ts every iteration (heartbeat)
     - If lock_ts is stale (> 5 minutes), worker is considered dead
     - Run is marked as 'failed' with proper error message
     
+    🔥 STARTUP MODE: When on_startup=True, mark ALL 'running' runs as failed
+    - On server restart, NO workers can be active
+    - This prevents ghost queues from showing after immediate restart
+    
     NOTE: This function assumes it's called from within an app context
     (typically during app startup or from a periodic cleanup task)
     """
     from server.models_sql import OutboundCallRun
     
-    # 🔒 TTL for worker heartbeat: 5 minutes
+    # 🔒 TTL for worker heartbeat: 5 minutes (only used when not on startup)
     TTL_MINUTES = 5
     
     try:
-        # Mark runs as failed if heartbeat is stale (worker died)
-        heartbeat_cutoff = datetime.utcnow() - timedelta(minutes=TTL_MINUTES)
-        
-        # Also check updated_at as fallback (for runs started before this fix)
-        updated_cutoff = datetime.utcnow() - timedelta(minutes=30)
-        
-        result = db.session.execute(text("""
-            UPDATE outbound_call_runs 
-            SET status='failed',
-                ended_at=NOW(),
-                completed_at=NOW(),
-                last_error=CONCAT('Worker timeout - no heartbeat from ', locked_by_worker, ' since ', lock_ts)
-            WHERE status='running'
-                AND (
-                    -- 🔒 PRIMARY: Check heartbeat (lock_ts)
-                    (lock_ts IS NOT NULL AND lock_ts < :heartbeat_cutoff)
-                    -- Fallback: Old updated_at check
-                    OR (lock_ts IS NULL AND updated_at < :updated_cutoff)
-                    -- Empty queue (nothing to process)
-                    OR (queued_count = 0 AND in_progress_count = 0)
-                )
-        """), {
-            "heartbeat_cutoff": heartbeat_cutoff,
-            "updated_cutoff": updated_cutoff
-        })
-        
-        db.session.commit()
-        
-        cleaned_count = result.rowcount
-        if cleaned_count > 0:
-            log.warning(f"[CLEANUP] ⚠️  Reclaimed {cleaned_count} stuck runs (TTL-based heartbeat check, TTL={TTL_MINUTES}min)")
-        
-        return cleaned_count
+        if on_startup:
+            # 🔥 STARTUP MODE: Mark ALL 'running' runs as failed immediately
+            # On server restart, all workers are dead by definition
+            result = db.session.execute(text("""
+                UPDATE outbound_call_runs 
+                SET status='failed',
+                    ended_at=NOW(),
+                    completed_at=NOW(),
+                    last_error=CONCAT('Server restarted - worker ', COALESCE(locked_by_worker, 'unknown'), ' terminated')
+                WHERE status='running'
+            """))
+            
+            db.session.commit()
+            
+            cleaned_count = result.rowcount
+            if cleaned_count > 0:
+                log.warning(f"[CLEANUP] ⚠️  Marked {cleaned_count} running queues as failed on server startup")
+            
+            return cleaned_count
+        else:
+            # 🔒 PERIODIC MODE: Use heartbeat TTL to detect dead workers
+            # Mark runs as failed if heartbeat is stale (worker died)
+            heartbeat_cutoff = datetime.utcnow() - timedelta(minutes=TTL_MINUTES)
+            
+            # Also check updated_at as fallback (for runs started before this fix)
+            updated_cutoff = datetime.utcnow() - timedelta(minutes=30)
+            
+            result = db.session.execute(text("""
+                UPDATE outbound_call_runs 
+                SET status='failed',
+                    ended_at=NOW(),
+                    completed_at=NOW(),
+                    last_error=CONCAT('Worker timeout - no heartbeat from ', locked_by_worker, ' since ', lock_ts)
+                WHERE status='running'
+                    AND (
+                        -- 🔒 PRIMARY: Check heartbeat (lock_ts)
+                        (lock_ts IS NOT NULL AND lock_ts < :heartbeat_cutoff)
+                        -- Fallback: Old updated_at check
+                        OR (lock_ts IS NULL AND updated_at < :updated_cutoff)
+                        -- Empty queue (nothing to process)
+                        OR (queued_count = 0 AND in_progress_count = 0)
+                    )
+            """), {
+                "heartbeat_cutoff": heartbeat_cutoff,
+                "updated_cutoff": updated_cutoff
+            })
+            
+            db.session.commit()
+            
+            cleaned_count = result.rowcount
+            if cleaned_count > 0:
+                log.warning(f"[CLEANUP] ⚠️  Reclaimed {cleaned_count} stuck runs (TTL-based heartbeat check, TTL={TTL_MINUTES}min)")
+            
+            return cleaned_count
         
     except Exception as e:
         log.error(f"[CLEANUP] Error cleaning up stuck runs: {e}")

@@ -86,7 +86,12 @@ export function QueueStatusCard({
 
   const statusDisplay = getStatusDisplay();
   const isActive = status === 'running' && !cancelRequested;
-  const canDismiss = status in ['completed', 'cancelled', 'failed'] && onDismiss;
+  const canDismiss = ['completed', 'cancelled', 'failed'].includes(status) && onDismiss;
+  
+  // 🔥 FIX: Always show dismiss button for running queues with no activity
+  // This handles "ghost queues" that appear after server restart
+  const isGhostQueue = status === 'running' && inProgress === 0 && queued === 0;
+  const showDismissForGhost = isGhostQueue && onDismiss;
 
   return (
     <Card className={`p-6 border-2 ${statusDisplay.bgClass} transition-all duration-300`}>
@@ -108,7 +113,7 @@ export function QueueStatusCard({
           </div>
           
           {/* Cancel button */}
-          {isActive && canCancel && (
+          {isActive && canCancel && !isGhostQueue && (
             <Button
               onClick={onCancel}
               variant="destructive"
@@ -119,13 +124,14 @@ export function QueueStatusCard({
             </Button>
           )}
           
-          {/* Dismiss button for completed queues */}
-          {canDismiss && (
+          {/* Dismiss button for completed queues or ghost queues */}
+          {(canDismiss || showDismissForGhost) && (
             <Button
               onClick={onDismiss}
               variant="ghost"
               size="sm"
               className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              title={isGhostQueue ? "סגור תור תקוע" : "סגור"}
             >
               <X className="w-4 h-4" />
             </Button>
