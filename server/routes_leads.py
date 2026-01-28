@@ -1648,36 +1648,35 @@ def bulk_delete_leads():
             # Re-raise other errors
             raise
         
-        # Enqueue to RQ maintenance queue
-        REDIS_URL = os.getenv('REDIS_URL')
-        if REDIS_URL:
-            redis_conn = redis.from_url(REDIS_URL)
-            queue = Queue('maintenance', connection=redis_conn)
+        # Enqueue to RQ maintenance queue using unified wrapper
+        from server.services.jobs import enqueue, get_redis
+        
+        # Get Redis connection for bulk gate
+        redis_conn = get_redis()
+        
+        # Acquire lock and record enqueue BEFORE actually enqueuing
+        try:
+            from server.services.bulk_gate import get_bulk_gate
+            bulk_gate = get_bulk_gate(redis_conn)
             
-            # Acquire lock and record enqueue BEFORE actually enqueuing
-            if redis_conn:
-                try:
-                    from server.services.bulk_gate import get_bulk_gate
-                    bulk_gate = get_bulk_gate(redis_conn)
-                    
-                    if bulk_gate:
-                        # Acquire lock for this operation
-                        lock_acquired = bulk_gate.acquire_lock(
-                            business_id=business_id,
-                            operation_type='delete_leads_bulk',
-                            job_id=bg_job.id
-                        )
-                        
-                        # Record the enqueue
-                        bulk_gate.record_enqueue(
-                            business_id=business_id,
-                            operation_type='delete_leads_bulk'
-                        )
-                except Exception as e:
-                    logger.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
-            
-            # Import and enqueue the job function
-            from server.jobs.delete_leads_job import delete_leads_batch_job
+            if bulk_gate:
+                # Acquire lock for this operation
+                lock_acquired = bulk_gate.acquire_lock(
+                    business_id=business_id,
+                    operation_type='delete_leads_bulk',
+                    job_id=bg_job.id
+                )
+                
+                # Record the enqueue
+                bulk_gate.record_enqueue(
+                    business_id=business_id,
+                    operation_type='delete_leads_bulk'
+                )
+        except Exception as e:
+            logger.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
+        
+        # Import and enqueue the job function
+        from server.jobs.delete_leads_job import delete_leads_batch_job
             rq_job = queue.enqueue(
                 delete_leads_batch_job,
                 bg_job.id,

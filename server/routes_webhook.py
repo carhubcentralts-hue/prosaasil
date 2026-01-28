@@ -1,12 +1,17 @@
 """
 WhatsApp Webhook Routes - OPTIMIZED FOR SPEED ⚡
 מסלולי Webhook של WhatsApp - מותאם למהירות מקסימלית
+
+✅ PRODUCTION-READY:
+- Uses unified jobs.py wrapper (no inline Redis/Queue)
+- Atomic deduplication via Redis SETNX
+- ACKs immediately, processes async via RQ
 """
 import os
 import logging
+import uuid
 from flask import Blueprint, request, jsonify
 from server.extensions import csrf
-from threading import Thread
 import time
 from server.services.n8n_integration import n8n_whatsapp_incoming, n8n_whatsapp_outgoing
 from server.services.whatsapp_session_service import update_session_activity
@@ -66,31 +71,42 @@ def whatsapp_incoming():
         messages = events.get('messages', [])
         
         if messages:
-            # ⚡ RQ: Enqueue webhook processing job instead of threading
+            # ✅ RQ: Enqueue webhook processing job with deduplication
             try:
-                from redis import Redis
-                from rq import Queue
-                import os
-                
-                redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-                redis_conn = Redis.from_url(redis_url)
-                queue = Queue('default', connection=redis_conn)
+                from server.services.jobs import enqueue_with_dedupe
+                from server.services.business_resolver import resolve_business_with_fallback
                 
                 # Resolve business_id for faster job processing
-                from server.services.business_resolver import resolve_business_with_fallback
                 business_id, _ = resolve_business_with_fallback('whatsapp', tenant_id)
                 
-                # Enqueue job
-                from server.jobs.webhook_process_job import webhook_process_job
-                queue.enqueue(
-                    webhook_process_job,
-                    tenant_id=tenant_id,
-                    messages=messages,
-                    business_id=business_id,
-                    job_timeout='5m',
-                    result_ttl=3600
-                )
-                logger.info(f"✅ Enqueued webhook_process_job for tenant={tenant_id}, messages={len(messages)}")
+                # Enqueue with deduplication per message
+                for msg in messages:
+                    # Extract message ID for deduplication
+                    message_id = msg.get('key', {}).get('id', '')
+                    if not message_id:
+                        logger.warning(f"⚠️ WhatsApp message without ID, skipping dedupe")
+                        message_id = str(uuid.uuid4())
+                    
+                    # Generate dedupe key: webhook:baileys:{message_id}
+                    dedupe_key = f"webhook:baileys:{message_id}"
+                    
+                    # Enqueue with atomic deduplication
+                    job = enqueue_with_dedupe(
+                        'default',
+                        webhook_process_job,
+                        dedupe_key=dedupe_key,
+                        business_id=business_id,
+                        tenant_id=tenant_id,
+                        messages=[msg],  # Process one message per job for better deduplication
+                        timeout=300,  # 5 minutes
+                        ttl=600  # 10 minutes TTL
+                    )
+                    
+                    if job:
+                        logger.info(f"✅ Enqueued webhook_process_job for tenant={tenant_id}, msg_id={message_id[:8]}")
+                    else:
+                        logger.info(f"⏭️  Skipped duplicate webhook for msg_id={message_id[:8]}")
+                        
             except Exception as e:
                 logger.error(f"❌ Failed to enqueue webhook job: {e}")
                 # Fallback to inline processing if enqueue fails
@@ -378,16 +394,21 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         
                         # Generate conversation summary asynchronously via RQ
                         try:
-                            from redis import Redis
-                            from rq import Queue
+                            from server.services.jobs import enqueue
+                            from server.jobs.summarize_call_job import summarize_conversation_job
                             
-                            redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-                            redis_conn = Redis.from_url(redis_url)
-                            low_queue = Queue('low', connection=redis_conn)
-                            
-                            # Note: conversation_analysis_job needs to be created
-                            # For now, we'll skip this and handle it in the main job
-                            logger.info(f"⏭️ Skipping async conversation analysis (handled in main job)")
+                            # Enqueue conversation analysis job
+                            enqueue(
+                                'low',
+                                summarize_conversation_job,
+                                business_id=business_id,
+                                lead_id=lead.id,
+                                message_text=message_text,
+                                phone_number=phone_number,
+                                timeout=300,
+                                ttl=3600
+                            )
+                            logger.info(f"✅ Enqueued conversation analysis for lead_id={lead.id}")
                         except Exception as e:
                             logger.warning(f"⚠️ Failed to enqueue conversation analysis: {e}")
                         
