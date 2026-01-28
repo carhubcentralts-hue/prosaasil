@@ -15419,87 +15419,88 @@ class MediaStreamHandler:
         Rule: EVERY function_call MUST receive function_response within ≤ 500ms
         """
         import json
-        from google import genai
-        from google.genai import types
+        
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError:
+            logger.error("❌ [GEMINI] google-genai not installed - cannot handle function calls")
+            return
         
         # 🔥 FIX 4: Mark function_call as pending to prevent watchdog disconnect
         self._pending_function_call = True
         
-        # Extract Gemini-specific data
-        gemini_function_calls = event.get('_gemini_function_calls', [])
-        
-        if not gemini_function_calls:
-            logger.warning(f"⚠️ [GEMINI] No function_calls in event")
-            self._pending_function_call = False
-            return
-        
-        logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
-        
-        # Process each function call and build responses
-        function_responses = []
-        
-        for fc_data in gemini_function_calls:
-            function_name = fc_data.get('name', '')
-            call_id = fc_data.get('id', '')
-            args = fc_data.get('args', {})
+        try:
+            # Extract Gemini-specific data
+            gemini_function_calls = event.get('_gemini_function_calls', [])
             
-            logger.info(f"🔧 [GEMINI] Function: {function_name}, ID: {call_id}, Args: {args}")
+            if not gemini_function_calls:
+                logger.warning(f"⚠️ [GEMINI] No function_calls in event")
+                return
             
-            # 🔥 CRITICAL: For unknown/unsupported functions, send error response
-            # Never leave function_call without a response - model gets stuck
-            if not function_name or function_name in ['', 'NO_NAME']:
-                logger.warning(f"⚠️ [GEMINI] Empty or missing function name - responding with error")
+            logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
+            
+            # Process each function call and build responses
+            function_responses = []
+            
+            for fc_data in gemini_function_calls:
+                function_name = fc_data.get('name', '')
+                call_id = fc_data.get('id', '')
+                args = fc_data.get('args', {})
+                
+                logger.info(f"🔧 [GEMINI] Function: {function_name}, ID: {call_id}, Args: {args}")
+                
+                # 🔥 CRITICAL: For unknown/unsupported functions, send error response
+                # Never leave function_call without a response - model gets stuck
+                if not function_name or function_name in ['', 'NO_NAME']:
+                    logger.warning(f"⚠️ [GEMINI] Empty or missing function name - responding with error")
+                    function_response = types.FunctionResponse(
+                        id=call_id,
+                        name=function_name or "unknown",
+                        response={
+                            "success": False,
+                            "error": "No tools available",
+                            "message": "אין כלים זמינים. המשך לענות בלי כלים, רק אודיו."
+                        }
+                    )
+                    function_responses.append(function_response)
+                    continue
+                
+                # For any other unknown function (not in our supported list)
+                # TODO: Add supported function handlers here if needed in the future
+                logger.warning(f"⚠️ [GEMINI] Unknown function '{function_name}' - responding with not_supported")
                 function_response = types.FunctionResponse(
                     id=call_id,
-                    name=function_name or "unknown",
+                    name=function_name,
                     response={
                         "success": False,
-                        "error": "No tools available",
+                        "error": "Function not supported",
                         "message": "אין כלים זמינים. המשך לענות בלי כלים, רק אודיו."
                     }
                 )
                 function_responses.append(function_response)
-                continue
             
-            # For any other unknown function (not in our supported list)
-            # TODO: Add supported function handlers here if needed in the future
-            logger.warning(f"⚠️ [GEMINI] Unknown function '{function_name}' - responding with not_supported")
-            function_response = types.FunctionResponse(
-                id=call_id,
-                name=function_name,
-                response={
-                    "success": False,
-                    "error": "Function not supported",
-                    "message": "אין כלים זמינים. המשך לענות בלי כלים, רק אודיו."
-                }
-            )
-            function_responses.append(function_response)
-        
-        # 🔥 CRITICAL: Send tool_response within 500ms
-        try:
-            await client.send_tool_response(function_responses)
-            logger.info(f"✅ [GEMINI] Sent {len(function_responses)} tool response(s)")
+            # 🔥 CRITICAL: Send tool_response within 500ms
+            try:
+                await client.send_tool_response(function_responses)
+                logger.info(f"✅ [GEMINI] Sent {len(function_responses)} tool response(s)")
+                
+            except Exception as e:
+                logger.error(f"❌ [GEMINI] Failed to send tool_response: {e}")
+                import traceback
+                traceback.print_exc()
             
-            # Clear pending flag - response sent
+            # Send text instruction to continue without tools
+            try:
+                await client.send_text("Continue the conversation. No tools available, respond with audio only.")
+                logger.info(f"📝 [GEMINI] Sent text instruction to continue without tools")
+            except Exception as e:
+                logger.warning(f"⚠️ [GEMINI] Failed to send text instruction: {e}")
+                
+        finally:
+            # 🔥 CRITICAL: Always clear pending flag to prevent permanent blocking
             self._pending_function_call = False
-            
-            # Reset activity timestamp - function_call handling is activity
-            self._last_activity_ts = time.time()
-            logger.debug(f"[WATCHDOG] Activity timestamp reset after function_call")
-            
-        except Exception as e:
-            logger.error(f"❌ [GEMINI] Failed to send tool_response: {e}")
-            import traceback
-            traceback.print_exc()
-            # Clear flag even on error to prevent permanent blocking
-            self._pending_function_call = False
-        
-        # Send text instruction to continue without tools
-        try:
-            await client.send_text("Continue the conversation. No tools available, respond with audio only.")
-            logger.info(f"📝 [GEMINI] Sent text instruction to continue without tools")
-        except Exception as e:
-            logger.warning(f"⚠️ [GEMINI] Failed to send text instruction: {e}")
+            logger.debug(f"[WATCHDOG] Cleared pending_function_call flag")
     
     def _check_lead_complete(self):
         """

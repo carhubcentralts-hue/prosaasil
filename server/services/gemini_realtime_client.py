@@ -215,7 +215,7 @@ class GeminiRealtimeClient:
             config["system_instruction"] = sanitized_instructions
         else:
             # Even without system instructions, add the no-tools instruction
-            config["system_instruction"] = "You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
+            config["system_instruction"] = "IMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
         
         # Add voice if provided
         if voice_id:
