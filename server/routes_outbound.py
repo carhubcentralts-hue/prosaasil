@@ -683,7 +683,9 @@ def cancel_outbound_job(job_id: int):
         
         # 🔒 SECURITY: Double-check business_id matches (defensive programming)
         if tenant_id:
-            assert run.business_id == tenant_id, f"Business ID mismatch: run.business_id={run.business_id} != tenant_id={tenant_id}"
+            if run.business_id != tenant_id:
+                log.error(f"[SECURITY] Business ID mismatch in cancel: run.business_id={run.business_id} != tenant_id={tenant_id}")
+                return jsonify({"error": "אין גישה לתור זה"}), 403
         
         # Check if already cancelled or completed
         if run.status in ('cancelled', 'completed', 'failed', 'stopped'):
@@ -1949,7 +1951,9 @@ def get_run_status(run_id: int):
             return jsonify({"error": "הרצה לא נמצאה"}), 404
         
         # 🔒 SECURITY: Double-check business_id matches (defensive programming)
-        assert run.business_id == tenant_id, f"Business ID mismatch: run.business_id={run.business_id} != tenant_id={tenant_id}"
+        if run.business_id != tenant_id:
+            log.error(f"[SECURITY] Business ID mismatch in get_run_status: run.business_id={run.business_id} != tenant_id={tenant_id}")
+            return jsonify({"error": "הרצה לא נמצאה"}), 404
     
     return jsonify({
         "run_id": run.id,
@@ -2020,7 +2024,9 @@ def stop_queue():
                 return jsonify({"error": "הרצה לא נמצאה"}), 404
             
             # 🔒 SECURITY: Double-check business_id matches (defensive programming)
-            assert run.business_id == tenant_id, f"Business ID mismatch: run.business_id={run.business_id} != tenant_id={tenant_id}"
+            if run.business_id != tenant_id:
+                log.error(f"[SECURITY] Business ID mismatch: run.business_id={run.business_id} != tenant_id={tenant_id}")
+                return jsonify({"error": "הרצה לא נמצאה"}), 404
         else:
             run = OutboundCallRun.query.get(run_id)
             if not run:
@@ -2034,8 +2040,9 @@ def stop_queue():
                 "cancelled_jobs": 0
             })
         
-        # 🔒 STATE MACHINE: Mark as stopped and set ended_at
+        # 🔒 STATE MACHINE: Mark as stopped and set ended_at + cancel_requested
         run.status = "stopped"
+        run.cancel_requested = True  # Also set cancel flag so worker detects stop
         run.ended_at = datetime.utcnow()
         run.completed_at = datetime.utcnow()  # Legacy field
         
@@ -2733,19 +2740,24 @@ def process_bulk_call_run(run_id: int):
                 return
             
             # 🔒 STATE MACHINE: Update from pending to running and set started_at
+            worker_id = f"{socket.gethostname()}:{os.getpid()}"
+            
             if run.status == "pending":
                 run.status = "running"
                 run.started_at = datetime.utcnow()
                 
                 # 🔒 WORKER LOCK: Set worker lock with hostname+pid
-                worker_id = f"{socket.gethostname()}:{os.getpid()}"
                 run.locked_by_worker = worker_id
                 run.lock_ts = datetime.utcnow()
                 db.session.commit()
                 
                 log.info(f"[BulkCall] Run {run_id} started by worker {worker_id} with concurrency={run.concurrency}")
             else:
-                log.info(f"[BulkCall] Resuming run {run_id} with concurrency={run.concurrency}")
+                # 🔒 WORKER LOCK: Update lock fields when resuming
+                run.locked_by_worker = worker_id
+                run.lock_ts = datetime.utcnow()
+                db.session.commit()
+                log.info(f"[BulkCall] Resuming run {run_id} with worker {worker_id}, concurrency={run.concurrency}")
             
             # Get business details
             business = Business.query.get(run.business_id)
@@ -3057,6 +3069,7 @@ def process_bulk_call_run(run_id: int):
                     OutboundCallJob.status.in_(["completed", "failed", "cancelled"])
                 ).count()
                 run.cursor_position = completed_jobs
+                db.session.commit()  # Persist cursor position
                 
                 # Refresh run to get latest counts
                 db.session.refresh(run)
