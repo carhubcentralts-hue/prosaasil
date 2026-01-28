@@ -413,7 +413,13 @@ class GeminiRealtimeClient:
                         logger.info(f"[GEMINI_EVENT_KEYS] {event_attrs}")
                     
                     # Check for setup complete (only yield first time)
-                    if hasattr(server_message, 'setup_complete') and not _setup_complete_seen:
+                    # 🔥 FIX: Support both setupComplete (camelCase) and setup_complete (snake_case)
+                    # Different SDK versions may use different naming conventions
+                    has_setup_complete = (
+                        hasattr(server_message, 'setup_complete') or 
+                        hasattr(server_message, 'setupComplete')
+                    )
+                    if has_setup_complete and not _setup_complete_seen:
                         _setup_complete_seen = True
                         event = {
                             'type': 'setup_complete',
@@ -425,9 +431,14 @@ class GeminiRealtimeClient:
                         yield event
                     
                     # Check for server content (audio/text response)
-                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
-                    if hasattr(server_message, 'server_content'):
-                        content = server_message.server_content
+                    # 🔥 FIX: Support both serverContent (camelCase) and server_content (snake_case)
+                    # Changed from elif to if - messages can have multiple attributes!
+                    has_server_content = (
+                        hasattr(server_message, 'server_content') or 
+                        hasattr(server_message, 'serverContent')
+                    )
+                    if has_server_content:
+                        content = getattr(server_message, 'server_content', None) or getattr(server_message, 'serverContent', None)
                         
                         # Check if it's audio
                         if hasattr(content, 'model_turn') and content.model_turn:
@@ -478,8 +489,13 @@ class GeminiRealtimeClient:
                                     yield event
                     
                     # Check for turn complete
-                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
-                    if hasattr(server_message, 'turn_complete'):
+                    # 🔥 FIX: Support both turnComplete (camelCase) and turn_complete (snake_case)
+                    # Changed from elif to if - messages can have multiple attributes!
+                    has_turn_complete = (
+                        hasattr(server_message, 'turn_complete') or 
+                        hasattr(server_message, 'turnComplete')
+                    )
+                    if has_turn_complete:
                         event = {
                             'type': 'turn_complete',
                             'data': None
@@ -506,15 +522,27 @@ class GeminiRealtimeClient:
                         yield event
                     
                     # Check for function calls
-                    # 🔥 FIX: Changed from elif to if - messages can have multiple attributes!
-                    if hasattr(server_message, 'tool_call'):
-                        tool_call = server_message.tool_call
+                    # 🔥 FIX: Support both toolCall (camelCase) and tool_call (snake_case)
+                    # Changed from elif to if - messages can have multiple attributes!
+                    has_tool_call = (
+                        hasattr(server_message, 'tool_call') or 
+                        hasattr(server_message, 'toolCall')
+                    )
+                    if has_tool_call:
+                        tool_call = getattr(server_message, 'tool_call', None) or getattr(server_message, 'toolCall', None)
                         
                         # 🔥 FIX 1: Log raw function_call payload (MANDATORY)
                         # Extract all details to understand why function name might be empty
+                        # 🔥 CRITICAL: Support both functionCalls (camelCase) and function_calls (snake_case)
                         function_calls = []
-                        if hasattr(tool_call, 'function_calls'):
-                            for fc in tool_call.function_calls:
+                        has_function_calls = (
+                            hasattr(tool_call, 'function_calls') or 
+                            hasattr(tool_call, 'functionCalls')
+                        )
+                        if has_function_calls:
+                            # Get function_calls array from either attribute name
+                            fc_array = getattr(tool_call, 'function_calls', None) or getattr(tool_call, 'functionCalls', None)
+                            for fc in fc_array:
                                 fc_data = {
                                     'id': getattr(fc, 'id', 'NO_ID'),
                                     'name': getattr(fc, 'name', 'NO_NAME'),

@@ -15748,10 +15748,32 @@ class MediaStreamHandler:
             gemini_function_calls = event.get('_gemini_function_calls', [])
             
             if not gemini_function_calls:
-                # 🔥 FIX: This is NOT an error - Gemini sends tool_call events without function_calls
-                # for various reasons (e.g., empty greeting trigger). Don't spam logs.
-                logger.debug(f"[GEMINI] tool_call event has no function_calls (likely empty greeting trigger)")
-                return
+                # 🔥 CRITICAL FIX: Even empty tool_call events need a response
+                # Gemini can send tool_call events without function_calls (e.g., greeting trigger)
+                # According to problem statement: Don't ignore empty tool_calls - they can still
+                # cause the model to wait for a response and get stuck
+                logger.debug(f"[GEMINI] tool_call event has no function_calls (empty/greeting trigger)")
+                
+                # Check if there's a raw tool_call we can extract an ID from
+                raw_tool_call = event.get('_gemini_raw', {})
+                if hasattr(raw_tool_call, 'function_calls') and raw_tool_call.function_calls:
+                    # Try to extract from raw data
+                    logger.debug(f"[GEMINI] Attempting to extract from raw tool_call data")
+                    try:
+                        for fc in raw_tool_call.function_calls:
+                            fc_data = {
+                                'id': getattr(fc, 'id', 'NO_ID'),
+                                'name': getattr(fc, 'name', ''),
+                                'args': getattr(fc, 'args', {})
+                            }
+                            gemini_function_calls.append(fc_data)
+                    except Exception as extract_error:
+                        logger.warning(f"[GEMINI] Failed to extract from raw: {extract_error}")
+                
+                # If still empty after extraction attempt, skip (no ID to respond to)
+                if not gemini_function_calls:
+                    logger.debug(f"[GEMINI] No extractable function_calls, skipping tool_response")
+                    return
             
             logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
             
