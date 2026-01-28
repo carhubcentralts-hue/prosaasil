@@ -94,7 +94,8 @@ export function LeadTabsConfigModal({
   };
 
   const addToSecondary = (tabKey: string) => {
-    if (secondaryTabs.length < 5 && !secondaryTabs.includes(tabKey)) {
+    // No limit on secondary tabs - based on business permissions
+    if (!secondaryTabs.includes(tabKey)) {
       setSecondaryTabs([...secondaryTabs, tabKey]);
       setPrimaryTabs(primaryTabs.filter(k => k !== tabKey));
     }
@@ -199,10 +200,10 @@ export function LeadTabsConfigModal({
             <div className="border border-gray-200 rounded-lg p-4">
               <div className="mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                  טאבים משניים ({secondaryTabs.length}/5)
+                  טאבים משניים ({secondaryTabs.length})
                 </h3>
                 <p className="text-sm text-gray-500">
-                  מוצגים בתפריט "עוד"
+                  מוצגים בתפריט "עוד" - ללא הגבלה
                 </p>
               </div>
 
@@ -267,15 +268,14 @@ export function LeadTabsConfigModal({
                           <Plus className="w-4 h-4 text-blue-600" />
                         </button>
                       )}
-                      {secondaryTabs.length < 5 && (
-                        <button
-                          onClick={() => addToSecondary(tab.key)}
-                          className="p-2 hover:bg-gray-100 rounded transition-colors"
-                          title="הוסף לטאבים משניים"
-                        >
-                          <Plus className="w-4 h-4 text-gray-600" />
-                        </button>
-                      )}
+                      {/* No limit on secondary tabs */}
+                      <button
+                        onClick={() => addToSecondary(tab.key)}
+                        className="p-2 hover:bg-gray-100 rounded transition-colors"
+                        title="הוסף לטאבים משניים"
+                      >
+                        <Plus className="w-4 h-4 text-gray-600" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -287,10 +287,10 @@ export function LeadTabsConfigModal({
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h4 className="font-semibold text-blue-900 mb-2">💡 טיפים</h4>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• טאבים ראשיים מוצגים תמיד בדף הליד</li>
+              <li>• טאבים ראשיים מוצגים תמיד בדף הליד (מקסימום 5)</li>
               <li>• <strong>טאבים משניים - כברירת מחדל מוצגים כל הטאבים</strong> שלא בראשיים</li>
               <li>• ניתן לערוך ולהסיר טאבים משניים לפי הצורך</li>
-              <li>• מקסימום 5 טאבים ראשיים ו-5 משניים (10 סה"כ)</li>
+              <li>• <strong>אין הגבלה על מספר הטאבים המשניים</strong> - לפי ההרשאות של העסק</li>
               <li>• כפתור כחול + מוסיף לראשיים, כפתור אפור + לטאבים משניים</li>
             </ul>
           </div>

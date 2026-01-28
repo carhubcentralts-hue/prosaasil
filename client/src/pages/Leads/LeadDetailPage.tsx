@@ -403,6 +403,40 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 onStatusChange={updateLeadStatus}
                 data-testid="status-dropdown"
               />
+              
+              {/* Primary Action Buttons - Grouped together */}
+              <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1" role="group" aria-label="פעולות ראשיות">
+                <Button 
+                  size="sm"
+                  className="min-h-[44px]"
+                  onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
+                  data-testid="button-call"
+                >
+                  <Phone className="w-4 h-4 ml-2" />
+                  התקשר
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="secondary"
+                  className="min-h-[44px]"
+                  onClick={() => { setEditingReminder(null); setReminderModalOpen(true); }}
+                  data-testid="button-new-task"
+                >
+                  <Clock className="w-4 h-4 ml-2" />
+                  משימה
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="secondary"
+                  className="min-h-[44px]"
+                  onClick={() => setActiveTab('notes')}
+                  data-testid="button-new-note"
+                >
+                  <FileText className="w-4 h-4 ml-2" />
+                  תיעוד
+                </Button>
+              </div>
+              
               <Button 
                 size="sm"
                 className="min-h-[44px] bg-green-600 hover:bg-green-700"
@@ -418,35 +452,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               >
                 <MessageSquare className="w-4 h-4 ml-2" />
                 וואטסאפ
-              </Button>
-              <Button 
-                size="sm"
-                className="min-h-[44px]"
-                onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
-                data-testid="button-call"
-              >
-                <Phone className="w-4 h-4 ml-2" />
-                התקשר
-              </Button>
-              <Button 
-                size="sm" 
-                variant="secondary"
-                className="min-h-[44px]"
-                onClick={() => { setEditingReminder(null); setReminderModalOpen(true); }}
-                data-testid="button-new-task"
-              >
-                <Clock className="w-4 h-4 ml-2" />
-                משימה
-              </Button>
-              <Button 
-                size="sm" 
-                variant="secondary"
-                className="min-h-[44px]"
-                onClick={() => setActiveTab('notes')}
-                data-testid="button-new-note"
-              >
-                <FileText className="w-4 h-4 ml-2" />
-                תיעוד
               </Button>
             </div>
           </div>
@@ -487,8 +492,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       <div className="bg-white border-b border-gray-200 sticky top-[73px] lg:top-[81px] z-10" style={{ direction: 'rtl' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-3 py-3">
-            {/* Primary Tabs - Segmented Control */}
-            <div className="flex items-center bg-gray-100 rounded-lg p-1 flex-1 max-w-md">
+            {/* Primary Tabs - Segmented Control - No max-width, scrollable if needed */}
+            <div className="flex items-center bg-gray-100 rounded-lg p-1 flex-1 overflow-x-auto">
               {primaryTabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.key;
@@ -497,8 +502,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key as TabKey)}
                     className={`
-                      flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-md text-sm font-medium transition-all
-                      min-h-[44px]
+                      flex items-center justify-center gap-2 py-2.5 px-3 rounded-md text-sm font-medium transition-all whitespace-nowrap flex-shrink-0
+                      min-h-[44px] min-w-[100px]
                       ${isActive
                         ? 'bg-white text-blue-600 shadow-sm'
                         : 'text-gray-600 hover:text-gray-900'

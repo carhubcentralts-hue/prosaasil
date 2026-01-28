@@ -32,14 +32,14 @@ export function deduplicateTabsConfig(
  * @param primaryTabs - Array of primary tab keys
  * @param secondaryTabs - Array of secondary tab keys
  * @param maxPrimary - Maximum number of primary tabs (default: 5)
- * @param maxSecondary - Maximum number of secondary tabs (default: 5)
+ * @param maxSecondary - Maximum number of secondary tabs (default: unlimited)
  * @returns Error message if invalid, null if valid
  */
 export function validateTabsConfig(
   primaryTabs: string[],
   secondaryTabs: string[],
   maxPrimary: number = 5,
-  maxSecondary: number = 5
+  maxSecondary: number | null = null
 ): string | null {
   if (primaryTabs.length === 0) {
     return 'חובה לבחור לפחות טאב אחד ראשי';
@@ -49,7 +49,8 @@ export function validateTabsConfig(
     return `ניתן לבחור עד ${maxPrimary} טאבים ראשיים`;
   }
   
-  if (secondaryTabs.length > maxSecondary) {
+  // Secondary tabs now have no limit (null means unlimited)
+  if (maxSecondary !== null && secondaryTabs.length > maxSecondary) {
     return `ניתן לבחור עד ${maxSecondary} טאבים משניים`;
   }
   
