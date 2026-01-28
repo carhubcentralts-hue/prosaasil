@@ -3212,6 +3212,34 @@ def get_broadcast_status(broadcast_id):
             business_id=business_id
         ).first_or_404()
         
+        # ✅ FIX: Detect stale broadcasts and auto-mark as failed
+        STALE_THRESHOLD_SECONDS = 5 * 60  # 5 minutes
+        is_stale = False
+        
+        if broadcast.status == 'running':
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            
+            # Use updated_at as heartbeat (broadcasts update this field on progress)
+            last_activity = broadcast.updated_at or broadcast.started_at or broadcast.created_at
+            
+            # Ensure timezone-aware
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(tzinfo=timezone.utc)
+            
+            seconds_since_update = int((now - last_activity).total_seconds())
+            
+            if seconds_since_update > STALE_THRESHOLD_SECONDS:
+                is_stale = True
+                log.warning(f"⚠️ STALE BROADCAST DETECTED: broadcast_id={broadcast.id}, business_id={business_id}, "
+                           f"seconds_since_update={seconds_since_update}")
+                
+                # Auto-mark as failed to prevent stuck progress bars
+                broadcast.status = 'failed'
+                broadcast.completed_at = now
+                db.session.commit()
+                log.info(f"✅ Auto-marked stale broadcast as failed: broadcast_id={broadcast.id}")
+        
         # Get detailed recipient status (paginated)
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
