@@ -42,6 +42,7 @@ interface Appointment {
   contact_phone?: string;
   customer_id?: number;
   lead_id?: number;  // ✅ NEW: Link to lead for navigation
+  calendar_id?: number;  // ✅ NEW: Link to calendar
   source: 'manual' | 'phone_call' | 'whatsapp' | 'ai_suggested';
   auto_generated: boolean;
   call_summary?: string;  // ✅ BUILD 144: AI-generated summary from source call
@@ -61,6 +62,36 @@ interface AppointmentForm {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   contact_name: string;
   contact_phone: string;
+  calendar_id?: number;
+}
+
+interface BusinessCalendar {
+  id: number;
+  business_id: number;
+  name: string;
+  type_key?: string;
+  provider: string;
+  calendar_external_id?: string;
+  is_active: boolean;
+  priority: number;
+  default_duration_minutes: number;
+  buffer_before_minutes: number;
+  buffer_after_minutes: number;
+  allowed_tags: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface CalendarForm {
+  name: string;
+  type_key: string;
+  provider: string;
+  is_active: boolean;
+  priority: number;
+  default_duration_minutes: number;
+  buffer_before_minutes: number;
+  buffer_after_minutes: number;
+  allowed_tags: string[];
 }
 
 const APPOINTMENT_TYPES: Record<string, { label: string; color: string }> = {
@@ -224,6 +255,24 @@ export function CalendarPage() {
     contact_phone: ''
   });
 
+  // Calendar management states
+  const [activeTab, setActiveTab] = useState<'appointments' | 'calendars'>('appointments');
+  const [calendars, setCalendars] = useState<BusinessCalendar[]>([]);
+  const [loadingCalendars, setLoadingCalendars] = useState(false);
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [editingCalendar, setEditingCalendar] = useState<BusinessCalendar | null>(null);
+  const [calendarFormData, setCalendarFormData] = useState<CalendarForm>({
+    name: '',
+    type_key: '',
+    provider: 'internal',
+    is_active: true,
+    priority: 0,
+    default_duration_minutes: 60,
+    buffer_before_minutes: 0,
+    buffer_after_minutes: 0,
+    allowed_tags: []
+  });
+
   // Fetch appointments using the proper HTTP client
   const fetchAppointments = async () => {
     try {
@@ -241,6 +290,98 @@ export function CalendarPage() {
   useEffect(() => {
     fetchAppointments();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'calendars') {
+      fetchCalendars();
+    }
+  }, [activeTab]);
+
+  // Fetch calendars
+  const fetchCalendars = async () => {
+    try {
+      setLoadingCalendars(true);
+      const data = await http.get<{calendars: BusinessCalendar[]}>('/api/calendar/calendars');
+      setCalendars(data.calendars || []);
+    } catch (error) {
+      console.error('שגיאה בטעינת לוחות שנה:', error);
+    } finally {
+      setLoadingCalendars(false);
+    }
+  };
+
+  // Create or update calendar
+  const handleSaveCalendar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingCalendar) {
+        // Update existing calendar
+        await http.put(`/api/calendar/calendars/${editingCalendar.id}`, calendarFormData);
+      } else {
+        // Create new calendar
+        await http.post('/api/calendar/calendars', calendarFormData);
+      }
+      await fetchCalendars();
+      closeCalendarModal();
+    } catch (error) {
+      console.error('שגיאה בשמירת לוח שנה:', error);
+      alert('שגיאה בשמירת לוח השנה. אנא נסה שוב.');
+    }
+  };
+
+  // Delete calendar
+  const handleDeleteCalendar = async (calendarId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק לוח שנה זה?')) {
+      return;
+    }
+    try {
+      await http.delete(`/api/calendar/calendars/${calendarId}`);
+      await fetchCalendars();
+    } catch (error) {
+      console.error('שגיאה במחיקת לוח שנה:', error);
+      alert('שגיאה במחיקת לוח השנה. ייתכן שלא ניתן למחוק את לוח השנה היחיד הפעיל.');
+    }
+  };
+
+  // Open calendar modal for creating
+  const openNewCalendarModal = () => {
+    setEditingCalendar(null);
+    setCalendarFormData({
+      name: '',
+      type_key: '',
+      provider: 'internal',
+      is_active: true,
+      priority: 0,
+      default_duration_minutes: 60,
+      buffer_before_minutes: 0,
+      buffer_after_minutes: 0,
+      allowed_tags: []
+    });
+    setShowCalendarModal(true);
+  };
+
+  // Open calendar modal for editing
+  const openEditCalendarModal = (calendar: BusinessCalendar) => {
+    setEditingCalendar(calendar);
+    setCalendarFormData({
+      name: calendar.name,
+      type_key: calendar.type_key || '',
+      provider: calendar.provider,
+      is_active: calendar.is_active,
+      priority: calendar.priority,
+      default_duration_minutes: calendar.default_duration_minutes,
+      buffer_before_minutes: calendar.buffer_before_minutes,
+      buffer_after_minutes: calendar.buffer_after_minutes,
+      allowed_tags: calendar.allowed_tags || []
+    });
+    setShowCalendarModal(true);
+  };
+
+  // Close calendar modal
+  const closeCalendarModal = () => {
+    setShowCalendarModal(false);
+    setEditingCalendar(null);
+  };
 
   // Filter appointments based on search, filters, and date
   const filteredAppointments = appointments.filter(appointment => {
@@ -431,6 +572,8 @@ export function CalendarPage() {
       contact_name: '',
       contact_phone: ''
     });
+    // Always fetch calendars to ensure up-to-date list
+    fetchCalendars();
     setShowAppointmentModal(true);
   };
 
@@ -474,8 +617,11 @@ export function CalendarPage() {
       appointment_type: appointment.appointment_type,
       priority: appointment.priority,
       contact_name: appointment.contact_name || '',
-      contact_phone: appointment.contact_phone || ''
+      contact_phone: appointment.contact_phone || '',
+      calendar_id: appointment.calendar_id
     });
+    // Always fetch calendars to ensure up-to-date list
+    fetchCalendars();
     setShowAppointmentModal(true);
   };
 
@@ -488,38 +634,86 @@ export function CalendarPage() {
   return (
     <div className="mx-auto max-w-7xl w-full p-4 md:p-6 flex flex-col gap-6 min-h-[calc(100svh-64px)] pb-24">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">
-            לוח שנה
-          </h1>
-          <p className="text-slate-600">
-            ניהול פגישות ומעקב פעילות יומית
-          </p>
+      <div className="flex flex-col gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">
+              לוח שנה
+            </h1>
+            <p className="text-slate-600">
+              {activeTab === 'appointments' ? 'ניהול פגישות ומעקב פעילות יומית' : 'ניהול לוחות שנה מרובים'}
+            </p>
+          </div>
+          <div className="flex gap-3 w-full sm:w-auto">
+            {activeTab === 'appointments' && (
+              <button
+                className="btn-ghost flex-1 sm:flex-none md:hidden"
+                onClick={() => setShowFilters(!showFilters)}
+                data-testid="button-toggle-filters"
+              >
+                <Filter className="h-5 w-5 mr-2" />
+                סינון
+              </button>
+            )}
+            {activeTab === 'appointments' && (
+              <button
+                className="btn-primary flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
+                onClick={openNewAppointmentModal}
+                data-testid="button-new-appointment"
+              >
+                <Plus className="h-5 w-5 flex-shrink-0" />
+                <span className="hidden sm:inline font-medium">פגישה חדשה</span>
+                <span className="sm:hidden font-medium">פגישה</span>
+              </button>
+            )}
+            {activeTab === 'calendars' && (
+              <button
+                className="btn-primary flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
+                onClick={openNewCalendarModal}
+                data-testid="button-new-calendar"
+              >
+                <Plus className="h-5 w-5 flex-shrink-0" />
+                <span className="font-medium">לוח שנה חדש</span>
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex gap-3 w-full sm:w-auto">
+
+        {/* Tab Navigation */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-1 flex gap-1">
           <button
-            className="btn-ghost flex-1 sm:flex-none md:hidden"
-            onClick={() => setShowFilters(!showFilters)}
-            data-testid="button-toggle-filters"
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${
+              activeTab === 'appointments'
+                ? 'bg-blue-500 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+            onClick={() => setActiveTab('appointments')}
+            data-testid="tab-appointments"
           >
-            <Filter className="h-5 w-5 mr-2" />
-            סינון
+            <div className="flex items-center justify-center gap-2">
+              <CalendarIcon className="h-5 w-5" />
+              <span>פגישות</span>
+            </div>
           </button>
           <button
-            className="btn-primary flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
-            onClick={openNewAppointmentModal}
-            data-testid="button-new-appointment"
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${
+              activeTab === 'calendars'
+                ? 'bg-blue-500 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+            onClick={() => setActiveTab('calendars')}
+            data-testid="tab-calendars"
           >
-            <Plus className="h-5 w-5 flex-shrink-0" />
-            <span className="hidden sm:inline font-medium">פגישה חדשה</span>
-            <span className="sm:hidden font-medium">פגישה</span>
+            <div className="flex items-center justify-center gap-2">
+              <Calendar className="h-5 w-5" />
+              <span>לוחות שנה</span>
+            </div>
           </button>
         </div>
       </div>
 
       {/* Mobile Filters */}
-      {showFilters && (
+      {activeTab === 'appointments' && showFilters && (
         <div className="md:hidden bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 space-y-4">
           <div className="grid grid-cols-1 gap-4">
             <div className="relative overflow-hidden">
@@ -623,6 +817,7 @@ export function CalendarPage() {
       )}
 
       {/* Desktop Filters */}
+      {activeTab === 'appointments' && (
       <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
         <div className="flex flex-wrap items-center gap-4 overflow-x-auto">
           {/* Search */}
@@ -729,9 +924,10 @@ export function CalendarPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Calendar Display */}
-      {currentView === 'month' && (
+      {activeTab === 'appointments' && currentView === 'month' && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           {/* Calendar Header */}
           <div className="flex items-center justify-between p-3 md:p-6 border-b border-slate-200 overflow-hidden">
@@ -838,6 +1034,7 @@ export function CalendarPage() {
       )}
 
       {/* Appointments List */}
+      {activeTab === 'appointments' && (
       <div className="mt-6 md:mt-8 bg-white rounded-xl shadow-sm border border-slate-200">
         <div className="p-4 md:p-6 border-b border-slate-200">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -1059,6 +1256,133 @@ export function CalendarPage() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Calendars Management View */}
+      {activeTab === 'calendars' && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+          <div className="p-4 md:p-6 border-b border-slate-200">
+            <h2 className="text-xl font-semibold text-slate-900">לוחות שנה</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              נהל מספר לוחות שנה לעסק שלך עם הגדרות ייחודיות לכל אחד
+            </p>
+          </div>
+
+          {loadingCalendars ? (
+            <div className="p-8 flex justify-center items-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p className="text-slate-600">טוען לוחות שנה...</p>
+              </div>
+            </div>
+          ) : calendars.length === 0 ? (
+            <div className="p-8 text-center">
+              <Calendar className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-slate-900 mb-2">אין לוחות שנה</h3>
+              <p className="text-slate-600 mb-6">
+                טרם נוספו לוחות שנה למערכת. לחץ על הכפתור למעלה כדי ליצור לוח שנה חדש
+              </p>
+            </div>
+          ) : (
+            <div className="p-4 md:p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {calendars.map((calendar) => (
+                  <div 
+                    key={calendar.id}
+                    className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-slate-900 mb-1">{calendar.name}</h3>
+                        {calendar.type_key && (
+                          <span className="text-xs text-slate-500">
+                            {calendar.type_key}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openEditCalendarModal(calendar)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="ערוך"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCalendar(calendar.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="מחק"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">ספק:</span>
+                        <span className="font-medium text-slate-900">
+                          {calendar.provider === 'internal' ? 'פנימי' : calendar.provider}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">סטטוס:</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          calendar.is_active 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {calendar.is_active ? 'פעיל' : 'לא פעיל'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">עדיפות:</span>
+                        <span className="font-medium text-slate-900">{calendar.priority}</span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">משך ברירת מחדל:</span>
+                        <span className="font-medium text-slate-900">
+                          {calendar.default_duration_minutes} דקות
+                        </span>
+                      </div>
+
+                      {(calendar.buffer_before_minutes > 0 || calendar.buffer_after_minutes > 0) && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600">חיץ זמן:</span>
+                          <span className="font-medium text-slate-900">
+                            {calendar.buffer_before_minutes > 0 && `${calendar.buffer_before_minutes} לפני`}
+                            {calendar.buffer_before_minutes > 0 && calendar.buffer_after_minutes > 0 && ' / '}
+                            {calendar.buffer_after_minutes > 0 && `${calendar.buffer_after_minutes} אחרי`}
+                          </span>
+                        </div>
+                      )}
+
+                      {calendar.allowed_tags && calendar.allowed_tags.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-slate-200">
+                          <span className="text-xs text-slate-600 block mb-1">תגיות:</span>
+                          <div className="flex flex-wrap gap-1">
+                            {calendar.allowed_tags.map((tag, idx) => (
+                              <span 
+                                key={idx}
+                                className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Appointment Modal */}
       {showAppointmentModal && (
@@ -1212,6 +1536,29 @@ export function CalendarPage() {
                   </select>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    לוח שנה
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.calendar_id || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const parsed = value ? parseInt(value, 10) : undefined;
+                      setFormData({...formData, calendar_id: parsed && !isNaN(parsed) ? parsed : undefined});
+                    }}
+                    data-testid="select-calendar"
+                  >
+                    <option value="">בחר לוח שנה (אופציונלי)</option>
+                    {calendars.filter(c => c.is_active).map(calendar => (
+                      <option key={calendar.id} value={calendar.id}>
+                        {calendar.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-slate-900 mb-2">
                     תיאור
@@ -1242,6 +1589,183 @@ export function CalendarPage() {
                 >
                   <Save className="h-5 w-5 mr-2" />
                   {editingAppointment ? 'עדכן פגישה' : 'צור פגישה'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Calendar Modal */}
+      {showCalendarModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-4 md:p-6 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-lg md:text-xl font-semibold text-slate-900">
+                {editingCalendar ? 'עריכת לוח שנה' : 'לוח שנה חדש'}
+              </h3>
+              <button
+                className="btn-ghost p-2"
+                onClick={closeCalendarModal}
+                data-testid="button-close-calendar-modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCalendar} className="p-4 md:p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    שם לוח השנה <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={calendarFormData.name}
+                    onChange={(e) => setCalendarFormData({...calendarFormData, name: e.target.value})}
+                    placeholder="לדוגמה: פגישות, הובלות, מרפאה"
+                    required
+                    data-testid="input-calendar-name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    מזהה סוג (אופציונלי)
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={calendarFormData.type_key}
+                    onChange={(e) => setCalendarFormData({...calendarFormData, type_key: e.target.value})}
+                    placeholder="לדוגמה: meetings, moves"
+                    data-testid="input-calendar-type-key"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    ספק לוח שנה
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={calendarFormData.provider}
+                    onChange={(e) => setCalendarFormData({...calendarFormData, provider: e.target.value})}
+                    data-testid="select-calendar-provider"
+                  >
+                    <option value="internal">פנימי</option>
+                    <option value="google">Google Calendar</option>
+                    <option value="outlook">Outlook Calendar</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    עדיפות
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={calendarFormData.priority}
+                    onChange={(e) => setCalendarFormData({...calendarFormData, priority: parseInt(e.target.value) || 0})}
+                    placeholder="0"
+                    data-testid="input-calendar-priority"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">עדיפות גבוהה יותר = מועדף יותר</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    משך ברירת מחדל (דקות)
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={calendarFormData.default_duration_minutes}
+                    onChange={(e) => setCalendarFormData({...calendarFormData, default_duration_minutes: parseInt(e.target.value) || 60})}
+                    min="1"
+                    required
+                    data-testid="input-calendar-duration"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    חיץ לפני (דקות)
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={calendarFormData.buffer_before_minutes}
+                    onChange={(e) => setCalendarFormData({...calendarFormData, buffer_before_minutes: parseInt(e.target.value) || 0})}
+                    min="0"
+                    data-testid="input-calendar-buffer-before"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    חיץ אחרי (דקות)
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={calendarFormData.buffer_after_minutes}
+                    onChange={(e) => setCalendarFormData({...calendarFormData, buffer_after_minutes: parseInt(e.target.value) || 0})}
+                    min="0"
+                    data-testid="input-calendar-buffer-after"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                      checked={calendarFormData.is_active}
+                      onChange={(e) => setCalendarFormData({...calendarFormData, is_active: e.target.checked})}
+                      data-testid="checkbox-calendar-active"
+                    />
+                    <span className="text-sm font-medium text-slate-900">לוח שנה פעיל</span>
+                  </label>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    תגיות מותרות (הפרד בפסיקים)
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={calendarFormData.allowed_tags.join(', ')}
+                    onChange={(e) => setCalendarFormData({
+                      ...calendarFormData, 
+                      allowed_tags: e.target.value.split(',').map(t => t.trim()).filter(t => t)
+                    })}
+                    placeholder="פגישה, ייעוץ, טיפול"
+                    data-testid="input-calendar-tags"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">תגיות לסיוע לניתוב AI</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4 border-t border-slate-200 mt-6">
+                <button
+                  type="button"
+                  className="btn-ghost flex-1 sm:flex-none"
+                  onClick={closeCalendarModal}
+                  data-testid="button-cancel-calendar"
+                >
+                  ביטול
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary flex-1 sm:flex-none"
+                  data-testid="button-save-calendar"
+                >
+                  <Save className="h-5 w-5 mr-2" />
+                  {editingCalendar ? 'עדכן לוח שנה' : 'צור לוח שנה'}
                 </button>
               </div>
             </form>
