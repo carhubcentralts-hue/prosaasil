@@ -1,6 +1,7 @@
 # RQ Timeout Parameter Fix - VERIFIED ✅
+# Android LID Fix - IMPLEMENTED ✅
 
-## Problem
+## Problem #1: RQ Timeout (Verified Fixed)
 Jobs enqueued via the `enqueue()` wrapper function were failing with:
 ```
 TypeError: reminders_tick_job() got an unexpected keyword argument 'timeout'
@@ -11,10 +12,27 @@ This was causing:
 - WhatsApp bot to stop responding 
 - All background jobs to fail (reminders, webhooks, recordings, etc.)
 
+## Problem #2: Android LID Not Handled (FIXED!)
+**This was the REAL issue for Android not responding!**
+
+Android devices use **LID (Linked ID)** format: `phone@lid` instead of `phone@s.whatsapp.net`
+
+The webhook handler received Android messages but couldn't reply because:
+- Android sends with `remoteJid` ending in `@lid`
+- Code tried to send reply back to `@lid` JID
+- Baileys can't send to `@lid` - needs the actual `participant` JID
+- Result: Bot received message but couldn't respond
+
+**Why iPhone worked but Android didn't:**
+- iPhone uses standard JID format: `phone@s.whatsapp.net` ✅
+- Android uses LID format: `phone@lid` ❌ (not handled)
+
 ## Root Cause
 The `enqueue()` function was passing `timeout` to RQ's `queue.enqueue()`, but RQ expects the parameter to be named `job_timeout`. Any unrecognized parameters are passed through to the job function as kwargs, causing the error.
 
 ## Solution
+
+### Fix #1: RQ Timeout (Already Correct)
 Changed the `enqueue()` function in `server/services/jobs.py` to use `job_timeout` instead of `timeout` when building the job configuration.
 
 **File**: `server/services/jobs.py`, Line 190
@@ -33,6 +51,31 @@ job_kwargs = {
     ...
 }
 ```
+
+### Fix #2: Android LID Handling (NEW FIX!)
+**File**: `server/jobs/webhook_process_job.py`, Lines 88-111
+
+**Change**:
+```python
+# BEFORE: Didn't handle Android LID
+jid = from_jid  # Use remoteJid directly, DO NOT reconstruct
+
+# AFTER: Handles Android LID correctly!
+if from_jid.endswith('@lid'):
+    # Android LID - extract the participant (real sender JID)
+    participant_jid = msg.get('key', {}).get('participant')
+    if participant_jid:
+        jid = participant_jid  # ✅ Use actual JID for reply
+        logger.info(f"📱 [ANDROID_LID] ... using_participant={jid}")
+    else:
+        # Fallback: construct JID from phone number
+        jid = f"{phone_number}@s.whatsapp.net"
+        logger.warning(f"⚠️ [ANDROID_LID_FALLBACK] ... using_phone={jid}")
+else:
+    jid = from_jid  # Regular JID (iPhone, etc.)
+```
+
+**This is THE fix that makes Android work!**
 
 ## Verification ✅
 
