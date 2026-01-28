@@ -423,13 +423,59 @@ def _start_bulk_queue(tenant_id: int, lead_ids: list, project_id: int = None) ->
         
         log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={MAX_OUTBOUND_CALLS_PER_BUSINESS}, project_id={project_id}")
         
-        # Start background worker to process the queue
-        # Note: Using daemon thread is safe here because:
-        # 1. All state is persisted in database (OutboundCallRun, OutboundCallJob)
-        # 2. cleanup_stuck_dialing_jobs() handles any interrupted jobs on restart
-        # 3. This matches the pattern used in bulk_enqueue_outbound_calls endpoint
-        thread = Thread(target=process_bulk_call_run, args=(run.id,), daemon=True)
-        thread.start()
+        # 🔥 CRITICAL FIX: DO NOT start thread-based consumer
+        # Instead, enqueue to RQ worker to ensure single consumer pattern
+        # This prevents duplicate processing when both thread AND RQ worker run
+        try:
+            from rq import Queue
+            import redis
+            import os
+            
+            REDIS_URL = os.getenv('REDIS_URL')
+            if not REDIS_URL:
+                log.error("REDIS_URL not configured, cannot enqueue outbound calls job")
+                # Fallback: Mark run as failed
+                run.status = "failed"
+                run.last_error = "Redis not configured"
+                db.session.commit()
+                return jsonify({"error": "תור השיחות אינו זמין"}), 503
+            
+            redis_conn = redis.from_url(REDIS_URL)
+            queue = Queue('default', connection=redis_conn)
+            
+            # Create BackgroundJob for tracking
+            from server.models_sql import BackgroundJob
+            bg_job = BackgroundJob()
+            bg_job.business_id = tenant_id
+            bg_job.job_type = 'enqueue_outbound_calls'
+            bg_job.status = 'queued'
+            bg_job.total = len(lead_ids)
+            bg_job.cursor = json.dumps({'run_id': run.id})
+            bg_job.created_at = datetime.utcnow()
+            db.session.add(bg_job)
+            db.session.flush()
+            
+            # Enqueue to RQ worker
+            from server.jobs.enqueue_outbound_calls_job import enqueue_outbound_calls_batch_job
+            job = queue.enqueue(
+                enqueue_outbound_calls_batch_job,
+                bg_job.id,
+                job_timeout='2h',
+                failure_ttl=86400
+            )
+            
+            bg_job.rq_job_id = job.id
+            db.session.commit()
+            
+            log.info(f"✅ Enqueued outbound calls job {bg_job.id} (RQ job {job.id}) for run {run.id}")
+            
+        except Exception as e:
+            log.error(f"Failed to enqueue outbound calls job: {e}")
+            # Mark run as failed
+            run.status = "failed"
+            run.last_error = f"Failed to enqueue: {str(e)}"
+            db.session.commit()
+            return jsonify({"error": "שגיאה בהוספת שיחות לתור"}), 500
         
         return jsonify({
             "success": True,
@@ -3034,11 +3080,22 @@ def process_bulk_call_run(run_id: int):
             
             run = OutboundCallRun.query.get(run_id)
             if not run:
-                log.error(f"Run {run_id} not found")
+                log.error(f"[WORKER] Run {run_id} not found - consumer_source=rq")
                 return
             
             # 🔒 STATE MACHINE: Update from pending to running and set started_at
             worker_id = f"{socket.gethostname()}:{os.getpid()}"
+            
+            # 🔥 ANTI-DUPLICATE LOGGING: Track worker ID and lock acquisition
+            log.info("=" * 70)
+            log.info(f"[WORKER] OUTBOUND_CONSUMER_START")
+            log.info(f"  → WORKER_ID: {worker_id}")
+            log.info(f"  → run_id: {run_id}")
+            log.info(f"  → business_id: {run.business_id}")
+            log.info(f"  → consumer_source: rq_worker")
+            log.info(f"  → current_run_status: {run.status}")
+            log.info(f"  → current_locked_by: {run.locked_by_worker}")
+            log.info("=" * 70)
             
             if run.status == "pending":
                 run.status = "running"
@@ -3050,14 +3107,14 @@ def process_bulk_call_run(run_id: int):
                 run.last_heartbeat_at = datetime.utcnow()  # Initialize heartbeat
                 db.session.commit()
                 
-                log.info(f"[BulkCall] Run {run_id} started by worker {worker_id} with concurrency={run.concurrency}")
+                log.info(f"[WORKER] lock_acquired=true run_id={run_id} worker={worker_id} concurrency={run.concurrency}")
             else:
                 # 🔒 WORKER LOCK: Update lock fields when resuming
                 run.locked_by_worker = worker_id
                 run.lock_ts = datetime.utcnow()
                 run.last_heartbeat_at = datetime.utcnow()  # Initialize heartbeat on resume
                 db.session.commit()
-                log.info(f"[BulkCall] Resuming run {run_id} with worker {worker_id}, concurrency={run.concurrency}")
+                log.info(f"[WORKER] lock_acquired=true (resume) run_id={run_id} worker={worker_id} concurrency={run.concurrency}")
             
             # Get business details
             business = Business.query.get(run.business_id)
@@ -3136,11 +3193,23 @@ def process_bulk_call_run(run_id: int):
                         db.session.commit()
                     break
                 
-                # Get next queued job
-                next_job = OutboundCallJob.query.filter_by(
-                    run_id=run_id,
-                    status="queued"
-                ).order_by(OutboundCallJob.id).first()
+                # 🔒 DB LOCK: Get next queued job with SELECT FOR UPDATE SKIP LOCKED
+                # This prevents multiple workers from picking the same job
+                # SKIP LOCKED means if another worker has locked a row, we skip it and get the next one
+                next_job = db.session.execute(text("""
+                    SELECT id, run_id, lead_id, business_id, status 
+                    FROM outbound_call_jobs
+                    WHERE run_id = :run_id 
+                        AND status = 'queued'
+                        AND business_id = :business_id
+                    ORDER BY id
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                """), {"run_id": run_id, "business_id": run.business_id}).first()
+                
+                if next_job:
+                    # Convert to ORM object
+                    next_job = OutboundCallJob.query.get(next_job[0])
                 
                 if next_job:
                     # 🔥 SEMAPHORE: Try to acquire slot before starting call
@@ -3251,7 +3320,15 @@ def process_bulk_call_run(run_id: int):
                             is_duplicate = result.get("is_duplicate", False)
                             
                             if is_duplicate:
-                                log.warning(f"[BulkCall] [DEDUP] Duplicate call detected for job {next_job.id}, skipping")
+                                log.warning("=" * 70)
+                                log.warning(f"[WORKER] DEDUP_CONFLICT detected")
+                                log.warning(f"  → WORKER_ID: {worker_id}")
+                                log.warning(f"  → run_id: {run_id}")
+                                log.warning(f"  → job_id: {next_job.id}")
+                                log.warning(f"  → lead_id: {lead.id}")
+                                log.warning(f"  → dedup_conflict: true")
+                                log.warning(f"  → action: skipping_duplicate")
+                                log.warning("=" * 70)
                                 continue
                             
                             # 🔒 ATOMIC UPDATE: Update with Twilio call SID only if lock token matches
@@ -3601,6 +3678,133 @@ def cleanup_stuck_jobs_endpoint():
     except Exception as e:
         log.error(f"Error in cleanup endpoint: {e}")
         return jsonify({"error": "שגיאה בניקוי משימות"}), 500
+
+
+@outbound_bp.route("/api/outbound/runs/reconcile", methods=["POST"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calls_outbound')
+def reconcile_stuck_runs():
+    """
+    🔧 Reconcile stuck runs - fix runs showing as active when they're not
+    
+    This endpoint:
+    1. Finds runs with status=running/pending but no active jobs
+    2. Marks them as completed or failed based on their actual state
+    3. Clears worker locks
+    4. Fixes job counts
+    
+    This is useful when:
+    - UI shows progress but no calls are actually happening
+    - Worker died and didn't clean up properly
+    - Database got into inconsistent state
+    
+    Returns:
+    {
+        "success": true,
+        "reconciled_count": 3,
+        "runs": [
+            {"run_id": 123, "status": "completed", "reason": "No active jobs"},
+            ...
+        ]
+    }
+    """
+    from flask import session
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            # System admin can reconcile across all tenants
+            tenant_id = None
+        else:
+            return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        reconciled = []
+        
+        # Find runs that are marked as running/pending but have no active jobs
+        query = OutboundCallRun.query.filter(
+            OutboundCallRun.status.in_(['running', 'pending'])
+        )
+        
+        if tenant_id:
+            query = query.filter(OutboundCallRun.business_id == tenant_id)
+        
+        stuck_runs = query.all()
+        
+        for run in stuck_runs:
+            # Count active jobs
+            active_jobs = OutboundCallJob.query.filter(
+                OutboundCallJob.run_id == run.id,
+                OutboundCallJob.status.in_(['queued', 'dialing', 'calling'])
+            ).count()
+            
+            # Count completed/failed jobs
+            completed_jobs = OutboundCallJob.query.filter(
+                OutboundCallJob.run_id == run.id,
+                OutboundCallJob.status.in_(['completed', 'failed'])
+            ).count()
+            
+            # If no active jobs, reconcile the run
+            if active_jobs == 0:
+                old_status = run.status
+                
+                # Determine new status based on completed jobs
+                if completed_jobs >= run.total_leads:
+                    # All jobs are done
+                    run.status = 'completed'
+                    reason = 'All jobs completed'
+                elif completed_jobs > 0:
+                    # Some jobs completed, some failed or never started
+                    run.status = 'completed'
+                    reason = f'{completed_jobs}/{run.total_leads} jobs completed'
+                else:
+                    # No jobs completed at all
+                    run.status = 'failed'
+                    run.last_error = 'No jobs were processed'
+                    reason = 'No jobs processed'
+                
+                # Clear worker lock
+                run.locked_by_worker = None
+                run.lock_ts = None
+                run.last_heartbeat_at = None
+                
+                # Set ended_at if not set
+                if not run.ended_at:
+                    run.ended_at = datetime.utcnow()
+                    run.completed_at = datetime.utcnow()
+                
+                # Update counts to match reality
+                run.queued_count = 0
+                run.in_progress_count = 0
+                
+                db.session.commit()
+                
+                reconciled.append({
+                    'run_id': run.id,
+                    'old_status': old_status,
+                    'new_status': run.status,
+                    'reason': reason,
+                    'completed_jobs': completed_jobs,
+                    'total_leads': run.total_leads
+                })
+                
+                log.info(f"[RECONCILE] Run {run.id}: {old_status} → {run.status} ({reason})")
+        
+        return jsonify({
+            "success": True,
+            "reconciled_count": len(reconciled),
+            "runs": reconciled,
+            "message": f"תוקנו {len(reconciled)} ריצות תקועות"
+        })
+        
+    except Exception as e:
+        log.error(f"Error in reconcile endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({"error": "שגיאה בתיקון ריצות תקועות"}), 500
 
 
 @outbound_bp.route("/api/outbound/leads/export", methods=["GET"])
