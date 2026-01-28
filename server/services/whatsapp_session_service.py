@@ -640,16 +640,28 @@ def _session_processor_loop():
 
 def start_session_processor():
     """
-    DEPRECATED: Session processor now runs as RQ job
+    DEPRECATED: Session processor now runs as RQ job via scheduler service
     
-    This function is kept for backwards compatibility but does nothing.
-    The scheduler service (server/scheduler/run_scheduler.py) now handles
-    periodic job enqueueing.
+    ⚠️ This function is deprecated and should not be called.
     
     To enable session processing:
-    1. Ensure scheduler service is running (SERVICE_ROLE=scheduler)
-    2. Jobs are automatically enqueued every 5 minutes
+    1. Deploy scheduler service with SERVICE_ROLE=scheduler
+    2. Jobs are automatically enqueued every 5 minutes via server/scheduler/run_scheduler.py
+    
+    Raises:
+        RuntimeError: In production mode, to catch usage errors quickly
     """
+    import os
+    
+    # In production, fail fast to catch errors
+    if os.getenv('PRODUCTION', '0') in ('1', 'true', 'True'):
+        raise RuntimeError(
+            "start_session_processor() is DEPRECATED and disabled in production. "
+            "Use scheduler service (SERVICE_ROLE=scheduler) instead. "
+            "See: server/scheduler/run_scheduler.py"
+        )
+    
+    # In development, just warn
     logger.warning("⚠️ [WA-SESSION] start_session_processor() is deprecated")
     logger.warning("   Session processing is now handled by scheduler service + RQ jobs")
     logger.warning("   See: server/scheduler/run_scheduler.py")

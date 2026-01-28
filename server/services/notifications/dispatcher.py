@@ -53,19 +53,14 @@ def dispatch_push_to_user(
         DispatchResult if synchronous, None if background
     """
     if background:
-        # Enqueue to RQ instead of threading
+        # ✅ Use unified jobs wrapper (no inline Redis/Queue creation)
         try:
-            from redis import Redis
-            from rq import Queue
-            import os
-            
-            redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-            redis_conn = Redis.from_url(redis_url)
-            queue = Queue('default', connection=redis_conn)
+            from server.services.jobs import enqueue
+            from server.jobs.push_send_job import push_send_job
             
             # Enqueue push send job
-            from server.jobs.push_send_job import push_send_job
-            queue.enqueue(
+            enqueue(
+                'default',
                 push_send_job,
                 user_id=user_id,
                 business_id=business_id,
@@ -73,8 +68,8 @@ def dispatch_push_to_user(
                 body=payload.body,
                 url=payload.url,
                 data=payload.data,
-                job_timeout='2m',
-                result_ttl=3600
+                timeout=120,
+                ttl=600
             )
             log.info(f"✅ Enqueued push_send_job for user_id={user_id}")
             return None

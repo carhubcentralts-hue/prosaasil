@@ -666,6 +666,11 @@ def create_app():
         app.register_blueprint(internal_whatsapp_bp)
         app.logger.info("✅ WhatsApp blueprints registered")
         
+        # Job Health and Monitoring - /api/jobs/*
+        from server.routes_jobs import jobs_bp
+        app.register_blueprint(jobs_bp)
+        app.logger.info("✅ Job Health and Monitoring blueprint registered")
+        
         # Webhook Secret Management - /api/business/settings/webhook-secret
         from server.routes_webhook_secret import webhook_secret_bp
         app.register_blueprint(webhook_secret_bp)

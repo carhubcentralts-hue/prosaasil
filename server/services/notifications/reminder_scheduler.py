@@ -389,16 +389,28 @@ def _send_reminder_push(reminder, lead, minutes_before: int):
 
 def start_reminder_scheduler(app):
     """
-    DEPRECATED: Reminder scheduler now runs as RQ job
+    DEPRECATED: Reminder scheduler now runs as RQ job via scheduler service
     
-    This function is kept for backwards compatibility but does nothing.
-    The scheduler service (server/scheduler/run_scheduler.py) now handles
-    periodic job enqueueing.
+    ⚠️ This function is deprecated and should not be called.
     
     To enable reminders:
-    1. Ensure scheduler service is running (SERVICE_ROLE=scheduler)
-    2. Jobs are automatically enqueued every minute
+    1. Deploy scheduler service with SERVICE_ROLE=scheduler
+    2. Jobs are automatically enqueued every minute via server/scheduler/run_scheduler.py
+    
+    Raises:
+        RuntimeError: In production mode, to catch usage errors quickly
     """
+    import os
+    
+    # In production, fail fast to catch errors
+    if os.getenv('PRODUCTION', '0') in ('1', 'true', 'True'):
+        raise RuntimeError(
+            "start_reminder_scheduler() is DEPRECATED and disabled in production. "
+            "Use scheduler service (SERVICE_ROLE=scheduler) instead. "
+            "See: server/scheduler/run_scheduler.py"
+        )
+    
+    # In development, just warn
     log.warning("⚠️ [REMINDER_SCHEDULER] start_reminder_scheduler() is deprecated")
     log.warning("   Reminders are now handled by scheduler service + RQ jobs")
     log.warning("   See: server/scheduler/run_scheduler.py")
