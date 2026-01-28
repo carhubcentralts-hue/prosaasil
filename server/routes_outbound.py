@@ -394,13 +394,14 @@ def _start_bulk_queue(tenant_id: int, lead_ids: list, project_id: int = None) ->
         if len(leads) != len(lead_ids):
             return jsonify({"error": "לא נמצאו כל הלידים שנבחרו"}), 404
         
-        # Create run with concurrency=3
+        # Create run with concurrency=3 and status=pending
+        # Worker will update to "running" when it picks up the run
         run = OutboundCallRun()
         run.business_id = tenant_id
         run.concurrency = MAX_OUTBOUND_CALLS_PER_BUSINESS  # 3
         run.total_leads = len(lead_ids)
         run.queued_count = len(lead_ids)
-        run.status = "running"
+        run.status = "pending"  # 🔥 FIX: Start as pending, worker will update to running
         db.session.add(run)
         db.session.flush()
         
