@@ -826,12 +826,6 @@ def force_cancel_outbound_job(job_id: int):
             log.warning(f"[SECURITY] User from business {tenant_id} attempted to force-cancel run {job_id} which belongs to business {run.business_id}")
             return jsonify({"error": "אין גישה לתור זה"}), 403
         
-        # 🔒 SECURITY: Double-check business_id matches (defensive programming)
-        if tenant_id:
-            if run.business_id != tenant_id:
-                log.error(f"[SECURITY] Business ID mismatch in force-cancel: run.business_id={run.business_id} != tenant_id={tenant_id}")
-                return jsonify({"error": "אין גישה לתור זה"}), 403
-        
         # Check if already in terminal state
         if run.status in ('cancelled', 'completed', 'failed', 'stopped'):
             return jsonify({
@@ -847,9 +841,10 @@ def force_cancel_outbound_job(job_id: int):
         run.ended_at = now
         run.updated_at = now
         
-        # Clear worker lock
+        # Clear worker lock and heartbeat
         run.locked_by_worker = None
         run.lock_ts = None
+        run.last_heartbeat_at = None  # Clear heartbeat for consistency
         
         # Mark all queued jobs as failed
         from sqlalchemy import text
@@ -944,15 +939,17 @@ def get_active_outbound_job():
             
             if time_since_heartbeat > stale_threshold:
                 # Mark as stopped and clean up
-                log.warning(f"🔥 [STALE_DETECTION] Run {run.id} is stale (last_heartbeat={last_activity}, {time_since_heartbeat.seconds}s ago). Marking as stopped.")
+                elapsed_seconds = int(time_since_heartbeat.total_seconds())
+                log.warning(f"🔥 [STALE_DETECTION] Run {run.id} is stale (last_heartbeat={last_activity}, {elapsed_seconds}s ago). Marking as stopped.")
                 
                 run.status = 'stopped'
                 run.ended_at = now
-                run.last_error = f"Worker stopped responding (last heartbeat: {time_since_heartbeat.seconds}s ago)"
+                run.last_error = f"Worker stopped responding (last heartbeat: {elapsed_seconds}s ago)"
                 
                 # Clear lock fields
                 run.locked_by_worker = None
                 run.lock_ts = None
+                run.last_heartbeat_at = None  # Clear heartbeat for consistency
                 
                 # Mark remaining queued jobs as failed
                 from sqlalchemy import text

@@ -22,9 +22,9 @@ After server restart, the system gets stuck showing "outbound queue active" even
 
 **Worker Changes:**
 - Sets `last_heartbeat_at = datetime.utcnow()` at:
-  1. Initial run start (line 2839)
-  2. Resume from crash (line 2847)
-  3. Every worker loop iteration (line 2886)
+  1. Initial run start (in `process_bulk_call_run` when status=pending)
+  2. Resume from crash (in `process_bulk_call_run` when resuming)
+  3. Every worker loop iteration (in main processing loop)
 
 ### 3. Stale Detection in Active Run Endpoint
 
@@ -73,14 +73,16 @@ Server crashes → Next UI request detects stale (30s) → Auto-marks as stopped
 ```sql
 WHERE status='running'
   AND (
-    -- 🔒 PRIMARY: Check new heartbeat field
-    (last_heartbeat_at IS NOT NULL AND last_heartbeat_at < :cutoff_30s)
-    -- Fallback: Old lock_ts check
+    -- 🔒 PRIMARY: Check new heartbeat field (5-minute TTL)
+    (last_heartbeat_at IS NOT NULL AND last_heartbeat_at < :cutoff_5min)
+    -- Fallback: Old lock_ts check (5-minute TTL)
     OR (last_heartbeat_at IS NULL AND lock_ts < :cutoff_5min)
     -- Empty queue
     OR (queued_count = 0 AND in_progress_count = 0)
   )
 ```
+
+**Note:** Active endpoint uses 30s threshold for UI responsiveness, cleanup uses 5min for stability.
 
 ## Database Changes
 

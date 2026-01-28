@@ -42,9 +42,15 @@ def test_model_has_heartbeat_field():
     return True
 
 def test_worker_heartbeat_update():
-    """Test 2: Verify worker code has heartbeat updates"""
+    """Test 2: Verify worker code has heartbeat updates
+    
+    NOTE: This is a smoke test using simple string matching.
+    It's fragile and may produce false positives/negatives if
+    code formatting changes. Consider using AST parsing for
+    more robust verification in production.
+    """
     print("\n" + "="*70)
-    print("TEST 2: Verify worker updates heartbeat")
+    print("TEST 2: Verify worker updates heartbeat (smoke test)")
     print("="*70)
     
     # Read worker code and check for heartbeat updates
