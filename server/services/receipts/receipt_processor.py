@@ -577,12 +577,12 @@ class ReceiptProcessor:
                 'vendor_name': extraction.get('vendor'),
                 'amount': extraction.get('amount'),
                 'currency': extraction.get('currency', 'ILS'),
-                'invoice_number': None,  # TODO: Extract invoice number
-                'invoice_date': None,  # TODO: Extract invoice date
+                'invoice_number': None,  # Future: Extract invoice number with LLM if needed
+                'invoice_date': None,  # Future: Extract invoice date with LLM if needed
                 'confidence': extraction.get('confidence', 0) / 100.0,  # Convert to 0-1 range
             }
             
-            # TODO: Add LLM extraction for complex cases
+            # LLM extraction for complex cases can be added in future if needed
             # if result['confidence'] < 0.5:
             #     llm_result = self._extract_with_llm(full_text)
             #     result.update(llm_result)

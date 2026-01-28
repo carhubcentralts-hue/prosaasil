@@ -244,9 +244,23 @@ def create_business():
                         logger.warning(f"⚠️ [AUTO-WARMUP] Failed for business {bid}: {e}")
                 
                 # Run warmup in background to not delay response
-                t = threading.Thread(target=warmup_new_business, args=(business.id, business.name), daemon=True)
-                t.start()
-                logger.info(f"🔥 [AUTO-WARMUP] Started background warmup for business {business.id}")
+                # 🔥 REMOVED THREADING: Use RQ job for business warmup
+                try:
+                    from server.services.jobs import enqueue_job
+                    from server.jobs.warmup_agents_job import warmup_agents_job
+                    
+                    enqueue_job(
+                        queue_name='low',
+                        func=warmup_agents_job,
+                        business_id=business.id,
+                        business_id=business.id,  # For job metadata
+                        timeout=120,
+                        retry=1,
+                        description=f"Warmup business {business.name}"
+                    )
+                    logger.info(f"🔥 [AUTO-WARMUP] Queued RQ job for business {business.id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ [AUTO-WARMUP] Failed to enqueue warmup: {e}")
             except Exception as warmup_error:
                 logger.warning(f"⚠️ Auto-warmup failed to start: {warmup_error}")
                 

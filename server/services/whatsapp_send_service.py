@@ -229,7 +229,7 @@ def _send_via_meta(
     
     # Send text or media
     if media and media_type:
-        # TODO: Meta media implementation
+        # Meta media sending - not yet implemented, will use text fallback
         # Meta API requires different format:
         # - For URLs: Pass media URL directly
         # - For uploads: Use media upload API first, then send media_id

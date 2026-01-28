@@ -1319,9 +1319,10 @@ def create_app():
             except Exception:
                 pass
         
-        # Start background initialization thread
-        init_thread = threading.Thread(target=_background_initialization, daemon=True)
-        init_thread.start()
+        # 🔥 REMOVED THREADING: Background initialization now runs synchronously
+        # Migrations must complete before app starts - no threading needed
+        # This prevents race conditions and ensures DB is ready
+        _background_initialization()
         
         # Preload services after startup to avoid cold start
         from server.services.lazy_services import warmup_services_async, start_periodic_warmup
@@ -1485,8 +1486,10 @@ def create_app():
                         logger.warning(f"Agent warmup failed (will retry on first request): {e}")
                         pass
             
-            warmup_thread = threading.Thread(target=warmup_with_context, daemon=True)
-            warmup_thread.start()
+            # 🔥 REMOVED THREADING: Agent warmup moved to RQ worker job
+            # Use: enqueue_job('low', warmup_agents_job) in worker
+            # Or rely on lazy initialization (warmup on first request)
+            logger.info("⚠️ Agent warmup disabled - using lazy initialization or worker job")
         except Exception as e:
             logger.warning(f"Failed to start agent warmup thread: {e}")
             pass
@@ -1494,74 +1497,51 @@ def create_app():
         # ====================================================================
         # Background Schedulers and Workers
         # ====================================================================
-        # 🔥 CRITICAL: Only run schedulers in worker service to prevent duplicates
-        # Use ENABLE_SCHEDULERS=true env var to enable (default: disabled in api/calls)
-        # Worker service should set ENABLE_SCHEDULERS=true
+        # 🔥 CRITICAL: Service role enforcement for clean separation
+        # SERVICE_ROLE can be 'api', 'worker', or 'all' (default)
+        # - api: Only HTTP endpoints, enqueues jobs
+        # - worker: Only processes jobs from queues
+        # - all: Both API and worker (for development/small deployments)
+        SERVICE_ROLE = os.getenv('SERVICE_ROLE', 'all').lower()
         ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'false').lower() == 'true'
-        SERVICE_ROLE = os.getenv('SERVICE_ROLE', 'unknown')
         
-        if ENABLE_SCHEDULERS:
+        if SERVICE_ROLE not in ['api', 'worker', 'all']:
+            logger.warning(f"⚠️ Invalid SERVICE_ROLE '{SERVICE_ROLE}', defaulting to 'all'")
+            SERVICE_ROLE = 'all'
+        
+        logger.info(f"🔧 [CONFIG] SERVICE_ROLE={SERVICE_ROLE}, ENABLE_SCHEDULERS={ENABLE_SCHEDULERS}")
+        
+        # Only enable schedulers in worker mode or all mode
+        if ENABLE_SCHEDULERS and SERVICE_ROLE in ['worker', 'all']:
             logger.info(f"✅ [BACKGROUND] Schedulers ENABLED for service: {SERVICE_ROLE}")
         else:
-            logger.info(f"⚠️ [BACKGROUND] Schedulers DISABLED for service: {SERVICE_ROLE}")
-            logger.info("   To enable schedulers, set: ENABLE_SCHEDULERS=true")
+            if ENABLE_SCHEDULERS:
+                logger.warning(f"⚠️ [BACKGROUND] Schedulers requested but SERVICE_ROLE={SERVICE_ROLE} (not worker/all)")
+            else:
+                logger.info(f"⚠️ [BACKGROUND] Schedulers DISABLED for service: {SERVICE_ROLE}")
+            logger.info("   To enable schedulers, set: ENABLE_SCHEDULERS=true and SERVICE_ROLE=worker or SERVICE_ROLE=all")
         
-        # Automatic recording cleanup scheduler (7-day retention)
+        # 🔥 REMOVED THREADING: Recording cleanup now runs as scheduled RQ job
+        # Worker should schedule: cleanup_old_recordings_job
+        # Schedule: Daily at 3 AM or every 6 hours
         if ENABLE_SCHEDULERS:
-            try:
-                from server.tasks_recording import auto_cleanup_old_recordings
-                import time as scheduler_time
-                
-                def recording_cleanup_scheduler():
-                    """Background scheduler - runs cleanup daily"""
-                    scheduler_time.sleep(300)  # Wait 5 minutes after startup
-                    while True:
-                        try:
-                            with app.app_context():
-                                auto_cleanup_old_recordings()
-                        except Exception:
-                            pass
-                        scheduler_time.sleep(21600)  # Run every 6 hours
-                
-                cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
-                cleanup_thread.start()
-                logger.info("✅ [BACKGROUND] Recording cleanup scheduler started")
-            except Exception as e:
-                logger.warning(f"⚠️ [BACKGROUND] Could not start cleanup scheduler: {e}")
+            logger.info("✅ [BACKGROUND] Recording cleanup - use scheduled RQ job: cleanup_old_recordings_job")
         
-        # WhatsApp session processor (15-min auto-summary)
+        # 🔥 REMOVED THREADING: WhatsApp session processor now runs as scheduled RQ job
+        # Worker should schedule: process_whatsapp_sessions_job every 5 minutes
         if ENABLE_SCHEDULERS:
-            try:
-                from server.services.whatsapp_session_service import start_session_processor
-                start_session_processor()
-                logger.info("✅ [BACKGROUND] WhatsApp session processor started")
-            except Exception as e:
-                logger.warning(f"⚠️ [BACKGROUND] Could not start WhatsApp session processor: {e}")
+            logger.info("✅ [BACKGROUND] WhatsApp session processor - use scheduled RQ job: process_whatsapp_sessions_job")
         
-        # Recording transcription worker (offline STT + lead extraction)
+        # 🔥 REMOVED THREADING: Recording transcription handled by RQ worker
+        # Already uses RQ infrastructure in server/tasks_recording.py
+        # Jobs are enqueued via: enqueue_recording() function
         if ENABLE_SCHEDULERS:
-            try:
-                from server.tasks_recording import start_recording_worker
-                
-                recording_thread = threading.Thread(
-                    target=start_recording_worker,
-                    args=(app,),
-                    daemon=True,
-                    name="RecordingWorker"
-                )
-                recording_thread.start()
-                logger.info("✅ [BACKGROUND] Recording worker started")
-            except Exception as e:
-                logger.warning(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
+            logger.info("✅ [BACKGROUND] Recording transcription - handled by RQ 'recordings' queue")
         
-        # 🔔 Reminder notification scheduler (sends push 30min and 15min before due time)
+        # 🔥 REMOVED THREADING: Reminder notifications now run as scheduled RQ job
+        # Worker should schedule: send_reminder_notifications_job every 1 minute
         if ENABLE_SCHEDULERS:
-            try:
-                from server.services.notifications.reminder_scheduler import start_reminder_scheduler
-                start_reminder_scheduler(app)
-                logger.info("✅ [BACKGROUND] Reminder notification scheduler started")
-            except Exception as e:
-                logger.warning(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
+            logger.info("✅ [BACKGROUND] Reminder notifications - use scheduled RQ job: send_reminder_notifications_job")
     
     # ✅ GUARDRAIL: Route map audit at startup (prevent 404/405 errors)
     # Log all auth routes to verify they're registered correctly

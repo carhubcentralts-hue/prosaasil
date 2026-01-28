@@ -87,9 +87,34 @@ def send_event_to_n8n(
         params["token"] = N8N_WEBHOOK_SECRET
     
     if async_send:
-        # ⚡ Fire-and-forget - don't block main thread
-        Thread(target=_send_to_n8n, args=(event_data, params), daemon=True).start()
-        return {"status": "queued", "event_type": event_type}
+        # ⚡ REMOVED THREADING: Use RQ job for n8n webhook sending
+        try:
+            from server.services.jobs import enqueue_job
+            from server.jobs.send_webhook_job import send_webhook_job
+            
+            # Convert params to URL query string
+            import urllib.parse
+            webhook_url = N8N_WEBHOOK_URL
+            if params:
+                webhook_url += "?" + urllib.parse.urlencode(params)
+            
+            enqueue_job(
+                queue_name='default',
+                func=send_webhook_job,
+                url=webhook_url,
+                payload=event_data,
+                event_type=event_type,
+                business_id=event_data.get('business_id'),
+                business_id=event_data.get('business_id'),  # For job metadata
+                timeout=30,
+                retry=2,
+                description=f"Send n8n {event_type}"
+            )
+            return {"status": "queued", "event_type": event_type}
+        except Exception as e:
+            logger.error(f"Failed to enqueue n8n webhook: {e}")
+            # Fallback to sync send
+            return _send_to_n8n(event_data, params)
     else:
         return _send_to_n8n(event_data, params)
 
