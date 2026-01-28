@@ -72,6 +72,12 @@ const menuItems = [
     pageKey: 'whatsapp_broadcast'
   },
   { 
+    icon: Clock, 
+    label: 'תזמון הודעות',
+    to: '/app/scheduled-messages',
+    roles: ['system_admin', 'owner', 'admin']
+  },
+  { 
     icon: Phone, 
     label: 'שיחות נכנסות',
     to: '/app/calls',

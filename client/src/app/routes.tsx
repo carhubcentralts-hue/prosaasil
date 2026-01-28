@@ -35,6 +35,7 @@ const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 const LeadDetailPage = lazy(() => import('../pages/Leads/LeadDetailPage'));
 const WhatsAppPage = lazy(() => import('../pages/wa/WhatsAppPage').then(m => ({ default: m.WhatsAppPage })));
 const WhatsAppBroadcastPage = lazy(() => import('../pages/wa/WhatsAppBroadcastPage').then(m => ({ default: m.WhatsAppBroadcastPage })));
+const ScheduledMessagesPage = lazy(() => import('../pages/ScheduledMessages/ScheduledMessagesPage').then(m => ({ default: m.ScheduledMessagesPage })));
 const InboundCallsPage = lazy(() => import('../pages/calls/InboundCallsPage').then(m => ({ default: m.InboundCallsPage })));
 const OutboundCallsPage = lazy(() => import('../pages/calls/OutboundCallsPage').then(m => ({ default: m.OutboundCallsPage })));
 const CrmPage = lazy(() => import('../pages/crm/CrmPage').then(m => ({ default: m.CrmPage })));
@@ -240,6 +241,16 @@ export function AppRoutes() {
                   <WhatsAppBroadcastPage />
                 </Suspense>
               </PageGuard>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="scheduled-messages"
+          element={
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+              <Suspense fallback={<PageLoader />}>
+                <ScheduledMessagesPage />
+              </Suspense>
             </RoleGuard>
           }
         />
