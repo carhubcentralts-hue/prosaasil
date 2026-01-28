@@ -1132,6 +1132,7 @@ class OutboundCallRun(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     outbound_list_id = db.Column(db.Integer, db.ForeignKey("outbound_lead_lists.id"), nullable=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)  # User who created the run
     
     # Configuration
     concurrency = db.Column(db.Integer, default=3)
@@ -1142,25 +1143,36 @@ class OutboundCallRun(db.Model):
     in_progress_count = db.Column(db.Integer, default=0)
     completed_count = db.Column(db.Integer, default=0)
     failed_count = db.Column(db.Integer, default=0)
+    cursor_position = db.Column(db.Integer, default=0)  # Current position in queue for resume
     
     # Status
-    status = db.Column(db.String(32), default="running")  # running|completed|failed|cancelled
+    status = db.Column(db.String(32), default="pending")  # pending|running|completed|failed|cancelled|paused
     cancel_requested = db.Column(db.Boolean, default=False, nullable=False)  # User requested cancellation
     last_error = db.Column(db.Text)
     
+    # Worker coordination
+    locked_by_worker = db.Column(db.String(128), nullable=True)  # Worker ID holding the lock
+    lock_ts = db.Column(db.DateTime, nullable=True)  # Lock timestamp for timeout detection
+    
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime, nullable=True)  # When run actually started processing
+    ended_at = db.Column(db.DateTime, nullable=True)  # When run finished (completed/cancelled/failed)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    completed_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)  # Legacy field, use ended_at instead
 
 
 class OutboundCallJob(db.Model):
     """Individual call job within a bulk run"""
     __tablename__ = "outbound_call_jobs"
+    __table_args__ = (
+        db.UniqueConstraint('run_id', 'lead_id', name='unique_run_lead'),
+    )
     
     id = db.Column(db.Integer, primary_key=True)
     run_id = db.Column(db.Integer, db.ForeignKey("outbound_call_runs.id"), nullable=False, index=True)
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)  # Business isolation
     call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True)
     project_id = db.Column(db.Integer, nullable=True, index=True)  # Project ID for calls initiated from projects (FK to outbound_projects)
     
