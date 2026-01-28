@@ -2833,25 +2833,23 @@ def create_broadcast():
         
         # 🔥 USE BULK GATE: Check if enqueue is allowed
         try:
-            import redis
-            import os
-            REDIS_URL = os.getenv('REDIS_URL')
-            redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+            # ✅ Use unified jobs wrapper for BulkGate
+            from server.services.jobs import get_redis
+            redis_conn = get_redis()
             
-            if redis_conn:
-                from server.services.bulk_gate import get_bulk_gate
-                bulk_gate = get_bulk_gate(redis_conn)
+            from server.services.bulk_gate import get_bulk_gate
+            bulk_gate = get_bulk_gate(redis_conn)
+            
+            if bulk_gate:
+                # Check if enqueue is allowed
+                allowed, reason = bulk_gate.can_enqueue(
+                    business_id=business_id,
+                    operation_type='broadcast_whatsapp',
+                    user_id=user_id
+                )
                 
-                if bulk_gate:
-                    # Check if enqueue is allowed
-                    allowed, reason = bulk_gate.can_enqueue(
-                        business_id=business_id,
-                        operation_type='broadcast_whatsapp',
-                        user_id=user_id
-                    )
-                    
-                    if not allowed:
-                        return jsonify({"ok": False, "error": reason}), 429
+                if not allowed:
+                    return jsonify({"ok": False, "error": reason}), 429
         except Exception as e:
             logger.warning(f"BulkGate check failed (proceeding anyway): {e}")
         
@@ -3122,8 +3120,11 @@ def create_broadcast():
                     'message': 'Redis not configured - cannot process broadcast'
                 }), 503
             
-            redis_conn = redis.from_url(REDIS_URL)
-            queue = Queue('broadcasts', connection=redis_conn)
+            # ✅ Use unified jobs wrapper
+            from server.services.jobs import enqueue, get_redis
+            
+            # Get Redis for BulkGate
+            redis_conn = get_redis()
             
             # Acquire lock and record enqueue BEFORE actually enqueuing
             try:
@@ -3148,11 +3149,15 @@ def create_broadcast():
             
             # Import and enqueue the job function with broadcast_id
             from server.jobs.broadcast_job import process_broadcast_job
-            rq_job = queue.enqueue(
+            rq_job = enqueue(
+                'broadcasts',
                 process_broadcast_job,
                 broadcast.id,
-                job_timeout='30m',
-                job_id=f"broadcast_{broadcast.id}"
+                business_id=business_id,
+                run_id=broadcast.id,
+                job_id=f"broadcast_{broadcast.id}",
+                timeout=1800,  # 30 minutes
+                ttl=3600
             )
             
             log.info(f"🚀 [WA_BROADCAST] Enqueued RQ job for broadcast_id={broadcast.id}, rq_job_id={rq_job.id}")

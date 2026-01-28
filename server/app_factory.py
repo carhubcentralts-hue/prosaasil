@@ -666,6 +666,11 @@ def create_app():
         app.register_blueprint(internal_whatsapp_bp)
         app.logger.info("✅ WhatsApp blueprints registered")
         
+        # Job Health and Monitoring - /api/jobs/*
+        from server.routes_jobs import jobs_bp
+        app.register_blueprint(jobs_bp)
+        app.logger.info("✅ Job Health and Monitoring blueprint registered")
+        
         # Webhook Secret Management - /api/business/settings/webhook-secret
         from server.routes_webhook_secret import webhook_secret_bp
         app.register_blueprint(webhook_secret_bp)
@@ -1498,50 +1503,46 @@ def create_app():
         # Background Schedulers and Workers
         # ====================================================================
         # 🔥 CRITICAL: Service role enforcement for clean separation
-        # SERVICE_ROLE can be 'api', 'worker', or 'all' (default)
+        # SERVICE_ROLE can be 'api', 'worker', 'scheduler', 'calls', or 'all' (default)
         # - api: Only HTTP endpoints, enqueues jobs
+        # - calls: Only HTTP endpoints + WebSocket for calls
         # - worker: Only processes jobs from queues
+        # - scheduler: Only runs scheduler loop to enqueue periodic jobs
         # - all: Both API and worker (for development/small deployments)
         SERVICE_ROLE = os.getenv('SERVICE_ROLE', 'all').lower()
         ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'false').lower() == 'true'
         
-        if SERVICE_ROLE not in ['api', 'worker', 'all']:
+        if SERVICE_ROLE not in ['api', 'worker', 'scheduler', 'calls', 'all']:
             logger.warning(f"⚠️ Invalid SERVICE_ROLE '{SERVICE_ROLE}', defaulting to 'all'")
             SERVICE_ROLE = 'all'
         
         logger.info(f"🔧 [CONFIG] SERVICE_ROLE={SERVICE_ROLE}, ENABLE_SCHEDULERS={ENABLE_SCHEDULERS}")
         
-        # Only enable schedulers in worker mode or all mode
-        if ENABLE_SCHEDULERS and SERVICE_ROLE in ['worker', 'all']:
-            logger.info(f"✅ [BACKGROUND] Schedulers ENABLED for service: {SERVICE_ROLE}")
-        else:
+        # 🔥 CRITICAL: Never start schedulers or threads in api/calls/scheduler mode
+        if SERVICE_ROLE in ['api', 'calls', 'scheduler']:
             if ENABLE_SCHEDULERS:
-                logger.warning(f"⚠️ [BACKGROUND] Schedulers requested but SERVICE_ROLE={SERVICE_ROLE} (not worker/all)")
-            else:
-                logger.info(f"⚠️ [BACKGROUND] Schedulers DISABLED for service: {SERVICE_ROLE}")
-            logger.info("   To enable schedulers, set: ENABLE_SCHEDULERS=true and SERVICE_ROLE=worker or SERVICE_ROLE=all")
+                logger.warning(f"⚠️ [BACKGROUND] Schedulers IGNORED for SERVICE_ROLE={SERVICE_ROLE}")
+                logger.warning("   Background threads are PROHIBITED in api/calls/scheduler mode")
+                ENABLE_SCHEDULERS = False
+            logger.info(f"✅ [BACKGROUND] Background threads DISABLED for service: {SERVICE_ROLE}")
+        elif ENABLE_SCHEDULERS and SERVICE_ROLE in ['worker', 'all']:
+            logger.warning(f"⚠️ [DEPRECATED] ENABLE_SCHEDULERS is deprecated for SERVICE_ROLE={SERVICE_ROLE}")
+            logger.warning("   Use separate scheduler service (SERVICE_ROLE=scheduler) instead")
+            logger.info(f"   Schedulers requested but should be handled by scheduler service")
+        else:
+            logger.info(f"✅ [BACKGROUND] Schedulers DISABLED for service: {SERVICE_ROLE}")
+            logger.info("   To enable schedulers, deploy scheduler service with SERVICE_ROLE=scheduler")
         
-        # 🔥 REMOVED THREADING: Recording cleanup now runs as scheduled RQ job
-        # Worker should schedule: cleanup_old_recordings_job
-        # Schedule: Daily at 3 AM or every 6 hours
-        if ENABLE_SCHEDULERS:
-            logger.info("✅ [BACKGROUND] Recording cleanup - use scheduled RQ job: cleanup_old_recordings_job")
-        
-        # 🔥 REMOVED THREADING: WhatsApp session processor now runs as scheduled RQ job
-        # Worker should schedule: process_whatsapp_sessions_job every 5 minutes
-        if ENABLE_SCHEDULERS:
-            logger.info("✅ [BACKGROUND] WhatsApp session processor - use scheduled RQ job: process_whatsapp_sessions_job")
-        
-        # 🔥 REMOVED THREADING: Recording transcription handled by RQ worker
-        # Already uses RQ infrastructure in server/tasks_recording.py
-        # Jobs are enqueued via: enqueue_recording() function
-        if ENABLE_SCHEDULERS:
-            logger.info("✅ [BACKGROUND] Recording transcription - handled by RQ 'recordings' queue")
-        
-        # 🔥 REMOVED THREADING: Reminder notifications now run as scheduled RQ job
-        # Worker should schedule: send_reminder_notifications_job every 1 minute
-        if ENABLE_SCHEDULERS:
-            logger.info("✅ [BACKGROUND] Reminder notifications - use scheduled RQ job: send_reminder_notifications_job")
+        # 🔥 REMOVED THREADING: All background tasks now run as scheduled RQ jobs
+        # These deprecation notices help developers understand the new architecture
+        logger.info("✅ [ARCHITECTURE] All background tasks moved to RQ jobs:")
+        logger.info("   - Recording cleanup → cleanup_old_recordings_job (scheduled)")
+        logger.info("   - WhatsApp sessions → whatsapp_sessions_cleanup_job (scheduled)")
+        logger.info("   - Recording transcription → recording_job (enqueued)")
+        logger.info("   - Reminder notifications → reminders_tick_job (scheduled)")
+        logger.info("   - Webhook processing → webhook_process_job (enqueued)")
+        logger.info("   - Push notifications → push_send_job (enqueued)")
+        logger.info("   Scheduler service handles periodic job enqueuing with Redis locks")
     
     # ✅ GUARDRAIL: Route map audit at startup (prevent 404/405 errors)
     # Log all auth routes to verify they're registered correctly

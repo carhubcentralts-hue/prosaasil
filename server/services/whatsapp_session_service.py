@@ -639,30 +639,34 @@ def _session_processor_loop():
 
 
 def start_session_processor():
-    """Start the background session processor thread
-    
-    This should be called once when the application starts.
-    It will start a daemon thread that processes stale sessions
-    every 5 minutes.
     """
-    global _session_processor_started
+    DEPRECATED: Session processor now runs as RQ job via scheduler service
     
-    with _session_processor_lock:
-        if _session_processor_started:
-            logger.info("[WA-SESSION] Background processor already started")
-            return False
-        
-        processor_thread = threading.Thread(
-            target=_session_processor_loop,
-            daemon=True,
-            name="WhatsAppSessionProcessor"
+    ⚠️ This function is deprecated and should not be called.
+    
+    To enable session processing:
+    1. Deploy scheduler service with SERVICE_ROLE=scheduler
+    2. Jobs are automatically enqueued every 5 minutes via server/scheduler/run_scheduler.py
+    
+    Raises:
+        RuntimeError: In production mode, to catch usage errors quickly
+    """
+    import os
+    
+    # In production, fail fast to catch errors
+    if os.getenv('PRODUCTION', '0') in ('1', 'true', 'True'):
+        raise RuntimeError(
+            "start_session_processor() is DEPRECATED and disabled in production. "
+            "Use scheduler service (SERVICE_ROLE=scheduler) instead. "
+            "See: server/scheduler/run_scheduler.py"
         )
-        processor_thread.start()
-        
-        _session_processor_started = True
-        logger.info("[WA-SESSION] Background processor thread started successfully")
-        
-        return True
+    
+    # In development, just warn
+    logger.warning("⚠️ [WA-SESSION] start_session_processor() is deprecated")
+    logger.warning("   Session processing is now handled by scheduler service + RQ jobs")
+    logger.warning("   See: server/scheduler/run_scheduler.py")
+    logger.warning("   Jobs: server/jobs/whatsapp_sessions_cleanup_job.py")
+    return False
 
 
 def migrate_existing_messages_to_sessions() -> dict:

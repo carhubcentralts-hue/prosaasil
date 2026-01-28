@@ -12,7 +12,7 @@ Usage:
     dispatch_push_to_user(user_id, business_id, payload)
 """
 import logging
-import threading
+import os
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
@@ -37,7 +37,7 @@ class DispatchResult:
 def dispatch_push_to_user(
     user_id: int,
     business_id: int,
-    payload: PushPayload,
+    payload: 'PushPayload',
     background: bool = True
 ) -> Optional[DispatchResult]:
     """
@@ -47,20 +47,36 @@ def dispatch_push_to_user(
         user_id: Target user ID
         business_id: Business context
         payload: Notification payload
-        background: If True, dispatch in background thread (non-blocking)
+        background: If True, dispatch via RQ job (non-blocking)
         
     Returns:
         DispatchResult if synchronous, None if background
     """
     if background:
-        # Fire and forget in background thread
-        thread = threading.Thread(
-            target=_dispatch_push_sync,
-            args=(user_id, business_id, payload),
-            daemon=True
-        )
-        thread.start()
-        return None
+        # ✅ Use unified jobs wrapper (no inline Redis/Queue creation)
+        try:
+            from server.services.jobs import enqueue
+            from server.jobs.push_send_job import push_send_job
+            
+            # Enqueue push send job
+            enqueue(
+                'default',
+                push_send_job,
+                user_id=user_id,
+                business_id=business_id,
+                title=payload.title,
+                body=payload.body,
+                url=payload.url,
+                data=payload.data,
+                timeout=120,
+                ttl=600
+            )
+            log.info(f"✅ Enqueued push_send_job for user_id={user_id}")
+            return None
+        except Exception as e:
+            log.error(f"❌ Failed to enqueue push job: {e}")
+            # Fallback to synchronous processing if enqueue fails
+            return _dispatch_push_sync(user_id, business_id, payload)
     else:
         return _dispatch_push_sync(user_id, business_id, payload)
 

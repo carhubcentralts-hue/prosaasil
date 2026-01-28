@@ -2,37 +2,117 @@
 Unified Job Enqueue Service
 Single source of truth for enqueuing background jobs to RQ (Redis Queue)
 
-Features:
+✅ PRODUCTION-READY FEATURES:
+- Single Redis connection (no inline Redis.from_url())
+- Deterministic job IDs from external events (message_id, call_sid, etc.)
+- Atomic deduplication via Redis SETNX
 - Business isolation (all jobs tagged with business_id)
 - Correlation IDs for distributed tracing
 - Unified logging (start/success/fail/retry)
-- Deduplication support
 - Job cancellation support
+
+⚠️ USAGE:
+    from server.services.jobs import enqueue, enqueue_with_dedupe
+    
+    # Simple enqueue
+    enqueue('default', my_job_func, business_id=123, arg1='value')
+    
+    # With deduplication (for webhooks, external events)
+    enqueue_with_dedupe(
+        'default', 
+        webhook_process_job,
+        dedupe_key='webhook:baileys:msg_ABC123',
+        business_id=123,
+        tenant_id='123',
+        messages=[...]
+    )
 """
 import os
 import logging
 import uuid
+import hashlib
 from datetime import datetime
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, Dict
 from redis import Redis
 from rq import Queue
 from rq.job import Job
+from rq import Retry
 
 logger = logging.getLogger(__name__)
 
-# Redis connection singleton
+# Redis connection singleton - NEVER create Redis connections elsewhere!
 _redis_conn = None
+_redis_lock = __import__('threading').Lock()
 
-def get_redis_connection():
-    """Get or create Redis connection"""
+def get_redis() -> Redis:
+    """
+    Get or create singleton Redis connection.
+    
+    ⚠️ CRITICAL: This is the ONLY place Redis connections should be created!
+    Never use Redis.from_url() directly in routes or services.
+    
+    Returns:
+        Redis: Singleton Redis connection
+    """
     global _redis_conn
     if _redis_conn is None:
-        redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-        _redis_conn = Redis.from_url(redis_url)
+        with _redis_lock:
+            if _redis_conn is None:  # Double-check pattern
+                redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+                _redis_conn = Redis.from_url(
+                    redis_url,
+                    decode_responses=False,  # Keep binary for RQ compatibility
+                    socket_connect_timeout=5,
+                    socket_timeout=5,
+                    retry_on_timeout=True,
+                    health_check_interval=30
+                )
+                logger.info(f"[JOBS] Redis connection established: {redis_url}")
     return _redis_conn
 
 
-def enqueue_job(
+def get_queue(queue_name: str = 'default') -> Queue:
+    """
+    Get RQ queue by name.
+    
+    Args:
+        queue_name: Queue name ('high', 'default', 'low', 'maintenance', 'broadcasts', 'recordings', 'receipts', 'receipts_sync')
+    
+    Returns:
+        Queue: RQ queue instance
+    """
+    redis_conn = get_redis()
+    return Queue(queue_name, connection=redis_conn)
+
+
+def generate_deterministic_job_id(prefix: str, *identifiers) -> str:
+    """
+    Generate deterministic job ID from external identifiers.
+    
+    ⚠️ CRITICAL for deduplication: Same inputs = same job ID
+    
+    Args:
+        prefix: Job type prefix (e.g., 'webhook', 'push', 'recording')
+        *identifiers: Variable number of identifiers (message_id, call_sid, etc.)
+    
+    Returns:
+        str: Deterministic job ID (e.g., 'webhook:abc123def456')
+    
+    Examples:
+        >>> generate_deterministic_job_id('webhook', 'baileys', 'msg_ABC123')
+        'webhook:3a7b9c...'
+        >>> generate_deterministic_job_id('push', notification_id)
+        'push:notification_123'
+        >>> generate_deterministic_job_id('recording', call_sid, business_id)
+        'recording:call_abc:biz_123'
+    """
+    # Join identifiers and hash them for consistent length
+    identifier_str = ':'.join(str(i) for i in identifiers)
+    hash_digest = hashlib.sha256(identifier_str.encode()).hexdigest()[:16]
+    return f"{prefix}:{hash_digest}"
+
+
+def enqueue(
     queue_name: str,
     func: Callable,
     *args,
@@ -49,13 +129,15 @@ def enqueue_job(
     """
     Enqueue a job to RQ with unified metadata and logging.
     
+    ✅ USE THIS for all job enqueuing (replaces inline Redis/Queue creation)
+    
     Args:
         queue_name: Queue to enqueue to ('high', 'default', 'low', 'maintenance', 'broadcasts', 'recordings')
         func: Function to execute (must be importable by worker)
         *args: Positional arguments for func
         business_id: Business ID for tenant isolation (CRITICAL for multi-tenant security)
         run_id: Optional run ID for job grouping
-        job_id: Optional custom job ID (default: generated UUID)
+        job_id: Optional custom job ID (for deduplication - use generate_deterministic_job_id)
         trace_id: Optional trace ID for distributed tracing
         ttl: Job TTL in seconds (how long job stays in queue before expiring)
         timeout: Job execution timeout in seconds
@@ -65,9 +147,22 @@ def enqueue_job(
     
     Returns:
         rq.job.Job: The enqueued job
+    
+    Example:
+        from server.services.jobs import enqueue
+        from server.jobs.webhook_process_job import webhook_process_job
+        
+        enqueue(
+            'default',
+            webhook_process_job,
+            business_id=123,
+            tenant_id='123',
+            messages=[...],
+            job_id=generate_deterministic_job_id('webhook', 'baileys', message_id)
+        )
     """
-    redis_conn = get_redis_connection()
-    queue = Queue(queue_name, connection=redis_conn)
+    redis_conn = get_redis()
+    queue = get_queue(queue_name)
     
     # Generate IDs if not provided
     if not job_id:
@@ -95,11 +190,10 @@ def enqueue_job(
     
     # Add retry if specified
     if retry is not None:
-        from rq import Retry
         job_kwargs['retry'] = Retry(max=retry)
     
     # Log enqueue
-    log_context = f"[JOB-ENQUEUE] queue={queue_name} func={func.__name__} job_id={job_id[:8]}"
+    log_context = f"[JOB-ENQUEUE] queue={queue_name} func={func.__name__} job_id={job_id[:8] if len(job_id) > 8 else job_id}"
     if business_id:
         log_context += f" business_id={business_id}"
     if run_id:
@@ -107,74 +201,101 @@ def enqueue_job(
     logger.info(f"{log_context} trace_id={trace_id[:8]}")
     
     # Enqueue job
-    job = queue.enqueue(
-        func,
-        *args,
-        **kwargs,
-        **job_kwargs
-    )
-    
-    return job
+    try:
+        job = queue.enqueue(
+            func,
+            *args,
+            **kwargs,
+            **job_kwargs
+        )
+        return job
+    except Exception as e:
+        logger.error(f"[JOB-ENQUEUE] Failed to enqueue {func.__name__}: {e}")
+        raise
 
 
-def enqueue_unique(
+def enqueue_with_dedupe(
     queue_name: str,
     func: Callable,
-    dedup_key: str,
+    dedupe_key: str,
     *args,
+    business_id: Optional[int] = None,
     ttl: int = 600,
     timeout: int = 300,
+    retry: Optional[int] = 3,
     **kwargs
 ) -> Optional[Job]:
     """
-    Enqueue a job with deduplication - only one job per dedup_key can be queued/running.
+    Enqueue a job with Redis SETNX deduplication.
+    
+    ⚠️ CRITICAL: Use this for all external events (webhooks, Twilio callbacks, etc.)
+    
+    Atomically checks if job already exists and enqueues only if not.
+    Uses Redis SET NX (set if not exists) for atomic deduplication.
     
     Args:
         queue_name: Queue to enqueue to
         func: Function to execute
-        dedup_key: Unique key for deduplication (e.g., "whatsapp_send:{business_id}:{phone}")
+        dedupe_key: Unique key for deduplication (e.g., "webhook:baileys:msg_ABC123")
         *args: Positional arguments for func
-        ttl: Job TTL in seconds
+        business_id: Business ID for tenant isolation
+        ttl: Job TTL in seconds (also used for dedupe lock TTL)
         timeout: Job execution timeout in seconds
-        **kwargs: Keyword arguments for func (including business_id, etc.)
+        retry: Number of retry attempts
+        **kwargs: Keyword arguments for func
     
     Returns:
         rq.job.Job or None: The enqueued job, or None if duplicate already exists
-    """
-    redis_conn = get_redis_connection()
-    queue = Queue(queue_name, connection=redis_conn)
     
-    # Check if job already exists in queue or is running
-    # Use Redis SET NX (set if not exists) for atomic deduplication
-    lock_key = f"job_lock:{dedup_key}"
+    Example:
+        from server.services.jobs import enqueue_with_dedupe
+        
+        job = enqueue_with_dedupe(
+            'default',
+            webhook_process_job,
+            dedupe_key=f'webhook:baileys:{message_id}',
+            business_id=123,
+            tenant_id='123',
+            messages=[...]
+        )
+        
+        if job is None:
+            logger.info("Duplicate webhook - skipped")
+    """
+    redis_conn = get_redis()
+    
+    # Atomic deduplication: SET NX (set if not exists) with TTL
+    lock_key = f"job_lock:{dedupe_key}"
     lock_acquired = redis_conn.set(lock_key, "1", ex=ttl, nx=True)
     
     if not lock_acquired:
-        logger.info(f"[JOB-DEDUP] Skipping duplicate job: {dedup_key}")
+        logger.info(f"[JOB-DEDUPE] Skipping duplicate: {dedupe_key}")
         return None
     
-    # Enqueue job with automatic lock cleanup
-    job_id = f"unique:{dedup_key}"
+    # Generate deterministic job ID from dedupe key
+    job_id = f"deduped:{dedupe_key}"
     
     try:
-        job = enqueue_job(
+        job = enqueue(
             queue_name,
             func,
             *args,
+            business_id=business_id,
             job_id=job_id,
             ttl=ttl,
             timeout=timeout,
-            description=f"Unique job: {dedup_key}",
+            retry=retry,
+            description=f"Deduplicated job: {dedupe_key}",
             **kwargs
         )
         
-        # Store job ID in Redis for tracking
-        redis_conn.setex(f"job_id:{dedup_key}", ttl, job.id)
-        
+        logger.info(f"[JOB-DEDUPE] Enqueued unique job: {dedupe_key}")
         return job
+        
     except Exception as e:
-        # Release lock on failure
+        # Release lock on failure so it can be retried
         redis_conn.delete(lock_key)
+        logger.error(f"[JOB-DEDUPE] Failed to enqueue {dedupe_key}, released lock: {e}")
         raise
 
 
@@ -189,14 +310,14 @@ def cancel_jobs_for_run(run_id: int, business_id: Optional[int] = None) -> int:
     Returns:
         int: Number of jobs cancelled
     """
-    redis_conn = get_redis_connection()
+    redis_conn = get_redis()
     cancelled_count = 0
     
     # Search all queues for jobs with matching run_id
-    queue_names = ['high', 'default', 'low', 'maintenance', 'broadcasts', 'recordings']
+    queue_names = ['high', 'default', 'low', 'maintenance', 'broadcasts', 'recordings', 'receipts', 'receipts_sync']
     
     for queue_name in queue_names:
-        queue = Queue(queue_name, connection=redis_conn)
+        queue = get_queue(queue_name)
         
         # Get all jobs in queue
         for job in queue.jobs:
@@ -216,7 +337,7 @@ def cancel_jobs_for_run(run_id: int, business_id: Optional[int] = None) -> int:
     return cancelled_count
 
 
-def get_job_status(job_id: str) -> Optional[dict]:
+def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
     """
     Get status of a job by ID.
     
@@ -227,7 +348,7 @@ def get_job_status(job_id: str) -> Optional[dict]:
         dict: Job status info or None if not found
     """
     try:
-        redis_conn = get_redis_connection()
+        redis_conn = get_redis()
         job = Job.fetch(job_id, connection=redis_conn)
         
         return {
@@ -245,6 +366,79 @@ def get_job_status(job_id: str) -> Optional[dict]:
         return None
 
 
+def get_queue_stats() -> Dict[str, Dict[str, int]]:
+    """
+    Get statistics for all queues.
+    
+    Returns:
+        dict: Queue statistics by queue name
+        
+    Example:
+        {
+            'default': {'queued': 5, 'started': 2, 'finished': 100, 'failed': 3},
+            'high': {'queued': 0, 'started': 0, 'finished': 50, 'failed': 0},
+            ...
+        }
+    """
+    from rq.registry import StartedJobRegistry, FinishedJobRegistry, FailedJobRegistry
+    
+    redis_conn = get_redis()
+    stats = {}
+    
+    queue_names = ['high', 'default', 'low', 'maintenance', 'broadcasts', 'recordings', 'receipts', 'receipts_sync']
+    
+    for queue_name in queue_names:
+        try:
+            queue = get_queue(queue_name)
+            started_registry = StartedJobRegistry(queue=queue)
+            finished_registry = FinishedJobRegistry(queue=queue)
+            failed_registry = FailedJobRegistry(queue=queue)
+            
+            stats[queue_name] = {
+                'queued': len(queue),
+                'started': len(started_registry),
+                'finished': len(finished_registry),
+                'failed': len(failed_registry)
+            }
+        except Exception as e:
+            logger.error(f"[QUEUE-STATS] Failed to get stats for {queue_name}: {e}")
+            stats[queue_name] = {'error': str(e)}
+    
+    return stats
+
+
+def get_scheduler_health() -> Dict[str, Any]:
+    """
+    Get scheduler health information.
+    
+    Returns:
+        dict: Scheduler health data
+        
+    Example:
+        {
+            'last_tick': '2026-01-28T19:00:00Z',
+            'lock_held': True,
+            'lock_ttl': 75  # seconds remaining
+        }
+    """
+    redis_conn = get_redis()
+    
+    try:
+        # Check scheduler lock
+        lock_key = 'scheduler:global_lock'
+        lock_value = redis_conn.get(lock_key)
+        lock_ttl = redis_conn.ttl(lock_key) if lock_value else None
+        
+        return {
+            'last_tick': lock_value.decode() if lock_value else None,
+            'lock_held': bool(lock_value),
+            'lock_ttl': lock_ttl if lock_ttl and lock_ttl > 0 else None
+        }
+    except Exception as e:
+        logger.error(f"[SCHEDULER-HEALTH] Failed to get health: {e}")
+        return {'error': str(e)}
+
+
 def cleanup_old_jobs(queue_name: str, max_age_hours: int = 24) -> int:
     """
     Clean up old finished/failed jobs from queue registry.
@@ -256,8 +450,8 @@ def cleanup_old_jobs(queue_name: str, max_age_hours: int = 24) -> int:
     Returns:
         int: Number of jobs cleaned up
     """
-    redis_conn = get_redis_connection()
-    queue = Queue(queue_name, connection=redis_conn)
+    redis_conn = get_redis()
+    queue = get_queue(queue_name)
     
     from rq.registry import FinishedJobRegistry, FailedJobRegistry
     from datetime import timedelta
@@ -291,3 +485,9 @@ def cleanup_old_jobs(queue_name: str, max_age_hours: int = 24) -> int:
         logger.info(f"[JOB-CLEANUP] Cleaned up {cleaned_count} old jobs from {queue_name}")
     
     return cleaned_count
+
+
+# Backwards compatibility aliases
+enqueue_job = enqueue  # Old name
+enqueue_unique = enqueue_with_dedupe  # Old name
+get_redis_connection = get_redis  # Old name

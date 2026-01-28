@@ -24,19 +24,16 @@ RETRY_WINDOW_MINUTES = 10  # Time window to count retry attempts
 
 
 def get_redis_connection():
-    """Get Redis connection for rate limiting and attempt tracking."""
-    import os
-    import redis
+    """
+    Get Redis connection for rate limiting and attempt tracking.
     
-    REDIS_URL = os.getenv('REDIS_URL')
-    if not REDIS_URL:
-        log.warning("[REDIS] REDIS_URL not set - rate limiting disabled")
-        return None
-    
+    ✅ Uses unified wrapper instead of creating inline connection
+    """
     try:
-        return redis.from_url(REDIS_URL)
+        from server.services.jobs import get_redis
+        return get_redis()
     except Exception as e:
-        log.error(f"[REDIS] Failed to connect: {e}")
+        log.error(f"[REDIS] Failed to get connection: {e}")
         return None
 
 
