@@ -729,29 +729,52 @@ def incoming_call():
             logger.debug(f"[PROMPT] Background inbound prompt build failed (fallback to async build): {e}")
     
     # Start prompt building in background (non-blocking)
+    # 🔥 REMOVED THREADING: Use RQ job for prompt pre-building
     if business_id and call_sid:
-        threading.Thread(
-            target=_prebuild_prompts_async,
-            args=(call_sid, business_id),
-            daemon=True,
-            name=f"PromptBuild-{call_sid[:8]}"
-        ).start()
-    
-    # 🎙️ REMOVED: Recording start moved to in-progress status callback
-    # This prevents "Requested resource is not eligible for recording" errors
-    # Recording is now triggered in call_status webhook when status="in-progress"
-    # See routes_twilio.py call_status() handler for the new implementation
+        try:
+            from server.services.jobs import enqueue_job
+            from server.jobs.twilio_call_jobs import prebuild_prompt_job
+            
+            enqueue_job(
+                queue_name='high',
+                func=prebuild_prompt_job,
+                call_sid=call_sid,
+                business_id=business_id,
+                direction='inbound',
+                business_id=business_id,  # For job metadata
+                timeout=30,
+                retry=1,
+                description=f"Prebuild prompt for {call_sid[:8]}"
+            )
+        except Exception as e:
+            logger.warning(f"[PROMPT] Failed to enqueue prompt build: {e}")
+            # Continue - prompt will be built on-demand
     
     # === יצירה אוטומטית של ליד (ברקע) - Non-blocking ===
     # 🔥 GREETING OPTIMIZATION: Lead creation happens in background - doesn't block TwiML response
     # 🔥 FIX: Pass direction="inbound" for correct phone number matching
+    # 🔥 REMOVED THREADING: Use RQ job for lead creation
     if from_number:
-        threading.Thread(
-            target=_create_lead_from_call,
-            args=(call_sid, from_number, to_number, business_id, "inbound"),
-            daemon=True,
-            name=f"LeadCreation-{call_sid[:8]}"
-        ).start()
+        try:
+            from server.services.jobs import enqueue_job
+            from server.jobs.twilio_call_jobs import create_lead_from_call_job
+            
+            enqueue_job(
+                queue_name='default',
+                func=create_lead_from_call_job,
+                call_sid=call_sid,
+                from_number=from_number,
+                to_number=to_number,
+                business_id=business_id,
+                direction='inbound',
+                business_id=business_id,  # For job metadata
+                timeout=60,
+                retry=2,
+                description=f"Create lead from call {call_sid[:8]}"
+            )
+        except Exception as e:
+            logger.error(f"[LEAD] Failed to enqueue lead creation: {e}")
+            # Continue - lead will be created from other hooks
     
     # ⏱️ מדידה
     t1 = time.time()
@@ -902,23 +925,53 @@ def outbound_call():
             logger.debug(f"[PROMPT] Background outbound prompt build failed: {e}")
     
     # Start prompt building in background (non-blocking)
+    # 🔥 REMOVED THREADING: Use RQ job for prompt pre-building
     if business_id and call_sid:
-        threading.Thread(
-            target=_prebuild_prompts_async_outbound,
-            args=(call_sid, business_id),
-            daemon=True,
-            name=f"PromptBuildOut-{call_sid[:8]}"
-        ).start()
+        try:
+            from server.services.jobs import enqueue_job
+            from server.jobs.twilio_call_jobs import prebuild_prompt_job
+            
+            enqueue_job(
+                queue_name='high',
+                func=prebuild_prompt_job,
+                call_sid=call_sid,
+                business_id=int(business_id),
+                direction='outbound',
+                business_id=int(business_id),  # For job metadata
+                timeout=30,
+                retry=1,
+                description=f"Prebuild prompt outbound {call_sid[:8]}"
+            )
+        except Exception as e:
+            logger.warning(f"[PROMPT] Failed to enqueue outbound prompt build: {e}")
+            # Continue - prompt will be built on-demand
     
     # 🔥 FIX: Create/link lead for outbound calls (similar to inbound)
     # This ensures outbound calls properly update leads
+    # 🔥 REMOVED THREADING: Use RQ job for lead creation
     if to_number:
         # Always run lead creation to ensure call_log is properly linked
         # If lead_id exists, it will be updated; if not, one will be created
-        threading.Thread(
-            target=_create_lead_from_call,
-            args=(call_sid, from_number, to_number, int(business_id) if business_id else None, "outbound"),
-            daemon=True,
+        try:
+            from server.services.jobs import enqueue_job
+            from server.jobs.twilio_call_jobs import create_lead_from_call_job
+            
+            enqueue_job(
+                queue_name='default',
+                func=create_lead_from_call_job,
+                call_sid=call_sid,
+                from_number=from_number,
+                to_number=to_number,
+                business_id=int(business_id) if business_id else None,
+                direction='outbound',
+                business_id=int(business_id) if business_id else None,  # For job metadata
+                timeout=60,
+                retry=2,
+                description=f"Create lead from outbound call {call_sid[:8]}"
+            )
+        except Exception as e:
+            logger.error(f"[LEAD] Failed to enqueue outbound lead creation: {e}")
+            # Continue - lead will be created from other hooks
             name=f"LeadCreationOut-{call_sid[:8]}"
         ).start()
     

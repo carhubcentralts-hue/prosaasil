@@ -262,11 +262,30 @@ def send_generic_webhook(
             logger.error(f"❌ [WEBHOOK] Failed to send {event_type} after {MAX_RETRIES} attempts")
             return False
         
-        thread = threading.Thread(target=send_with_retry, daemon=True)
-        thread.start()
-        
-        logger.info(f"✅ [WEBHOOK] Webhook queued for sending in background thread")
-        return True
+        # 🔥 REMOVED THREADING: Use RQ job for webhook sending with retry
+        try:
+            from server.services.jobs import enqueue_job
+            from server.jobs.send_webhook_job import send_webhook_job
+            
+            enqueue_job(
+                queue_name='default',
+                func=send_webhook_job,
+                url=url,
+                payload=payload_for_send,
+                event_type=event_type,
+                business_id=business_id,
+                secret=secret,
+                business_id=business_id,  # For job metadata
+                timeout=60,
+                retry=0,  # Job already has internal retry logic
+                description=f"Send {event_type} webhook"
+            )
+            logger.info(f"✅ [WEBHOOK] Webhook queued for sending via RQ worker")
+            return True
+        except Exception as enqueue_error:
+            logger.error(f"[WEBHOOK] Failed to enqueue webhook job: {enqueue_error}")
+            # Fallback: try sending synchronously
+            return send_with_retry()
         
     except Exception as e:
         logger.error(f"[WEBHOOK] ❌ Error sending webhook: {e}")

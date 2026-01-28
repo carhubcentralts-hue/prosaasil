@@ -248,10 +248,11 @@ def warmup_services_async():
         logger.info("✅ Service warmup thread completed")
         log.info("🔥 Service warmup completed")
     
-    # Start warmup in background thread
-    warmup_thread = threading.Thread(target=_warmup, daemon=True)
-    warmup_thread.start()
-    log.info("🔥 Service warmup scheduled")
+    # 🔥 REMOVED THREADING: Service warmup moved to RQ job or runs synchronously
+    # Background warmup can cause issues on startup - better to warmup lazily on first use
+    # If warmup is needed, use: enqueue_job('low', warmup_agents_job)
+    logger.info("⚠️ Service background warmup disabled - using lazy initialization")
+    log.info("🔥 Service warmup scheduled (lazy mode)")
 
 def get_service_status():
     """Get current status of all services (for /readyz)"""
