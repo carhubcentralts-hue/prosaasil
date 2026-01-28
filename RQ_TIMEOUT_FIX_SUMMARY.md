@@ -38,9 +38,9 @@ job_kwargs = {
 
 Created `verify_rq_timeout_fix.py` script that scans all Python files for incorrect timeout usage.
 
-**Result**: 
+**Result (as of January 2026)**: 
 - ✅ Checked 239 Python files in server/ directory
-- ✅ All `queue.enqueue()` calls use correct `job_timeout` parameter
+- ✅ All `queue.enqueue()` and `queue.enqueue_at()` calls use correct `job_timeout` parameter
 - ✅ No instances of incorrect `timeout` parameter found
 
 Run verification: `python verify_rq_timeout_fix.py`
@@ -71,20 +71,30 @@ All direct `queue.enqueue()` calls already use correct `job_timeout`:
 systemctl restart rq-worker  # or: supervisorctl restart worker:*
 
 # 2. Optional: Clear failed jobs from Redis
-python -c "
+# Create a temporary script file to avoid shell quoting issues:
+cat > /tmp/clear_failed_jobs.py << 'EOF'
 from rq import Queue
 from rq.registry import FailedJobRegistry
 from server.services.jobs import get_redis
 
 redis_conn = get_redis()
-for queue_name in ['default', 'high', 'low', 'broadcasts', 'recordings', 'receipts']:
-    queue = Queue(queue_name, connection=redis_conn)
-    failed_registry = FailedJobRegistry(queue=queue)
-    count = len(failed_registry)
-    if count > 0:
-        print(f'Clearing {count} failed jobs from {queue_name}')
-        failed_registry.empty()
-"
+# Note: Include all queue names used in your system
+queue_names = ['default', 'high', 'low', 'maintenance', 'broadcasts', 
+               'recordings', 'receipts', 'receipts_sync']
+
+for queue_name in queue_names:
+    try:
+        queue = Queue(queue_name, connection=redis_conn)
+        failed_registry = FailedJobRegistry(queue=queue)
+        count = len(failed_registry)
+        if count > 0:
+            print(f'Clearing {count} failed jobs from {queue_name}')
+            failed_registry.empty()
+    except Exception as e:
+        print(f'Error clearing {queue_name}: {e}')
+EOF
+
+python /tmp/clear_failed_jobs.py
 
 # 3. Monitor worker logs
 tail -f /var/log/rq-worker.log  # Check for resolution
@@ -92,7 +102,7 @@ tail -f /var/log/rq-worker.log  # Check for resolution
 
 ## Frontend Issue Investigation
 
-Problem statement mentioned: "Popup בפרונט: to_number is not defined"
+Problem statement mentioned: "Popup בפרונט (frontend popup): to_number is not defined"
 
 **Investigation Result**: 
 - ✅ No undefined `to_number` variables found in frontend code

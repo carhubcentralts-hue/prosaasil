@@ -49,7 +49,7 @@ def check_file_for_incorrect_timeout(filepath: Path) -> list:
         
         for line_num, line in enumerate(lines, 1):
             # Check if we're starting an enqueue call
-            if 'queue.enqueue(' in line or '.enqueue(' in line:
+            if 'queue.enqueue(' in line or '.enqueue_at(' in line or '.enqueue(' in line:
                 in_enqueue_call = True
                 enqueue_start_line = line_num
                 paren_depth = line.count('(') - line.count(')')
@@ -59,16 +59,17 @@ def check_file_for_incorrect_timeout(filepath: Path) -> list:
                 enqueue_lines.append(line)
                 paren_depth += line.count('(') - line.count(')')
                 
-                # Check if we've closed all parentheses
-                if paren_depth <= 0:
+                # Check if we've closed all parentheses (exact match)
+                if paren_depth == 0:
                     # Now check this enqueue call
                     full_call = '\n'.join(enqueue_lines)
                     
                     # Look for timeout parameter (but not job_timeout)
+                    # Use word boundary to match exact parameter name
                     # Match patterns like: timeout='30m', timeout=300, timeout = timeout
-                    if re.search(r"[,\(]\s*timeout\s*=", full_call):
+                    if re.search(r"[,\(]\s*\btimeout\s*=", full_call):
                         # Make sure it's not actually 'job_timeout'
-                        if not re.search(r"[,\(]\s*job_timeout\s*=", full_call):
+                        if not re.search(r"[,\(]\s*\bjob_timeout\s*=", full_call):
                             issues.append({
                                 'file': str(filepath),
                                 'line': enqueue_start_line,
@@ -77,6 +78,10 @@ def check_file_for_incorrect_timeout(filepath: Path) -> list:
                             })
                     
                     # Reset for next enqueue call
+                    in_enqueue_call = False
+                    enqueue_lines = []
+                elif paren_depth < 0:
+                    # Negative depth indicates parsing error - reset
                     in_enqueue_call = False
                     enqueue_lines = []
                     
