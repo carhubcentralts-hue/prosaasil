@@ -2297,7 +2297,7 @@ class MediaStreamHandler:
         self._stats_last_log_ts = 0  # Last time we logged pipeline status
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
         
-        # 🔥 GEMINI AUDIO COUNTERS: Track audio flow for debugging (as per הנחיה)
+        # 🔥 GEMINI AUDIO COUNTERS: Track audio flow for debugging (per requirements)
         self._gemini_twilio_frames_in = 0  # Twilio frames received
         self._gemini_audio_bytes_sent = 0  # Bytes sent to Gemini (tracked during send)
         self._gemini_audio_bytes_recv = 0  # Bytes received from Gemini
@@ -2339,7 +2339,7 @@ class MediaStreamHandler:
         # Buffer ensures we only send properly aligned chunks (no 638 bytes!)
         self._gemini_input_buffer = bytearray()  # Accumulates PCM16 16kHz data before sending
         self._gemini_input_chunk_size = 640  # Target chunk size (20ms at 16kHz PCM16)
-        self._gemini_audio_bytes_sent = 0  # Track total bytes sent for debugging
+        self._gemini_buffer_warned = False  # Track if we've warned about partial buffering
         
         logger.info("🎵 [GEMINI_AUDIO] Frame alignment buffers initialized (RX: frame_size=2, TX: chunk_size=640)")
         
@@ -4731,8 +4731,8 @@ class MediaStreamHandler:
                             logger.info(f"🎤 [GEMINI_SEND] Sent chunk: {len(chunk_to_send)} bytes (total: {self._gemini_audio_bytes_sent} bytes)")
                     
                     # Log buffer state if accumulating
-                    if buffer_len > 0 and buffer_len < chunk_size:
-                        if not hasattr(self, '_gemini_buffer_warned') or self._gemini_buffer_warned is False:
+                    if buffer_len > 0:
+                        if not self._gemini_buffer_warned:
                             logger.debug(f"[GEMINI_SEND] Buffering partial chunk: {buffer_len}/{chunk_size} bytes")
                             self._gemini_buffer_warned = True
                 
@@ -17530,7 +17530,7 @@ class MediaStreamHandler:
             logger.info(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
             logger.info(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
             
-            # 🔥 GEMINI AUDIO COUNTERS: Log audio flow for debugging (as per הנחיה)
+            # 🔥 GEMINI AUDIO COUNTERS: Log audio flow for debugging (per requirements)
             ai_provider = getattr(self, '_ai_provider', 'openai')
             if ai_provider == 'gemini':
                 gemini_frames_in = getattr(self, '_gemini_twilio_frames_in', 0)
