@@ -2794,20 +2794,35 @@ def process_next_queued_job(job_id: int, run_id: int):
     app = get_process_app()
     
     def release_and_process_next(business_id: int, job_id: int):
-        """Helper to release slot and process next job non-recursively"""
+        """Helper to release slot and process next job via RQ worker (not thread)"""
         try:
             from server.services.outbound_semaphore import release_slot
             next_job_id = release_slot(business_id, job_id)
             if next_job_id:
-                log.info(f"[ProcessNext] Released slot for job {job_id}, starting next job {next_job_id} in thread")
-                # Use thread instead of recursion to prevent stack overflow
-                import threading
-                threading.Thread(
-                    target=process_next_queued_job,
-                    args=(next_job_id, run_id),
-                    daemon=True,
-                    name=f"ProcessNext-{next_job_id}"
-                ).start()
+                # 🔥 FIX: Use RQ worker instead of Thread to prevent dual background execution
+                # This prevents duplicates, stuck runs, and UI issues after restart
+                try:
+                    import redis
+                    from rq import Queue
+                    REDIS_URL = os.getenv('REDIS_URL')
+                    if REDIS_URL:
+                        redis_conn = redis.from_url(REDIS_URL)
+                        queue = Queue('default', connection=redis_conn)
+                        
+                        log.info(f"[ProcessNext] Released slot for job {job_id}, enqueuing next job {next_job_id} to RQ worker")
+                        
+                        # Enqueue to RQ worker instead of spawning thread
+                        queue.enqueue(
+                            'server.routes_outbound.process_next_queued_job',
+                            next_job_id,
+                            run_id,
+                            job_timeout='10m',  # Single call should complete quickly
+                            job_id=f"process_next_{next_job_id}"
+                        )
+                    else:
+                        log.warning(f"[ProcessNext] REDIS_URL not set, cannot enqueue next job {next_job_id}")
+                except Exception as e:
+                    log.error(f"[ProcessNext] Failed to enqueue next job {next_job_id} to RQ: {e}")
             else:
                 log.info(f"[ProcessNext] Released slot for job {job_id}, no more jobs in queue")
         except Exception as e:

@@ -178,6 +178,20 @@ def configure_logging():
         for module_name in noisy_modules:
             module_logger = logging.getLogger(module_name)
             module_logger.setLevel(logging.WARNING)
+    else:
+        # DEVELOPMENT MODE - Enable detailed logging for outbound system
+        # These modules are useful for debugging outbound call issues
+        outbound_modules = [
+            'server.routes_outbound',
+            'server.jobs.enqueue_outbound_calls_job',
+            'server.services.outbound_semaphore',
+            'server.worker',
+            'rq.worker',
+        ]
+        
+        for module_name in outbound_modules:
+            module_logger = logging.getLogger(module_name)
+            module_logger.setLevel(logging.DEBUG)
     
     # ========================================================================
     # LOG CONFIGURATION SUMMARY

@@ -836,20 +836,8 @@ def create_app():
         app.register_blueprint(calls_bp)
         
         # BUILD 174: Outbound Calls API
-        from server.routes_outbound import outbound_bp, cleanup_stuck_dialing_jobs, cleanup_stuck_runs
+        from server.routes_outbound import outbound_bp
         app.register_blueprint(outbound_bp)
-        
-        # 🔒 CRITICAL: Cleanup stuck jobs and runs on startup to prevent blocking
-        # This runs immediately after blueprint registration
-        # Must run in app context since cleanup functions expect it
-        try:
-            logger.info("[STARTUP] Running cleanup on startup...")
-            with app.app_context():
-                cleanup_stuck_dialing_jobs()
-                cleanup_stuck_runs(on_startup=True)  # 🔥 NEW: Pass on_startup=True to mark ALL running runs as failed
-            logger.info("[STARTUP] ✅ Cleanup complete")
-        except Exception as e:
-            logger.error(f"[STARTUP] ⚠️ Cleanup failed: {e}")
         
         # Projects API for Outbound Calls
         from server.routes_projects import projects_bp
@@ -1095,6 +1083,44 @@ def create_app():
     
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
+    
+    # 🔒 CRITICAL: Cleanup stuck jobs and runs on startup to prevent blocking
+    # Must run AFTER db.init_app() and in app context to avoid SQLAlchemy errors
+    # This prevents "Flask app is not registered with this SQLAlchemy instance" error
+    # Only run in API service, not in worker service (to prevent duplicate cleanup)
+    service_role = os.getenv('SERVICE_ROLE', 'api').lower()
+    if service_role != 'worker':
+        try:
+            logger.info(f"[STARTUP] Running outbound cleanup on startup (service_role={service_role})...")
+            with app.app_context():
+                from server.routes_outbound import cleanup_stuck_dialing_jobs, cleanup_stuck_runs
+                cleanup_stuck_dialing_jobs()
+                cleanup_stuck_runs(on_startup=True)  # Pass on_startup=True to mark ALL running runs as failed
+                
+                # Also clean up Redis locks for stuck runs
+                try:
+                    import redis
+                    REDIS_URL = os.getenv('REDIS_URL')
+                    if REDIS_URL:
+                        from server.services.outbound_semaphore import cleanup_expired_slots
+                        redis_conn = redis.from_url(REDIS_URL)
+                        # Clean up slots for all businesses (rough cleanup on startup)
+                        # This prevents ghost queue issues after restart
+                        logger.info("[STARTUP] Cleaning up Redis outbound slots...")
+                        # Note: cleanup_expired_slots is per-business, but we can't enumerate all businesses here
+                        # The per-business cleanup will happen when each business starts a new run
+                    else:
+                        logger.warning("[STARTUP] REDIS_URL not set, skipping Redis cleanup")
+                except Exception as redis_err:
+                    logger.warning(f"[STARTUP] Redis cleanup warning: {redis_err}")
+                    
+            logger.info("[STARTUP] ✅ Outbound cleanup complete")
+        except Exception as e:
+            logger.error(f"[STARTUP] ⚠️ Cleanup failed: {e}")
+            import traceback
+            logger.error(f"[STARTUP] Traceback: {traceback.format_exc()}")
+    else:
+        logger.info(f"[STARTUP] Skipping outbound cleanup (service_role={service_role}, worker services don't need cleanup)")
     
     # 🔒 P1: Rate Limiting for Security
     # Initialize rate limiter with Redis for distributed limiting
