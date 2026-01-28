@@ -1026,13 +1026,13 @@ def stream_ended():
         resp.headers["Cache-Control"] = "no-store"
         
         # 🎧 CRITICAL LOG: Recording starts AFTER stream ends (after AI greeting finished)
+        # 🔥 REMOVED THREADING: This is a fast Twilio API call, can run inline
         if call_sid:
             logger.info(f"[RECORDING] Stream ended → safe to start recording for {call_sid}")
-            threading.Thread(
-                target=_trigger_recording_for_call, 
-                args=(call_sid,), 
-                daemon=True
-            ).start()
+            try:
+                _trigger_recording_for_call(call_sid)
+            except Exception as e:
+                logger.error(f"[RECORDING] Failed to trigger recording: {e}")
             
         try:
             status = request.form.get('Status', 'N/A')
@@ -1156,19 +1156,17 @@ def handle_recording():
             # Truly async - starts thread and returns immediately
             form_copy = dict(request.form)
             
-            def async_enqueue():
-                """Background thread for recording processing"""
-                try:
-                    enqueue_recording(form_copy)
-                    logger.info(f"✅ REC_QUEUED_ASYNC: {call_sid[:16]} duration={rec_duration}")
-                except Exception as e:
-                    logger.error(f"❌ REC_QUEUE_ASYNC_FAIL: {call_sid[:16]} error={type(e).__name__}: {e}")
+            # 🔥 REMOVED THREADING: Use RQ job for recording processing
+            # Already uses enqueue_recording which goes to RQ queue
+            # No need for wrapper thread - just enqueue directly
+            try:
+                enqueue_recording(form_copy)
+                logger.info(f"✅ REC_QUEUED_DIRECT: {call_sid[:16]} duration={rec_duration}")
+            except Exception as e:
+                logger.error(f"❌ REC_QUEUE_FAIL: {call_sid[:16]} error={type(e).__name__}: {e}")
             
-            # Fire daemon thread and return immediately (non-blocking)
-            threading.Thread(target=async_enqueue, daemon=True).start()
-            
-            # Immediate success log (thread started, not completed)
-            current_app.logger.info("REC_THREAD_STARTED", extra={
+            # Immediate success log
+            current_app.logger.info("REC_QUEUED", extra={
                 "call_sid": call_sid[:16],
                 "processing_ms": int((time.time() - start_time) * 1000)
             })
@@ -1464,14 +1462,13 @@ def call_status():
                     from_num = call_log.from_number or ""
                     to_num = call_log.to_number or ""
                     
-                    # Start recording in background thread (non-blocking)
-                    threading.Thread(
-                        target=_start_recording_from_second_zero,
-                        args=(call_sid, from_num, to_num),
-                        daemon=True,
-                        name=f"RecordingStart-InProgress-{call_sid[:8]}"
-                    ).start()
-                    logger.info(f"🎙️ [CALL_STATUS] Started recording for in-progress call {call_sid}")
+                    # 🔥 REMOVED THREADING: This is a fast Twilio API call, can run inline
+                    # Start recording (non-blocking Twilio API)
+                    try:
+                        _start_recording_from_second_zero(call_sid, from_num, to_num)
+                        logger.info(f"🎙️ [CALL_STATUS] Started recording for in-progress call {call_sid}")
+                    except Exception as rec_err:
+                        logger.warning(f"Failed to start recording for in-progress call {call_sid}: {rec_err}")
             except Exception as rec_err:
                 logger.warning(f"Failed to start recording for in-progress call {call_sid}: {rec_err}")
         
@@ -1528,15 +1525,24 @@ def call_status():
                             
                             if next_job_id:
                                 # Redis queue has work waiting - process it
-                                logger.info(f"✅ [QUEUE] Call completed for job {job.id}, starting next job {next_job_id} from Redis queue")
-                                from server.routes_outbound import process_next_queued_job
-                                import threading
-                                threading.Thread(
-                                    target=process_next_queued_job,
-                                    args=(next_job_id, run.id),
-                                    daemon=True,
-                                    name=f"ProcessNext-{next_job_id}"
-                                ).start()
+                                # 🔥 REMOVED THREADING: Use RQ job for next outbound call
+                                logger.info(f"✅ [QUEUE] Call completed for job {job.id}, enqueuing next job {next_job_id} from Redis queue")
+                                try:
+                                    from server.services.jobs import enqueue_job
+                                    from server.routes_outbound import process_next_queued_job
+                                    
+                                    enqueue_job(
+                                        queue_name='default',
+                                        func=process_next_queued_job,
+                                        next_job_id,
+                                        run.id,
+                                        business_id=run.tenant_id if hasattr(run, 'tenant_id') else None,
+                                        timeout=300,
+                                        retry=2,
+                                        description=f"Process next queued job {next_job_id}"
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to enqueue next job {next_job_id}: {e}")
                             else:
                                 logger.info(f"✅ [QUEUE] Call completed for job {job.id}, no more jobs in Redis queue")
                         else:
