@@ -4826,16 +4826,6 @@ class MediaStreamHandler:
                 # Log synthetic response creation
                 logger.info(f"[GEMINI] Synthesized response.created: {response_id[:20]}...")
             
-            # 🔥 GEMINI AUDIO FIX: Validate and debug audio format
-            # Track chunks and log first chunk details for debugging
-            self._gemini_audio_chunks_received += 1
-            if not self._gemini_audio_first_chunk_logged:
-                self._gemini_audio_first_chunk_logged = True
-                mime_type = gemini_event.get('mime_type', 'unknown')
-                data_type = type(audio_bytes).__name__
-                first_20_hex = audio_bytes[:20].hex() if len(audio_bytes) >= 20 else audio_bytes.hex()
-                logger.info(f"🔍 [GEMINI_AUDIO] First chunk: bytes={len(audio_bytes)}, mime_type={mime_type}, data_type={data_type}, first_20_hex={first_20_hex}")
-            
             # 🔥 CRITICAL FIX: Frame alignment buffer for unaligned chunks
             # Gemini can send partial frames (e.g., 47 bytes) that aren't aligned to PCM16 boundaries
             # Buffer accumulates chunks until we have complete frames to process
@@ -4851,6 +4841,18 @@ class MediaStreamHandler:
                 # Skip empty chunks
                 if len(audio_bytes) == 0:
                     return None
+                
+                # 🔥 GEMINI AUDIO FIX: Validate and debug audio format
+                # Log first VALID chunk details (after validation, not before)
+                if not self._gemini_audio_first_chunk_logged:
+                    self._gemini_audio_first_chunk_logged = True
+                    mime_type = gemini_event.get('mime_type', 'unknown')
+                    data_type = type(audio_bytes).__name__
+                    first_20_hex = audio_bytes[:20].hex() if len(audio_bytes) >= 20 else audio_bytes.hex()
+                    logger.info(f"🔍 [GEMINI_AUDIO] First chunk: bytes={len(audio_bytes)}, mime_type={mime_type}, data_type={data_type}, first_20_hex={first_20_hex}")
+                
+                # Track chunks
+                self._gemini_audio_chunks_received += 1
                 
                 # Add incoming chunk to buffer
                 self._gemini_audio_buffer.extend(audio_bytes)
@@ -9715,6 +9717,14 @@ class MediaStreamHandler:
                 # Clear response tracking
                 self.has_pending_ai_response = False
                 self.response_pending_event.clear()
+                
+                # 🔥 GEMINI AUDIO FIX: Clear buffer state to prevent leakage between calls
+                if hasattr(self, '_gemini_audio_buffer'):
+                    self._gemini_audio_buffer.clear()
+                if hasattr(self, '_gemini_audio_chunks_received'):
+                    self._gemini_audio_chunks_received = 0
+                if hasattr(self, '_gemini_audio_first_chunk_logged'):
+                    self._gemini_audio_first_chunk_logged = False
                 
                 _orig_print(f"   ✅ State flags cleared", flush=True)
             except Exception as e:

@@ -121,23 +121,24 @@ class TestGeminiAudioFrameAlignment(unittest.TestCase):
     
     def test_error_recovery_clears_buffer(self):
         """Test that errors clear the buffer to prevent corruption"""
-        # Add some data to buffer first
+        import unittest.mock as mock
+        
+        # Add some data to buffer first to simulate state before error
         self.processor._gemini_audio_buffer.extend(b'\x00\x01' * 10)
         self.assertEqual(len(self.processor._gemini_audio_buffer), 20)
         
-        # Now trigger an error with invalid sample count for ratecv
-        # We need data that ratecv will reject (not a whole number of frames)
-        # Actually, our logic prevents this, so let's simulate a different error
-        # by creating audio data that's valid for our logic but breaks ratecv
-        
-        # Let's use a single frame (2 bytes) which is too small for ratecv
-        chunk = b'\x00\x01'
-        result, status = self.processor.process_audio_chunk(chunk)
-        
-        # ratecv should fail with too little data
-        # But actually it might not fail with 2 bytes...
-        # Let's just check that if there's an error, buffer is cleared
-        if "error" in status:
+        # Mock audioop.ratecv to raise an exception
+        # This simulates a real audio processing error
+        with mock.patch('audioop.ratecv', side_effect=Exception("Simulated audio processing error")):
+            # Process a chunk that would normally succeed
+            chunk = b'\x00\x01' * 100  # 200 bytes, perfectly aligned
+            result, status = self.processor.process_audio_chunk(chunk)
+            
+            # Should return None with error status
+            self.assertIsNone(result)
+            self.assertIn("error", status)
+            
+            # Buffer should be cleared after error to prevent corruption
             self.assertEqual(len(self.processor._gemini_audio_buffer), 0)
     
     def test_single_byte_buffering(self):
