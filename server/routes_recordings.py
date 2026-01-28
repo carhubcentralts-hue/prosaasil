@@ -19,6 +19,83 @@ recordings_bp = Blueprint('recordings', __name__, url_prefix='/api/recordings')
 JOB_TIMEOUT_MINUTES = 5
 
 
+def handle_stuck_job_and_retry(existing_run, call_sid, call, business_id, is_head_request=False):
+    """
+    🔥 NEW: Handle stuck recording job - mark as failed and trigger new download.
+    
+    This is a helper function to avoid code duplication between prepare_recording
+    and serve_recording_file endpoints.
+    
+    Args:
+        existing_run: RecordingRun object that might be stuck
+        call_sid: Twilio Call SID
+        call: CallLog object
+        business_id: Business ID
+        is_head_request: Whether this is a HEAD request
+    
+    Returns:
+        tuple: (is_stuck: bool, response: Response|None)
+            - If not stuck: (False, None) - caller should handle normally
+            - If stuck and new job created: (True, Response with 202)
+            - If stuck but recovery failed: (True, Response with 500)
+    """
+    from datetime import datetime, timedelta
+    from server.tasks_recording import enqueue_recording_download_only
+    
+    # Check if job is stuck (age > timeout threshold)
+    job_age = datetime.utcnow() - existing_run.created_at
+    is_stuck = job_age > timedelta(minutes=JOB_TIMEOUT_MINUTES)
+    
+    if not is_stuck:
+        # Job is not stuck - let caller handle it normally
+        return (False, None)
+    
+    # Job is stuck - mark it as failed and trigger new download
+    original_status = existing_run.status  # 🔥 FIX: Capture original status before changing it
+    log.warning(f"[STUCK_JOB] Job {existing_run.id} for call_sid={call_sid} is stuck (age: {job_age}, status: {original_status})")
+    
+    # Mark stuck job as failed
+    existing_run.status = 'failed'
+    existing_run.error_message = f'Job timeout after {JOB_TIMEOUT_MINUTES} minutes (stuck in {original_status} state)'
+    existing_run.completed_at = datetime.utcnow()
+    db.session.commit()
+    
+    log.info(f"[STUCK_JOB] Marked stuck job {existing_run.id} as failed, triggering new download for call_sid={call_sid}")
+    
+    # Trigger new download job
+    job_success, reason = enqueue_recording_download_only(
+        call_sid=call_sid,
+        recording_url=call.recording_url,
+        business_id=business_id,
+        from_number=call.from_number or "",
+        to_number=call.to_number or "",
+        recording_sid=call.recording_sid
+    )
+    
+    if job_success or reason == "duplicate":
+        # New job created successfully
+        log.info(f"[STUCK_JOB] New job created after stuck job recovery for call_sid={call_sid}")
+        if is_head_request:
+            response = Response(status=202)
+            response.headers['Retry-After'] = '3'
+            return (True, response)
+        return (True, (jsonify({
+            "status": "processing",
+            "message": "Recording download restarted. Please retry in a few seconds.",
+            "message_he": "הורדת ההקלטה התחילה מחדש. אנא נסה שוב בעוד כמה שניות."
+        }), 202, {'Retry-After': '3'}))
+    else:
+        # Failed to create new job - return error
+        log.error(f"[STUCK_JOB] Failed to recover from stuck job for call_sid={call_sid}, reason={reason}")
+        if is_head_request:
+            return (True, Response(status=500))
+        return (True, (jsonify({
+            "error": "Recording preparation failed",
+            "message": "Failed to restart recording download. Please try again later.",
+            "message_he": "שגיאה בהכנת ההקלטה. אנא נסה שוב מאוחר יותר."
+        }), 500))
+
+
 def cleanup_stuck_recording_jobs(business_id=None):
     """
     🔥 NEW: Cleanup stuck recording jobs that have been in queued/running state for too long.
@@ -51,10 +128,11 @@ def cleanup_stuck_recording_jobs(business_id=None):
             
             for job in stuck_jobs:
                 job_age = datetime.utcnow() - job.created_at
-                log.warning(f"[CLEANUP] Marking stuck job as failed: run_id={job.id}, call_sid={job.call_sid}, age={job_age}, status={job.status}")
+                original_status = job.status  # 🔥 FIX: Capture original status before changing it
+                log.warning(f"[CLEANUP] Marking stuck job as failed: run_id={job.id}, call_sid={job.call_sid}, age={job_age}, status={original_status}")
                 
                 job.status = 'failed'
-                job.error_message = f'Job timeout after {JOB_TIMEOUT_MINUTES} minutes (stuck in {job.status} state)'
+                job.error_message = f'Job timeout after {JOB_TIMEOUT_MINUTES} minutes (stuck in {original_status} state)'
                 job.completed_at = datetime.utcnow()
             
             db.session.commit()
@@ -217,26 +295,24 @@ def prepare_recording(call_sid):
         
         if existing_run:
             # Job already exists - check if it's stuck
-            # 🔥 FIX: Detect and handle stuck jobs to prevent infinite UI loops
-            
-            # If job has been in 'queued' or 'running' state for > 5 minutes, it's stuck
-            job_age = datetime.utcnow() - existing_run.created_at
-            is_stuck = job_age > timedelta(minutes=JOB_TIMEOUT_MINUTES)
+            # 🔥 FIX: Use helper function to detect and handle stuck jobs
+            is_stuck, response = handle_stuck_job_and_retry(
+                existing_run=existing_run,
+                call_sid=call_sid,
+                call=call,
+                business_id=business_id,
+                is_head_request=False
+            )
             
             if is_stuck:
-                # Job is stuck - mark it as failed and continue to create new one
-                log.warning(f"[PREPARE] Job {existing_run.id} for call_sid={call_sid} is stuck (age: {job_age}, status: {existing_run.status})")
-                
-                # Mark stuck job as failed
-                existing_run.status = 'failed'
-                existing_run.error_message = f'Job timeout after {JOB_TIMEOUT_MINUTES} minutes (stuck in {existing_run.status} state)'
-                existing_run.completed_at = datetime.utcnow()
-                db.session.commit()
-                
-                log.info(f"[PREPARE] Marked stuck job {existing_run.id} as failed, will create new job for call_sid={call_sid}")
+                # Job was stuck - helper already handled it
+                # If response is None, it means new job creation failed, fall through to create job manually
+                if response is not None:
+                    return response
                 # Fall through to create new job
             else:
                 # Job is not stuck - return existing job status
+                job_age = datetime.utcnow() - existing_run.created_at
                 log.info(f"[PREPARE] Job already exists for call_sid={call_sid}, status={existing_run.status}, age={job_age}")
                 status = "processing" if existing_run.status == "running" else "queued"
                 return jsonify({
@@ -404,58 +480,21 @@ def serve_recording_file(call_sid):
                             }), 500
                     else:
                         # Job exists - check if it's stuck
-                        # 🔥 FIX: Detect and handle stuck jobs to prevent infinite UI loops
-                        
-                        # If job has been in 'queued' or 'running' state for > 5 minutes, it's stuck
-                        job_age = datetime.utcnow() - existing_run.created_at
-                        is_stuck = job_age > timedelta(minutes=JOB_TIMEOUT_MINUTES)
+                        # 🔥 FIX: Use helper function to detect and handle stuck jobs
+                        is_stuck, response = handle_stuck_job_and_retry(
+                            existing_run=existing_run,
+                            call_sid=call_sid,
+                            call=call,
+                            business_id=business_id,
+                            is_head_request=is_head_request
+                        )
                         
                         if is_stuck:
-                            # Job is stuck - mark it as failed and trigger new download
-                            log.warning(f"[RECORDING] Job {existing_run.id} for call_sid={call_sid} is stuck (age: {job_age}, status: {existing_run.status})")
-                            
-                            # Mark stuck job as failed
-                            existing_run.status = 'failed'
-                            existing_run.error_message = f'Job timeout after {JOB_TIMEOUT_MINUTES} minutes (stuck in {existing_run.status} state)'
-                            existing_run.completed_at = datetime.utcnow()
-                            db.session.commit()
-                            
-                            log.info(f"[RECORDING] Marked stuck job {existing_run.id} as failed, triggering new download for call_sid={call_sid}")
-                            
-                            # Trigger new download job
-                            job_success, reason = enqueue_recording_download_only(
-                                call_sid=call_sid,
-                                recording_url=call.recording_url,
-                                business_id=business_id,
-                                from_number=call.from_number or "",
-                                to_number=call.to_number or "",
-                                recording_sid=call.recording_sid
-                            )
-                            
-                            if job_success or reason == "duplicate":
-                                # New job created successfully
-                                log.info(f"[RECORDING] New job created after stuck job recovery for call_sid={call_sid}")
-                                if is_head_request:
-                                    response = Response(status=202)
-                                    response.headers['Retry-After'] = '3'
-                                    return response
-                                return jsonify({
-                                    "status": "processing",
-                                    "message": "Recording download restarted. Please retry in a few seconds.",
-                                    "message_he": "הורדת ההקלטה התחילה מחדש. אנא נסה שוב בעוד כמה שניות."
-                                }), 202, {'Retry-After': '3'}
-                            else:
-                                # Failed to create new job - return error
-                                log.error(f"[RECORDING] Failed to recover from stuck job for call_sid={call_sid}, reason={reason}")
-                                if is_head_request:
-                                    return Response(status=500)
-                                return jsonify({
-                                    "error": "Recording preparation failed",
-                                    "message": "Failed to restart recording download. Please try again later.",
-                                    "message_he": "שגיאה בהכנת ההקלטה. אנא נסה שוב מאוחר יותר."
-                                }), 500
+                            # Job was stuck - helper already handled it and returned response
+                            return response
                         else:
                             # Job is not stuck - return 202 with status
+                            job_age = datetime.utcnow() - existing_run.created_at
                             log.info(f"[RECORDING] Job in progress for call_sid={call_sid}, job_type={existing_run.job_type}, status={existing_run.status}, run_id={existing_run.id}, age={job_age}")
                             if is_head_request:
                                 response = Response(status=202)

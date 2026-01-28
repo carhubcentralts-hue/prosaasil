@@ -14,7 +14,6 @@ from server.routes_recordings import cleanup_stuck_recording_jobs, JOB_TIMEOUT_M
 
 def test_detect_stuck_job():
     """Test that jobs older than JOB_TIMEOUT_MINUTES are considered stuck"""
-    from datetime import datetime, timedelta
     
     # Job created 6 minutes ago (> 5 minute timeout)
     old_job_created = datetime.utcnow() - timedelta(minutes=6)
