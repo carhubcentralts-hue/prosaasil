@@ -2734,6 +2734,9 @@ def process_next_queued_job(job_id: int, run_id: int):
     Args:
         job_id: The job_id to process (returned by release_slot())
         run_id: The run_id this job belongs to
+        
+    Note: This function MUST release the Redis slot if it cannot process the job,
+          since release_slot() already assigned this job_id a slot.
     """
     from server.app_factory import get_process_app
     from server.models_sql import OutboundCallRun, OutboundCallJob, Lead, Business, CallLog
@@ -2743,23 +2746,48 @@ def process_next_queued_job(job_id: int, run_id: int):
     
     app = get_process_app()
     
+    def release_and_process_next(business_id: int, job_id: int):
+        """Helper to release slot and process next job non-recursively"""
+        try:
+            from server.services.outbound_semaphore import release_slot
+            next_job_id = release_slot(business_id, job_id)
+            if next_job_id:
+                log.info(f"[ProcessNext] Released slot for job {job_id}, starting next job {next_job_id} in thread")
+                # Use thread instead of recursion to prevent stack overflow
+                import threading
+                threading.Thread(
+                    target=process_next_queued_job,
+                    args=(next_job_id, run_id),
+                    daemon=True,
+                    name=f"ProcessNext-{next_job_id}"
+                ).start()
+            else:
+                log.info(f"[ProcessNext] Released slot for job {job_id}, no more jobs in queue")
+        except Exception as e:
+            log.error(f"[ProcessNext] Error releasing slot: {e}")
+    
     with app.app_context():
         try:
             # Get the job
             job = OutboundCallJob.query.get(job_id)
             if not job:
-                log.warning(f"[ProcessNext] Job {job_id} not found")
+                log.warning(f"[ProcessNext] Job {job_id} not found - cannot determine business_id to release slot")
+                # Cannot release slot without business_id - this is a rare edge case
                 return
+            
+            business_id = job.business_id
             
             # Verify it's queued
             if job.status != "queued":
-                log.warning(f"[ProcessNext] Job {job_id} is not queued (status={job.status})")
+                log.warning(f"[ProcessNext] Job {job_id} is not queued (status={job.status}), releasing slot")
+                release_and_process_next(business_id, job_id)
                 return
             
             # Get the run
             run = OutboundCallRun.query.get(run_id)
             if not run or run.status != "running":
-                log.info(f"[ProcessNext] Run {run_id} not running, skipping job {job_id}")
+                log.info(f"[ProcessNext] Run {run_id} not running, releasing slot for job {job_id}")
+                release_and_process_next(business_id, job_id)
                 return
             
             log.info(f"[ProcessNext] Processing job {job_id} from Redis queue for run {run_id}")
@@ -2769,11 +2797,13 @@ def process_next_queued_job(job_id: int, run_id: int):
             if not business or not business.phone_e164:
                 log.error(f"[ProcessNext] Business {run.business_id} has no phone")
                 job.status = "failed"
-                job.error_message = "אין מספר טלפון לעסק"
+                job.error_message = "No phone number configured for business"
                 job.completed_at = datetime.utcnow()
                 run.failed_count += 1
                 run.queued_count -= 1
                 db.session.commit()
+                # 🔥 CRITICAL: Release slot and process next
+                release_and_process_next(business_id, job_id)
                 return
             
             from_phone = business.phone_e164
@@ -2790,17 +2820,21 @@ def process_next_queued_job(job_id: int, run_id: int):
                 run.failed_count += 1
                 run.queued_count -= 1
                 db.session.commit()
+                # 🔥 CRITICAL: Release slot and process next
+                release_and_process_next(business_id, job_id)
                 return
             
             # Get lead
             lead = Lead.query.get(job.lead_id)
             if not lead or not lead.phone_e164:
                 job.status = "failed"
-                job.error_message = "אין מספר טלפון לליד"
+                job.error_message = "No phone number for lead"
                 job.completed_at = datetime.utcnow()
                 run.failed_count += 1
                 run.queued_count -= 1
                 db.session.commit()
+                # 🔥 CRITICAL: Release slot and process next
+                release_and_process_next(business_id, job_id)
                 return
             
             # 🔒 ATOMIC LOCKING: Acquire lock before dialing
@@ -2823,7 +2857,9 @@ def process_next_queued_job(job_id: int, run_id: int):
             # Check if we acquired the lock
             if result.rowcount == 0:
                 # Someone else already started this call or it's no longer queued
-                log.warning(f"[ProcessNext] Job {job.id} already being processed, skipping")
+                log.warning(f"[ProcessNext] Job {job.id} already being processed, releasing slot")
+                # 🔥 CRITICAL: Release slot and process next since lock acquisition failed
+                release_and_process_next(business_id, job_id)
                 return
             
             # Successfully acquired lock, proceed with call
@@ -2883,6 +2919,8 @@ def process_next_queued_job(job_id: int, run_id: int):
                     run.in_progress_count -= 1
                     run.failed_count += 1
                     db.session.commit()
+                    # 🔥 CRITICAL: Release slot and process next when duplicate detected
+                    release_and_process_next(business_id, job_id)
                     return
                 
                 # 🔒 ATOMIC UPDATE: Update with Twilio call SID only if lock token matches
@@ -2930,43 +2968,45 @@ def process_next_queued_job(job_id: int, run_id: int):
                     run.queued_count += 1
                     db.session.commit()
                     
-                    # 🔥 CRITICAL: Release the slot since call failed
-                    from server.services.outbound_semaphore import release_slot
-                    next_job_id = release_slot(run.business_id, job.id)
-                    if next_job_id:
-                        log.info(f"[ProcessNext] Released slot after error, processing next job {next_job_id}")
-                        # Recursively process next job
-                        process_next_queued_job(next_job_id, run_id)
-                    
-                    log.warning(f"[ProcessNext] Reset job {job.id} to queued for retry")
-                    raise twilio_error
+                    log.warning(f"[ProcessNext] Reset job {job.id} to queued for retry, releasing slot")
+                    # 🔥 CRITICAL: Release slot using helper (non-recursive thread spawn)
+                    release_and_process_next(business_id, job.id)
+                # else: Call was created, webhook will handle slot release when it completes
         
         except Exception as e:
             log.error(f"[ProcessNext] Error processing job {job_id}: {e}")
             import traceback
             traceback.print_exc()
             
-            # Try to mark job as failed if it hasn't started yet
+            # Try to mark job as failed if it hasn't started yet and release slot
             try:
                 job = OutboundCallJob.query.get(job_id)
-                if job and not job.twilio_call_sid and job.status != "failed":
-                    job.status = "failed"
-                    job.error_message = str(e)[:200]
-                    job.completed_at = datetime.utcnow()
-                    
-                    run = OutboundCallRun.query.get(run_id)
-                    if run:
-                        run.in_progress_count = max(0, run.in_progress_count - 1)
-                        run.failed_count += 1
-                    
-                    db.session.commit()
-                    
-                    # 🔥 CRITICAL: Release the slot since job failed
-                    from server.services.outbound_semaphore import release_slot
-                    next_job_id = release_slot(run.business_id, job_id)
-                    if next_job_id:
-                        log.info(f"[ProcessNext] Released slot after exception, processing next job {next_job_id}")
-                        process_next_queued_job(next_job_id, run_id)
+                if job:
+                    business_id = job.business_id
+                    # Only update if call never started (no dial_lock_token or no twilio_call_sid)
+                    if not job.twilio_call_sid and job.status not in ["failed", "completed"]:
+                        # Check if we acquired the atomic lock
+                        if job.dial_lock_token:
+                            # We acquired lock and incremented in_progress - must decrement
+                            run = OutboundCallRun.query.get(run_id)
+                            if run:
+                                run.in_progress_count = max(0, run.in_progress_count - 1)
+                                run.failed_count += 1
+                        else:
+                            # Never acquired lock, just mark as failed
+                            run = OutboundCallRun.query.get(run_id)
+                            if run:
+                                run.failed_count += 1
+                                run.queued_count = max(0, run.queued_count - 1)
+                        
+                        job.status = "failed"
+                        job.error_message = str(e)[:200]
+                        job.completed_at = datetime.utcnow()
+                        db.session.commit()
+                        
+                        # 🔥 CRITICAL: Release the slot using helper (non-recursive thread spawn)
+                        log.info(f"[ProcessNext] Job {job_id} failed, releasing slot")
+                        release_and_process_next(business_id, job_id)
             except Exception as cleanup_err:
                 log.error(f"[ProcessNext] Cleanup error: {cleanup_err}")
 
