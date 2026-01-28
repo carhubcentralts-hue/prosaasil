@@ -774,24 +774,56 @@ def create_calendar():
             return jsonify({'error': 'Request body required'}), 400
         
         # Validate required fields
-        if not data.get('name'):
+        if not data.get('name') or not data.get('name').strip():
             return jsonify({'error': 'שם לוח השנה נדרש'}), 400
+        
+        # Validate provider
+        valid_providers = ['internal', 'google', 'outlook']
+        provider = data.get('provider', 'internal')
+        if provider not in valid_providers:
+            return jsonify({'error': f'ספק לא חוקי. חייב להיות אחד מ: {", ".join(valid_providers)}'}), 400
+        
+        # Validate numeric fields
+        default_duration = data.get('default_duration_minutes', 60)
+        buffer_before = data.get('buffer_before_minutes', 0)
+        buffer_after = data.get('buffer_after_minutes', 0)
+        priority = data.get('priority', 0)
+        
+        try:
+            default_duration = int(default_duration)
+            buffer_before = int(buffer_before)
+            buffer_after = int(buffer_after)
+            priority = int(priority)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'ערכים מספריים חייבים להיות מספרים שלמים'}), 400
+        
+        if default_duration <= 0:
+            return jsonify({'error': 'משך זמן ברירת מחדל חייב להיות גדול מ-0'}), 400
+        if buffer_before < 0 or buffer_after < 0:
+            return jsonify({'error': 'זמני חיץ חייבים להיות לא שליליים'}), 400
+        
+        # Validate allowed_tags
+        allowed_tags = data.get('allowed_tags', [])
+        if not isinstance(allowed_tags, list):
+            return jsonify({'error': 'allowed_tags חייב להיות מערך'}), 400
+        if not all(isinstance(tag, str) for tag in allowed_tags):
+            return jsonify({'error': 'כל התגיות ב-allowed_tags חייבות להיות מחרוזות'}), 400
         
         from server.models_sql import BusinessCalendar
         
         # Create new calendar
         calendar = BusinessCalendar(
             business_id=business_id,
-            name=data['name'],
+            name=data['name'].strip(),
             type_key=data.get('type_key'),
-            provider=data.get('provider', 'internal'),
+            provider=provider,
             calendar_external_id=data.get('calendar_external_id'),
             is_active=data.get('is_active', True),
-            priority=data.get('priority', 0),
-            default_duration_minutes=data.get('default_duration_minutes', 60),
-            buffer_before_minutes=data.get('buffer_before_minutes', 0),
-            buffer_after_minutes=data.get('buffer_after_minutes', 0),
-            allowed_tags=data.get('allowed_tags', [])
+            priority=priority,
+            default_duration_minutes=default_duration,
+            buffer_before_minutes=buffer_before,
+            buffer_after_minutes=buffer_after,
+            allowed_tags=allowed_tags
         )
         
         db.session.add(calendar)
@@ -845,22 +877,68 @@ def update_calendar(calendar_id):
         if not data:
             return jsonify({'error': 'Request body required'}), 400
         
-        # Update fields
+        # Validate name if provided
         if 'name' in data:
-            calendar.name = data['name']
+            if not data['name'] or not data['name'].strip():
+                return jsonify({'error': 'שם לוח השנה לא יכול להיות ריק'}), 400
+            calendar.name = data['name'].strip()
+        
+        # Validate provider if provided
+        if 'provider' in data:
+            valid_providers = ['internal', 'google', 'outlook']
+            if data['provider'] not in valid_providers:
+                return jsonify({'error': f'ספק לא חוקי. חייב להיות אחד מ: {", ".join(valid_providers)}'}), 400
+            calendar.provider = data['provider']
+        
+        # Validate numeric fields if provided
+        if 'default_duration_minutes' in data:
+            try:
+                duration = int(data['default_duration_minutes'])
+                if duration <= 0:
+                    return jsonify({'error': 'משך זמן ברירת מחדל חייב להיות גדול מ-0'}), 400
+                calendar.default_duration_minutes = duration
+            except (ValueError, TypeError):
+                return jsonify({'error': 'משך זמן חייב להיות מספר שלם'}), 400
+        
+        if 'buffer_before_minutes' in data:
+            try:
+                buffer_before = int(data['buffer_before_minutes'])
+                if buffer_before < 0:
+                    return jsonify({'error': 'זמן חיץ לפני חייב להיות לא שלילי'}), 400
+                calendar.buffer_before_minutes = buffer_before
+            except (ValueError, TypeError):
+                return jsonify({'error': 'זמן חיץ חייב להיות מספר שלם'}), 400
+        
+        if 'buffer_after_minutes' in data:
+            try:
+                buffer_after = int(data['buffer_after_minutes'])
+                if buffer_after < 0:
+                    return jsonify({'error': 'זמן חיץ אחרי חייב להיות לא שלילי'}), 400
+                calendar.buffer_after_minutes = buffer_after
+            except (ValueError, TypeError):
+                return jsonify({'error': 'זמן חיץ חייב להיות מספר שלם'}), 400
+        
+        if 'priority' in data:
+            try:
+                calendar.priority = int(data['priority'])
+            except (ValueError, TypeError):
+                return jsonify({'error': 'עדיפות חייבת להיות מספר שלם'}), 400
+        
+        # Validate allowed_tags if provided
+        if 'allowed_tags' in data:
+            if not isinstance(data['allowed_tags'], list):
+                return jsonify({'error': 'allowed_tags חייב להיות מערך'}), 400
+            if not all(isinstance(tag, str) for tag in data['allowed_tags']):
+                return jsonify({'error': 'כל התגיות ב-allowed_tags חייבות להיות מחרוזות'}), 400
+            calendar.allowed_tags = data['allowed_tags']
+        
+        # Update other fields
         if 'type_key' in data:
             calendar.type_key = data['type_key']
-        if 'provider' in data:
-            calendar.provider = data['provider']
         if 'calendar_external_id' in data:
             calendar.calendar_external_id = data['calendar_external_id']
         if 'is_active' in data:
             calendar.is_active = data['is_active']
-        if 'priority' in data:
-            calendar.priority = data['priority']
-        if 'default_duration_minutes' in data:
-            calendar.default_duration_minutes = data['default_duration_minutes']
-        if 'buffer_before_minutes' in data:
             calendar.buffer_before_minutes = data['buffer_before_minutes']
         if 'buffer_after_minutes' in data:
             calendar.buffer_after_minutes = data['buffer_after_minutes']
@@ -912,6 +990,15 @@ def delete_calendar(calendar_id):
         
         if not calendar:
             return jsonify({'error': 'לוח שנה לא נמצא'}), 404
+        
+        # Check if this is the last active calendar
+        active_calendars_count = BusinessCalendar.query.filter(
+            BusinessCalendar.business_id == business_id,
+            BusinessCalendar.is_active == True
+        ).count()
+        
+        if active_calendars_count <= 1:
+            return jsonify({'error': 'לא ניתן להשבית את לוח השנה האחרון של העסק'}), 400
         
         # Soft delete - just deactivate
         calendar.is_active = False
@@ -999,13 +1086,33 @@ def create_routing_rule():
         if not calendar:
             return jsonify({'error': 'לוח שנה לא נמצא'}), 404
         
+        # Validate match_labels
+        match_labels = data.get('match_labels', [])
+        if not isinstance(match_labels, list):
+            return jsonify({'error': 'match_labels חייב להיות מערך'}), 400
+        if not all(isinstance(label, str) for label in match_labels):
+            return jsonify({'error': 'כל התוויות ב-match_labels חייבות להיות מחרוזות'}), 400
+        
+        # Validate match_keywords
+        match_keywords = data.get('match_keywords', [])
+        if not isinstance(match_keywords, list):
+            return jsonify({'error': 'match_keywords חייב להיות מערך'}), 400
+        if not all(isinstance(kw, str) for kw in match_keywords):
+            return jsonify({'error': 'כל מילות המפתח ב-match_keywords חייבות להיות מחרוזות'}), 400
+        
+        # Validate channel_scope
+        valid_scopes = ['all', 'calls', 'whatsapp']
+        channel_scope = data.get('channel_scope', 'all')
+        if channel_scope not in valid_scopes:
+            return jsonify({'error': f'channel_scope חייב להיות אחד מ: {", ".join(valid_scopes)}'}), 400
+        
         # Create new routing rule
         rule = CalendarRoutingRule(
             business_id=business_id,
             calendar_id=data['calendar_id'],
-            match_labels=data.get('match_labels', []),
-            match_keywords=data.get('match_keywords', []),
-            channel_scope=data.get('channel_scope', 'all'),
+            match_labels=match_labels,
+            match_keywords=match_keywords,
+            channel_scope=channel_scope,
             when_ambiguous_ask=data.get('when_ambiguous_ask', False),
             question_text=data.get('question_text'),
             priority=data.get('priority', 0),
@@ -1075,10 +1182,23 @@ def update_routing_rule(rule_id):
             rule.calendar_id = data['calendar_id']
         
         if 'match_labels' in data:
+            if not isinstance(data['match_labels'], list):
+                return jsonify({'error': 'match_labels חייב להיות מערך'}), 400
+            if not all(isinstance(label, str) for label in data['match_labels']):
+                return jsonify({'error': 'כל התוויות ב-match_labels חייבות להיות מחרוזות'}), 400
             rule.match_labels = data['match_labels']
+        
         if 'match_keywords' in data:
+            if not isinstance(data['match_keywords'], list):
+                return jsonify({'error': 'match_keywords חייב להיות מערך'}), 400
+            if not all(isinstance(kw, str) for kw in data['match_keywords']):
+                return jsonify({'error': 'כל מילות המפתח ב-match_keywords חייבות להיות מחרוזות'}), 400
             rule.match_keywords = data['match_keywords']
+        
         if 'channel_scope' in data:
+            valid_scopes = ['all', 'calls', 'whatsapp']
+            if data['channel_scope'] not in valid_scopes:
+                return jsonify({'error': f'channel_scope חייב להיות אחד מ: {", ".join(valid_scopes)}'}), 400
             rule.channel_scope = data['channel_scope']
         if 'when_ambiguous_ask' in data:
             rule.when_ambiguous_ask = data['when_ambiguous_ask']

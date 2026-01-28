@@ -544,7 +544,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             from server.models_sql import BusinessCalendar
             default_cal = BusinessCalendar.query.filter(
                 BusinessCalendar.business_id == input.business_id,
-                BusinessCalendar.is_active == True
+                BusinessCalendar.is_active.is_(True)
             ).order_by(BusinessCalendar.priority.desc()).first()
             
             if default_cal:
@@ -864,7 +864,7 @@ def calendar_list(input: CalendarListInput) -> CalendarListOutput:
         # Query active calendars for business, ordered by priority
         calendars = BusinessCalendar.query.filter(
             BusinessCalendar.business_id == input.business_id,
-            BusinessCalendar.is_active == True
+            BusinessCalendar.is_active.is_(True)
         ).order_by(BusinessCalendar.priority.desc()).all()
         
         logger.info(f"📅 Found {len(calendars)} active calendar(s) for business_id={input.business_id}")
@@ -926,7 +926,7 @@ def calendar_resolve_target(input: CalendarResolveInput) -> CalendarResolveOutpu
         # Get all active calendars
         calendars = BusinessCalendar.query.filter(
             BusinessCalendar.business_id == input.business_id,
-            BusinessCalendar.is_active == True
+            BusinessCalendar.is_active.is_(True)
         ).all()
         
         # If only one calendar, return it immediately
@@ -949,7 +949,7 @@ def calendar_resolve_target(input: CalendarResolveInput) -> CalendarResolveOutpu
         # Get active routing rules, ordered by priority
         rules = CalendarRoutingRule.query.filter(
             CalendarRoutingRule.business_id == input.business_id,
-            CalendarRoutingRule.is_active == True
+            CalendarRoutingRule.is_active.is_(True)
         ).order_by(CalendarRoutingRule.priority.desc()).all()
         
         logger.info(f"📋 Found {len(rules)} routing rule(s) for business_id={input.business_id}")
