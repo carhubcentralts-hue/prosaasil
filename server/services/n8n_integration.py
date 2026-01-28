@@ -105,7 +105,6 @@ def send_event_to_n8n(
                 payload=event_data,
                 event_type=event_type,
                 business_id=event_data.get('business_id'),
-                business_id=event_data.get('business_id'),  # For job metadata
                 timeout=30,
                 retry=2,
                 description=f"Send n8n {event_type}"

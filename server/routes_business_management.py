@@ -253,7 +253,6 @@ def create_business():
                         queue_name='low',
                         func=warmup_agents_job,
                         business_id=business.id,
-                        business_id=business.id,  # For job metadata
                         timeout=120,
                         retry=1,
                         description=f"Warmup business {business.name}"

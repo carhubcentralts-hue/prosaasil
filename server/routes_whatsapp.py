@@ -1172,7 +1172,6 @@ def baileys_webhook():
                         remote_jid=remote_jid,
                         response_text=response_text,
                         wa_msg_id=wa_msg.id,
-                        business_id=business_id,  # For job metadata
                         timeout=60,
                         retry=2,
                         description=f"Send WhatsApp to {remote_jid[:15]}"

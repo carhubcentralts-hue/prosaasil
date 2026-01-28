@@ -275,7 +275,6 @@ def send_generic_webhook(
                 event_type=event_type,
                 business_id=business_id,
                 secret=secret,
-                business_id=business_id,  # For job metadata
                 timeout=60,
                 retry=0,  # Job already has internal retry logic
                 description=f"Send {event_type} webhook"
