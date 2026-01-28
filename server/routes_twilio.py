@@ -741,7 +741,6 @@ def incoming_call():
                 call_sid=call_sid,
                 business_id=business_id,
                 direction='inbound',
-                business_id=business_id,  # For job metadata
                 timeout=30,
                 retry=1,
                 description=f"Prebuild prompt for {call_sid[:8]}"
@@ -767,7 +766,6 @@ def incoming_call():
                 to_number=to_number,
                 business_id=business_id,
                 direction='inbound',
-                business_id=business_id,  # For job metadata
                 timeout=60,
                 retry=2,
                 description=f"Create lead from call {call_sid[:8]}"
@@ -937,7 +935,6 @@ def outbound_call():
                 call_sid=call_sid,
                 business_id=int(business_id),
                 direction='outbound',
-                business_id=int(business_id),  # For job metadata
                 timeout=30,
                 retry=1,
                 description=f"Prebuild prompt outbound {call_sid[:8]}"
@@ -964,7 +961,6 @@ def outbound_call():
                 to_number=to_number,
                 business_id=int(business_id) if business_id else None,
                 direction='outbound',
-                business_id=int(business_id) if business_id else None,  # For job metadata
                 timeout=60,
                 retry=2,
                 description=f"Create lead from outbound call {call_sid[:8]}"
@@ -972,8 +968,6 @@ def outbound_call():
         except Exception as e:
             logger.error(f"[LEAD] Failed to enqueue outbound lead creation: {e}")
             # Continue - lead will be created from other hooks
-            name=f"LeadCreationOut-{call_sid[:8]}"
-        ).start()
     
     # 🎙️ REMOVED: Recording start moved to in-progress status callback
     # This prevents "Requested resource is not eligible for recording" errors
@@ -1534,9 +1528,9 @@ def call_status():
                                     enqueue_job(
                                         queue_name='default',
                                         func=process_next_queued_job,
-                                        next_job_id,
-                                        run.id,
                                         business_id=run.tenant_id if hasattr(run, 'tenant_id') else None,
+                                        job_id=next_job_id,
+                                        run_id=run.id,
                                         timeout=300,
                                         retry=2,
                                         description=f"Process next queued job {next_job_id}"
