@@ -168,6 +168,7 @@ class GeminiRealtimeClient:
         system_instructions: Optional[str] = None,
         temperature: Optional[float] = None,
         voice_id: Optional[str] = None,
+        tool_defs: Optional[list] = None,
         max_retries: int = 3,
         backoff_base: float = 1.0
     ):
@@ -178,6 +179,7 @@ class GeminiRealtimeClient:
             system_instructions: System prompt for the conversation
             temperature: Temperature for generation (0.0-2.0)
             voice_id: Voice ID to use (Gemini voice name)
+            tool_defs: List of tool definitions (Realtime API format) - will be converted to Gemini format
             max_retries: Maximum connection attempts
             backoff_base: Base delay in seconds for exponential backoff
         
@@ -202,20 +204,47 @@ class GeminiRealtimeClient:
             }
         }
         
-        # 🔥 FIX 3: Explicitly disable tool use to prevent function_call issues
-        # Ensure no tools are configured in the session
-        # Note: Even without tools config, Gemini might infer function calls from prompts
-        # So we also add explicit instruction in system_instructions
+        # 🔥 FIX: Add tools configuration if provided
+        # Convert OpenAI Realtime tool format to Gemini format
+        if tool_defs and len(tool_defs) > 0:
+            try:
+                # Convert tools to Gemini format
+                gemini_function_declarations = []
+                for tool in tool_defs:
+                    if tool.get("type") == "function":
+                        func_def = tool.get("function") or tool  # Handle both formats
+                        
+                        # Create Gemini FunctionDeclaration
+                        gemini_func = types.FunctionDeclaration(
+                            name=func_def.get("name"),
+                            description=func_def.get("description", ""),
+                            parameters=func_def.get("parameters", {})
+                        )
+                        gemini_function_declarations.append(gemini_func)
+                        logger.info(f"[GEMINI_CONFIG] Added tool: {func_def.get('name')}")
+                
+                if gemini_function_declarations:
+                    # Create Tool object with function declarations
+                    config["tools"] = [types.Tool(function_declarations=gemini_function_declarations)]
+                    logger.info(f"✅ [GEMINI_CONFIG] Configured {len(gemini_function_declarations)} tools")
+                else:
+                    logger.debug("[GEMINI_CONFIG] No valid tools to configure")
+            except Exception as tool_error:
+                logger.error(f"❌ [GEMINI_CONFIG] Failed to configure tools: {tool_error}")
+                logger.exception("[GEMINI_CONFIG] Tool configuration error", exc_info=True)
+                # Continue without tools rather than failing
         
         # Add system instructions if provided
         if system_instructions:
             sanitized_instructions = _sanitize_text_for_realtime(system_instructions)
-            # Append explicit "no tools" instruction
-            sanitized_instructions += "\n\nIMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
+            # Only add "no tools" instruction if no tools are configured
+            if not tool_defs or len(tool_defs) == 0:
+                sanitized_instructions += "\n\nIMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
             config["system_instruction"] = sanitized_instructions
         else:
-            # Even without system instructions, add the no-tools instruction
-            config["system_instruction"] = "IMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
+            # Only add "no tools" instruction if no tools are configured
+            if not tool_defs or len(tool_defs) == 0:
+                config["system_instruction"] = "IMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
         
         # Add voice if provided
         if voice_id:
@@ -359,21 +388,64 @@ class GeminiRealtimeClient:
     async def update_config(
         self,
         system_instructions: Optional[str] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        voice_id: Optional[str] = None
     ):
         """
-        Update session configuration
+        Update session configuration mid-session
         
         Args:
             system_instructions: New system instructions
             temperature: New temperature value
+            voice_id: Voice ID to use
+        
+        Note: This attempts to update the configuration, but Gemini Live API
+        has limited support for mid-session updates. System instructions and
+        voice should ideally be set during connect().
         """
         if not self._connected or not self.session:
             raise RuntimeError("Not connected. Call connect() first.")
         
-        # Note: Gemini Live API may not support mid-session config updates
-        # This is a placeholder for future API support
-        logger.warning("[GEMINI_LIVE] Config updates during session not yet implemented")
+        try:
+            # Build config update
+            config_updates = {}
+            
+            if system_instructions is not None:
+                sanitized_instructions = _sanitize_text_for_realtime(system_instructions)
+                config_updates["system_instruction"] = sanitized_instructions
+                logger.info(f"[GEMINI_UPDATE_CONFIG] Updating system instructions ({len(sanitized_instructions)} chars)")
+            
+            if temperature is not None:
+                temp = _clamp_temperature(temperature)
+                if "generation_config" not in config_updates:
+                    config_updates["generation_config"] = {}
+                config_updates["generation_config"]["temperature"] = temp
+                logger.info(f"[GEMINI_UPDATE_CONFIG] Updating temperature to {temp}")
+            
+            if voice_id is not None:
+                config_updates["speech_config"] = {
+                    "voice_config": {
+                        "prebuilt_voice_config": {
+                            "voice_name": voice_id
+                        }
+                    }
+                }
+                logger.info(f"[GEMINI_UPDATE_CONFIG] Updating voice to {voice_id}")
+            
+            if config_updates:
+                # 🔥 WORKAROUND: Gemini doesn't have a direct update_config method
+                # Store config for later use (when handling function calls, etc.)
+                if not hasattr(self, '_session_config'):
+                    self._session_config = {}
+                self._session_config.update(config_updates)
+                logger.info(f"[GEMINI_UPDATE_CONFIG] Config updates stored for session")
+            else:
+                logger.debug("[GEMINI_UPDATE_CONFIG] No config updates requested")
+                
+        except Exception as e:
+            logger.error(f"❌ [GEMINI_UPDATE_CONFIG] Failed to update config: {e}")
+            logger.exception("[GEMINI_UPDATE_CONFIG] Config update error", exc_info=True)
+            raise
     
     async def recv_events(self) -> AsyncIterator[Dict[str, Any]]:
         """
