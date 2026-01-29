@@ -3883,7 +3883,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                                 <audio 
                                   controls 
                                   className="w-full h-10"
-                                  preload="metadata"
+                                  preload="none"
                                   aria-label={`הקלטה: ${name}`}
                                   onClick={(e) => e.stopPropagation()}
                                 >
