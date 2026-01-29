@@ -761,7 +761,10 @@ def cancel_outbound_job(job_id: int):
     
     🔒 SECURITY: Enforces business isolation - users can only cancel runs for their business
     
-    Sets cancel_requested=True. The worker will:
+    🔥 SMART CANCEL: If queue is stale (>15min no heartbeat), force-cancels immediately
+    Otherwise, sets cancel_requested=True for graceful shutdown.
+    
+    The worker will:
     1. Stop starting new calls
     2. Mark remaining queued jobs as cancelled
     3. Set run status to cancelled
@@ -808,17 +811,61 @@ def cancel_outbound_job(job_id: int):
                 "message": f"התור כבר במצב {run.status}"
             }), 400
         
-        # 🔒 STATE MACHINE: Set cancel_requested flag
-        run.cancel_requested = True
-        run.updated_at = datetime.utcnow()
-        db.session.commit()
+        # 🔥 SMART CANCEL: Check if queue is stale (force-cancel if needed)
+        now = datetime.utcnow()
+        stale_ttl = timedelta(minutes=15)
+        last_activity = run.last_heartbeat_at or run.lock_ts or run.updated_at
         
-        log.info(f"📞 [business_id={run.business_id}] Cancellation requested for run {job_id} by business {tenant_id or 'system_admin'}")
+        is_stale = False
+        if last_activity:
+            time_since_activity = now - last_activity
+            is_stale = time_since_activity > stale_ttl
         
-        return jsonify({
-            "success": True,
-            "message": "בקשת ביטול נשלחה - התור יופסק בקרוב"
-        })
+        if is_stale:
+            # Force cancel immediately since worker appears dead
+            log.warning(f"🔥 [SMART_CANCEL] Run {job_id} is stale - force-cancelling")
+            
+            run.status = 'cancelled'
+            run.cancel_requested = True
+            run.ended_at = now
+            run.completed_at = now  # 🔥 AUTO-FINALIZE
+            run.updated_at = now
+            run.locked_by_worker = None
+            run.lock_ts = None
+            run.last_heartbeat_at = None  # Clear for consistency
+            
+            # Mark all pending jobs as failed
+            from sqlalchemy import text
+            result = db.session.execute(text("""
+                UPDATE outbound_call_jobs 
+                SET status='failed',
+                    error_message='Queue stale - force cancelled',
+                    completed_at=NOW()
+                WHERE run_id=:run_id 
+                    AND business_id=:business_id
+                    AND status IN ('queued', 'dialing')
+            """), {"run_id": job_id, "business_id": run.business_id})
+            
+            cancelled_count = result.rowcount
+            db.session.commit()
+            
+            return jsonify({
+                "success": True,
+                "message": f"התור בוטל מיידית (תור תקוע - {cancelled_count} שיחות בוטלו)",
+                "force_cancelled": True
+            })
+        else:
+            # Graceful cancel - let worker shut down properly
+            run.cancel_requested = True
+            run.updated_at = now
+            db.session.commit()
+            
+            log.info(f"📞 [business_id={run.business_id}] Cancellation requested for run {job_id} by business {tenant_id or 'system_admin'}")
+            
+            return jsonify({
+                "success": True,
+                "message": "בקשת ביטול נשלחה - התור יופסק בקרוב"
+            })
         
     except Exception as e:
         log.error(f"Error cancelling job: {e}")
@@ -886,14 +933,15 @@ def force_cancel_outbound_job(job_id: int):
         run.status = 'cancelled'
         run.cancel_requested = True
         run.ended_at = now
+        run.completed_at = now  # 🔥 AUTO-FINALIZE: Set completed_at to prevent stuck progress bar
         run.updated_at = now
         
-        # Clear worker lock and heartbeat
+        # Clear worker lock and heartbeat for consistency
         run.locked_by_worker = None
         run.lock_ts = None
-        run.last_heartbeat_at = None  # Clear heartbeat for consistency
+        run.last_heartbeat_at = None
         
-        # Mark all queued jobs as failed
+        # Mark all queued/dialing jobs as failed
         from sqlalchemy import text
         result = db.session.execute(text("""
             UPDATE outbound_call_jobs 
@@ -902,7 +950,7 @@ def force_cancel_outbound_job(job_id: int):
                 completed_at=NOW()
             WHERE run_id=:run_id 
                 AND business_id=:business_id
-                AND status IN ('queued', 'pending')
+                AND status IN ('queued', 'dialing')
         """), {"run_id": job_id, "business_id": run.business_id})
         
         cancelled_count = result.rowcount
@@ -940,11 +988,17 @@ def get_active_outbound_job():
     """
     Get the currently active outbound call job for this business
     
-    Returns the most recent job that is in 'running' or 'queued' status.
-    Used by frontend to restore progress bar after page refresh.
+    🔒 IRON RULE: Only return truly active queues to prevent stuck progress bars
     
-    🔥 STALE DETECTION: Automatically marks stale runs as 'stopped' if:
-    - status='running' but last_heartbeat_at > 30 seconds old
+    Returns a queue ONLY if ALL conditions are met:
+    - status = 'running' (not queued/stopped/completed/failed/cancelled)
+    - cancel_requested = false
+    - completed_at is null (not finished)
+    - last_heartbeat_at/updated_at within 15 minutes TTL
+    
+    🔥 STALE AUTO-FINALIZE: Automatically marks stale runs as 'failed' if:
+    - status='running' but last_heartbeat_at > 15 minutes old
+    - This prevents 2 businesses from having stuck progress bars
     
     Returns:
     {
@@ -965,57 +1019,80 @@ def get_active_outbound_job():
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
-        # Find most recent active run for this business
+        # 🔒 IRON RULE: Strict "active queue" definition
+        # Only return queues that are TRULY active (not stuck/stale/finished)
+        now = datetime.utcnow()
+        stale_ttl = timedelta(minutes=15)  # 15 minute TTL as per requirements
+        
+        # Find most recent run matching ALL active criteria
         run = OutboundCallRun.query.filter(
             OutboundCallRun.business_id == tenant_id,
-            OutboundCallRun.status.in_(['running', 'queued'])
+            OutboundCallRun.status == 'running',  # ONLY running (not queued)
+            OutboundCallRun.cancel_requested.is_(False),  # NOT cancelled (SQLAlchemy explicit False check)
+            OutboundCallRun.completed_at.is_(None),  # NOT finished (use completed_at for compatibility)
+            OutboundCallRun.ended_at.is_(None)  # NOT finished (use ended_at as primary)
         ).order_by(OutboundCallRun.created_at.desc()).first()
         
         if not run:
             return jsonify({"error": "אין תור פעיל"}), 404
         
-        # 🔥 STALE DETECTION: Check if run is stale (no heartbeat for 30+ seconds)
-        now = datetime.utcnow()
-        stale_threshold = timedelta(seconds=30)
-        
+        # 🔥 STALE AUTO-FINALIZE: Check if run is stale (TTL exceeded)
         # Determine last activity time
         last_activity = run.last_heartbeat_at or run.lock_ts or run.updated_at
         
-        if run.status == 'running' and last_activity:
-            time_since_heartbeat = now - last_activity
-            
-            if time_since_heartbeat > stale_threshold:
-                # Mark as stopped and clean up
-                elapsed_seconds = int(time_since_heartbeat.total_seconds())
-                log.warning(f"🔥 [STALE_DETECTION] Run {run.id} is stale (last_heartbeat={last_activity}, {elapsed_seconds}s ago). Marking as stopped.")
+        if not last_activity:
+            # Edge case: No activity timestamp at all (should never happen but defensive)
+            log.warning(f"🔥 [STALE_AUTO_FINALIZE] Run {run.id} has no activity timestamp - marking as failed")
+            run.status = 'failed'
+            run.ended_at = now
+            run.completed_at = now
+            run.last_error = "Queue has no activity timestamp"
+            run.locked_by_worker = None
+            run.lock_ts = None
+            run.last_heartbeat_at = None
+            db.session.commit()
+            return jsonify({"error": "אין תור פעיל"}), 404
+        
+        time_since_activity = now - last_activity
+        
+        if time_since_activity > stale_ttl:
+                # AUTO-FINALIZE: Mark as failed and clean up
+                elapsed_minutes = int(time_since_activity.total_seconds() / 60)
+                log.warning(
+                    f"🔥 [STALE_AUTO_FINALIZE] Run {run.id} exceeded TTL "
+                    f"(last_activity={last_activity}, {elapsed_minutes}m ago). "
+                    f"Auto-marking as failed."
+                )
                 
-                run.status = 'stopped'
+                run.status = 'failed'
                 run.ended_at = now
-                run.last_error = f"Worker stopped responding (last heartbeat: {elapsed_seconds}s ago)"
+                run.completed_at = now  # Set both for compatibility
+                run.last_error = f"Queue stale - no activity for {elapsed_minutes} minutes (TTL={stale_ttl.total_seconds()/60:.0f}m)"
                 
-                # Clear lock fields
+                # Clear lock fields and heartbeat for consistency
                 run.locked_by_worker = None
                 run.lock_ts = None
-                run.last_heartbeat_at = None  # Clear heartbeat for consistency
+                run.last_heartbeat_at = None
                 
                 # Mark remaining queued jobs as failed
                 from sqlalchemy import text
                 result = db.session.execute(text("""
                     UPDATE outbound_call_jobs 
                     SET status='failed',
-                        error_message='Run stopped - worker unresponsive',
+                        error_message='Queue stale - auto-finalized',
                         completed_at=NOW()
                     WHERE run_id=:run_id 
                         AND business_id=:business_id
-                        AND status='queued'
+                        AND status IN ('queued', 'dialing')
                 """), {"run_id": run.id, "business_id": run.business_id})
                 
                 cancelled_count = result.rowcount
-                log.info(f"🔥 [STALE_DETECTION] Marked {cancelled_count} queued jobs as failed")
+                log.info(f"🔥 [STALE_AUTO_FINALIZE] Marked {cancelled_count} pending jobs as failed")
                 
                 db.session.commit()
                 
                 # Return 404 as there's no active run anymore
+                # This fixes the 2 businesses with stuck progress bars
                 return jsonify({"error": "אין תור פעיל"}), 404
         
         # Calculate processed count
@@ -1026,8 +1103,8 @@ def get_active_outbound_job():
         if run.total_leads > 0:
             progress_pct = round((processed / run.total_leads) * 100, 1)
         
-        # Can cancel if running or queued
-        can_cancel = run.status in ('running', 'queued') and not run.cancel_requested
+        # Can cancel if running and not already cancelled
+        can_cancel = run.status == 'running' and not run.cancel_requested
         
         return jsonify({
             "job_id": run.id,
@@ -1042,7 +1119,8 @@ def get_active_outbound_job():
             "can_cancel": can_cancel,
             "cancel_requested": run.cancel_requested,
             "created_at": run.created_at.isoformat() if run.created_at else None,
-            "completed_at": run.completed_at.isoformat() if run.completed_at else None
+            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+            "last_activity": last_activity.isoformat() if last_activity else None  # Include for debugging
         })
         
     except Exception as e:

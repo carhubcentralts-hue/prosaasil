@@ -350,6 +350,30 @@ export function OutboundCallsPage() {
       try {
         const activeQueue = await callsService.getActiveQueue();
         if (activeQueue) {
+          // 🔥 CLIENT-SIDE TTL CHECK (Fail-safe)
+          // Even if server returns a queue, check if it's stale on client
+          const STALE_TTL_MINUTES = 10; // 10 minute client-side TTL
+          const lastActivity = activeQueue.last_activity 
+            ? new Date(activeQueue.last_activity) 
+            : (activeQueue.created_at ? new Date(activeQueue.created_at) : null);
+          
+          let isStale = false;
+          if (lastActivity) {
+            const minutesSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60);
+            isStale = minutesSinceActivity > STALE_TTL_MINUTES;
+          }
+          
+          // 🔥 FIX: Check if queue is not actually running
+          if (activeQueue.status !== 'running' || isStale) {
+            console.warn('[OutboundCallsPage] ⚠️ Queue returned but not running or stale:', {
+              status: activeQueue.status,
+              isStale,
+              lastActivity
+            });
+            // Don't show progress bar for non-running or stale queues
+            return;
+          }
+          
           console.log('[OutboundCallsPage] ✅ Active queue found on mount:', activeQueue);
           setActiveRunId(activeQueue.job_id);
           setQueueJobStatus(activeQueue);
@@ -749,19 +773,32 @@ export function OutboundCallsPage() {
       pollIntervalRef.current = null;
     }
     
+    // 🔥 TTL TRACKING: Track when polling started
+    const pollStartTime = Date.now();  // const - never reassigned
+    const MAX_POLL_DURATION_MS = 20 * 60 * 1000; // 20 minutes max polling
+    
     // Start new polling - check every 5 seconds (per requirement)
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const status = await callsService.getQueueStatus(runId);
-        setQueueJobStatus(status);
-        
-        // Refetch recent calls to show new calls
-        if (activeTab === 'recent') {
-          refetchRecentCalls();
+        // 🔥 FAIL-SAFE: Stop polling after max duration (prevents infinite loops)
+        const pollDurationMs = Date.now() - pollStartTime;
+        if (pollDurationMs > MAX_POLL_DURATION_MS) {
+          console.warn('[OutboundCallsPage] ⏱️ Polling exceeded max duration (20min), stopping');
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+          setActiveRunId(null);
+          setQueueJobStatus(null);
+          return;
         }
         
-        // Stop polling if queue is complete/stopped/cancelled
-        if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled' || status.status === 'stopped') {
+        const status = await callsService.getQueueStatus(runId);
+        
+        // 🔥 CLIENT-SIDE TTL CHECK: Verify queue is still running
+        // Stop polling if queue is not running or in any terminal state
+        if (status.status !== 'running') {
+          console.log('[OutboundCallsPage] Queue no longer running:', status.status);
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
@@ -770,13 +807,24 @@ export function OutboundCallsPage() {
           setQueueJobStatus(null);
           refetchCounts();
           refetchRecentCalls();
+          return;
+        }
+        
+        setQueueJobStatus(status);
+        
+        // Refetch recent calls to show new calls
+        if (activeTab === 'recent') {
+          refetchRecentCalls();
         }
       } catch (error) {
         console.error('Queue status polling error:', error);
+        // 🔥 ERROR HANDLING: Stop polling on error to prevent infinite retries
         if (pollIntervalRef.current) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
         }
+        setActiveRunId(null);
+        setQueueJobStatus(null);
       }
     }, 5000); // Poll every 5 seconds (per requirement)
   };
