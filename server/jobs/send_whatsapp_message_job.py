@@ -51,6 +51,14 @@ def send_whatsapp_message_job(
     
     logger.info(f"[WA-SEND-JOB] Starting send to {remote_jid[:20]}... business_id={business_id}")
     
+    # 🔥 LID FIX: Log clear message for LID vs standard JID
+    if remote_jid.endswith('@lid'):
+        logger.info(f"[WA-SEND-JOB] 🔵 Sending to LID: {remote_jid}")
+    elif remote_jid.endswith('@s.whatsapp.net'):
+        logger.info(f"[WA-SEND-JOB] 📱 Sending to standard WhatsApp: {remote_jid}")
+    else:
+        logger.warning(f"[WA-SEND-JOB] ⚠️ Sending to non-standard JID: {remote_jid}")
+    
     # 🔥 CRITICAL: Use app context for DB operations
     from flask import current_app
     
