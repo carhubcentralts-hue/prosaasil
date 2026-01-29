@@ -73,13 +73,13 @@ else
     echo "  ❌ FAIL: Cleanup doesn't set error_message"
 fi
 
-# Test 7: Check enqueue calls simplified (no from_number/to_number)
+# Test 7: Check enqueue calls simplified (no from_number/to_number/business_id)
 echo ""
 echo "[TEST 7] Checking enqueue calls are simplified..."
 TOTAL_COUNT=$((TOTAL_COUNT + 1))
-# Count lines with create_lead_from_call_job and from_number in same context
-if ! grep -A5 "create_lead_from_call_job" server/routes_twilio.py | grep -q "from_number=from_number"; then
-    echo "  ✅ PASS: Enqueue calls simplified (no from_number/to_number)"
+# Count lines with create_lead_from_call_job and extra params in same context
+if ! grep -A5 "create_lead_from_call_job" server/routes_twilio.py | grep -E "(from_number=|to_number=|business_id=)" | grep -v "# "; then
+    echo "  ✅ PASS: Enqueue calls simplified (no extra params)"
     PASS_COUNT=$((PASS_COUNT + 1))
 else
     echo "  ❌ FAIL: Enqueue calls still have old parameters"

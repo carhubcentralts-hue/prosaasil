@@ -763,7 +763,6 @@ def incoming_call():
                 queue_name='default',
                 func=create_lead_from_call_job,
                 call_sid=call_sid,
-                business_id=business_id,
                 timeout=60,
                 retry=2,
                 description=f"Create lead from call {call_sid[:8]}"
@@ -956,7 +955,6 @@ def outbound_call():
                 queue_name='default',
                 func=create_lead_from_call_job,
                 call_sid=call_sid,
-                business_id=int(business_id) if business_id else None,
                 timeout=60,
                 retry=2,
                 description=f"Create lead from outbound call {call_sid[:8]}"
