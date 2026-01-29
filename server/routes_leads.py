@@ -1801,11 +1801,15 @@ def get_job_status(job_id):
         # 🔥 CRITICAL: Return valid JSON with 200, not 403
         # UI polling should not show error toast for auth issues
         return jsonify({
-            "ok": True,
-            "success": False,
+            "success": True,
             "status": "unknown",
             "job_id": job_id,
-            "error": "No tenant access"
+            "message": "No tenant access",
+            "total": 0,
+            "processed": 0,
+            "succeeded": 0,
+            "failed_count": 0,
+            "percent": 0.0
         }), 200
     
     # Load job with business_id check for multi-tenant isolation
@@ -1821,16 +1825,17 @@ def get_job_status(job_id):
     # - Job belongs to different tenant
     if not job:
         return jsonify({
-            "ok": True,
             "success": True,
             "status": "unknown",
             "job_id": job_id,
+            "job_type": "unknown",
             "message": "Job not found - may have been completed and cleaned up",
             "total": 0,
             "processed": 0,
             "succeeded": 0,
             "failed_count": 0,
-            "percent": 0.0
+            "percent": 0.0,
+            "is_stuck": False
         }), 200
     
     # Check if job is stuck (no worker processing it)
@@ -1854,7 +1859,6 @@ def get_job_status(job_id):
     
     # 🔥 ALWAYS return 200 with valid JSON
     response = {
-        "ok": True,
         "success": True,
         "job_id": job.id,
         "job_type": job.job_type,
