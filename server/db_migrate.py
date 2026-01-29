@@ -5957,7 +5957,7 @@ def apply_migrations():
         # ═══════════════════════════════════════════════════════════════════════
         checkpoint("Migration 115: Adding business calendars and routing rules system")
         
-        # Step 1: Create business_calendars table
+        # Step 1: Create business_calendars table (or verify if exists)
         if not check_table_exists('business_calendars'):
             try:
                 checkpoint("  → Creating business_calendars table...")
@@ -5980,31 +5980,59 @@ def apply_migrations():
                     )
                 """)
                 checkpoint("  ✅ business_calendars table created")
-                
-                # Create indexes
-                if not check_index_exists('idx_business_calendars_business_active'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_business_calendars_business_active 
-                        ON business_calendars(business_id, is_active)
-                    """)
-                    checkpoint("  ✅ Index idx_business_calendars_business_active created")
-                
-                if not check_index_exists('idx_business_calendars_priority'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_business_calendars_priority 
-                        ON business_calendars(business_id, priority)
-                    """)
-                    checkpoint("  ✅ Index idx_business_calendars_priority created")
-                
                 migrations_applied.append('115_business_calendars_table')
             except Exception as e:
                 checkpoint(f"❌ Migration 115 (business_calendars table) failed: {e}")
                 logger.error(f"Migration 115 business_calendars error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ business_calendars table already exists")
+            checkpoint("  ℹ️ business_calendars table already exists - verifying critical columns...")
+            # Table exists - check a few critical columns that might be missing from partial migration
+            # If basic structure columns are missing, try to add them
+            critical_fixes = []
+            
+            if not check_column_exists('business_calendars', 'buffer_before_minutes'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN buffer_before_minutes INTEGER DEFAULT 0")
+                    critical_fixes.append('buffer_before_minutes')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add buffer_before_minutes: {e}")
+            
+            if not check_column_exists('business_calendars', 'buffer_after_minutes'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN buffer_after_minutes INTEGER DEFAULT 0")
+                    critical_fixes.append('buffer_after_minutes')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add buffer_after_minutes: {e}")
+            
+            if critical_fixes:
+                checkpoint(f"  ✅ Added missing columns to business_calendars: {critical_fixes}")
+                migrations_applied.append('115_business_calendars_schema_fix')
+            else:
+                checkpoint("  ✅ business_calendars table schema looks good")
         
-        # Step 2: Create calendar_routing_rules table
+        # Ensure indexes exist (whether table was just created or already existed)
+        if not check_index_exists('idx_business_calendars_business_active'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_business_calendars_business_active 
+                    ON business_calendars(business_id, is_active)
+                """)
+                checkpoint("  ✅ Index idx_business_calendars_business_active created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_business_calendars_business_active: {e}")
+        
+        if not check_index_exists('idx_business_calendars_priority'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_business_calendars_priority 
+                    ON business_calendars(business_id, priority)
+                """)
+                checkpoint("  ✅ Index idx_business_calendars_priority created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_business_calendars_priority: {e}")
+        
+        # Step 2: Create calendar_routing_rules table (or verify if exists)
         if not check_table_exists('calendar_routing_rules'):
             try:
                 checkpoint("  → Creating calendar_routing_rules table...")
@@ -6025,29 +6053,56 @@ def apply_migrations():
                     )
                 """)
                 checkpoint("  ✅ calendar_routing_rules table created")
-                
-                # Create indexes
-                if not check_index_exists('idx_calendar_routing_business_active'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_calendar_routing_business_active 
-                        ON calendar_routing_rules(business_id, is_active)
-                    """)
-                    checkpoint("  ✅ Index idx_calendar_routing_business_active created")
-                
-                if not check_index_exists('idx_calendar_routing_calendar'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_calendar_routing_calendar 
-                        ON calendar_routing_rules(calendar_id)
-                    """)
-                    checkpoint("  ✅ Index idx_calendar_routing_calendar created")
-                
                 migrations_applied.append('115_calendar_routing_rules_table')
             except Exception as e:
                 checkpoint(f"❌ Migration 115 (calendar_routing_rules table) failed: {e}")
                 logger.error(f"Migration 115 calendar_routing_rules error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ calendar_routing_rules table already exists")
+            checkpoint("  ℹ️ calendar_routing_rules table already exists - verifying critical columns...")
+            # Check a few columns that were added later and might be missing
+            critical_fixes = []
+            
+            if not check_column_exists('calendar_routing_rules', 'when_ambiguous_ask'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE calendar_routing_rules ADD COLUMN when_ambiguous_ask BOOLEAN DEFAULT FALSE")
+                    critical_fixes.append('when_ambiguous_ask')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add when_ambiguous_ask: {e}")
+            
+            if not check_column_exists('calendar_routing_rules', 'question_text'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE calendar_routing_rules ADD COLUMN question_text VARCHAR(500)")
+                    critical_fixes.append('question_text')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add question_text: {e}")
+            
+            if critical_fixes:
+                checkpoint(f"  ✅ Added missing columns to calendar_routing_rules: {critical_fixes}")
+                migrations_applied.append('115_calendar_routing_rules_schema_fix')
+            else:
+                checkpoint("  ✅ calendar_routing_rules table schema looks good")
+        
+        # Ensure indexes exist (whether table was just created or already existed)
+        if not check_index_exists('idx_calendar_routing_business_active'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_calendar_routing_business_active 
+                    ON calendar_routing_rules(business_id, is_active)
+                """)
+                checkpoint("  ✅ Index idx_calendar_routing_business_active created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_calendar_routing_business_active: {e}")
+        
+        if not check_index_exists('idx_calendar_routing_calendar'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_calendar_routing_calendar 
+                    ON calendar_routing_rules(calendar_id)
+                """)
+                checkpoint("  ✅ Index idx_calendar_routing_calendar created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_calendar_routing_calendar: {e}")
         
         # Step 3: Add calendar_id to appointments table
         if check_table_exists('appointments'):
@@ -6191,7 +6246,7 @@ def apply_migrations():
         # ═══════════════════════════════════════════════════════════════════════
         checkpoint("Migration 116: Adding scheduled WhatsApp messages system")
         
-        # Step 1: Create scheduled_message_rules table
+        # Step 1: Create scheduled_message_rules table (or verify if exists)
         if not check_table_exists('scheduled_message_rules'):
             try:
                 checkpoint("  → Creating scheduled_message_rules table...")
@@ -6212,24 +6267,48 @@ def apply_migrations():
                     )
                 """)
                 checkpoint("  ✅ scheduled_message_rules table created")
-                
-                # Create indexes
-                if not check_index_exists('idx_scheduled_rules_business_active'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_scheduled_rules_business_active 
-                        ON scheduled_message_rules(business_id, is_active)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_rules_business_active created")
-                
                 migrations_applied.append('116_scheduled_message_rules_table')
             except Exception as e:
                 checkpoint(f"❌ Migration 116 (scheduled_message_rules table) failed: {e}")
                 logger.error(f"Migration 116 scheduled_message_rules error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ scheduled_message_rules table already exists")
+            checkpoint("  ℹ️ scheduled_message_rules table already exists - verifying critical columns...")
+            # Check columns that were added later
+            critical_fixes = []
+            
+            if not check_column_exists('scheduled_message_rules', 'send_window_start'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_message_rules ADD COLUMN send_window_start VARCHAR(5)")
+                    critical_fixes.append('send_window_start')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add send_window_start: {e}")
+            
+            if not check_column_exists('scheduled_message_rules', 'send_window_end'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_message_rules ADD COLUMN send_window_end VARCHAR(5)")
+                    critical_fixes.append('send_window_end')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add send_window_end: {e}")
+            
+            if critical_fixes:
+                checkpoint(f"  ✅ Added missing columns to scheduled_message_rules: {critical_fixes}")
+                migrations_applied.append('116_scheduled_message_rules_schema_fix')
+            else:
+                checkpoint("  ✅ scheduled_message_rules table schema looks good")
         
-        # Step 2: Create scheduled_rule_statuses junction table
+        # Ensure indexes exist (whether table was just created or already existed)
+        if not check_index_exists('idx_scheduled_rules_business_active'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_scheduled_rules_business_active 
+                    ON scheduled_message_rules(business_id, is_active)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_rules_business_active created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_rules_business_active: {e}")
+        
+        # Step 2: Create scheduled_rule_statuses junction table (or verify if exists)
         if not check_table_exists('scheduled_rule_statuses'):
             try:
                 checkpoint("  → Creating scheduled_rule_statuses junction table...")
@@ -6243,22 +6322,6 @@ def apply_migrations():
                     )
                 """)
                 checkpoint("  ✅ scheduled_rule_statuses table created")
-                
-                # Create indexes
-                if not check_index_exists('idx_scheduled_rule_statuses_rule'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_scheduled_rule_statuses_rule 
-                        ON scheduled_rule_statuses(rule_id)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_rule_statuses_rule created")
-                
-                if not check_index_exists('idx_scheduled_rule_statuses_status'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_scheduled_rule_statuses_status 
-                        ON scheduled_rule_statuses(status_id)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_rule_statuses_status created")
-                
                 migrations_applied.append('116_scheduled_rule_statuses_table')
             except Exception as e:
                 checkpoint(f"❌ Migration 116 (scheduled_rule_statuses table) failed: {e}")
@@ -6266,8 +6329,31 @@ def apply_migrations():
                 db.session.rollback()
         else:
             checkpoint("  ℹ️ scheduled_rule_statuses table already exists")
+            # This is a simple junction table - if it exists, it's probably correct
+            # If columns are missing, it's a serious error that needs manual intervention
         
-        # Step 3: Create scheduled_messages_queue table
+        # Ensure indexes exist
+        if not check_index_exists('idx_scheduled_rule_statuses_rule'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_scheduled_rule_statuses_rule 
+                    ON scheduled_rule_statuses(rule_id)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_rule_statuses_rule created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_rule_statuses_rule: {e}")
+        
+        if not check_index_exists('idx_scheduled_rule_statuses_status'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_scheduled_rule_statuses_status 
+                    ON scheduled_rule_statuses(status_id)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_rule_statuses_status created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_rule_statuses_status: {e}")
+        
+        # Step 3: Create scheduled_messages_queue table (or verify if exists)
         if not check_table_exists('scheduled_messages_queue'):
             try:
                 checkpoint("  → Creating scheduled_messages_queue table...")
@@ -6290,57 +6376,103 @@ def apply_migrations():
                     )
                 """)
                 checkpoint("  ✅ scheduled_messages_queue table created")
-                
-                # Create indexes
-                if not check_index_exists('idx_scheduled_queue_scheduled_for'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_scheduled_queue_scheduled_for 
-                        ON scheduled_messages_queue(scheduled_for)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_queue_scheduled_for created")
-                
-                if not check_index_exists('idx_scheduled_queue_status'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_scheduled_queue_status 
-                        ON scheduled_messages_queue(status)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_queue_status created")
-                
-                if not check_index_exists('idx_scheduled_queue_business_status_scheduled'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_scheduled_queue_business_status_scheduled 
-                        ON scheduled_messages_queue(business_id, status, scheduled_for)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_queue_business_status_scheduled created")
-                
-                if not check_index_exists('idx_scheduled_queue_rule_status'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_scheduled_queue_rule_status 
-                        ON scheduled_messages_queue(rule_id, status)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_queue_rule_status created")
-                
-                if not check_index_exists('idx_scheduled_queue_lead'):
-                    exec_ddl(db.engine, """
-                        CREATE INDEX idx_scheduled_queue_lead 
-                        ON scheduled_messages_queue(lead_id)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_queue_lead created")
-                
-                if not check_index_exists('idx_scheduled_queue_dedupe'):
-                    exec_ddl(db.engine, """
-                        CREATE UNIQUE INDEX idx_scheduled_queue_dedupe 
-                        ON scheduled_messages_queue(dedupe_key)
-                    """)
-                    checkpoint("  ✅ Index idx_scheduled_queue_dedupe created")
-                
                 migrations_applied.append('116_scheduled_messages_queue_table')
             except Exception as e:
                 checkpoint(f"❌ Migration 116 (scheduled_messages_queue table) failed: {e}")
                 logger.error(f"Migration 116 scheduled_messages_queue error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ scheduled_messages_queue table already exists")
+            checkpoint("  ℹ️ scheduled_messages_queue table already exists - verifying critical columns...")
+            # Check columns that were added later
+            critical_fixes = []
+            
+            if not check_column_exists('scheduled_messages_queue', 'locked_at'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN locked_at TIMESTAMP")
+                    critical_fixes.append('locked_at')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add locked_at: {e}")
+            
+            if not check_column_exists('scheduled_messages_queue', 'sent_at'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN sent_at TIMESTAMP")
+                    critical_fixes.append('sent_at')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add sent_at: {e}")
+            
+            if not check_column_exists('scheduled_messages_queue', 'error_message'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN error_message TEXT")
+                    critical_fixes.append('error_message')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add error_message: {e}")
+            
+            if critical_fixes:
+                checkpoint(f"  ✅ Added missing columns to scheduled_messages_queue: {critical_fixes}")
+                migrations_applied.append('116_scheduled_messages_queue_schema_fix')
+            else:
+                checkpoint("  ✅ scheduled_messages_queue table schema looks good")
+        
+        # Ensure indexes exist (whether table was just created or already existed)
+        if not check_index_exists('idx_scheduled_queue_scheduled_for'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_scheduled_queue_scheduled_for 
+                    ON scheduled_messages_queue(scheduled_for)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_queue_scheduled_for created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_queue_scheduled_for: {e}")
+        
+        if not check_index_exists('idx_scheduled_queue_status'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_scheduled_queue_status 
+                    ON scheduled_messages_queue(status)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_queue_status created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_queue_status: {e}")
+        
+        if not check_index_exists('idx_scheduled_queue_business_status_scheduled'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_scheduled_queue_business_status_scheduled 
+                    ON scheduled_messages_queue(business_id, status, scheduled_for)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_queue_business_status_scheduled created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_queue_business_status_scheduled: {e}")
+        
+        if not check_index_exists('idx_scheduled_queue_rule_status'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_scheduled_queue_rule_status 
+                    ON scheduled_messages_queue(rule_id, status)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_queue_rule_status created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_queue_rule_status: {e}")
+        
+        if not check_index_exists('idx_scheduled_queue_lead'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_scheduled_queue_lead 
+                    ON scheduled_messages_queue(lead_id)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_queue_lead created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_queue_lead: {e}")
+        
+        if not check_index_exists('idx_scheduled_queue_dedupe'):
+            try:
+                exec_ddl(db.engine, """
+                    CREATE UNIQUE INDEX idx_scheduled_queue_dedupe 
+                    ON scheduled_messages_queue(dedupe_key)
+                """)
+                checkpoint("  ✅ Index idx_scheduled_queue_dedupe created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create idx_scheduled_queue_dedupe: {e}")
         
         checkpoint("✅ Migration 116 complete: Scheduled WhatsApp messages system added")
         checkpoint("   🎯 Created scheduled_message_rules table for scheduling rules")
