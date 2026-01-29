@@ -53,10 +53,19 @@ def _check_duplicate_in_db(dedup_key: str, business_id: int, to_phone: str) -> O
     try:
         # Check for active calls to same number within last 2 minutes
         cutoff_time = datetime.utcnow() - timedelta(seconds=120)
-        stale_threshold = datetime.utcnow() - timedelta(seconds=60)  # 🔥 FIX: Stale threshold for NULL call_sid
+        # 🔥 FIX: Stale threshold for NULL call_sid - must be within cutoff_time window
+        # Records are only checked if created_at > cutoff_time (120s)
+        # Among those, we allow NULL call_sid only if created_at > stale_threshold (60s)
+        # This means: NULL call_sid records between 60-120 seconds are excluded (stale, never got SID)
+        stale_threshold = datetime.utcnow() - timedelta(seconds=60)
         
-        # 🔥 FIX: Exclude records with call_sid IS NULL if older than 60 seconds
-        # These are stale records that never got a SID from Twilio (failed before SID was assigned)
+        # 🔥 FIX: SQL logic explanation:
+        # 1. created_at > :cutoff_time (120s) - only check recent records
+        # 2. status IN ('initiated', 'ringing', 'in-progress', 'answered') - active statuses
+        # 3. (call_sid IS NOT NULL OR created_at > :stale_threshold) - allow records with:
+        #    - Valid call_sid (any age within 120s window), OR
+        #    - NULL call_sid but very recent (< 60s, still pending)
+        # Result: NULL call_sid records 60-120 seconds old are excluded (failed to get SID)
         active_call = db.session.execute(text("""
             SELECT call_sid FROM call_log
             WHERE business_id = :business_id

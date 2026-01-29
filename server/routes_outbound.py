@@ -1002,12 +1002,15 @@ def get_active_outbound_job():
     
     Returns:
     {
-        "job_id": 123,
-        "status": "running",
+        "ok": true,
+        "active": true/false,
+        "job_id": 123 or null,
+        "run_id": 123 or null,
+        "status": "running" or null,
         ...same fields as get_outbound_job_status...
     }
     
-    Or 404 if no active job found
+    Always returns 200 (never 404) to prevent UI error loops
     """
     from flask import session
     tenant_id = g.get('tenant')
@@ -1017,6 +1020,30 @@ def get_active_outbound_job():
         if user.get('role') == 'system_admin':
             return jsonify({"error": "יש לבחור עסק"}), 400
         return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    # Helper function for consistent inactive response
+    def return_inactive_response():
+        return jsonify({
+            "ok": True,
+            "active": False,
+            "job_id": None,
+            "run_id": None,
+            "status": None,
+            "total": 0,
+            "processed": 0,
+            "success": 0,
+            "failed": 0,
+            "in_progress": 0,
+            "queued": 0,
+            "queue_len": 0,
+            "progress_pct": 0,
+            "can_cancel": False,
+            "cancel_requested": False,
+            "concurrency": None,
+            "created_at": None,
+            "completed_at": None,
+            "last_activity": None
+        }), 200
     
     try:
         # 🔒 IRON RULE: Strict "active queue" definition
@@ -1035,13 +1062,7 @@ def get_active_outbound_job():
         
         if not run:
             # 🔥 FIX: Return 200 with active=false instead of 404 to prevent UI loops
-            return jsonify({
-                "ok": True,
-                "active": False,
-                "run_id": None,
-                "status": None,
-                "queue_len": 0
-            }), 200
+            return return_inactive_response()
         
         # 🔥 STALE AUTO-FINALIZE: Check if run is stale (TTL exceeded)
         # Determine last activity time
@@ -1059,13 +1080,7 @@ def get_active_outbound_job():
             run.last_heartbeat_at = None
             db.session.commit()
             # 🔥 FIX: Return 200 with active=false instead of 404 to prevent UI loops
-            return jsonify({
-                "ok": True,
-                "active": False,
-                "run_id": None,
-                "status": None,
-                "queue_len": 0
-            }), 200
+            return return_inactive_response()
         
         time_since_activity = now - last_activity
         
@@ -1107,13 +1122,7 @@ def get_active_outbound_job():
                 
                 # 🔥 FIX: Return 200 with active=false instead of 404 to prevent UI loops
                 # This fixes the 2 businesses with stuck progress bars
-                return jsonify({
-                    "ok": True,
-                    "active": False,
-                    "run_id": None,
-                    "status": None,
-                    "queue_len": 0
-                }), 200
+                return return_inactive_response()
         
         # Calculate processed count
         processed = run.completed_count + run.failed_count

@@ -81,8 +81,9 @@ def test_semaphore_has_cleanup():
 
 def test_frontend_handles_active_flag():
     """Verify that frontend service handles the new active flag"""
-    import os
-    client_file = '/home/runner/work/prosaasil/prosaasil/client/src/services/calls.ts'
+    # Use relative path from script location
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    client_file = os.path.join(base_path, 'client/src/services/calls.ts')
     
     if os.path.exists(client_file):
         with open(client_file, 'r') as f:

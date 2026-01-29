@@ -35,7 +35,8 @@ def main():
     print("Outbound Queue Fix Verification")
     print("=" * 70)
     
-    base_path = '/home/runner/work/prosaasil/prosaasil'
+    # Use relative path from script location
+    base_path = os.path.dirname(os.path.abspath(__file__))
     all_checks_passed = True
     
     # Check 1: Backend endpoint returns 200 with active flag
