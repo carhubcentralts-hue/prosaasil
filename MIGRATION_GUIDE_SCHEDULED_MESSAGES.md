@@ -34,17 +34,10 @@ psql -d your_database -f migration_add_scheduled_messages_to_enabled_pages.sql
 Or manually in your database admin:
 ```sql
 UPDATE business
-SET enabled_pages = (
-    SELECT json_agg(DISTINCT elem)
-    FROM (
-        SELECT jsonb_array_elements_text(COALESCE(enabled_pages::jsonb, '[]'::jsonb)) AS elem
-        UNION
-        SELECT 'scheduled_messages'
-    ) combined
-)::json
+SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
 WHERE enabled_pages IS NOT NULL
-  AND enabled_pages::text LIKE '%whatsapp_broadcast%'
-  AND enabled_pages::text NOT LIKE '%scheduled_messages%';
+  AND enabled_pages::jsonb ? 'whatsapp_broadcast'
+  AND NOT (enabled_pages::jsonb ? 'scheduled_messages');
 ```
 
 ### 3. Verification

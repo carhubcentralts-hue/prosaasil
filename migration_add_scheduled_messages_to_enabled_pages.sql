@@ -4,17 +4,10 @@
 -- Add 'scheduled_messages' to all businesses that have 'whatsapp_broadcast' enabled
 -- (if they have broadcast, they should also have scheduled messages)
 UPDATE business
-SET enabled_pages = (
-    SELECT json_agg(DISTINCT elem)
-    FROM (
-        SELECT jsonb_array_elements_text(COALESCE(enabled_pages::jsonb, '[]'::jsonb)) AS elem
-        UNION
-        SELECT 'scheduled_messages'
-    ) combined
-)::json
+SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
 WHERE enabled_pages IS NOT NULL
-  AND enabled_pages::text LIKE '%whatsapp_broadcast%'
-  AND enabled_pages::text NOT LIKE '%scheduled_messages%';
+  AND enabled_pages::jsonb ? 'whatsapp_broadcast'
+  AND NOT (enabled_pages::jsonb ? 'scheduled_messages');
 
 -- Verify the update
 SELECT 
@@ -22,14 +15,14 @@ SELECT
     name,
     enabled_pages
 FROM business
-WHERE enabled_pages::text LIKE '%whatsapp_broadcast%'
+WHERE enabled_pages::jsonb ? 'whatsapp_broadcast'
 LIMIT 10;
 
 -- Count businesses updated
 SELECT 
     COUNT(*) as businesses_with_scheduled_messages
 FROM business
-WHERE enabled_pages::text LIKE '%scheduled_messages%';
+WHERE enabled_pages::jsonb ? 'scheduled_messages';
 
 -- Success message
 SELECT '✅ Migration complete: scheduled_messages added to enabled_pages for WhatsApp-enabled businesses' AS status;
