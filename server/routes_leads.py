@@ -53,7 +53,7 @@ except ImportError:
 BACKGROUND_JOB_STALE_THRESHOLD_MINUTES = 10
 
 
-def check_and_handle_duplicate_background_job(job_type: str, business_id: int, error_message: str):
+def check_and_handle_duplicate_background_job(job_type: str, business_id: int, error_message: str, return_existing: bool = False):
     """
     Check for existing active background job and handle it appropriately.
     
@@ -64,11 +64,13 @@ def check_and_handle_duplicate_background_job(job_type: str, business_id: int, e
         job_type: The type of background job (e.g., 'delete_leads')
         business_id: The business ID
         error_message: Hebrew error message to show user if active job exists
+        return_existing: If True, return existing job instead of error (for idempotency)
         
     Returns:
-        tuple: (can_proceed: bool, error_response: dict or None, status_code: int or None)
+        tuple: (can_proceed: bool, response: dict or None, status_code: int or None)
         - If can_proceed is True, caller should create the new job
-        - If can_proceed is False, caller should return the error_response with status_code
+        - If can_proceed is False and return_existing is True, response contains existing job_id
+        - If can_proceed is False and return_existing is False, caller should return error
     """
     from server.models_sql import BackgroundJob
     
@@ -103,16 +105,30 @@ def check_and_handle_duplicate_background_job(job_type: str, business_id: int, e
         db.session.commit()
         return (True, None, None)
     else:
-        # Active job exists, cannot create new one
-        logger.error(f"❌ Active background job {existing_job.id} already exists for business {business_id}")
-        db.session.rollback()
-        error_response = {
-            "error": error_message,
-            "active_job_id": existing_job.id,
-            "active_job_status": existing_job.status,
-            "success": False
-        }
-        return (False, error_response, 409)
+        # Active job exists
+        if return_existing:
+            # 🔁 IDEMPOTENCY: Return existing job instead of error
+            logger.info(f"🔁 Active background job {existing_job.id} already exists for business {business_id} - returning existing job (idempotent)")
+            response = {
+                "success": True,
+                "message": f"Job already exists",
+                "job_id": existing_job.id,
+                "status": existing_job.status,
+                "total_leads": existing_job.total,
+                "existing": True
+            }
+            return (False, response, 202)
+        else:
+            # Return error (legacy behavior)
+            logger.error(f"❌ Active background job {existing_job.id} already exists for business {business_id}")
+            db.session.rollback()
+            error_response = {
+                "error": error_message,
+                "active_job_id": existing_job.id,
+                "active_job_status": existing_job.status,
+                "success": False
+            }
+            return (False, error_response, 409)
 
 log = logging.getLogger(__name__)
 
@@ -1647,15 +1663,18 @@ def bulk_delete_leads():
         from rq import Queue
         import redis
         
-        # Check for existing active job and handle duplicates
-        can_proceed, error_response, status_code = check_and_handle_duplicate_background_job(
+        # 🔁 IDEMPOTENCY: Check for existing active job and return it if found (instead of error)
+        # This prevents duplicate jobs from UI double-clicks or network retries
+        can_proceed, response, status_code = check_and_handle_duplicate_background_job(
             job_type='delete_leads',
             business_id=business_id,
-            error_message="מחיקה המונית פעילה כבר קיימת. אנא המתן לסיום המחיקה הנוכחית."
+            error_message="מחיקה המונית פעילה כבר קיימת. אנא המתן לסיום המחיקה הנוכחית.",
+            return_existing=True  # 🔁 Return existing job instead of error
         )
         
         if not can_proceed:
-            return jsonify(error_response), status_code
+            # Return existing job (idempotent) or error
+            return jsonify(response), status_code
         
         bg_job = BackgroundJob()
         bg_job.business_id = business_id

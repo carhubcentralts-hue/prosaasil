@@ -203,11 +203,34 @@ def delete_leads_batch_job(job_id: int):
             # Get next batch
             batch_ids = remaining_ids[:BATCH_SIZE]
                 
-            # Fetch leads for this batch
+            # 🔁 IDEMPOTENCY: Fetch only leads that STILL EXIST (skip already deleted)
+            # This prevents errors when job runs multiple times or after some leads are already deleted
             leads = Lead.query.filter(
                 Lead.id.in_(batch_ids),
                 Lead.tenant_id == business_id
             ).all()
+            
+            actual_lead_ids = [lead.id for lead in leads]
+            
+            # If no leads found, they're already deleted - mark batch as processed and continue
+            if not actual_lead_ids:
+                logger.info(f"  ℹ️  [DELETE_LEADS] Batch {len(batch_ids)} leads already deleted - skipping")
+                
+                # Update processed_ids
+                processed_ids.extend(batch_ids)
+                metadata['processed_ids'] = processed_ids
+                job.cursor = json.dumps(metadata)
+                
+                # Update progress counters
+                job.processed += len(batch_ids)
+                # Don't increment succeeded or failed_count - leads were already gone
+                job.updated_at = datetime.utcnow()
+                job.heartbeat_at = datetime.utcnow()
+                
+                db.session.commit()
+                
+                # Continue to next batch
+                continue
                 
             # Process batch
             batch_start = time.time()
@@ -215,8 +238,6 @@ def delete_leads_batch_job(job_id: int):
             batch_failed = 0
                 
             try:
-                actual_lead_ids = [lead.id for lead in leads]
-                    
                 if actual_lead_ids:
                     # Delete related records FIRST to avoid FK constraint violations
                     

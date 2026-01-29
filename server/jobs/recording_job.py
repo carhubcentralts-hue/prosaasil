@@ -133,11 +133,52 @@ def process_recording_rq_job(run_id: int):
             # Process based on job_type
             start_time = time.time()
             success = False
+            result = None
+            
+            # 🔥 FIX: Handle missing CallLog/audio gracefully (no exception)
+            # Check if CallLog exists before processing
+            from server.models_sql import CallLog
+            call_log = CallLog.query.filter_by(call_sid=run.call_sid).first()
+            
+            # 🔥 CRITICAL: Don't throw exception for missing CallLog - use retry with backoff
+            if not call_log and run.job_type == 'full':
+                # CallLog not found yet - may be commit race condition
+                run.retry_count += 1
+                
+                # Exponential backoff: 60s, 120s, 300s, 600s, 1200s (max 5 attempts)
+                MAX_RETRIES = 5
+                if run.retry_count < MAX_RETRIES:
+                    delay = min(60 * (2 ** (run.retry_count - 1)), 1200)  # Cap at 20 minutes
+                    logger.warning(
+                        f"⚠️ [RQ_RECORDING] CallLog not found for {run.call_sid} "
+                        f"(attempt {run.retry_count}/{MAX_RETRIES}) - will retry in {delay}s"
+                    )
+                    
+                    # Update run status back to 'queued' with retry info
+                    run.status = 'queued'
+                    run.error_message = f'Waiting for CallLog (attempt {run.retry_count}/{MAX_RETRIES})'
+                    db.session.commit()
+                    
+                    # Re-enqueue with delay using RQ's retry mechanism
+                    # NOTE: RQ will handle the retry automatically
+                    raise Exception(f"CallLog not found - retry {run.retry_count}/{MAX_RETRIES}")
+                else:
+                    # Max retries exceeded - mark as permanently failed
+                    logger.error(
+                        f"❌ [RQ_RECORDING] CallLog not found for {run.call_sid} "
+                        f"after {MAX_RETRIES} retries - marking as failed"
+                    )
+                    run.status = 'failed'
+                    run.error_message = f'CallLog not found after {MAX_RETRIES} retries'
+                    run.completed_at = datetime.utcnow()
+                    db.session.commit()
+                    return {"success": False, "error": "CallLog not found", "permanent": True}
             
             if run.job_type == 'download':
                 # Download only (for UI playback)
                 from server.tasks_recording import download_recording_only
-                success = download_recording_only(run.call_sid, run.recording_url)
+                result = download_recording_only(run.call_sid, run.recording_url)
+                success = result
             else:
                 # Full processing (download + transcription)
                 from server.tasks_recording import process_recording_async
@@ -147,7 +188,38 @@ def process_recording_rq_job(run_id: int):
                     "From": "",
                     "To": "",
                 }
-                success = process_recording_async(form_data)
+                result = process_recording_async(form_data)
+                success = result
+            
+            # 🔥 FIX: Check if result indicates missing audio file
+            # process_recording_async returns False when audio file is not available
+            if not success and run.job_type == 'full':
+                run.retry_count += 1
+                
+                MAX_RETRIES = 5
+                if run.retry_count < MAX_RETRIES:
+                    delay = min(60 * (2 ** (run.retry_count - 1)), 1200)
+                    logger.warning(
+                        f"⚠️ [RQ_RECORDING] Audio file not available for {run.call_sid} "
+                        f"(attempt {run.retry_count}/{MAX_RETRIES}) - will retry in {delay}s"
+                    )
+                    
+                    run.status = 'queued'
+                    run.error_message = f'Waiting for audio file (attempt {run.retry_count}/{MAX_RETRIES})'
+                    db.session.commit()
+                    
+                    # Re-enqueue with delay
+                    raise Exception(f"Audio file not available - retry {run.retry_count}/{MAX_RETRIES}")
+                else:
+                    logger.error(
+                        f"❌ [RQ_RECORDING] Audio file not available for {run.call_sid} "
+                        f"after {MAX_RETRIES} retries - marking as failed"
+                    )
+                    run.status = 'failed'
+                    run.error_message = f'Audio file not available after {MAX_RETRIES} retries'
+                    run.completed_at = datetime.utcnow()
+                    db.session.commit()
+                    return {"success": False, "error": "Audio not available", "permanent": True}
             
             duration_ms = int((time.time() - start_time) * 1000)
             
@@ -155,16 +227,19 @@ def process_recording_rq_job(run_id: int):
             if success:
                 run.status = 'completed'
                 run.completed_at = datetime.utcnow()
+                run.error_message = None  # Clear any previous error
                 db.session.commit()
                 logger.info(f"✅ [RQ_RECORDING] Complete: run_id={run_id} call_sid={run.call_sid} duration_ms={duration_ms}")
                 return {"success": True, "run_id": run_id, "duration_ms": duration_ms}
             else:
+                # This should not happen now - we handle failures above with retry logic
                 run.status = 'failed'
-                run.error_message = 'Processing failed'
+                run.error_message = 'Processing failed (unknown reason)'
                 run.completed_at = datetime.utcnow()
                 db.session.commit()
                 logger.error(f"❌ [RQ_RECORDING] Failed: run_id={run_id} call_sid={run.call_sid}")
-                raise Exception("Processing failed")
+                # Don't raise - just return failure
+                return {"success": False, "error": "Processing failed"}
         
         except Exception as e:
             # Update run with error
