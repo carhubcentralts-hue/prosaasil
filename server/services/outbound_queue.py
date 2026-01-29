@@ -287,6 +287,8 @@ def release_lock(run_id: int, worker_id: str, final_status: str = 'completed'):
     """
     Release lock on run and set final status.
     
+    🔥 AUTO-FINALIZE: Sets completed_at and ended_at to ensure queue is properly finalized
+    
     Args:
         run_id: Run ID
         worker_id: Worker ID that owns the lock
@@ -299,6 +301,8 @@ def release_lock(run_id: int, worker_id: str, final_status: str = 'completed'):
         try:
             now = datetime.utcnow()
             
+            # 🔥 AUTO-FINALIZE: Set both ended_at and completed_at timestamps
+            # This ensures get_active_outbound_job won't return this queue anymore
             db.session.execute(
                 text("""
                     UPDATE outbound_call_runs
@@ -306,7 +310,8 @@ def release_lock(run_id: int, worker_id: str, final_status: str = 'completed'):
                         locked_by_worker = NULL,
                         lock_ts = NULL,
                         status = :status,
-                        finished_at = :now
+                        ended_at = :now,
+                        completed_at = :now
                     WHERE id = :run_id
                     AND locked_by_worker = :worker_id
                 """),
@@ -318,7 +323,7 @@ def release_lock(run_id: int, worker_id: str, final_status: str = 'completed'):
                 }
             )
             db.session.commit()
-            logger.info(f"[OUTBOUND-RELEASE] ✅ Released run {run_id} with status {final_status}")
+            logger.info(f"[OUTBOUND-RELEASE] ✅ Released run {run_id} with status {final_status} (auto-finalized)")
         except Exception as e:
             logger.error(f"[OUTBOUND-RELEASE] ❌ Error releasing lock: {e}")
             db.session.rollback()

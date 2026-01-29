@@ -101,6 +101,7 @@ class CallsService {
     cancel_requested: boolean;
     created_at: string | null;
     completed_at: string | null;
+    last_activity: string | null;  // 🔥 NEW: For client-side TTL check
   } | null> {
     try {
       return await http.get('/api/outbound_calls/jobs/active');
