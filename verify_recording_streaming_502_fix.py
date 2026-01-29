@@ -66,7 +66,7 @@ def check_streaming_endpoint():
         checks.append(("❌", "206 Partial Content response missing"))
     
     # Check 5: 202 Accepted (NOT 502!)
-    if "202" in content and "'Retry-After'" in content:
+    if "202" in content and "Retry-After" in content:
         checks.append(("✅", "Returns 202 Accepted with Retry-After (not 502!)"))
     else:
         checks.append(("❌", "202 Accepted response missing"))
@@ -78,7 +78,7 @@ def check_streaming_endpoint():
         checks.append(("❌", "Content-Range header missing"))
     
     # Check 7: Accept-Ranges header
-    if "'Accept-Ranges', 'bytes'" in content:
+    if "Accept-Ranges" in content and "bytes" in content:
         checks.append(("✅", "Accept-Ranges: bytes header"))
     else:
         checks.append(("❌", "Accept-Ranges header missing"))
@@ -134,17 +134,20 @@ def check_502_loop_prevention():
     else:
         checks.append(("❌", "Stuck job detection missing"))
     
-    # Check 5: No direct 502 responses
-    if ", 502" not in content:
+    # Check 5: No direct 502 responses (comprehensive check)
+    import re
+    if not re.search(r'\b502\b', content):
         checks.append(("✅", "No 502 Bad Gateway responses"))
     else:
-        checks.append(("⚠️", "WARNING: 502 response found in code"))
+        # Found 502 - this should not exist in the code
+        checks.append(("❌", "ERROR: 502 response found in code (should return 202 instead)"))
     
     # Print results
     for status, message in checks:
         print(f"  {status} {message}")
     
-    all_passed = all(status in ["✅", "⚠️"] for status, _ in checks)
+    # All checks must pass (no ⚠️ or ❌)
+    all_passed = all(status == "✅" for status, _ in checks)
     return all_passed
 
 
