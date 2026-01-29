@@ -102,6 +102,75 @@ try:
 except Exception as e:
     log_fatal_error("Flask app initialization", e)
 
+# 🔥 WORKER BOOT DIAGNOSTICS
+logger.info("=" * 80)
+logger.info("🔧 WORKER BOOT DIAGNOSTICS")
+logger.info("=" * 80)
+
+# Log DATABASE_URL (masked)
+DATABASE_URL = os.getenv('DATABASE_URL', '')
+if DATABASE_URL:
+    # Mask password: postgresql://user:pass@host:port/db -> postgresql://user:***@host:port/db
+    masked_db_url = DATABASE_URL
+    if '@' in DATABASE_URL:
+        parts = DATABASE_URL.split('@')
+        if ':' in parts[0]:
+            user_pass = parts[0].split('://')
+            if len(user_pass) > 1 and ':' in user_pass[1]:
+                protocol = user_pass[0]
+                user = user_pass[1].split(':')[0]
+                masked_db_url = f"{protocol}://{user}:***@{parts[1]}"
+    logger.info(f"📍 DATABASE_URL: {masked_db_url}")
+else:
+    logger.error("❌ DATABASE_URL not set!")
+
+# Log REDIS_URL (already masked above)
+logger.info(f"📍 REDIS_URL: {masked_redis_url}")
+
+# Log SERVICE_ROLE
+SERVICE_ROLE = os.getenv('SERVICE_ROLE', 'worker')
+logger.info(f"📍 SERVICE_ROLE: {SERVICE_ROLE}")
+
+# Log environment
+FLASK_ENV = os.getenv('FLASK_ENV', 'development')
+logger.info(f"📍 FLASK_ENV: {FLASK_ENV}")
+
+# 🔥 QUICK SCHEMA CHECK: Verify critical tables exist
+logger.info("🔍 Performing quick schema check...")
+try:
+    with app.app_context():
+        from server.db import db
+        from sqlalchemy import text
+        
+        # Check a few critical tables that the worker needs
+        critical_tables = ['business', 'leads', 'receipts', 'gmail_receipts']
+        missing_tables = []
+        
+        for table in critical_tables:
+            result = db.session.execute(text("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_name = :table_name
+            """), {"table_name": table})
+            if not result.fetchone():
+                missing_tables.append(table)
+        
+        if missing_tables:
+            logger.error("=" * 80)
+            logger.error(f"❌ CRITICAL: DB schema appears outdated!")
+            logger.error(f"❌ Missing tables: {missing_tables}")
+            logger.error("❌ Please run migrations first:")
+            logger.error("❌   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate")
+            logger.error("=" * 80)
+            sys.exit(1)
+        else:
+            logger.info("✅ Schema check passed - all critical tables present")
+        
+except Exception as e:
+    logger.warning(f"⚠️ Could not perform schema check: {e}")
+    logger.warning("⚠️ Continuing anyway, but worker may fail if schema is outdated")
+
+logger.info("=" * 80)
+
 # Import Redis and job processing modules
 try:
     import redis
