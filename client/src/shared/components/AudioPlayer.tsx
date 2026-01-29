@@ -350,7 +350,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         ref={audioRef}
         controls
         playsInline
-        preload="metadata"
+        preload="none"
         className="w-full"
         src={streamUrl}
         onCanPlay={handleCanPlay}

@@ -64,8 +64,10 @@ interface RecentCall {
   started_at: string | null;
   ended_at: string | null;
   duration: number;
-  recording_url: string | null;
+  // 🔥 FIX: recording_url removed to prevent preload 502 loops
+  // recording_url: string | null;  // Removed - use hasRecording instead
   recording_sid: string | null;
+  hasRecording?: boolean;  // 🔥 NEW: Boolean flag only
   transcript: string | null;
   summary: string | null;
 }
@@ -1138,19 +1140,16 @@ export function InboundCallsPage() {
                             </td>
                             <td className="py-3 px-2">{duration}</td>
                             <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
-                              {call.recording_url ? (
-                                <div className="space-y-2">
-                                  <a
-                                    href={`/api/calls/${call.call_sid}/download`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-blue-600 hover:underline flex items-center gap-1"
-                                  >
-                                    <Download className="h-4 w-4" />
-                                    הורד
-                                  </a>
-                                  <AudioPlayer src={`/api/recordings/file/${call.call_sid}`} />
-                                </div>
+                              {call.hasRecording ? (
+                                <a
+                                  href={`/api/calls/${call.call_sid}/download`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline flex items-center gap-1"
+                                >
+                                  <Download className="h-4 w-4" />
+                                  הורד הקלטה
+                                </a>
                               ) : (
                                 '-'
                               )}
@@ -1251,9 +1250,9 @@ export function InboundCallsPage() {
                         )}
 
                         {/* Recording + Summary */}
-                        {(call.recording_url || call.summary || call.transcript) && (
+                        {(call.hasRecording || call.summary || call.transcript) && (
                           <div className="space-y-2">
-                            {call.recording_url && (
+                            {call.hasRecording && (
                               <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                                 <a
                                   href={`/api/calls/${call.call_sid}/download`}

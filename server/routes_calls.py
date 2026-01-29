@@ -161,7 +161,9 @@ def list_calls():
                 "parent_call_sid": getattr(call, 'parent_call_sid', None),  # 🔥 NEW: Parent call SID
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "created_at": call.created_at.isoformat() if call.created_at else None,
-                "recording_url": call.recording_url,
+                # 🔥 FIX: DO NOT send recording_url in list to prevent preload 502 loops
+                # Only send hasRecording boolean flag - URL is fetched on-demand in details
+                # "recording_url": call.recording_url,  # Removed to prevent browser preload
                 "transcription": best_transcript,
                 "transcript": best_transcript,  # Alias for compatibility
                 "final_transcript": getattr(call, 'final_transcript', None),  # 🔥 FIX: Add explicit final_transcript field

@@ -2678,10 +2678,13 @@ def get_recent_calls():
                 "started_at": call.created_at.isoformat() if call.created_at else None,
                 "ended_at": call.updated_at.isoformat() if call.updated_at and call.updated_at != call.created_at else None,
                 "duration": call.duration,
-                "recording_url": call.recording_url,
+                # 🔥 FIX: DO NOT send recording_url in list to prevent preload 502 loops
+                # Only send hasRecording boolean flag - URL is fetched on-demand in details
+                # "recording_url": call.recording_url,  # Removed to prevent browser preload
                 "recording_sid": call.recording_sid,
                 "recording_status": recording_status,
                 "recording_run_id": recording_run_id,
+                "hasRecording": bool(call.recording_url),  # 🔥 NEW: Boolean flag only
                 "transcript": call.final_transcript or call.transcription,
                 "summary": call.summary
             })
@@ -2827,10 +2830,13 @@ def get_recent_inbound_calls():
                 "started_at": call.created_at.isoformat() if call.created_at else None,
                 "ended_at": call.updated_at.isoformat() if call.updated_at and call.updated_at != call.created_at else None,
                 "duration": call.duration,
-                "recording_url": call.recording_url,
+                # 🔥 FIX: DO NOT send recording_url in list to prevent preload 502 loops
+                # Only send hasRecording boolean flag - URL is fetched on-demand in details
+                # "recording_url": call.recording_url,  # Removed to prevent browser preload
                 "recording_sid": call.recording_sid,
                 "recording_status": recording_status,
                 "recording_run_id": recording_run_id,
+                "hasRecording": bool(call.recording_url),  # 🔥 NEW: Boolean flag only
                 "transcript": call.final_transcript or call.transcription,
                 "summary": call.summary
             })

@@ -249,7 +249,8 @@ export function CallsPage() {
   };
 
   const downloadRecording = async (call: Call) => {
-    if (!call.recording_url) return;
+    // 🔥 FIX: Check hasRecording instead of recording_url since URL is not in list response
+    if (!call.hasRecording) return;
     
     try {
       setDownloadingRecording(call.sid);
