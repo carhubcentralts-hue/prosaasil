@@ -753,6 +753,7 @@ def incoming_call():
     # 🔥 GREETING OPTIMIZATION: Lead creation happens in background - doesn't block TwiML response
     # 🔥 FIX: Pass direction="inbound" for correct phone number matching
     # 🔥 REMOVED THREADING: Use RQ job for lead creation
+    # 🔥 SELF-CONTAINED: Job now only needs call_sid (fetches data from CallLog)
     if from_number:
         try:
             from server.services.jobs import enqueue_job
@@ -762,10 +763,6 @@ def incoming_call():
                 queue_name='default',
                 func=create_lead_from_call_job,
                 call_sid=call_sid,
-                from_number=from_number,
-                to_number=to_number,
-                business_id=business_id,
-                direction='inbound',
                 timeout=60,
                 retry=2,
                 description=f"Create lead from call {call_sid[:8]}"
@@ -949,6 +946,7 @@ def outbound_call():
     if to_number:
         # Always run lead creation to ensure call_log is properly linked
         # If lead_id exists, it will be updated; if not, one will be created
+        # 🔥 SELF-CONTAINED: Job now only needs call_sid (fetches data from CallLog)
         try:
             from server.services.jobs import enqueue_job
             from server.jobs.twilio_call_jobs import create_lead_from_call_job
@@ -957,10 +955,6 @@ def outbound_call():
                 queue_name='default',
                 func=create_lead_from_call_job,
                 call_sid=call_sid,
-                from_number=from_number,
-                to_number=to_number,
-                business_id=int(business_id) if business_id else None,
-                direction='outbound',
                 timeout=60,
                 retry=2,
                 description=f"Create lead from outbound call {call_sid[:8]}"

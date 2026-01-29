@@ -181,6 +181,10 @@ class CallLog(db.Model):
     # 🔥 SUMMARY STATUS: Track summary generation for long calls
     summary_status = db.Column(db.String(32), nullable=True)  # "pending" | "processing" | "completed" | "failed" | None
     
+    # 🔥 ERROR TRACKING: Store error information for failed calls
+    error_message = db.Column(db.Text, nullable=True)  # Error message for failed calls
+    error_code = db.Column(db.String(64), nullable=True)  # Error code for failed calls
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
