@@ -187,6 +187,9 @@ def delete_receipts_batch_job(job_id: int):
             attachment_ids_to_delete = set()
             batch_succeeded = 0
             batch_failed = 0
+            
+            # 🔥 VISIBILITY: Log batch start details
+            logger.info(f"  🔄 [RECEIPTS_DELETE] Processing batch: {len(receipts)} receipts (IDs {receipts[0].id}-{receipts[-1].id})")
                 
             try:
                 # Collect attachment IDs before deletion
@@ -253,14 +256,21 @@ def delete_receipts_batch_job(job_id: int):
                         "last_error": job.last_error
                     }
                 
+                # 🔥 BACKOFF: Add exponential backoff on consecutive failures (retry with delay)
+                # This helps with transient DB/Redis connection issues
+                backoff_seconds = min(2 ** consecutive_failures, 30)  # Cap at 30 seconds
+                logger.warning(f"⏳ [RECEIPTS_DELETE] Backing off {backoff_seconds}s after {consecutive_failures} failures")
+                time.sleep(backoff_seconds)
+                
             # Delete attachments from storage (outside transaction, after DB commit)
             if attachment_ids_to_delete:
                 deleted_attachments = 0
+                failed_attachments = 0
                 try:
                     from server.services.attachment_service import get_attachment_service
                     attachment_service = get_attachment_service()
                         
-                    logger.info(f"    → [RECEIPTS_DELETE] Deleting {len(attachment_ids_to_delete)} attachments from storage")
+                    logger.info(f"    → [RECEIPTS_DELETE] Deleting {len(attachment_ids_to_delete)} attachments from R2/storage")
                         
                     for att_id in attachment_ids_to_delete:
                         try:
@@ -272,18 +282,20 @@ def delete_receipts_batch_job(job_id: int):
                                         storage_key=attachment.storage_path
                                     )
                                 except Exception as storage_err:
-                                    logger.warning(f"Failed to delete attachment {att_id} from storage: {storage_err}")
+                                    logger.warning(f"⚠️  Failed to delete attachment {att_id} from R2: {storage_err}")
+                                    failed_attachments += 1
                                     
                                 # Delete from database
                                 db.session.delete(attachment)
                                 deleted_attachments += 1
                         except Exception as att_err:
-                            logger.error(f"Failed to delete attachment {att_id}: {att_err}")
+                            logger.error(f"❌ Failed to delete attachment {att_id}: {att_err}")
+                            failed_attachments += 1
                         
                     # Commit attachment deletions
                     if deleted_attachments > 0:
                         db.session.commit()
-                        logger.info(f"    → [RECEIPTS_DELETE] Deleted {deleted_attachments} attachments from storage")
+                        logger.info(f"    → [RECEIPTS_DELETE] R2 cleanup: {deleted_attachments} deleted, {failed_attachments} failed")
                     
                 except Exception as e:
                     logger.error(f"[RECEIPTS_DELETE] Attachment deletion failed (non-fatal): {e}")
