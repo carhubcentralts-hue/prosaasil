@@ -41,6 +41,29 @@ CONTRACT_EVENT_TYPES = [
     'signature_fields_updated'
 ]
 
+# Lock debugging query - shows who is blocking whom
+LOCK_DEBUG_SQL = """
+SELECT
+  blocked.pid as blocked_pid,
+  blocked.state as blocked_state,
+  blocked.query as blocked_query,
+  blocking.pid as blocking_pid,
+  blocking.state as blocking_state,
+  blocking.query as blocking_query
+FROM pg_locks bl
+JOIN pg_stat_activity blocked ON blocked.pid = bl.pid
+JOIN pg_locks kl
+  ON kl.locktype = bl.locktype
+ AND kl.DATABASE IS NOT DISTINCT FROM bl.DATABASE
+ AND kl.relation IS NOT DISTINCT FROM bl.relation
+ AND kl.page IS NOT DISTINCT FROM bl.page
+ AND kl.tuple IS NOT DISTINCT FROM bl.tuple
+ AND kl.transactionid IS NOT DISTINCT FROM bl.transactionid
+ AND kl.pid != bl.pid
+JOIN pg_stat_activity blocking ON blocking.pid = kl.pid
+WHERE NOT bl.granted;
+"""
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -104,23 +127,61 @@ def check_index_exists(index_name):
 
 def exec_ddl(engine, sql: str):
     """
-    Execute a single DDL statement in its own transaction.
+    Execute a single DDL statement in its own transaction with strict lock timeouts.
     
     This is critical for Postgres: if a DDL statement fails within a transaction,
     the entire transaction enters FAILED state and all previous work is rolled back.
     
-    By executing each DDL statement in its own transaction, we ensure that:
-    1. Successful column additions are committed even if later statements fail
-    2. Failed statements don't pollute the transaction state
-    3. We can continue with other operations after a failure
+    By executing each DDL statement in its own transaction with lock timeouts, we ensure that:
+    1. DDL operations fail fast (5s) if a lock cannot be acquired
+    2. Operations don't wait indefinitely for locks
+    3. Failed statements don't pollute the transaction state
+    4. On lock failure, we log which processes are blocking
+    
+    Lock timeouts:
+    - lock_timeout: 5s (fail fast if can't acquire lock)
+    - statement_timeout: 120s (max execution time)
+    - idle_in_transaction_session_timeout: 60s (kill idle transactions)
     
     Args:
         engine: SQLAlchemy engine
         sql: DDL statement to execute
+        
+    Raises:
+        Exception: If DDL fails (including lock timeout)
     """
     from sqlalchemy import text
-    with engine.begin() as conn:  # begin() = auto commit/rollback
-        conn.execute(text(sql))
+    try:
+        with engine.begin() as conn:  # begin() = auto commit/rollback
+            # Set strict timeouts to prevent long waits on locks
+            conn.execute(text("SET lock_timeout = '5s'"))
+            conn.execute(text("SET statement_timeout = '120s'"))
+            conn.execute(text("SET idle_in_transaction_session_timeout = '60s'"))
+            # Execute the DDL
+            conn.execute(text(sql))
+    except Exception as e:
+        # If DDL failed, try to log which processes were blocking us
+        logger.error(f"DDL failed: {e}", exc_info=True)
+        try:
+            # Use a fresh connection to query lock information
+            with engine.connect() as debug_conn:
+                rows = debug_conn.execute(text(LOCK_DEBUG_SQL)).fetchall()
+                if rows:
+                    logger.error("=" * 80)
+                    logger.error("LOCK DEBUG - Processes blocking this migration:")
+                    logger.error("=" * 80)
+                    for row in rows:
+                        logger.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
+                        logger.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
+                        logger.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
+                        logger.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
+                        logger.error("-" * 80)
+                else:
+                    logger.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
+        except Exception as debug_error:
+            logger.error(f"Could not retrieve lock debug info: {debug_error}")
+        # Re-raise the original exception to ensure migration fails
+        raise
 
 def apply_migrations():
     """
@@ -5982,9 +6043,10 @@ def apply_migrations():
                 checkpoint("  ✅ business_calendars table created")
                 migrations_applied.append('115_business_calendars_table')
             except Exception as e:
-                checkpoint(f"❌ Migration 115 (business_calendars table) failed: {e}")
+                checkpoint(f"❌ Migration 115 (business_calendars table) CRITICAL FAILURE: {e}")
                 logger.error(f"Migration 115 business_calendars error: {e}", exc_info=True)
-                db.session.rollback()
+                # CRITICAL: Cannot continue without this table - abort migration
+                raise RuntimeError(f"Migration 115 FAILED: Could not create business_calendars table: {e}") from e
         else:
             checkpoint("  ℹ️ business_calendars table already exists - verifying critical columns...")
             # Table exists - check a few critical columns that might be missing from partial migration
@@ -6055,9 +6117,10 @@ def apply_migrations():
                 checkpoint("  ✅ calendar_routing_rules table created")
                 migrations_applied.append('115_calendar_routing_rules_table')
             except Exception as e:
-                checkpoint(f"❌ Migration 115 (calendar_routing_rules table) failed: {e}")
+                checkpoint(f"❌ Migration 115 (calendar_routing_rules table) CRITICAL FAILURE: {e}")
                 logger.error(f"Migration 115 calendar_routing_rules error: {e}", exc_info=True)
-                db.session.rollback()
+                # CRITICAL: Cannot continue without this table - abort migration
+                raise RuntimeError(f"Migration 115 FAILED: Could not create calendar_routing_rules table: {e}") from e
         else:
             checkpoint("  ℹ️ calendar_routing_rules table already exists - verifying critical columns...")
             # Check a few columns that were added later and might be missing
@@ -6125,9 +6188,10 @@ def apply_migrations():
                     
                     migrations_applied.append('115_appointments_calendar_id')
                 except Exception as e:
-                    checkpoint(f"❌ Migration 115 (appointments.calendar_id) failed: {e}")
+                    checkpoint(f"❌ Migration 115 (appointments.calendar_id) CRITICAL FAILURE: {e}")
                     logger.error(f"Migration 115 appointments.calendar_id error: {e}", exc_info=True)
-                    db.session.rollback()
+                    # CRITICAL: Without this column, calendar system won't work properly - abort migration
+                    raise RuntimeError(f"Migration 115 FAILED: Could not add calendar_id to appointments: {e}") from e
             else:
                 checkpoint("  ℹ️ calendar_id column already exists in appointments")
         else:
