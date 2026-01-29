@@ -442,6 +442,39 @@ def get_scheduler_health() -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+def get_worker_config() -> Dict[str, Any]:
+    """
+    Get worker configuration information.
+    
+    This helps debug "job not picked up" issues by showing:
+    - Which queues the worker is configured to listen to
+    - Environment variables affecting worker behavior
+    
+    Returns:
+        dict: Worker configuration data
+        
+    Example:
+        {
+            'configured_queues': ['high', 'default', 'low', 'maintenance', ...],
+            'rq_queues_env': 'high,default,low,maintenance,broadcasts,recordings,receipts,receipts_sync',
+            'service_role': 'worker'
+        }
+    """
+    import os
+    
+    # Get RQ_QUEUES from environment (what docker-compose.yml configures)
+    rq_queues_env = os.getenv('RQ_QUEUES', 'high,default,low,maintenance,broadcasts,recordings')
+    configured_queues = [q.strip() for q in rq_queues_env.split(',') if q.strip()]
+    
+    return {
+        'configured_queues': configured_queues,
+        'rq_queues_env': rq_queues_env,
+        'service_role': os.getenv('SERVICE_ROLE', 'unknown'),
+        'listens_to_maintenance': 'maintenance' in configured_queues,
+        'all_known_queues': ['high', 'default', 'low', 'maintenance', 'broadcasts', 'recordings', 'receipts', 'receipts_sync']
+    }
+
+
 def cleanup_old_jobs(queue_name: str, max_age_hours: int = 24) -> int:
     """
     Clean up old finished/failed jobs from queue registry.

@@ -1307,7 +1307,9 @@ def delete_all_receipts():
                 rq_job = maintenance_queue.enqueue(
                     delete_receipts_batch_job,
                     job.id,  # Pass job_id as first argument
-                    job_timeout='1h'  # 1 hour max per job execution
+                    job_timeout='30m',  # 30 minutes timeout (generous for large batches)
+                    result_ttl=300,     # Keep result for 5 minutes only (minimal memory usage)
+                    failure_ttl=86400   # Keep failures for 24h for debugging
                 )
                 logger.info("=" * 60)
                 logger.info(f"🔨 DELETE_RECEIPTS JOB ENQUEUED")

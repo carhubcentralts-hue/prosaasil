@@ -40,10 +40,11 @@ def jobs_health():
         }
     """
     try:
-        from server.services.jobs import get_queue_stats, get_scheduler_health
+        from server.services.jobs import get_queue_stats, get_scheduler_health, get_worker_config
         
         queue_stats = get_queue_stats()
         scheduler_health = get_scheduler_health()
+        worker_config = get_worker_config()
         
         # Determine overall health
         total_failed = sum(q.get('failed', 0) for q in queue_stats.values() if isinstance(q, dict))
@@ -62,6 +63,7 @@ def jobs_health():
             "status": status,
             "queues": queue_stats,
             "scheduler": scheduler_health,
+            "worker": worker_config,
             "summary": {
                 "total_queued": total_queued,
                 "total_failed": total_failed
@@ -115,6 +117,36 @@ def scheduler_status():
         
     except Exception as e:
         logger.error(f"[SCHEDULER-STATUS] Error: {e}")
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+
+@jobs_bp.route('/worker/config', methods=['GET'])
+@csrf.exempt
+def worker_config():
+    """
+    Get worker configuration
+    
+    Returns:
+        JSON with worker configuration including which queues it listens to.
+        This helps debug "job not picked up" issues.
+        
+    Example response:
+        {
+            "configured_queues": ["high", "default", "low", "maintenance", ...],
+            "rq_queues_env": "high,default,low,maintenance,...",
+            "service_role": "worker",
+            "listens_to_maintenance": true
+        }
+    """
+    try:
+        from server.services.jobs import get_worker_config
+        
+        return jsonify(get_worker_config())
+        
+    except Exception as e:
+        logger.error(f"[WORKER-CONFIG] Error: {e}")
         return jsonify({
             "error": str(e)
         }), 500
