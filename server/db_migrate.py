@@ -54,7 +54,7 @@ FROM pg_locks bl
 JOIN pg_stat_activity blocked ON blocked.pid = bl.pid
 JOIN pg_locks kl
   ON kl.locktype = bl.locktype
- AND kl.DATABASE IS NOT DISTINCT FROM bl.DATABASE
+ AND kl.database IS NOT DISTINCT FROM bl.database
  AND kl.relation IS NOT DISTINCT FROM bl.relation
  AND kl.page IS NOT DISTINCT FROM bl.page
  AND kl.tuple IS NOT DISTINCT FROM bl.tuple

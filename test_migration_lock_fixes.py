@@ -161,9 +161,10 @@ def test_migration_115_fails_fast():
         with open(filepath, 'r') as f:
             content = f.read()
         
-        # Find Migration 115 section
+        # Find Migration 115 section - use a more robust pattern
+        # Match from "Migration 115:" until the next migration number or end of function
         migration_115_match = re.search(
-            r'# Migration 115:.*?# Migration 116:', 
+            r'# Migration 115:.*?(?=# Migration \d+:|def apply_migrations|def main|\Z)', 
             content, 
             re.DOTALL
         )

@@ -17,12 +17,27 @@ Usage:
 import sys
 import os
 import argparse
-from sqlalchemy import text
+from sqlalchemy import text, create_engine
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from server.db import db
+
+def get_database_url():
+    """Get database URL from environment or default."""
+    # Try to get from environment (Docker compose sets this)
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url:
+        return db_url
+    
+    # Fallback: construct from individual components
+    db_host = os.environ.get('DB_HOST', 'localhost')
+    db_port = os.environ.get('DB_PORT', '5432')
+    db_name = os.environ.get('DB_NAME', 'prosaas')
+    db_user = os.environ.get('DB_USER', 'postgres')
+    db_pass = os.environ.get('DB_PASSWORD', 'postgres')
+    
+    return f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 
 
 KILL_IDLE_TX_SQL = """
@@ -39,11 +54,11 @@ ORDER BY xact_start
 """
 
 
-def list_idle_transactions():
+def list_idle_transactions(engine):
     """List all idle transactions that would be killed."""
     print("\n🔍 Searching for idle transactions...")
     
-    with db.engine.connect() as conn:
+    with engine.connect() as conn:
         result = conn.execute(text(KILL_IDLE_TX_SQL))
         rows = result.fetchall()
         
@@ -65,7 +80,7 @@ def list_idle_transactions():
         return [row[0] for row in rows]
 
 
-def kill_idle_transactions(pids, dry_run=False):
+def kill_idle_transactions(engine, pids, dry_run=False):
     """Kill the specified idle transactions."""
     if not pids:
         return
@@ -79,7 +94,7 @@ def kill_idle_transactions(pids, dry_run=False):
     killed_count = 0
     failed_count = 0
     
-    with db.engine.connect() as conn:
+    with engine.connect() as conn:
         for pid in pids:
             try:
                 result = conn.execute(
@@ -133,15 +148,20 @@ def main():
     else:
         print("⚠️  LIVE MODE - Transactions will be terminated")
     
+    # Create database engine
+    db_url = get_database_url()
+    print(f"\n🔌 Connecting to database...")
+    engine = create_engine(db_url)
+    
     # List idle transactions
-    pids = list_idle_transactions()
+    pids = list_idle_transactions(engine)
     
     if not pids:
         print("\n✅ No action needed")
         return 0
     
     # Kill them if not dry run
-    kill_idle_transactions(pids, dry_run=args.dry_run)
+    kill_idle_transactions(engine, pids, dry_run=args.dry_run)
     
     return 0
 

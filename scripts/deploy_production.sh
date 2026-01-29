@@ -5,8 +5,9 @@
 # ==========================================
 #
 # This script ensures proper deployment order:
-# 1. Run migrations FIRST (and wait for completion)
-# 2. Then start all other services
+# 1. Stop services to release database connections
+# 2. Run migrations (and wait for completion)
+# 3. Then start all other services
 #
 # It also handles:
 # - Proper error handling at each step
