@@ -83,7 +83,7 @@ export function ScheduledMessagesPage() {
       setLoading(true);
       const [rulesData, statusesData] = await Promise.all([
         scheduledMessagesApi.getRules(),
-        http.get('/api/status/list').then(r => r.data.statuses || [])
+        http.get('/api/statuses').then(r => r.data.items || [])
       ]);
       setRules(rulesData);
       setStatuses(statusesData);
