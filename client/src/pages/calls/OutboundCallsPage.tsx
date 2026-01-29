@@ -774,7 +774,7 @@ export function OutboundCallsPage() {
     }
     
     // 🔥 TTL TRACKING: Track when polling started
-    let pollStartTime = Date.now();
+    const pollStartTime = Date.now();  // const - never reassigned
     const MAX_POLL_DURATION_MS = 20 * 60 * 1000; // 20 minutes max polling
     
     // Start new polling - check every 5 seconds (per requirement)
@@ -795,7 +795,8 @@ export function OutboundCallsPage() {
         
         const status = await callsService.getQueueStatus(runId);
         
-        // 🔥 CLIENT-SIDE TTL CHECK: Verify queue is still active
+        // 🔥 CLIENT-SIDE TTL CHECK: Verify queue is still running
+        // Stop polling if queue is not running or in any terminal state
         if (status.status !== 'running') {
           console.log('[OutboundCallsPage] Queue no longer running:', status.status);
           if (pollIntervalRef.current) {
@@ -813,18 +814,6 @@ export function OutboundCallsPage() {
         
         // Refetch recent calls to show new calls
         if (activeTab === 'recent') {
-          refetchRecentCalls();
-        }
-        
-        // Stop polling if queue is complete/stopped/cancelled
-        if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled' || status.status === 'stopped') {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-          setActiveRunId(null);
-          setQueueJobStatus(null);
-          refetchCounts();
           refetchRecentCalls();
         }
       } catch (error) {

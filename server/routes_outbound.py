@@ -832,6 +832,7 @@ def cancel_outbound_job(job_id: int):
             run.updated_at = now
             run.locked_by_worker = None
             run.lock_ts = None
+            run.last_heartbeat_at = None  # Clear for consistency
             
             # Mark all pending jobs as failed
             from sqlalchemy import text
@@ -935,12 +936,12 @@ def force_cancel_outbound_job(job_id: int):
         run.completed_at = now  # 🔥 AUTO-FINALIZE: Set completed_at to prevent stuck progress bar
         run.updated_at = now
         
-        # Clear worker lock and heartbeat
+        # Clear worker lock and heartbeat for consistency
         run.locked_by_worker = None
         run.lock_ts = None
-        run.last_heartbeat_at = None  # Clear heartbeat for consistency
+        run.last_heartbeat_at = None
         
-        # Mark all queued jobs as failed
+        # Mark all queued/dialing jobs as failed
         from sqlalchemy import text
         result = db.session.execute(text("""
             UPDATE outbound_call_jobs 
@@ -949,7 +950,7 @@ def force_cancel_outbound_job(job_id: int):
                 completed_at=NOW()
             WHERE run_id=:run_id 
                 AND business_id=:business_id
-                AND status IN ('queued', 'pending')
+                AND status IN ('queued', 'dialing')
         """), {"run_id": job_id, "business_id": run.business_id})
         
         cancelled_count = result.rowcount
@@ -993,7 +994,7 @@ def get_active_outbound_job():
     - status = 'running' (not queued/stopped/completed/failed/cancelled)
     - cancel_requested = false
     - completed_at is null (not finished)
-    - last_heartbeat_at/updated_at within STALE_TTL (10-15 minutes)
+    - last_heartbeat_at/updated_at within 15 minutes TTL
     
     🔥 STALE AUTO-FINALIZE: Automatically marks stale runs as 'failed' if:
     - status='running' but last_heartbeat_at > 15 minutes old
@@ -1027,9 +1028,9 @@ def get_active_outbound_job():
         run = OutboundCallRun.query.filter(
             OutboundCallRun.business_id == tenant_id,
             OutboundCallRun.status == 'running',  # ONLY running (not queued)
-            OutboundCallRun.cancel_requested == False,  # NOT cancelled
-            OutboundCallRun.completed_at == None,  # NOT finished (use completed_at for compatibility)
-            OutboundCallRun.ended_at == None  # NOT finished (use ended_at as primary)
+            OutboundCallRun.cancel_requested.is_(False),  # NOT cancelled (SQLAlchemy explicit False check)
+            OutboundCallRun.completed_at.is_(None),  # NOT finished (use completed_at for compatibility)
+            OutboundCallRun.ended_at.is_(None)  # NOT finished (use ended_at as primary)
         ).order_by(OutboundCallRun.created_at.desc()).first()
         
         if not run:
@@ -1039,10 +1040,22 @@ def get_active_outbound_job():
         # Determine last activity time
         last_activity = run.last_heartbeat_at or run.lock_ts or run.updated_at
         
-        if last_activity:
-            time_since_activity = now - last_activity
-            
-            if time_since_activity > stale_ttl:
+        if not last_activity:
+            # Edge case: No activity timestamp at all (should never happen but defensive)
+            log.warning(f"🔥 [STALE_AUTO_FINALIZE] Run {run.id} has no activity timestamp - marking as failed")
+            run.status = 'failed'
+            run.ended_at = now
+            run.completed_at = now
+            run.last_error = "Queue has no activity timestamp"
+            run.locked_by_worker = None
+            run.lock_ts = None
+            run.last_heartbeat_at = None
+            db.session.commit()
+            return jsonify({"error": "אין תור פעיל"}), 404
+        
+        time_since_activity = now - last_activity
+        
+        if time_since_activity > stale_ttl:
                 # AUTO-FINALIZE: Mark as failed and clean up
                 elapsed_minutes = int(time_since_activity.total_seconds() / 60)
                 log.warning(
@@ -1056,9 +1069,10 @@ def get_active_outbound_job():
                 run.completed_at = now  # Set both for compatibility
                 run.last_error = f"Queue stale - no activity for {elapsed_minutes} minutes (TTL={stale_ttl.total_seconds()/60:.0f}m)"
                 
-                # Clear lock fields
+                # Clear lock fields and heartbeat for consistency
                 run.locked_by_worker = None
                 run.lock_ts = None
+                run.last_heartbeat_at = None
                 
                 # Mark remaining queued jobs as failed
                 from sqlalchemy import text
