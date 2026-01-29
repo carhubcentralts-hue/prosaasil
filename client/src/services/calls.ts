@@ -88,25 +88,36 @@ class CallsService {
   }
 
   async getActiveQueue(): Promise<{
-    job_id: number;
-    status: string;
+    ok: boolean;
+    active: boolean;
+    job_id: number | null;
+    run_id: number | null;
+    status: string | null;
     total: number;
     processed: number;
     success: number;
     failed: number;
     in_progress: number;
     queued: number;
+    queue_len: number;
     progress_pct: number;
     can_cancel: boolean;
     cancel_requested: boolean;
+    concurrency: number | null;
     created_at: string | null;
     completed_at: string | null;
-    last_activity: string | null;  // 🔥 NEW: For client-side TTL check
+    last_activity: string | null;
   } | null> {
     try {
-      return await http.get('/api/outbound_calls/jobs/active');
+      const response = await http.get('/api/outbound_calls/jobs/active');
+      // 🔥 FIX: Handle new response format with active flag
+      // When active is false, return null for backward compatibility
+      if (!response.active) {
+        return null;
+      }
+      return response;
     } catch (error: any) {
-      // 404 means no active queue - return null
+      // 404 means no active queue - return null (legacy compatibility)
       if (error?.response?.status === 404) {
         return null;
       }
