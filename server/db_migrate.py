@@ -6348,6 +6348,44 @@ def apply_migrations():
         checkpoint("   🎯 Created scheduled_messages_queue table for pending messages")
         checkpoint("   🎯 All indexes and constraints created for performance and data integrity")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 117: Enable 'scheduled_messages' page for businesses
+        # 🎯 PURPOSE: Add scheduled_messages to enabled_pages for page permissions
+        # Adds 'scheduled_messages' to businesses that have WhatsApp broadcast
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 117: Enable 'scheduled_messages' page for businesses with WhatsApp")
+        
+        if check_table_exists('business') and check_column_exists('business', 'enabled_pages'):
+            try:
+                checkpoint("  → Enabling 'scheduled_messages' page for businesses with WhatsApp broadcast...")
+                
+                # Add 'scheduled_messages' to enabled_pages for businesses that have whatsapp_broadcast
+                # but don't have scheduled_messages yet
+                # Using JSONB || operator and ? operator for performance
+                result = db.session.execute(text("""
+                    UPDATE business
+                    SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
+                    WHERE enabled_pages IS NOT NULL
+                      AND enabled_pages::jsonb ? 'whatsapp_broadcast'
+                      AND NOT (enabled_pages::jsonb ? 'scheduled_messages')
+                """))
+                updated_count = result.rowcount
+                
+                if updated_count > 0:
+                    checkpoint(f"  ✅ Enabled 'scheduled_messages' page for {updated_count} businesses with WhatsApp")
+                else:
+                    checkpoint("  ℹ️ All businesses with WhatsApp already have 'scheduled_messages' page enabled")
+                
+                migrations_applied.append('enable_scheduled_messages_page')
+                checkpoint("✅ Migration 117 complete: 'scheduled_messages' page enabled for WhatsApp businesses")
+            except Exception as e:
+                log.error(f"❌ Migration 117 failed to enable scheduled_messages page: {e}")
+                checkpoint(f"⚠️ Migration 117 failed (non-critical): {e}")
+                # Don't fail the entire migration if this fails - it's non-critical
+                db.session.rollback()
+        else:
+            checkpoint("  ℹ️ Skipping Migration 117: business table or enabled_pages column not found")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

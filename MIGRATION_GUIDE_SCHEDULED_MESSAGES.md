@@ -20,25 +20,20 @@ The "תזמון הודעות WhatsApp" (WhatsApp Message Scheduling) page was im
 
 ### 2. Database Migration (Run on Production)
 
-**File:** `migration_add_scheduled_messages_to_enabled_pages.sql`
+### 2. Database Migration
 
-**What it does:**
-- Adds `scheduled_messages` to `enabled_pages` for all businesses that have `whatsapp_broadcast` enabled
+**Migration 117 is part of the DB_MIGRATE system and runs automatically.**
+
+When you deploy the code and start the application, Migration 117 will automatically:
+- Add `scheduled_messages` to `enabled_pages` for all businesses that have `whatsapp_broadcast` enabled
 - New businesses automatically get it via DEFAULT_ENABLED_PAGES
 
-**Run this on production:**
+You can also run migrations manually:
 ```bash
-psql -d your_database -f migration_add_scheduled_messages_to_enabled_pages.sql
+python -m server.db_migrate
 ```
 
-Or manually in your database admin:
-```sql
-UPDATE business
-SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
-WHERE enabled_pages IS NOT NULL
-  AND enabled_pages::jsonb ? 'whatsapp_broadcast'
-  AND NOT (enabled_pages::jsonb ? 'scheduled_messages');
-```
+The migration is idempotent and safe to run multiple times. It uses efficient JSONB operators for performance.
 
 ### 3. Verification
 

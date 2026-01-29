@@ -122,17 +122,22 @@ const menuItems = [
 ---
 
 ### 5. מיגרציית בסיס נתונים (Database Migration)
-```sql
--- migration_add_scheduled_messages_to_enabled_pages.sql
+```python
+# server/db_migrate.py - Migration 117
 
-UPDATE business
-SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
-WHERE enabled_pages IS NOT NULL
-  AND enabled_pages::jsonb ? 'whatsapp_broadcast'
-  AND NOT (enabled_pages::jsonb ? 'scheduled_messages');
+checkpoint("Migration 117: Enable 'scheduled_messages' page for businesses with WhatsApp")
+
+result = db.session.execute(text("""
+    UPDATE business
+    SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
+    WHERE enabled_pages IS NOT NULL
+      AND enabled_pages::jsonb ? 'whatsapp_broadcast'
+      AND NOT (enabled_pages::jsonb ? 'scheduled_messages')
+"""))
 ```
 
 **תוצאה:**
+- ✅ חלק ממערכת DB_MIGRATE (רצה אוטומטית)
 - ✅ עסקים קיימים עם WhatsApp מקבלים גישה
 - ✅ idempotent - בטוח להרצה מרובה
 - ✅ משתמש ב-JSONB operators יעילים
@@ -211,13 +216,14 @@ git pull origin copilot/add-whatsapp-scheduling-page-again
 # Deploy to production
 ```
 
-### שלב 2: הרצת המיגרציה
+### שלב 2: המיגרציה תרוץ אוטומטית
 ```bash
-# Option A: Using psql
-psql -d your_database -f migration_add_scheduled_messages_to_enabled_pages.sql
+# המיגרציה (Migration 117) רצה אוטומטית בעת הפעלת השרת
+# ניתן לראות בלוגים:
+# "Migration 117: Enable 'scheduled_messages' page for businesses with WhatsApp"
 
-# Option B: Through database admin panel
-# Copy the SQL from the migration file and execute
+# אופציה: הרצה ידנית של כל המיגרציות
+python -m server.db_migrate
 ```
 
 ### שלב 3: אימות הפריסה

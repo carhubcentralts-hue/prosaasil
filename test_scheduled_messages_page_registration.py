@@ -196,42 +196,57 @@ def test_sidebar_configuration():
     print()
 
 
-def test_migration_file():
-    """Test that migration file exists and is valid"""
+def test_migration_in_db_migrate():
+    """Test that migration is part of DB_MIGRATE system"""
     print("=" * 60)
-    print("TEST 5: Database Migration")
+    print("TEST 5: Database Migration (DB_MIGRATE)")
     print("=" * 60)
     
-    migration_file = 'migration_add_scheduled_messages_to_enabled_pages.sql'
+    db_migrate_file = 'server/db_migrate.py'
     
-    if not os.path.exists(migration_file):
-        print("⚠️  Migration file not found")
+    if not os.path.exists(db_migrate_file):
+        print("⚠️  db_migrate.py not found")
         return
     
-    with open(migration_file, 'r', encoding='utf-8') as f:
+    with open(db_migrate_file, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    # Check for key elements
-    assert 'UPDATE business' in content, "❌ Missing UPDATE statement"
-    print("✅ Contains UPDATE statement")
+    # Check for Migration 117
+    assert 'Migration 117' in content, "❌ Migration 117 not found"
+    print("✅ Migration 117 exists in db_migrate.py")
     
+    # Check for scheduled_messages in migration
+    assert 'scheduled_messages' in content, "❌ Missing scheduled_messages reference"
+    print("✅ Migration updates scheduled_messages")
+    
+    # Check for the UPDATE statement
+    assert 'UPDATE business' in content, "❌ Missing UPDATE business statement"
+    print("✅ Contains UPDATE business statement")
+    
+    # Check for enabled_pages update
     assert 'enabled_pages' in content, "❌ Missing enabled_pages reference"
     print("✅ Updates enabled_pages column")
-    
-    assert 'scheduled_messages' in content, "❌ Missing scheduled_messages"
-    print("✅ Adds scheduled_messages to enabled_pages")
     
     # Check for JSONB operators (efficient approach)
     assert '::jsonb' in content, "❌ Not using JSONB type"
     print("✅ Uses JSONB type")
     
-    assert '||' in content or 'json_agg' in content, "❌ Missing array append logic"
-    print("✅ Uses array append logic")
+    assert '||' in content, "❌ Missing JSONB append operator"
+    print("✅ Uses JSONB || operator")
     
-    # Check for idempotency
-    assert 'NOT' in content or 'NOT EXISTS' in content or '?' in content, \
-        "⚠️  Migration might not be idempotent"
-    print("✅ Has idempotency check")
+    # Check for idempotency with ? operator
+    assert '?' in content, "❌ Missing ? operator for idempotency check"
+    print("✅ Has idempotency check with ? operator")
+    
+    # Check for whatsapp_broadcast condition
+    lines_with_117 = []
+    for i, line in enumerate(content.split('\n')):
+        if 'Migration 117' in line:
+            # Get context around migration 117 (next 50 lines)
+            migration_context = '\n'.join(content.split('\n')[i:i+50])
+            assert 'whatsapp_broadcast' in migration_context, "❌ Should check for whatsapp_broadcast"
+            print("✅ Checks for whatsapp_broadcast condition")
+            break
     
     print()
 
@@ -263,7 +278,7 @@ def run_all_tests():
         print(f"❌ TEST 4 FAILED: {e}\n")
     
     try:
-        test_migration_file()
+        test_migration_in_db_migrate()
     except Exception as e:
         print(f"❌ TEST 5 FAILED: {e}\n")
     
@@ -276,7 +291,7 @@ def run_all_tests():
     print("   2. Route is protected with PageGuard")
     print("   3. API endpoints are protected with @require_page_access")
     print("   4. Sidebar has correct pageKey configuration")
-    print("   5. Database migration file is ready")
+    print("   5. Migration 117 is in DB_MIGRATE system")
     print("\n🚀 Ready for deployment!")
 
 

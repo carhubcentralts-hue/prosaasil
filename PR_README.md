@@ -52,14 +52,20 @@ def get_rules():
 Applied to all 8 endpoints: GET/POST rules, PATCH/DELETE rules, cancel, queue, stats
 
 ### 4. Database Migration
-```sql
--- migration_add_scheduled_messages_to_enabled_pages.sql
-UPDATE business
-SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
-WHERE enabled_pages IS NOT NULL
-  AND enabled_pages::jsonb ? 'whatsapp_broadcast'
-  AND NOT (enabled_pages::jsonb ? 'scheduled_messages');
+**Migration 117** in `server/db_migrate.py`:
+```python
+checkpoint("Migration 117: Enable 'scheduled_messages' page for businesses with WhatsApp")
+
+result = db.session.execute(text("""
+    UPDATE business
+    SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
+    WHERE enabled_pages IS NOT NULL
+      AND enabled_pages::jsonb ? 'whatsapp_broadcast'
+      AND NOT (enabled_pages::jsonb ? 'scheduled_messages')
+"""))
 ```
+
+Runs automatically on application startup or manually via `python -m server.db_migrate`
 
 ## 📦 Files Changed
 
@@ -69,7 +75,7 @@ WHERE enabled_pages IS NOT NULL
 - `server/routes_scheduled_messages.py` - API protection (8 endpoints)
 
 ### Database (1 file)
-- `migration_add_scheduled_messages_to_enabled_pages.sql` - Migration script
+- `server/db_migrate.py` - Migration 117 added
 
 ### Documentation (4 files)
 - `MIGRATION_GUIDE_SCHEDULED_MESSAGES.md` - Deployment guide (English)
@@ -139,9 +145,16 @@ git pull
 # Deploy to production
 ```
 
-### Step 2: Run Migration
+### Step 2: Migration Runs Automatically
+Migration 117 runs automatically when the application starts. You can verify in logs:
+```
+Migration 117: Enable 'scheduled_messages' page for businesses with WhatsApp
+✅ Enabled 'scheduled_messages' page for X businesses with WhatsApp
+```
+
+Or run manually:
 ```bash
-psql -d your_database -f migration_add_scheduled_messages_to_enabled_pages.sql
+python -m server.db_migrate
 ```
 
 ### Step 3: Verify
