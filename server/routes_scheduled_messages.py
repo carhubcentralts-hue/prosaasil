@@ -59,6 +59,7 @@ def get_user_id_from_session() -> int:
 
 @scheduled_messages_bp.route('/rules', methods=['GET'])
 @require_api_auth
+@require_page_access('scheduled_messages')
 def get_rules():
     """
     Get all scheduling rules for the current business
@@ -127,6 +128,7 @@ def get_rules():
 
 @scheduled_messages_bp.route('/rules', methods=['POST'])
 @require_api_auth
+@require_page_access('scheduled_messages')
 def create_rule():
     """
     Create a new scheduling rule
@@ -221,6 +223,7 @@ def create_rule():
 
 @scheduled_messages_bp.route('/rules/<int:rule_id>', methods=['PATCH'])
 @require_api_auth
+@require_page_access('scheduled_messages')
 def update_rule(rule_id: int):
     """
     Update an existing scheduling rule
@@ -296,6 +299,7 @@ def update_rule(rule_id: int):
 
 @scheduled_messages_bp.route('/rules/<int:rule_id>', methods=['DELETE'])
 @require_api_auth
+@require_page_access('scheduled_messages')
 def delete_rule(rule_id: int):
     """
     Delete a scheduling rule
@@ -324,6 +328,7 @@ def delete_rule(rule_id: int):
 
 @scheduled_messages_bp.route('/rules/<int:rule_id>/cancel-pending', methods=['POST'])
 @require_api_auth
+@require_page_access('scheduled_messages')
 def cancel_pending_for_rule(rule_id: int):
     """
     Cancel all pending messages for a rule
@@ -355,6 +360,7 @@ def cancel_pending_for_rule(rule_id: int):
 
 @scheduled_messages_bp.route('/queue', methods=['GET'])
 @require_api_auth
+@require_page_access('scheduled_messages')
 def get_queue():
     """
     Get scheduled messages queue with pagination
@@ -436,6 +442,7 @@ def get_queue():
 
 @scheduled_messages_bp.route('/queue/<int:message_id>/cancel', methods=['POST'])
 @require_api_auth
+@require_page_access('scheduled_messages')
 def cancel_message(message_id: int):
     """
     Cancel a pending message
@@ -464,6 +471,7 @@ def cancel_message(message_id: int):
 
 @scheduled_messages_bp.route('/stats', methods=['GET'])
 @require_api_auth
+@require_page_access('scheduled_messages')
 def get_stats():
     """
     Get statistics for scheduled messages

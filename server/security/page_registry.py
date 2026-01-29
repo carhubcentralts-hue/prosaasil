@@ -134,6 +134,16 @@ PAGE_REGISTRY: Dict[str, PageConfig] = {
         icon="Send",
         description="שליחת הודעות המוניות"
     ),
+    "scheduled_messages": PageConfig(
+        page_key="scheduled_messages",
+        title_he="תזמון הודעות WhatsApp",
+        route="/app/scheduled-messages",
+        min_role="admin",
+        category="whatsapp",
+        api_tags=["whatsapp", "scheduled", "automation"],
+        icon="Clock",
+        description="תזמון הודעות אוטומטיות לפי סטטוסים"
+    ),
     
     # Communications
     "emails": PageConfig(
