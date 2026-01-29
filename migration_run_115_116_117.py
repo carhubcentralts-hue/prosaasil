@@ -50,7 +50,13 @@ def main():
         checkpoint("Set DATABASE_URL and try again.")
         return 1
     
-    checkpoint(f"Database: {os.getenv('DATABASE_URL').split('@')[0] if '@' in os.getenv('DATABASE_URL', '') else '***'}@***")
+    # Hide sensitive database connection details
+    db_url = os.getenv('DATABASE_URL', '')
+    if db_url and '@' in db_url:
+        db_prefix = db_url.split('@')[0].split('//')[0] if '//' in db_url else 'postgresql'
+        checkpoint(f"Database: {db_prefix}://***@***")
+    else:
+        checkpoint("Database: ***")
     
     try:
         # Import after environment check
@@ -73,7 +79,6 @@ def main():
             # Check if migrations are needed
             needs_115 = 'business_calendars' not in existing_tables
             needs_116 = 'scheduled_message_rules' not in existing_tables
-            needs_117 = True  # Always check this one
             
             if not needs_115 and not needs_116:
                 checkpoint("✅ Tables already exist - checking column status...")
@@ -86,18 +91,21 @@ def main():
                 if not has_calendar_id:
                     needs_115 = True
             
-            if not needs_115 and not needs_116 and not needs_117:
-                checkpoint("✅ All migrations already applied!")
-                checkpoint("=" * 80)
-                return 0
+            # Migration 117 is checked during verification (page enablement)
+            # We always run migrations to ensure 117 is applied if needed
+            if not needs_115 and not needs_116:
+                checkpoint("✅ Core migrations already applied, checking page enablement...")
+            else:
+                checkpoint(f"Migrations needed: {'115 ' if needs_115 else ''}{'116 ' if needs_116 else ''}117")
             
             # Force migrations to run by calling apply_migrations
             checkpoint("Running apply_migrations()...")
             checkpoint("Note: This will run ALL pending migrations, including 115-117")
             
             # Temporarily set environment to ensure migrations run
-            original_service_role = os.getenv('SERVICE_ROLE')
-            original_run_migrations = os.getenv('RUN_MIGRATIONS')
+            # Store original values (None if not set)
+            original_service_role = os.getenv('SERVICE_ROLE', None)
+            original_run_migrations = os.getenv('RUN_MIGRATIONS', None)
             
             os.environ['SERVICE_ROLE'] = 'api'  # Not a worker
             os.environ['RUN_MIGRATIONS'] = '1'  # Enable migrations
@@ -121,13 +129,13 @@ def main():
                         checkpoint(f"   Applied {len(result)} migration steps")
                     
             finally:
-                # Restore environment
-                if original_service_role:
+                # Restore environment to original state
+                if original_service_role is not None:
                     os.environ['SERVICE_ROLE'] = original_service_role
                 elif 'SERVICE_ROLE' in os.environ:
                     del os.environ['SERVICE_ROLE']
                     
-                if original_run_migrations:
+                if original_run_migrations is not None:
                     os.environ['RUN_MIGRATIONS'] = original_run_migrations
                 elif 'RUN_MIGRATIONS' in os.environ:
                     del os.environ['RUN_MIGRATIONS']
@@ -176,12 +184,12 @@ def main():
             if 'business' in existing_tables:
                 columns = [col['name'] for col in inspector.get_columns('business')]
                 if 'enabled_pages' in columns:
-                    # Check if any business has scheduled_messages enabled
-                    result = db.session.execute(text("""
+                    # Check if any business has scheduled_messages enabled using proper JSONB query
+                    check_result = db.session.execute(text("""
                         SELECT COUNT(*) FROM business 
-                        WHERE enabled_pages::text LIKE '%scheduled_messages%'
+                        WHERE enabled_pages::jsonb ? 'scheduled_messages'
                     """))
-                    count = result.scalar()
+                    count = check_result.scalar()
                     checkpoint(f"  ✅ {count} business(es) have scheduled_messages page enabled")
                 else:
                     checkpoint("  ⚠️  enabled_pages column not found in business table")
