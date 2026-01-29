@@ -12,6 +12,14 @@ from server.db import db
 
 logger = logging.getLogger(__name__)
 
+# 🔥 RETRY CONFIGURATION
+# Max retry attempts for missing CallLog or audio files
+MAX_RECORDING_RETRIES = 5
+# Exponential backoff: 60s, 120s, 240s, 480s, 960s (capped at 1200s)
+def calculate_retry_delay(retry_count):
+    """Calculate exponential backoff delay in seconds"""
+    return min(60 * (2 ** (retry_count - 1)), 1200)
+
 
 def process_recording_download_job(call_sid, recording_url, business_id, from_number="", to_number="", recording_sid=None):
     """
@@ -143,36 +151,37 @@ def process_recording_rq_job(run_id: int):
             # 🔥 CRITICAL: Don't throw exception for missing CallLog - use retry with backoff
             if not call_log and run.job_type == 'full':
                 # CallLog not found yet - may be commit race condition
-                run.retry_count += 1
                 
-                # Exponential backoff: 60s, 120s, 300s, 600s, 1200s (max 5 attempts)
-                MAX_RETRIES = 5
-                if run.retry_count < MAX_RETRIES:
-                    delay = min(60 * (2 ** (run.retry_count - 1)), 1200)  # Cap at 20 minutes
-                    logger.warning(
-                        f"⚠️ [RQ_RECORDING] CallLog not found for {run.call_sid} "
-                        f"(attempt {run.retry_count}/{MAX_RETRIES}) - will retry in {delay}s"
-                    )
-                    
-                    # Update run status back to 'queued' with retry info
-                    run.status = 'queued'
-                    run.error_message = f'Waiting for CallLog (attempt {run.retry_count}/{MAX_RETRIES})'
-                    db.session.commit()
-                    
-                    # Re-enqueue with delay using RQ's retry mechanism
-                    # NOTE: RQ will handle the retry automatically
-                    raise Exception(f"CallLog not found - retry {run.retry_count}/{MAX_RETRIES}")
-                else:
+                # Check if we've exceeded retry limit
+                if run.retry_count >= MAX_RECORDING_RETRIES:
                     # Max retries exceeded - mark as permanently failed
                     logger.error(
                         f"❌ [RQ_RECORDING] CallLog not found for {run.call_sid} "
-                        f"after {MAX_RETRIES} retries - marking as failed"
+                        f"after {MAX_RECORDING_RETRIES} retries - marking as failed"
                     )
                     run.status = 'failed'
-                    run.error_message = f'CallLog not found after {MAX_RETRIES} retries'
+                    run.error_message = f'CallLog not found after {MAX_RECORDING_RETRIES} retries'
                     run.completed_at = datetime.utcnow()
                     db.session.commit()
                     return {"success": False, "error": "CallLog not found", "permanent": True}
+                
+                # Increment retry count
+                run.retry_count += 1
+                delay = calculate_retry_delay(run.retry_count)
+                
+                logger.warning(
+                    f"⚠️ [RQ_RECORDING] CallLog not found for {run.call_sid} "
+                    f"(attempt {run.retry_count}/{MAX_RECORDING_RETRIES}) - will retry in {delay}s"
+                )
+                
+                # Update run status back to 'queued' with retry info
+                run.status = 'queued'
+                run.error_message = f'Waiting for CallLog (attempt {run.retry_count}/{MAX_RECORDING_RETRIES})'
+                db.session.commit()
+                
+                # Re-enqueue with delay using RQ's retry mechanism
+                # NOTE: RQ will handle the retry automatically
+                raise Exception(f"CallLog not found - retry {run.retry_count}/{MAX_RECORDING_RETRIES}")
             
             if run.job_type == 'download':
                 # Download only (for UI playback)
@@ -194,32 +203,33 @@ def process_recording_rq_job(run_id: int):
             # 🔥 FIX: Check if result indicates missing audio file
             # process_recording_async returns False when audio file is not available
             if not success and run.job_type == 'full':
-                run.retry_count += 1
-                
-                MAX_RETRIES = 5
-                if run.retry_count < MAX_RETRIES:
-                    delay = min(60 * (2 ** (run.retry_count - 1)), 1200)
-                    logger.warning(
-                        f"⚠️ [RQ_RECORDING] Audio file not available for {run.call_sid} "
-                        f"(attempt {run.retry_count}/{MAX_RETRIES}) - will retry in {delay}s"
-                    )
-                    
-                    run.status = 'queued'
-                    run.error_message = f'Waiting for audio file (attempt {run.retry_count}/{MAX_RETRIES})'
-                    db.session.commit()
-                    
-                    # Re-enqueue with delay
-                    raise Exception(f"Audio file not available - retry {run.retry_count}/{MAX_RETRIES}")
-                else:
+                # Check if we've exceeded retry limit
+                if run.retry_count >= MAX_RECORDING_RETRIES:
                     logger.error(
                         f"❌ [RQ_RECORDING] Audio file not available for {run.call_sid} "
-                        f"after {MAX_RETRIES} retries - marking as failed"
+                        f"after {MAX_RECORDING_RETRIES} retries - marking as failed"
                     )
                     run.status = 'failed'
-                    run.error_message = f'Audio file not available after {MAX_RETRIES} retries'
+                    run.error_message = f'Audio file not available after {MAX_RECORDING_RETRIES} retries'
                     run.completed_at = datetime.utcnow()
                     db.session.commit()
                     return {"success": False, "error": "Audio not available", "permanent": True}
+                
+                # Increment retry count
+                run.retry_count += 1
+                delay = calculate_retry_delay(run.retry_count)
+                
+                logger.warning(
+                    f"⚠️ [RQ_RECORDING] Audio file not available for {run.call_sid} "
+                    f"(attempt {run.retry_count}/{MAX_RECORDING_RETRIES}) - will retry in {delay}s"
+                )
+                
+                run.status = 'queued'
+                run.error_message = f'Waiting for audio file (attempt {run.retry_count}/{MAX_RECORDING_RETRIES})'
+                db.session.commit()
+                
+                # Re-enqueue with delay
+                raise Exception(f"Audio file not available - retry {run.retry_count}/{MAX_RECORDING_RETRIES}")
             
             duration_ms = int((time.time() - start_time) * 1000)
             
@@ -243,10 +253,12 @@ def process_recording_rq_job(run_id: int):
         
         except Exception as e:
             # Update run with error
+            # NOTE: retry_count is already incremented in the retry logic above
+            # Don't increment it here to avoid double-counting
             run.status = 'failed'
             run.error_message = str(e)[:500]  # Limit length
             run.completed_at = datetime.utcnow()
-            run.retry_count += 1
+            # run.retry_count += 1  # REMOVED: Already incremented above
             db.session.commit()
             
             logger.error(f"❌ [RQ_RECORDING] Job error: run_id={run_id} error={e}")
