@@ -182,6 +182,13 @@ def main():
         # Log which queues this worker will listen to (CRITICAL for debugging)
         logger.info(f"📍 WORKER QUEUES: This worker will listen to: {LISTEN_QUEUES}")
         logger.info(f"📍 CRITICAL: Worker WILL process jobs from 'default' queue: {'default' in LISTEN_QUEUES}")
+        logger.info(f"📍 CRITICAL: Worker WILL process jobs from 'maintenance' queue: {'maintenance' in LISTEN_QUEUES}")
+        if 'maintenance' not in LISTEN_QUEUES:
+            logger.error("=" * 60)
+            logger.error("❌❌❌ CRITICAL ERROR: 'maintenance' NOT IN QUEUE LIST!")
+            logger.error("❌ This means delete_receipts and other maintenance jobs will NEVER run!")
+            logger.error(f"❌ Current queues: {LISTEN_QUEUES}")
+            logger.error("=" * 60)
     except Exception as e:
         logger.error(f"✗ Redis connection failed: {e}")
         logger.error(f"Check that Redis is running and REDIS_URL is correct: {masked_redis_url}")
