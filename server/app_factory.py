@@ -1222,7 +1222,8 @@ def create_app():
             # 🔥 CRITICAL: Workers must NEVER run migrations
             # Migrations should only run in API service, not in workers
             service_role = os.getenv('SERVICE_ROLE', '').lower()
-            is_production = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
+            # 🔥 FIX: Check actual PRODUCTION flag, not RUN_MIGRATIONS_ON_START
+            is_production = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
             
             # Skip migrations entirely if this is a worker
             if service_role == 'worker':
@@ -1234,7 +1235,9 @@ def create_app():
                 _migrations_complete.set()
                 return
             
-            if is_production:
+            # 🔥 FIX: Always run migrations in API mode (production or dev)
+            # The apply_migrations() function itself checks RUN_MIGRATIONS env var
+            if is_production or True:  # Always attempt migrations
                 try:
                     with app.app_context():
                         from server.db_migrate import apply_migrations
