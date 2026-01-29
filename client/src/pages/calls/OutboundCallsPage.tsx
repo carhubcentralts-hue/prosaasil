@@ -106,15 +106,13 @@ interface RecentCall {
   to_number: string;
   lead_id: number | null;
   lead_name: string | null;
-  lead_status: string | null;  // ✅ FIX: Add lead_status field
-  status: string;  // call status (completed, failed, etc.)
+  lead_status: string | null;
+  status: string;
   started_at: string | null;
   ended_at: string | null;
   duration: number;
-  // 🔥 FIX: recording_url removed to prevent preload 502 loops
-  // recording_url: string | null;  // Removed - use hasRecording instead
   recording_sid: string | null;
-  hasRecording?: boolean;  // 🔥 NEW: Boolean flag only
+  hasRecording?: boolean;
   transcript: string | null;
   summary: string | null;
 }

@@ -148,25 +148,22 @@ def list_calls():
             
             calls_data.append({
                 "sid": call.call_sid,
-                "call_sid": call.call_sid,  # 🔥 NEW: Add explicit call_sid field
+                "call_sid": call.call_sid,
                 "lead_id": getattr(call, 'lead_id', None),
                 "lead_name": getattr(call, 'lead_name', None),
                 "from_e164": call.from_number,
                 "to_e164": getattr(call, 'to_number', None),
-                "customer_phone": customer_phone,  # 🔥 NEW: Always the customer's phone (direction-aware)
+                "customer_phone": customer_phone,
                 "duration": getattr(call, 'duration', 0),
                 "status": call.status,
                 "direction": call_direction,
-                "twilio_direction": getattr(call, 'twilio_direction', None),  # 🔥 NEW: Original Twilio direction
-                "parent_call_sid": getattr(call, 'parent_call_sid', None),  # 🔥 NEW: Parent call SID
+                "twilio_direction": getattr(call, 'twilio_direction', None),
+                "parent_call_sid": getattr(call, 'parent_call_sid', None),
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "created_at": call.created_at.isoformat() if call.created_at else None,
-                # 🔥 FIX: DO NOT send recording_url in list to prevent preload 502 loops
-                # Only send hasRecording boolean flag - URL is fetched on-demand in details
-                # "recording_url": call.recording_url,  # Removed to prevent browser preload
                 "transcription": best_transcript,
-                "transcript": best_transcript,  # Alias for compatibility
-                "final_transcript": getattr(call, 'final_transcript', None),  # 🔥 FIX: Add explicit final_transcript field
+                "transcript": best_transcript,
+                "final_transcript": getattr(call, 'final_transcript', None),
                 "summary": call.summary if hasattr(call, 'summary') else None,
                 "hasRecording": bool(call.recording_url),
                 "hasTranscript": bool(best_transcript),

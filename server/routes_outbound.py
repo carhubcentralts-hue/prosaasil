@@ -2558,7 +2558,6 @@ def get_recent_calls():
                 "started_at": "2024-01-01T12:00:00Z",
                 "ended_at": "2024-01-01T12:05:00Z",
                 "duration": 300,
-                "recording_url": "https://...",
                 "recording_sid": "RE...",
                 "transcript": "...",
                 "summary": "..."
@@ -2678,13 +2677,10 @@ def get_recent_calls():
                 "started_at": call.created_at.isoformat() if call.created_at else None,
                 "ended_at": call.updated_at.isoformat() if call.updated_at and call.updated_at != call.created_at else None,
                 "duration": call.duration,
-                # 🔥 FIX: DO NOT send recording_url in list to prevent preload 502 loops
-                # Only send hasRecording boolean flag - URL is fetched on-demand in details
-                # "recording_url": call.recording_url,  # Removed to prevent browser preload
                 "recording_sid": call.recording_sid,
                 "recording_status": recording_status,
                 "recording_run_id": recording_run_id,
-                "hasRecording": bool(call.recording_url),  # 🔥 NEW: Boolean flag only
+                "hasRecording": bool(call.recording_url),
                 "transcript": call.final_transcript or call.transcription,
                 "summary": call.summary
             })
@@ -2732,7 +2728,6 @@ def get_recent_inbound_calls():
                 "started_at": "2024-01-01T12:00:00Z",
                 "ended_at": "2024-01-01T12:05:00Z",
                 "duration": 300,
-                "recording_url": "https://...",
                 "recording_sid": "RE...",
                 "transcript": "...",
                 "summary": "..."
@@ -2830,13 +2825,10 @@ def get_recent_inbound_calls():
                 "started_at": call.created_at.isoformat() if call.created_at else None,
                 "ended_at": call.updated_at.isoformat() if call.updated_at and call.updated_at != call.created_at else None,
                 "duration": call.duration,
-                # 🔥 FIX: DO NOT send recording_url in list to prevent preload 502 loops
-                # Only send hasRecording boolean flag - URL is fetched on-demand in details
-                # "recording_url": call.recording_url,  # Removed to prevent browser preload
                 "recording_sid": call.recording_sid,
                 "recording_status": recording_status,
                 "recording_run_id": recording_run_id,
-                "hasRecording": bool(call.recording_url),  # 🔥 NEW: Boolean flag only
+                "hasRecording": bool(call.recording_url),
                 "transcript": call.final_transcript or call.transcription,
                 "summary": call.summary
             })
