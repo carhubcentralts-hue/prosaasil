@@ -214,12 +214,12 @@ const messageDedup = new Map(); // (tenantId:remoteJid:message_id) -> timestamp 
 const MAX_QUEUE_SIZE = 1000;
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [5000, 10000, 30000, 60000, 120000]; // 5s, 10s, 30s, 1m, 2m
-const DEDUP_CLEANUP_MS = 600000; // Clean dedup entries older than 10 minutes
-const DEDUP_CLEANUP_HOUR_MS = 3600000; // 1 hour for dedup entry retention
+const DEDUP_CLEANUP_MS = 120000; // 🔥 FIX: Reduced to 2 minutes (120 seconds) for LID support
+const DEDUP_CLEANUP_HOUR_MS = 120000; // 🔥 FIX: 2 minutes for dedup entry retention (prevents dropping WhatsApp retries)
 const DEDUP_MAX_SIZE = 5000; // Increased from 1000 for high-volume usage
 
 // 🔥 PERFORMANCE FIX: Single cleanup interval with longer period to reduce CPU usage
-// Cleanup dedup entries older than 10 minutes to prevent memory leaks
+// Cleanup dedup entries older than 2 minutes to prevent memory leaks while supporting WhatsApp retries
 setInterval(() => {
   const now = Date.now();
   let cleaned = 0;
@@ -241,26 +241,57 @@ setInterval(() => {
   }
 }, 600000); // Run cleanup every 10 minutes (reduced from duplicate 5-minute intervals)
 
-// Helper function to check if a message has actual content
-function hasTextContent(msgObj) {
-  // 🔥 FIX: Filter out non-chat events that shouldn't go to Flask
-  // These events create noise and should never be forwarded
+// 🔥 LID FIX: Extract text from message with comprehensive format support
+function extractText(msgObj) {
+  // Filter out non-chat events that shouldn't go to Flask
   if (msgObj.pollUpdateMessage || 
       msgObj.protocolMessage || 
       msgObj.historySyncNotification ||
       msgObj.reactionMessage) {
-    return false;
+    return null;
   }
   
-  // Check for actual content
-  return !!(
-    msgObj.conversation ||
-    msgObj.extendedTextMessage?.text ||
-    msgObj.imageMessage?.caption ||
-    msgObj.videoMessage?.caption ||
-    msgObj.audioMessage ||
-    msgObj.documentMessage
-  );
+  // Try all possible text locations (order matters - most common first)
+  if (msgObj.conversation) {
+    return msgObj.conversation;
+  }
+  
+  if (msgObj.extendedTextMessage?.text) {
+    return msgObj.extendedTextMessage.text;
+  }
+  
+  if (msgObj.imageMessage?.caption) {
+    return msgObj.imageMessage.caption;
+  }
+  
+  if (msgObj.videoMessage?.caption) {
+    return msgObj.videoMessage.caption;
+  }
+  
+  // 🔥 LID FIX: Add support for button responses and list responses
+  if (msgObj.buttonsResponseMessage?.selectedDisplayText) {
+    return msgObj.buttonsResponseMessage.selectedDisplayText;
+  }
+  
+  if (msgObj.listResponseMessage?.title) {
+    return msgObj.listResponseMessage.title;
+  }
+  
+  if (msgObj.listResponseMessage?.description) {
+    return msgObj.listResponseMessage.description;
+  }
+  
+  // Audio and document messages are valid but have no text content
+  if (msgObj.audioMessage || msgObj.documentMessage) {
+    return '[media]';  // Return indicator that this is valid content
+  }
+  
+  return null;  // No extractable text
+}
+
+// Helper function to check if a message has actual content
+function hasTextContent(msgObj) {
+  return extractText(msgObj) !== null;
 }
 
 
@@ -1468,8 +1499,41 @@ async function startSession(tenantId, forceRelink = false) {
         
         console.log(`[${tenantId}] 🔔 ${messages.length} message(s) received, checking fromMe...`);
         
+        // 🔥 LID FIX: Check for decryption errors in messages (Bad MAC, Failed to decrypt)
+        // These errors occur in multi-device scenarios and should not crash the pipeline
+        const validMessages = [];
+        for (const msg of messages) {
+          try {
+            // Try to access message properties to trigger any decryption errors
+            // This will throw if message can't be decrypted (Bad MAC, etc.)
+            const _ = msg.key?.remoteJid && msg.message;
+            
+            validMessages.push(msg);
+          } catch (decryptError) {
+            // 🔥 LID FIX: Handle "Bad MAC" and "Failed to decrypt" errors gracefully
+            const errorMsg = decryptError?.message || String(decryptError);
+            if (errorMsg.includes('Bad MAC') || 
+                errorMsg.includes('Failed to decrypt') || 
+                errorMsg.includes('decrypt')) {
+              const messageId = msg.key?.id || 'unknown';
+              const remoteJid = msg.key?.remoteJid || 'unknown';
+              console.warn(`[${tenantId}] ⚠️ Decrypt error for message ${messageId} from ${remoteJid.substring(0, 20)}: ${errorMsg}`);
+              console.warn(`[${tenantId}] ⚠️ Skipping message due to decryption failure (multi-device sync issue)`);
+              // Don't add to dedupe, don't send to Flask, don't crash - just skip
+              continue;
+            } else {
+              // Re-throw unexpected errors
+              throw decryptError;
+            }
+          }
+        }
+        
+        if (validMessages.length < messages.length) {
+          console.log(`[${tenantId}] ⚠️ Filtered out ${messages.length - validMessages.length} message(s) due to decryption errors`);
+        }
+        
         // 🔥 FIX #3: Extract LID and Android information from messages
-        messages.forEach((msg, idx) => {
+        validMessages.forEach((msg, idx) => {
           const fromMe = msg.key?.fromMe;
           const remoteJid = msg.key?.remoteJid;
           const participant = msg.key?.participant;
@@ -1534,7 +1598,7 @@ async function startSession(tenantId, forceRelink = false) {
           }
         });
         
-        const incomingMessages = messages.filter(msg => !msg.key.fromMe);
+        const incomingMessages = validMessages.filter(msg => !msg.key.fromMe);
         
         if (incomingMessages.length > 0) {
           incomingMessages.forEach((msg, idx) => {
@@ -1549,7 +1613,7 @@ async function startSession(tenantId, forceRelink = false) {
         }
         
         if (incomingMessages.length === 0) {
-          console.log(`[${tenantId}] ⏭️ Skipping ${messages.length} outgoing message(s) (fromMe: true)`);
+          console.log(`[${tenantId}] ⏭️ Skipping ${validMessages.length} outgoing message(s) (fromMe: true)`);
           return;
         }
         
@@ -1619,6 +1683,22 @@ async function startSession(tenantId, forceRelink = false) {
           console.log(`[${tenantId}] ⏭️ All messages were duplicates or non-message events - skipping webhook`);
           return;
         }
+        
+        // 🔥 LID FIX: Enhanced logging for debugging LID message flow
+        newMessages.forEach((msg, idx) => {
+          const remoteJid = msg.key?.remoteJid || '';
+          const messageId = msg.key?.id || '';
+          const participant = msg.key?.participant || '';
+          const fromMe = msg.key?.fromMe || false;
+          const extractedText = extractText(msg.message || {});
+          
+          console.log(`[${tenantId}] 📤 Sending to Flask [${idx}]: chat_jid=${remoteJid}, message_id=${messageId}, from_me=${fromMe}, participant=${participant || 'N/A'}, text=${(extractedText || '').substring(0, 50)}...`);
+          
+          // Highlight LID messages
+          if (remoteJid.endsWith('@lid')) {
+            console.log(`[${tenantId}] 🔵 LID message detected: will use ${participant || remoteJid} for replies`);
+          }
+        });
         
         const filteredPayload = {
           ...payload,

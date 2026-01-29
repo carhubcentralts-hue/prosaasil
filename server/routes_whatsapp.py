@@ -714,6 +714,11 @@ def baileys_webhook():
                 # We must reply to the EXACT remoteJid we received
                 remote_jid = msg.get('key', {}).get('remoteJid', '')
                 
+                # 🔥 LID FIX: Enhanced logging for incoming message identification
+                message_id = msg.get('key', {}).get('id', '')
+                from_me = msg.get('key', {}).get('fromMe', False)
+                log.info(f"[WA-INCOMING] 🔵 Incoming chat_jid={remote_jid}, message_id={message_id}, from_me={from_me}")
+                
                 # 🔥 BUG FIX: Create safe identifier for logging/DB from remoteJid
                 # This prevents NameError when logging unknown message formats
                 from_identifier = remote_jid.replace('@', '_').replace('.', '_') if remote_jid else 'unknown'
@@ -893,9 +898,16 @@ def baileys_webhook():
                 if remote_jid_alt and remote_jid_alt.endswith('@s.whatsapp.net'):
                     # Prefer participant/sender_pn if it's a standard WhatsApp number
                     reply_jid = remote_jid_alt
-                    log.debug(f"[WA] Using remote_jid_alt as reply target: {reply_jid}")
+                    log.info(f"[WA-REPLY] 🎯 Using remote_jid_alt (participant) as reply target: {reply_jid}")
                 elif remote_jid:
-                    log.debug(f"[WA] Using remote_jid as reply target: {reply_jid}")
+                    log.info(f"[WA-REPLY] 🎯 Using remote_jid as reply target: {reply_jid}")
+                
+                # 🔥 LID FIX: Log clear message for LID handling
+                if remote_jid.endswith('@lid'):
+                    if reply_jid != remote_jid:
+                        log.info(f"[WA-LID] ✅ LID message: incoming={remote_jid}, reply_to={reply_jid} (using participant)")
+                    else:
+                        log.info(f"[WA-LID] ⚠️ LID message: incoming={remote_jid}, reply_to={reply_jid} (no participant available)")
                 
                 # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
                 # 🔥 CRITICAL FIX: For @lid messages, pass customer_external_id instead of None
@@ -1156,7 +1168,8 @@ def baileys_webhook():
                 
                 # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
                 # This ensures Android messages with @lid, @g.us, etc. get proper replies
-                log.info(f"[WA-OUTGOING] Enqueuing WhatsApp send to remoteJid={remote_jid}, text={str(response_text)[:50]}...")
+                # 🔥 LID FIX: Use reply_jid (which prefers @s.whatsapp.net over @lid)
+                log.info(f"[WA-OUTGOING] 📤 Sending reply to jid={reply_jid}, text={str(response_text)[:50]}...")
                 
                 # 🔥 REMOVED THREADING: Use RQ job for WhatsApp sending
                 # This ensures proper retry, error handling, and no thread proliferation
@@ -1169,19 +1182,19 @@ def baileys_webhook():
                         func=send_whatsapp_message_job,
                         business_id=business_id,
                         tenant_id=tenant_id,
-                        remote_jid=remote_jid,
+                        remote_jid=reply_jid,  # 🔥 LID FIX: Use reply_jid instead of remote_jid
                         response_text=response_text,
                         wa_msg_id=wa_msg.id,
                         timeout=60,
                         retry=2,
-                        description=f"Send WhatsApp to {remote_jid[:15]}"
+                        description=f"Send WhatsApp to {reply_jid[:15]}"
                     )
-                    log.info(f"[WA-OUTGOING] Job enqueued: {job.id[:8]} for message {wa_msg.id}")
+                    log.info(f"[WA-OUTGOING] ✅ Job enqueued: {job.id[:8]} for message {wa_msg.id}, target={reply_jid[:20]}")
                 except Exception as enqueue_error:
                     log.error(f"[WA-OUTGOING] ❌ Failed to enqueue WhatsApp send: {enqueue_error}")
                     # Fall back to synchronous send if enqueue fails
-                    log.warning(f"[WA-OUTGOING] Falling back to synchronous send")
-                    send_whatsapp_message_job(business_id, tenant_id, remote_jid, response_text, wa_msg.id)
+                    log.warning(f"[WA-OUTGOING] Falling back to synchronous send to {reply_jid[:20]}")
+                    send_whatsapp_message_job(business_id, tenant_id, reply_jid, response_text, wa_msg.id)  # 🔥 LID FIX: Use reply_jid
                 
                 # Mark as processed immediately (actual sending happens in background)
                 processed_count += 1
