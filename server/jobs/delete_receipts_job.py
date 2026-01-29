@@ -256,6 +256,13 @@ def delete_receipts_batch_job(job_id: int):
                         "last_error": job.last_error
                     }
                 
+                # 🔥 BACKOFF: Add exponential backoff on consecutive failures (retry with delay)
+                # This helps with transient DB/Redis connection issues
+                if consecutive_failures > 0:
+                    backoff_seconds = min(2 ** consecutive_failures, 30)  # Cap at 30 seconds
+                    logger.warning(f"⏳ [RECEIPTS_DELETE] Backing off {backoff_seconds}s after {consecutive_failures} failures")
+                    time.sleep(backoff_seconds)
+                
             # Delete attachments from storage (outside transaction, after DB commit)
             if attachment_ids_to_delete:
                 deleted_attachments = 0
