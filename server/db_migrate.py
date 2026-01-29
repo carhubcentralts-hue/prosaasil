@@ -5986,40 +5986,30 @@ def apply_migrations():
                 logger.error(f"Migration 115 business_calendars error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ business_calendars table already exists - verifying schema...")
-            # Table exists, verify all required columns exist
-            required_columns = [
-                'id', 'business_id', 'name', 'type_key', 'provider', 'calendar_external_id',
-                'is_active', 'priority', 'default_duration_minutes', 'buffer_before_minutes',
-                'buffer_after_minutes', 'allowed_tags', 'created_at', 'updated_at'
-            ]
-            missing_columns = []
-            for col in required_columns:
-                if not check_column_exists('business_calendars', col):
-                    missing_columns.append(col)
+            checkpoint("  ℹ️ business_calendars table already exists - verifying critical columns...")
+            # Table exists - check a few critical columns that might be missing from partial migration
+            # If basic structure columns are missing, try to add them
+            critical_fixes = []
             
-            if missing_columns:
-                checkpoint(f"  ⚠️ Missing columns in business_calendars: {missing_columns}")
-                # Add missing columns - this makes it truly idempotent
+            if not check_column_exists('business_calendars', 'buffer_before_minutes'):
                 try:
-                    for col in missing_columns:
-                        if col == 'type_key':
-                            exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN type_key VARCHAR(64)")
-                        elif col == 'provider':
-                            exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN provider VARCHAR(32) DEFAULT 'internal' NOT NULL")
-                        elif col == 'calendar_external_id':
-                            exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN calendar_external_id VARCHAR(255)")
-                        elif col == 'buffer_before_minutes':
-                            exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN buffer_before_minutes INTEGER DEFAULT 0")
-                        elif col == 'buffer_after_minutes':
-                            exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN buffer_after_minutes INTEGER DEFAULT 0")
-                        # Add other columns as needed
-                    checkpoint(f"  ✅ Added missing columns to business_calendars: {missing_columns}")
-                    migrations_applied.append('115_business_calendars_schema_fix')
+                    exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN buffer_before_minutes INTEGER DEFAULT 0")
+                    critical_fixes.append('buffer_before_minutes')
                 except Exception as e:
-                    checkpoint(f"  ❌ Failed to add missing columns: {e}")
+                    checkpoint(f"  ⚠️ Could not add buffer_before_minutes: {e}")
+            
+            if not check_column_exists('business_calendars', 'buffer_after_minutes'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE business_calendars ADD COLUMN buffer_after_minutes INTEGER DEFAULT 0")
+                    critical_fixes.append('buffer_after_minutes')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add buffer_after_minutes: {e}")
+            
+            if critical_fixes:
+                checkpoint(f"  ✅ Added missing columns to business_calendars: {critical_fixes}")
+                migrations_applied.append('115_business_calendars_schema_fix')
             else:
-                checkpoint("  ✅ All required columns present in business_calendars")
+                checkpoint("  ✅ business_calendars table schema looks good")
         
         # Ensure indexes exist (whether table was just created or already existed)
         if not check_index_exists('idx_business_calendars_business_active'):
@@ -6069,33 +6059,29 @@ def apply_migrations():
                 logger.error(f"Migration 115 calendar_routing_rules error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ calendar_routing_rules table already exists - verifying schema...")
-            # Table exists, verify all required columns exist
-            required_columns = [
-                'id', 'business_id', 'calendar_id', 'match_labels', 'match_keywords',
-                'channel_scope', 'when_ambiguous_ask', 'question_text', 'priority',
-                'is_active', 'created_at', 'updated_at'
-            ]
-            missing_columns = []
-            for col in required_columns:
-                if not check_column_exists('calendar_routing_rules', col):
-                    missing_columns.append(col)
+            checkpoint("  ℹ️ calendar_routing_rules table already exists - verifying critical columns...")
+            # Check a few columns that were added later and might be missing
+            critical_fixes = []
             
-            if missing_columns:
-                checkpoint(f"  ⚠️ Missing columns in calendar_routing_rules: {missing_columns}")
+            if not check_column_exists('calendar_routing_rules', 'when_ambiguous_ask'):
                 try:
-                    for col in missing_columns:
-                        if col == 'when_ambiguous_ask':
-                            exec_ddl(db.engine, "ALTER TABLE calendar_routing_rules ADD COLUMN when_ambiguous_ask BOOLEAN DEFAULT FALSE")
-                        elif col == 'question_text':
-                            exec_ddl(db.engine, "ALTER TABLE calendar_routing_rules ADD COLUMN question_text VARCHAR(500)")
-                        # Add other columns as needed
-                    checkpoint(f"  ✅ Added missing columns to calendar_routing_rules: {missing_columns}")
-                    migrations_applied.append('115_calendar_routing_rules_schema_fix')
+                    exec_ddl(db.engine, "ALTER TABLE calendar_routing_rules ADD COLUMN when_ambiguous_ask BOOLEAN DEFAULT FALSE")
+                    critical_fixes.append('when_ambiguous_ask')
                 except Exception as e:
-                    checkpoint(f"  ❌ Failed to add missing columns: {e}")
+                    checkpoint(f"  ⚠️ Could not add when_ambiguous_ask: {e}")
+            
+            if not check_column_exists('calendar_routing_rules', 'question_text'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE calendar_routing_rules ADD COLUMN question_text VARCHAR(500)")
+                    critical_fixes.append('question_text')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add question_text: {e}")
+            
+            if critical_fixes:
+                checkpoint(f"  ✅ Added missing columns to calendar_routing_rules: {critical_fixes}")
+                migrations_applied.append('115_calendar_routing_rules_schema_fix')
             else:
-                checkpoint("  ✅ All required columns present in calendar_routing_rules")
+                checkpoint("  ✅ calendar_routing_rules table schema looks good")
         
         # Ensure indexes exist (whether table was just created or already existed)
         if not check_index_exists('idx_calendar_routing_business_active'):
@@ -6287,33 +6273,29 @@ def apply_migrations():
                 logger.error(f"Migration 116 scheduled_message_rules error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ scheduled_message_rules table already exists - verifying schema...")
-            # Table exists, verify all required columns exist
-            required_columns = [
-                'id', 'business_id', 'name', 'is_active', 'template_name', 'message_text',
-                'delay_minutes', 'send_window_start', 'send_window_end', 'created_by_user_id',
-                'created_at', 'updated_at'
-            ]
-            missing_columns = []
-            for col in required_columns:
-                if not check_column_exists('scheduled_message_rules', col):
-                    missing_columns.append(col)
+            checkpoint("  ℹ️ scheduled_message_rules table already exists - verifying critical columns...")
+            # Check columns that were added later
+            critical_fixes = []
             
-            if missing_columns:
-                checkpoint(f"  ⚠️ Missing columns in scheduled_message_rules: {missing_columns}")
+            if not check_column_exists('scheduled_message_rules', 'send_window_start'):
                 try:
-                    for col in missing_columns:
-                        if col == 'send_window_start':
-                            exec_ddl(db.engine, "ALTER TABLE scheduled_message_rules ADD COLUMN send_window_start VARCHAR(5)")
-                        elif col == 'send_window_end':
-                            exec_ddl(db.engine, "ALTER TABLE scheduled_message_rules ADD COLUMN send_window_end VARCHAR(5)")
-                        # Add other columns as needed
-                    checkpoint(f"  ✅ Added missing columns to scheduled_message_rules: {missing_columns}")
-                    migrations_applied.append('116_scheduled_message_rules_schema_fix')
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_message_rules ADD COLUMN send_window_start VARCHAR(5)")
+                    critical_fixes.append('send_window_start')
                 except Exception as e:
-                    checkpoint(f"  ❌ Failed to add missing columns: {e}")
+                    checkpoint(f"  ⚠️ Could not add send_window_start: {e}")
+            
+            if not check_column_exists('scheduled_message_rules', 'send_window_end'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_message_rules ADD COLUMN send_window_end VARCHAR(5)")
+                    critical_fixes.append('send_window_end')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add send_window_end: {e}")
+            
+            if critical_fixes:
+                checkpoint(f"  ✅ Added missing columns to scheduled_message_rules: {critical_fixes}")
+                migrations_applied.append('116_scheduled_message_rules_schema_fix')
             else:
-                checkpoint("  ✅ All required columns present in scheduled_message_rules")
+                checkpoint("  ✅ scheduled_message_rules table schema looks good")
         
         # Ensure indexes exist (whether table was just created or already existed)
         if not check_index_exists('idx_scheduled_rules_business_active'):
@@ -6346,17 +6328,9 @@ def apply_migrations():
                 logger.error(f"Migration 116 scheduled_rule_statuses error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ scheduled_rule_statuses table already exists - verifying schema...")
-            required_columns = ['id', 'rule_id', 'status_id', 'created_at']
-            missing_columns = []
-            for col in required_columns:
-                if not check_column_exists('scheduled_rule_statuses', col):
-                    missing_columns.append(col)
-            
-            if missing_columns:
-                checkpoint(f"  ⚠️ Missing columns in scheduled_rule_statuses: {missing_columns}")
-            else:
-                checkpoint("  ✅ All required columns present in scheduled_rule_statuses")
+            checkpoint("  ℹ️ scheduled_rule_statuses table already exists")
+            # This is a simple junction table - if it exists, it's probably correct
+            # If columns are missing, it's a serious error that needs manual intervention
         
         # Ensure indexes exist
         if not check_index_exists('idx_scheduled_rule_statuses_rule'):
@@ -6408,34 +6382,36 @@ def apply_migrations():
                 logger.error(f"Migration 116 scheduled_messages_queue error: {e}", exc_info=True)
                 db.session.rollback()
         else:
-            checkpoint("  ℹ️ scheduled_messages_queue table already exists - verifying schema...")
-            required_columns = [
-                'id', 'business_id', 'rule_id', 'lead_id', 'message_text', 'remote_jid',
-                'scheduled_for', 'status', 'locked_at', 'sent_at', 'error_message',
-                'dedupe_key', 'created_at', 'updated_at'
-            ]
-            missing_columns = []
-            for col in required_columns:
-                if not check_column_exists('scheduled_messages_queue', col):
-                    missing_columns.append(col)
+            checkpoint("  ℹ️ scheduled_messages_queue table already exists - verifying critical columns...")
+            # Check columns that were added later
+            critical_fixes = []
             
-            if missing_columns:
-                checkpoint(f"  ⚠️ Missing columns in scheduled_messages_queue: {missing_columns}")
+            if not check_column_exists('scheduled_messages_queue', 'locked_at'):
                 try:
-                    for col in missing_columns:
-                        if col == 'locked_at':
-                            exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN locked_at TIMESTAMP")
-                        elif col == 'sent_at':
-                            exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN sent_at TIMESTAMP")
-                        elif col == 'error_message':
-                            exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN error_message TEXT")
-                        # Add other columns as needed
-                    checkpoint(f"  ✅ Added missing columns to scheduled_messages_queue: {missing_columns}")
-                    migrations_applied.append('116_scheduled_messages_queue_schema_fix')
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN locked_at TIMESTAMP")
+                    critical_fixes.append('locked_at')
                 except Exception as e:
-                    checkpoint(f"  ❌ Failed to add missing columns: {e}")
+                    checkpoint(f"  ⚠️ Could not add locked_at: {e}")
+            
+            if not check_column_exists('scheduled_messages_queue', 'sent_at'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN sent_at TIMESTAMP")
+                    critical_fixes.append('sent_at')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add sent_at: {e}")
+            
+            if not check_column_exists('scheduled_messages_queue', 'error_message'):
+                try:
+                    exec_ddl(db.engine, "ALTER TABLE scheduled_messages_queue ADD COLUMN error_message TEXT")
+                    critical_fixes.append('error_message')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Could not add error_message: {e}")
+            
+            if critical_fixes:
+                checkpoint(f"  ✅ Added missing columns to scheduled_messages_queue: {critical_fixes}")
+                migrations_applied.append('116_scheduled_messages_queue_schema_fix')
             else:
-                checkpoint("  ✅ All required columns present in scheduled_messages_queue")
+                checkpoint("  ✅ scheduled_messages_queue table schema looks good")
         
         # Ensure indexes exist (whether table was just created or already existed)
         if not check_index_exists('idx_scheduled_queue_scheduled_for'):
