@@ -219,7 +219,7 @@ const DEDUP_CLEANUP_HOUR_MS = 120000; // 🔥 FIX: 2 minutes for dedup entry ret
 const DEDUP_MAX_SIZE = 5000; // Increased from 1000 for high-volume usage
 
 // 🔥 PERFORMANCE FIX: Single cleanup interval with longer period to reduce CPU usage
-// Cleanup dedup entries older than 10 minutes to prevent memory leaks
+// Cleanup dedup entries older than 2 minutes to prevent memory leaks while supporting WhatsApp retries
 setInterval(() => {
   const now = Date.now();
   let cleaned = 0;
@@ -1504,13 +1504,9 @@ async function startSession(tenantId, forceRelink = false) {
         const validMessages = [];
         for (const msg of messages) {
           try {
-            // Check if message has decryption error
-            const msgContent = msg.message || {};
-            const hasError = msgContent.messageContextInfo?.deviceListMetadata || 
-                           msgContent.deviceSentMessage;
-            
-            // Try to access message properties to trigger decryption
-            const testAccess = msg.key?.remoteJid && msg.message;
+            // Try to access message properties to trigger any decryption errors
+            // This will throw if message can't be decrypted (Bad MAC, etc.)
+            const _ = msg.key?.remoteJid && msg.message;
             
             validMessages.push(msg);
           } catch (decryptError) {
