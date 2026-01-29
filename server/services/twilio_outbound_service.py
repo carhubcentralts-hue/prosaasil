@@ -43,6 +43,7 @@ def _check_duplicate_in_db(dedup_key: str, business_id: int, to_phone: str) -> O
     Check database for active/recent calls to prevent duplicates.
     
     🔒 ATOMIC: DB-level check is authoritative
+    🔥 FIX: Ignores records with call_sid IS NULL if older than 60 seconds (stale)
     Returns call_sid if duplicate found, None otherwise
     """
     from server.db import db
@@ -52,23 +53,36 @@ def _check_duplicate_in_db(dedup_key: str, business_id: int, to_phone: str) -> O
     try:
         # Check for active calls to same number within last 2 minutes
         cutoff_time = datetime.utcnow() - timedelta(seconds=120)
+        stale_threshold = datetime.utcnow() - timedelta(seconds=60)  # 🔥 FIX: Stale threshold for NULL call_sid
         
+        # 🔥 FIX: Exclude records with call_sid IS NULL if older than 60 seconds
+        # These are stale records that never got a SID from Twilio (failed before SID was assigned)
         active_call = db.session.execute(text("""
             SELECT call_sid FROM call_log
             WHERE business_id = :business_id
             AND to_number = :to_phone
             AND created_at > :cutoff_time
             AND status IN ('initiated', 'ringing', 'in-progress', 'answered')
+            AND (
+                call_sid IS NOT NULL 
+                OR created_at > :stale_threshold
+            )
             ORDER BY created_at DESC
             LIMIT 1
         """), {
             "business_id": business_id,
             "to_phone": to_phone,
-            "cutoff_time": cutoff_time
+            "cutoff_time": cutoff_time,
+            "stale_threshold": stale_threshold
         }).fetchone()
         
         if active_call:
             call_sid = active_call[0]
+            # 🔥 FIX: If call_sid is None, it means it's a recent pending call (< 60s)
+            # Allow these to prevent race conditions, but log for visibility
+            if call_sid is None:
+                log.info(f"[DEDUP_DB] Recent pending call without SID: to={to_phone} (allowing - may be in progress)")
+                return None
             log.warning(f"[DEDUP_DB] Active call exists: call_sid={call_sid}, to={to_phone}")
             return call_sid
         

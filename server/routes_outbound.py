@@ -1034,7 +1034,14 @@ def get_active_outbound_job():
         ).order_by(OutboundCallRun.created_at.desc()).first()
         
         if not run:
-            return jsonify({"error": "אין תור פעיל"}), 404
+            # 🔥 FIX: Return 200 with active=false instead of 404 to prevent UI loops
+            return jsonify({
+                "ok": True,
+                "active": False,
+                "run_id": None,
+                "status": None,
+                "queue_len": 0
+            }), 200
         
         # 🔥 STALE AUTO-FINALIZE: Check if run is stale (TTL exceeded)
         # Determine last activity time
@@ -1051,7 +1058,14 @@ def get_active_outbound_job():
             run.lock_ts = None
             run.last_heartbeat_at = None
             db.session.commit()
-            return jsonify({"error": "אין תור פעיל"}), 404
+            # 🔥 FIX: Return 200 with active=false instead of 404 to prevent UI loops
+            return jsonify({
+                "ok": True,
+                "active": False,
+                "run_id": None,
+                "status": None,
+                "queue_len": 0
+            }), 200
         
         time_since_activity = now - last_activity
         
@@ -1091,9 +1105,15 @@ def get_active_outbound_job():
                 
                 db.session.commit()
                 
-                # Return 404 as there's no active run anymore
+                # 🔥 FIX: Return 200 with active=false instead of 404 to prevent UI loops
                 # This fixes the 2 businesses with stuck progress bars
-                return jsonify({"error": "אין תור פעיל"}), 404
+                return jsonify({
+                    "ok": True,
+                    "active": False,
+                    "run_id": None,
+                    "status": None,
+                    "queue_len": 0
+                }), 200
         
         # Calculate processed count
         processed = run.completed_count + run.failed_count
@@ -1107,7 +1127,10 @@ def get_active_outbound_job():
         can_cancel = run.status == 'running' and not run.cancel_requested
         
         return jsonify({
+            "ok": True,
+            "active": True,
             "job_id": run.id,
+            "run_id": run.id,  # Alias for compatibility
             "status": run.status,
             "total": run.total_leads,
             "processed": processed,
@@ -1115,9 +1138,11 @@ def get_active_outbound_job():
             "failed": run.failed_count,
             "in_progress": run.in_progress_count,
             "queued": run.queued_count,
+            "queue_len": run.queued_count,  # Alias for compatibility
             "progress_pct": progress_pct,
             "can_cancel": can_cancel,
             "cancel_requested": run.cancel_requested,
+            "concurrency": run.concurrency,
             "created_at": run.created_at.isoformat() if run.created_at else None,
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,
             "last_activity": last_activity.isoformat() if last_activity else None  # Include for debugging
@@ -3580,6 +3605,10 @@ def cleanup_stuck_dialing_jobs():
     
     🔒 CRITICAL: Reset ALL stuck jobs on startup to prevent blocking new calls
     
+    🔥 FIX: Also cleanup stale call_log records with call_sid IS NULL
+    - Records with call_sid=NULL and status IN ('initiated', 'ringing', 'in-progress') older than 60 seconds
+    - These block new calls via dedup check
+    
     NOTE: This function assumes it's called from within an app context
     (either during app startup or from a request handler)
     """
@@ -3611,11 +3640,24 @@ def cleanup_stuck_dialing_jobs():
                 AND started_at < :cutoff_time
         """), {"cutoff_time": cutoff_time})
         
+        # 🔥 FIX: Cleanup stale call_log records with call_sid IS NULL
+        # These are records that never got a SID from Twilio (failed before SID was assigned)
+        # They block new calls via the dedup check
+        stale_threshold = datetime.utcnow() - timedelta(seconds=60)
+        result_stale_calls = db.session.execute(text("""
+            UPDATE call_log
+            SET status='failed',
+                error_message='Stale record - no call_sid received from Twilio'
+            WHERE call_sid IS NULL
+                AND status IN ('initiated', 'ringing', 'in-progress')
+                AND created_at < :stale_threshold
+        """), {"stale_threshold": stale_threshold})
+        
         db.session.commit()
         
-        total_cleaned = result_dialing.rowcount + result_calling.rowcount
+        total_cleaned = result_dialing.rowcount + result_calling.rowcount + result_stale_calls.rowcount
         if total_cleaned > 0:
-            log.info(f"[CLEANUP] ✅ Reset {result_dialing.rowcount} stuck 'dialing' jobs and {result_calling.rowcount} stuck 'calling' jobs")
+            log.info(f"[CLEANUP] ✅ Reset {result_dialing.rowcount} stuck 'dialing' jobs, {result_calling.rowcount} stuck 'calling' jobs, and {result_stale_calls.rowcount} stale call_log records")
         
         return total_cleaned
         
