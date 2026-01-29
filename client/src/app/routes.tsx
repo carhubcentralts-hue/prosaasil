@@ -248,9 +248,11 @@ export function AppRoutes() {
           path="scheduled-messages"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin']}>
-              <Suspense fallback={<PageLoader />}>
-                <ScheduledMessagesPage />
-              </Suspense>
+              <PageGuard pageKey="scheduled_messages">
+                <Suspense fallback={<PageLoader />}>
+                  <ScheduledMessagesPage />
+                </Suspense>
+              </PageGuard>
             </RoleGuard>
           }
         />
