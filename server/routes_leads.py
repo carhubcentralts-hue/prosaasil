@@ -1766,6 +1766,120 @@ def bulk_delete_leads():
         log.error(traceback.format_exc())
         return jsonify({"error": f"Failed to delete leads: {str(e)}", "success": False}), 500
 
+@leads_bp.route("/api/jobs/<int:job_id>", methods=["GET"])
+@require_api_auth()
+def get_job_status(job_id):
+    """
+    Get status of a background job (delete_leads, update_leads, etc.)
+    
+    This endpoint is called by the UI to poll job status during bulk operations.
+    
+    CRITICAL: Always returns 200 OK with valid JSON, even if job not found.
+    This prevents UI error toasts when polling after job completion/cleanup.
+    
+    Returns:
+    - success: True/False
+    - job_id: Job ID
+    - status: Current status (queued/running/paused/completed/failed/cancelled/unknown)
+    - total: Total items to process
+    - processed: Items processed so far
+    - succeeded: Items successfully processed
+    - failed_count: Items that failed
+    - percent: Completion percentage (0-100)
+    - last_error: Last error message (if any)
+    - created_at: When job was created
+    - started_at: When job started (if started)
+    - finished_at: When job finished (if finished)
+    - heartbeat_at: Last heartbeat timestamp (for stale detection)
+    - is_stuck: Whether job appears to be stuck
+    - stuck_reason: Reason why job is considered stuck (if applicable)
+    """
+    from server.models_sql import BackgroundJob
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        # 🔥 CRITICAL: Return valid JSON with 200, not 403
+        # UI polling should not show error toast for auth issues
+        return jsonify({
+            "success": True,
+            "status": "unknown",
+            "job_id": job_id,
+            "message": "No tenant access",
+            "total": 0,
+            "processed": 0,
+            "succeeded": 0,
+            "failed_count": 0,
+            "percent": 0.0
+        }), 200
+    
+    # Load job with business_id check for multi-tenant isolation
+    job = BackgroundJob.query.filter_by(
+        id=job_id,
+        business_id=tenant_id
+    ).first()
+    
+    # 🔥 CRITICAL: If job not found, return neutral JSON with 200 (not 404)
+    # This prevents UI error toasts when:
+    # - Job was already deleted/cleaned up
+    # - Job doesn't exist yet
+    # - Job belongs to different tenant
+    if not job:
+        return jsonify({
+            "success": True,
+            "status": "unknown",
+            "job_id": job_id,
+            "job_type": "unknown",
+            "message": "Job not found - may have been completed and cleaned up",
+            "total": 0,
+            "processed": 0,
+            "succeeded": 0,
+            "failed_count": 0,
+            "percent": 0.0,
+            "is_stuck": False
+        }), 200
+    
+    # Check if job is stuck (no worker processing it)
+    is_stuck = False
+    stuck_reason = None
+    
+    if job.status == 'queued':
+        # Job is queued but not picked up by worker
+        time_in_queue = (datetime.utcnow() - job.created_at).total_seconds() if job.created_at else 0
+        if time_in_queue > 60:  # Stuck in queue for more than 1 minute
+            is_stuck = True
+            stuck_reason = f"Job queued for {int(time_in_queue)}s but not picked up by worker. Worker may not be running or not listening to maintenance queue."
+    
+    elif job.status == 'running':
+        # Job is running but heartbeat is stale
+        if job.heartbeat_at:
+            seconds_since_heartbeat = (datetime.utcnow() - job.heartbeat_at).total_seconds()
+            if seconds_since_heartbeat > 120:  # No heartbeat for 2+ minutes
+                is_stuck = True
+                stuck_reason = f"No heartbeat for {int(seconds_since_heartbeat)}s. Worker may have crashed or database connection lost."
+    
+    # 🔥 ALWAYS return 200 with valid JSON
+    response = {
+        "success": True,
+        "job_id": job.id,
+        "job_type": job.job_type,
+        "status": job.status,
+        "total": job.total,
+        "processed": job.processed,
+        "succeeded": job.succeeded,
+        "failed_count": job.failed_count,
+        "percent": job.percent,
+        "last_error": job.last_error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+        "heartbeat_at": job.heartbeat_at.isoformat() if job.heartbeat_at else None,
+        "is_stuck": is_stuck,
+        "stuck_reason": stuck_reason
+    }
+    
+    return jsonify(response), 200
+
 @leads_bp.route("/api/leads/bulk", methods=["PATCH"])
 @require_api_auth()  # BUILD 137: Added missing decorator
 def bulk_update_leads():
