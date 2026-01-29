@@ -24,16 +24,15 @@ def whatsapp_sessions_cleanup_job():
     try:
         from flask import current_app
         from server.db import db
-        from server.models_sql import Lead
         from server.services.ai_service import get_ai_service
         from sqlalchemy import inspect
         
-        # Try to import WhatsAppSession - it may not exist yet
+        # Try to import required models - gracefully handle missing models
         try:
-            from server.models_sql import WhatsAppSession
-        except ImportError:
-            logger.info("⚠️ [WA_SESSIONS_CLEANUP] WhatsAppSession model not found, skipping")
-            return {'status': 'skipped', 'reason': 'model_not_found'}
+            from server.models_sql import Lead, WhatsAppSession
+        except ImportError as import_err:
+            logger.info(f"⚠️ [WA_SESSIONS_CLEANUP] Model import failed: {import_err}, skipping")
+            return {'status': 'skipped', 'reason': 'model_not_found', 'error': str(import_err)}
         
         with current_app.app_context():
             # Check if table exists

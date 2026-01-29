@@ -340,6 +340,9 @@ def delete_leads_batch_job(job_id: int):
                 # 🔥 CRITICAL: Rollback FIRST before accessing any session objects
                 db.session.rollback()
                 
+                # Reload job to avoid detached instance after rollback
+                db.session.refresh(job)
+                
                 # Now safe to update job state after rollback
                 consecutive_failures += 1
                 job.failed_count += len(batch_ids)
@@ -376,6 +379,9 @@ def delete_leads_batch_job(job_id: int):
         
         # 🔥 CRITICAL: Rollback FIRST before accessing any session objects
         db.session.rollback()
+        
+        # Reload job to avoid detached instance after rollback
+        db.session.refresh(job)
         
         # Now safe to update job state after rollback
         job.status = 'failed'
