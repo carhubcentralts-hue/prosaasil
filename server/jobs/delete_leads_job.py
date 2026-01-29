@@ -51,7 +51,7 @@ def delete_leads_batch_job(job_id: int):
     
     try:
         from flask import current_app
-        from server.models_sql import db, BackgroundJob, Lead, LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate
+        from server.models_sql import db, BackgroundJob, Lead, LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate, OutboundCallJob
     except ImportError as e:
         error_msg = f"Import failed: {str(e)}"
         logger.error(f"❌ JOB IMPORT ERROR: {e}")
@@ -219,6 +219,19 @@ def delete_leads_batch_job(job_id: int):
                     
                 if actual_lead_ids:
                     # Delete related records FIRST to avoid FK constraint violations
+                    
+                    # 🔥 DELETE OutboundCallJob records first (FK constraint fix)
+                    try:
+                        OutboundCallJob.query.filter(
+                            OutboundCallJob.lead_id.in_(actual_lead_ids)
+                        ).delete(synchronize_session=False)
+                        logger.info(f"  ✓ Deleted OutboundCallJob records for {len(actual_lead_ids)} leads")
+                    except Exception as ocj_err:
+                        err_str = str(ocj_err).lower()
+                        if 'undefinedtable' in err_str or 'does not exist' in err_str or 'outbound_call_jobs' in err_str:
+                            logger.warning(f"⚠️ OutboundCallJob delete skipped (table does not exist)")
+                        else:
+                            raise
                         
                     # Delete LeadActivity records
                     LeadActivity.query.filter(
@@ -323,12 +336,25 @@ def delete_leads_batch_job(job_id: int):
                     
             except Exception as e:
                 logger.error(f"[DELETE_LEADS] Batch processing failed: {e}", exc_info=True)
+                
+                # 🔥 CRITICAL: Rollback FIRST before accessing any session objects
+                db.session.rollback()
+                
+                # Reload job to avoid detached instance after rollback
+                db.session.refresh(job)
+                
+                # Now safe to update job state after rollback
                 consecutive_failures += 1
                 job.failed_count += len(batch_ids)
                 job.last_error = str(e)[:200]
                 job.updated_at = datetime.utcnow()
-                db.session.rollback()
-                db.session.commit()
+                
+                # Commit the job state update in a new transaction
+                try:
+                    db.session.commit()
+                except Exception as commit_err:
+                    logger.error(f"Failed to commit job state after rollback: {commit_err}")
+                    db.session.rollback()  # Rollback again if commit fails
                     
                 # Check if we should stop due to repeated failures
                 if consecutive_failures >= MAX_BATCH_FAILURES:
@@ -350,11 +376,25 @@ def delete_leads_batch_job(job_id: int):
         logger.error(f"🗑️  JOB failed type=delete_leads business_id={business_id} job_id={job_id}")
         logger.error(f"[DELETE_LEADS] Job failed with unexpected error: {e}", exc_info=True)
         logger.error("=" * 60)
+        
+        # 🔥 CRITICAL: Rollback FIRST before accessing any session objects
+        db.session.rollback()
+        
+        # Reload job to avoid detached instance after rollback
+        db.session.refresh(job)
+        
+        # Now safe to update job state after rollback
         job.status = 'failed'
         job.last_error = str(e)[:200]
         job.finished_at = datetime.utcnow()
         job.updated_at = datetime.utcnow()
-        db.session.commit()
+        
+        # Commit the job state update in a new transaction
+        try:
+            db.session.commit()
+        except Exception as commit_err:
+            logger.error(f"Failed to commit job state after rollback: {commit_err}")
+            db.session.rollback()  # Rollback again if commit fails
             
         # Release BulkGate lock even on failure
         try:

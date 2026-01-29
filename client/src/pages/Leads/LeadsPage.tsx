@@ -373,6 +373,9 @@ export default function LeadsPage() {
     if (!confirm(confirmMessage)) return;
 
     setIsDeleting(true);
+    let pollInterval: NodeJS.Timeout | null = null;
+    let isPolling = false; // 🔥 Flag to prevent overlapping polls
+    
     try {
       const response = await http.post('/api/leads/bulk-delete', {
         lead_ids: Array.from(selectedLeadIds)
@@ -380,18 +383,77 @@ export default function LeadsPage() {
       
       console.log('✅ Bulk delete response:', response);
       
+      // If we get a job_id, poll for job status
+      if (response?.job_id) {
+        const jobId = response.job_id;
+        const maxPollTime = 5 * 60 * 1000; // 5 minutes max
+        const startTime = Date.now();
+        let consecutiveErrors = 0;
+        const maxConsecutiveErrors = 3;
+        
+        // Poll job status every 2 seconds
+        await new Promise<void>((resolve, reject) => {
+          pollInterval = setInterval(async () => {
+            // 🔥 Prevent overlapping polls
+            if (isPolling) return;
+            
+            try {
+              isPolling = true;
+              
+              // Check timeout
+              if (Date.now() - startTime > maxPollTime) {
+                clearInterval(pollInterval!);
+                reject(new Error('זמן ההמתנה למחיקה עבר. המחיקה עדיין פועלת ברקע.'));
+                return;
+              }
+              
+              // Poll job status
+              const jobStatus = await http.get(`/api/jobs/${jobId}`) as any;
+              console.log('📊 Job status:', jobStatus);
+              
+              // Reset error counter on successful poll
+              consecutiveErrors = 0;
+              
+              if (jobStatus?.status === 'completed') {
+                clearInterval(pollInterval!);
+                resolve();
+              } else if (jobStatus?.status === 'failed' || jobStatus?.status === 'cancelled') {
+                clearInterval(pollInterval!);
+                reject(new Error(jobStatus?.last_error || 'המחיקה נכשלה'));
+              }
+              // Otherwise keep polling (job is still running)
+            } catch (pollError) {
+              console.error('❌ Job polling error:', pollError);
+              consecutiveErrors++;
+              
+              // 🔥 Stop polling after too many consecutive errors
+              if (consecutiveErrors >= maxConsecutiveErrors) {
+                clearInterval(pollInterval!);
+                reject(new Error('שגיאה בבדיקת סטטוס המחיקה. אנא רענן את העמוד.'));
+              }
+            } finally {
+              isPolling = false;
+            }
+          }, 2000); // Poll every 2 seconds
+        });
+      }
+      
       // Clear selection and refresh
       setSelectedLeadIds(new Set());
       await refreshLeads();
       
       // Show success message
-      const deletedCount = response?.deleted_count || selectedLeadIds.size;
+      const deletedCount = response?.total_leads || selectedLeadIds.size;
       alert(`נמחקו ${deletedCount} לידים בהצלחה`);
     } catch (error: any) {
       console.error('Failed to bulk delete leads:', error);
       const errorMessage = error?.message || error?.error || 'שגיאה במחיקת לידים';
       alert(errorMessage);
     } finally {
+      // 🔥 CRITICAL: Always clear loading state and stop polling
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
       setIsDeleting(false);
     }
   };
