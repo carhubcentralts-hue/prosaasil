@@ -77,8 +77,8 @@ def check_streaming_endpoint():
     else:
         checks.append(("❌", "Content-Range header missing"))
     
-    # Check 7: Accept-Ranges header
-    if "Accept-Ranges" in content and "bytes" in content:
+    # Check 7: Accept-Ranges header (look for the header being set, not just the word "bytes")
+    if re.search(r'Accept-Ranges[\'"]?\s*[:,]\s*[\'"]?bytes', content, re.IGNORECASE):
         checks.append(("✅", "Accept-Ranges: bytes header"))
     else:
         checks.append(("❌", "Accept-Ranges header missing"))
@@ -134,13 +134,15 @@ def check_502_loop_prevention():
     else:
         checks.append(("❌", "Stuck job detection missing"))
     
-    # Check 5: No direct 502 responses (comprehensive check)
-    import re
-    if not re.search(r'\b502\b', content):
-        checks.append(("✅", "No 502 Bad Gateway responses"))
+    # Check 5: No direct 502 responses (check for actual status code usage, not just mentions)
+    # Look for patterns like: return 502, status=502, Response(..., 502, ...)
+    # Exclude comments and docstrings
+    status_502_pattern = r'(?:return|status\s*=|Response\s*\([^)]*,)\s*502'
+    if not re.search(status_502_pattern, content):
+        checks.append(("✅", "No 502 Bad Gateway status code returns"))
     else:
-        # Found 502 - this should not exist in the code
-        checks.append(("❌", "ERROR: 502 response found in code (should return 202 instead)"))
+        # Found actual 502 status code usage - this is an error
+        checks.append(("❌", "ERROR: Code returns 502 status (should return 202 instead)"))
     
     # Print results
     for status, message in checks:
@@ -220,16 +222,17 @@ def check_calendar_migration():
     
     checks = []
     
-    # Check 1: Migration in db_migrate.py
+    # Check 1: Migration in db_migrate.py - look for actual ALTER TABLE statement
     migrate_file = "server/db_migrate.py"
     if os.path.exists(migrate_file):
         with open(migrate_file, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        if "calendar_id" in content and "appointments" in content:
-            checks.append(("✅", "Migration adds calendar_id to appointments"))
+        # Look for the actual ALTER TABLE statement adding calendar_id
+        if re.search(r'ALTER\s+TABLE\s+appointments.*ADD\s+COLUMN\s+calendar_id', content, re.IGNORECASE | re.DOTALL):
+            checks.append(("✅", "Migration adds calendar_id to appointments table"))
         else:
-            checks.append(("❌", "calendar_id migration not found"))
+            checks.append(("❌", "calendar_id migration ALTER TABLE statement not found"))
         
         if "115_appointments_calendar_id" in content:
             checks.append(("✅", "Migration 115 registered"))
@@ -243,18 +246,20 @@ def check_calendar_migration():
     else:
         checks.append(("❌", f"File not found: {migrate_file}"))
     
-    # Check 2: Model definition
+    # Check 2: Model definition - look for actual column definition
     models_file = "server/models_sql.py"
     if os.path.exists(models_file):
         with open(models_file, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        if "calendar_id = db.Column" in content:
+        # Look for calendar_id column definition in Appointment model
+        if re.search(r'calendar_id\s*=\s*db\.Column', content):
             checks.append(("✅", "Appointment.calendar_id column defined in model"))
         else:
             checks.append(("❌", "calendar_id not in Appointment model"))
         
-        if "ForeignKey(\"business_calendars.id\")" in content:
+        # Look for foreign key constraint
+        if re.search(r'ForeignKey\s*\(\s*["\']business_calendars\.id["\']', content):
             checks.append(("✅", "Foreign key to business_calendars"))
         else:
             checks.append(("❌", "Foreign key constraint missing"))

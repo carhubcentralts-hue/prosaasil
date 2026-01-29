@@ -205,7 +205,7 @@ All requested features are already implemented and working. The system is produc
 
 1. **Run Database Migrations** (if not already applied):
    ```bash
-   cd /home/runner/work/prosaasil/prosaasil
+   cd /path/to/prosaasil  # Use your actual project path
    python3 server/db_migrate.py
    ```
    This ensures migration 115 (calendar_id) is applied.
