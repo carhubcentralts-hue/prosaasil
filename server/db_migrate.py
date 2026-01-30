@@ -12,6 +12,10 @@ from server.db import db
 from datetime import datetime
 import logging
 import sys
+import time
+import os
+from sqlalchemy import text, create_engine
+from sqlalchemy.exc import OperationalError
 
 # Configure logging with explicit format
 
@@ -80,6 +84,152 @@ def checkpoint(message):
     # Print to stderr directly instead of using logger with file argument
     print(msg, file=sys.stderr, flush=True)
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 🔥 SSL CONNECTION RESILIENCE - Migration DB Executor
+# ═══════════════════════════════════════════════════════════════════════════
+# These constants and functions provide retry logic for transient connection failures
+# particularly "SSL connection has been closed unexpectedly" errors.
+
+RETRYABLE_ERROR_PATTERNS = (
+    "SSL connection has been closed unexpectedly",
+    "server closed the connection unexpectedly",
+    "connection not open",
+    "could not receive data from server",
+    "connection already closed",
+    "server closed the connection",
+)
+
+def _is_retryable(e: Exception) -> bool:
+    """Check if an exception is a retryable connection error"""
+    msg = str(e).lower()
+    return any(pattern.lower() in msg for pattern in RETRYABLE_ERROR_PATTERNS)
+
+def exec_sql(engine, sql: str, params=None, *, autocommit=False, retries=4, sleep=1.0):
+    """
+    Execute SQL with retry logic for transient connection failures.
+    
+    Uses short-lived connections and optional AUTOCOMMIT isolation level to prevent
+    SSL connection failures from breaking migrations. DDL operations should use
+    autocommit=True to avoid idle-in-transaction issues.
+    
+    Args:
+        engine: SQLAlchemy engine instance
+        sql: SQL statement to execute
+        params: Dictionary of query parameters (default: None)
+        autocommit: If True, use AUTOCOMMIT isolation level (recommended for DDL)
+        retries: Number of retry attempts (default: 4)
+        sleep: Base sleep time between retries in seconds (default: 1.0)
+    
+    Raises:
+        OperationalError: If all retry attempts fail
+    
+    Example:
+        exec_sql(db.engine, '''
+            ALTER TABLE receipts ADD CONSTRAINT chk_status 
+            CHECK (status IN ('pending', 'approved'))
+        ''', autocommit=True)
+    """
+    last_error = None
+    for i in range(retries):
+        try:
+            with engine.connect() as conn:
+                if autocommit:
+                    conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+                # Set timeouts for the connection
+                conn.execute(text("SET lock_timeout = '5s'"))
+                conn.execute(text("SET statement_timeout = '120s'"))
+                conn.execute(text("SET idle_in_transaction_session_timeout = '60s'"))
+                # Execute the SQL
+                conn.execute(text(sql), params or {})
+                conn.commit()  # Commit if not autocommit
+                return  # Success
+        except OperationalError as e:
+            last_error = e
+            if _is_retryable(e) and i < retries - 1:
+                sleep_time = sleep * (i + 1)  # Exponential backoff
+                log.warning(f"⚠️ Retryable connection error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            # Non-retryable or last attempt - re-raise
+            log.error(f"❌ exec_sql failed after {i + 1} attempts: {e}")
+            raise
+    # Should never reach here, but just in case
+    raise last_error
+
+def fetch_all(engine, sql: str, params=None, retries=4):
+    """
+    Execute a query and fetch all results with retry logic.
+    
+    Uses short-lived connections and AUTOCOMMIT isolation level to prevent
+    SSL connection failures during metadata queries.
+    
+    Args:
+        engine: SQLAlchemy engine instance
+        sql: SQL query string
+        params: Dictionary of query parameters (default: None)
+        retries: Number of retry attempts (default: 4)
+    
+    Returns:
+        List of result rows
+    
+    Raises:
+        OperationalError: If all retry attempts fail
+    
+    Example:
+        rows = fetch_all(db.engine, '''
+            SELECT constraint_name FROM information_schema.check_constraints
+            WHERE constraint_name = :name
+        ''', {"name": "chk_status"})
+    """
+    last_error = None
+    for i in range(retries):
+        try:
+            with engine.connect() as conn:
+                conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+                result = conn.execute(text(sql), params or {})
+                return result.fetchall()
+        except OperationalError as e:
+            last_error = e
+            if _is_retryable(e) and i < retries - 1:
+                sleep_time = 1.0 * (i + 1)
+                log.warning(f"⚠️ Retryable connection error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            log.error(f"❌ fetch_all failed after {i + 1} attempts: {e}")
+            raise
+    raise last_error
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Dedicated Migration Engine with Connection Resilience
+# ═══════════════════════════════════════════════════════════════════════════
+_MIGRATE_ENGINE = None
+
+def get_migrate_engine():
+    """
+    Get or create a dedicated engine for migrations with pool_pre_ping and pool_recycle.
+    
+    This prevents stale connections from breaking migrations due to:
+    - SSL connection closures
+    - Server restarts
+    - Network interruptions
+    
+    Returns:
+        SQLAlchemy Engine instance
+    """
+    global _MIGRATE_ENGINE
+    if _MIGRATE_ENGINE is None:
+        from server.database_url import get_database_url
+        database_url = get_database_url()
+        _MIGRATE_ENGINE = create_engine(
+            database_url,
+            pool_pre_ping=True,  # Test connections before using them
+            pool_recycle=180,    # Recycle connections every 3 minutes
+            pool_size=5,
+            max_overflow=10,
+        )
+        log.info("✅ Created dedicated migration engine with pool_pre_ping=True and pool_recycle=180")
+    return _MIGRATE_ENGINE
+
 def fetch_all_retry(engine, sql, params=None, attempts=3):
     """
     Execute a metadata query with retry logic for transient connection failures.
@@ -106,10 +256,7 @@ def fetch_all_retry(engine, sql, params=None, attempts=3):
             WHERE constraint_name LIKE :p
         ''', {"p": "%event_type%"})
     """
-    import time
-    from sqlalchemy import text
-    from sqlalchemy.exc import OperationalError
-    
+    last_error = None
     for i in range(attempts):
         try:
             # Use short-lived connection, not long session
@@ -118,72 +265,72 @@ def fetch_all_retry(engine, sql, params=None, attempts=3):
                 conn = conn.execution_options(isolation_level="AUTOCOMMIT")
                 return conn.execute(text(sql), params or {}).fetchall()
         except OperationalError as e:
-            if i == attempts - 1:
-                # Last attempt failed - re-raise
-                log.error(f"❌ fetch_all_retry failed after {attempts} attempts: {e}")
-                raise
-            # Exponential backoff: 1.5s, 3s, 4.5s, etc.
-            sleep_time = 1.5 * (i + 1)
-            log.warning(f"⚠️ Connection error (attempt {i + 1}/{attempts}), retrying in {sleep_time}s: {e}")
-            time.sleep(sleep_time)
+            last_error = e
+            # Check if error is retryable
+            if _is_retryable(e) and i < attempts - 1:
+                # Exponential backoff: 1.5s, 3s, 4.5s, etc.
+                sleep_time = 1.5 * (i + 1)
+                log.warning(f"⚠️ Connection error (attempt {i + 1}/{attempts}), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            # Last attempt or non-retryable - re-raise
+            log.error(f"❌ fetch_all_retry failed after {i + 1} attempts: {e}")
+            raise
+    raise last_error
 
 def check_column_exists(table_name, column_name):
-    """Check if column exists in table using independent connection"""
-    from sqlalchemy import text
+    """Check if column exists in table using independent connection with retry"""
     try:
-        # Use engine.connect() instead of db.session to avoid polluting the main transaction
-        with db.engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT column_name FROM information_schema.columns 
-                WHERE table_schema = 'public' AND table_name = :table_name AND column_name = :column_name
-            """), {"table_name": table_name, "column_name": column_name})
-            return result.fetchone() is not None
+        # Use migration engine with pool_pre_ping for resilience
+        engine = get_migrate_engine()
+        rows = fetch_all(engine, """
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = :table_name AND column_name = :column_name
+        """, {"table_name": table_name, "column_name": column_name})
+        return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if column {column_name} exists in {table_name}: {e}")
         return False
 
 def check_table_exists(table_name):
-    """Check if table exists using independent connection"""
-    from sqlalchemy import text
+    """Check if table exists using independent connection with retry"""
     try:
-        # Use engine.connect() instead of db.session to avoid polluting the main transaction
-        with db.engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT table_name FROM information_schema.tables 
-                WHERE table_schema = 'public' AND table_name = :table_name
-            """), {"table_name": table_name})
-            return result.fetchone() is not None
+        # Use migration engine with pool_pre_ping for resilience
+        engine = get_migrate_engine()
+        rows = fetch_all(engine, """
+            SELECT table_name FROM information_schema.tables 
+            WHERE table_schema = 'public' AND table_name = :table_name
+        """, {"table_name": table_name})
+        return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if table {table_name} exists: {e}")
         return False
 
 def check_index_exists(index_name):
-    """Check if index exists using independent connection"""
-    from sqlalchemy import text
+    """Check if index exists using independent connection with retry"""
     try:
-        # Use engine.connect() instead of db.session to avoid polluting the main transaction
-        with db.engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT indexname FROM pg_indexes 
-                WHERE schemaname = 'public' AND indexname = :index_name
-            """), {"index_name": index_name})
-            return result.fetchone() is not None
+        # Use migration engine with pool_pre_ping for resilience
+        engine = get_migrate_engine()
+        rows = fetch_all(engine, """
+            SELECT indexname FROM pg_indexes 
+            WHERE schemaname = 'public' AND indexname = :index_name
+        """, {"index_name": index_name})
+        return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if index {index_name} exists: {e}")
         return False
 
 def check_constraint_exists(constraint_name):
-    """Check if constraint exists using independent connection"""
-    from sqlalchemy import text
+    """Check if constraint exists using independent connection with retry"""
     try:
-        # Use engine.connect() instead of db.session to avoid leaving transactions open
-        with db.engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT 1 FROM pg_constraint 
-                WHERE conname = :constraint_name
-                LIMIT 1
-            """), {"constraint_name": constraint_name})
-            return result.fetchone() is not None
+        # Use migration engine with pool_pre_ping for resilience
+        engine = get_migrate_engine()
+        rows = fetch_all(engine, """
+            SELECT 1 FROM pg_constraint 
+            WHERE conname = :constraint_name
+            LIMIT 1
+        """, {"constraint_name": constraint_name})
+        return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
         return False
@@ -217,16 +364,18 @@ def terminate_idle_in_tx(engine, older_than_seconds=30):
 
 def exec_ddl(engine, sql: str):
     """
-    Execute a single DDL statement in its own transaction with strict lock timeouts.
+    Execute a single DDL statement in its own transaction with strict lock timeouts and retry logic.
     
     This is critical for Postgres: if a DDL statement fails within a transaction,
     the entire transaction enters FAILED state and all previous work is rolled back.
     
-    By executing each DDL statement in its own transaction with lock timeouts, we ensure that:
+    By executing each DDL statement in its own transaction with lock timeouts and retry,
+    we ensure that:
     1. DDL operations fail fast (5s) if a lock cannot be acquired
     2. Operations don't wait indefinitely for locks
     3. Failed statements don't pollute the transaction state
-    4. On lock failure, we log which processes are blocking
+    4. Transient SSL connection failures are automatically retried
+    5. On lock failure, we log which processes are blocking
     
     Lock timeouts:
     - lock_timeout: 5s (fail fast if can't acquire lock)
@@ -238,10 +387,8 @@ def exec_ddl(engine, sql: str):
         sql: DDL statement to execute
         
     Raises:
-        Exception: If DDL fails (including lock timeout)
+        Exception: If DDL fails after all retries (including lock timeout)
     """
-    from sqlalchemy import text
-    
     # First, check and log idle-in-transaction count
     try:
         with engine.connect() as conn:
@@ -254,37 +401,57 @@ def exec_ddl(engine, sql: str):
     except Exception as check_error:
         log.warning(f"Could not check idle transactions: {check_error}")
     
-    try:
-        with engine.begin() as conn:  # begin() = auto commit/rollback
-            # Set strict timeouts to prevent long waits on locks
-            conn.execute(text("SET lock_timeout = '5s'"))
-            conn.execute(text("SET statement_timeout = '120s'"))
-            conn.execute(text("SET idle_in_transaction_session_timeout = '60s'"))
-            # Execute the DDL
-            conn.execute(text(sql))
-    except Exception as e:
-        # If DDL failed, try to log which processes were blocking us
-        logger.error(f"DDL failed: {e}", exc_info=True)
+    # Execute DDL with retry logic for transient failures
+    retries = 4
+    last_error = None
+    for i in range(retries):
         try:
-            # Use a fresh connection to query lock information
-            with engine.connect() as debug_conn:
-                rows = debug_conn.execute(text(LOCK_DEBUG_SQL)).fetchall()
-                if rows:
-                    logger.error("=" * 80)
-                    logger.error("LOCK DEBUG - Processes blocking this migration:")
-                    logger.error("=" * 80)
-                    for row in rows:
-                        logger.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
-                        logger.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
-                        logger.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
-                        logger.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
-                        logger.error("-" * 80)
-                else:
-                    logger.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
-        except Exception as debug_error:
-            logger.error(f"Could not retrieve lock debug info: {debug_error}")
-        # Re-raise the original exception to ensure migration fails
-        raise
+            with engine.begin() as conn:  # begin() = auto commit/rollback
+                # Set strict timeouts to prevent long waits on locks
+                conn.execute(text("SET lock_timeout = '5s'"))
+                conn.execute(text("SET statement_timeout = '120s'"))
+                conn.execute(text("SET idle_in_transaction_session_timeout = '60s'"))
+                # Execute the DDL
+                conn.execute(text(sql))
+                return  # Success
+        except OperationalError as e:
+            last_error = e
+            # Check if this is a retryable connection error
+            if _is_retryable(e) and i < retries - 1:
+                sleep_time = 1.0 * (i + 1)
+                log.warning(f"⚠️ DDL connection error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            # Non-retryable or last attempt - fall through to error handling
+            logger.error(f"DDL failed: {e}", exc_info=True)
+            # Try to log lock information
+            try:
+                # Use a fresh connection to query lock information
+                with engine.connect() as debug_conn:
+                    rows = debug_conn.execute(text(LOCK_DEBUG_SQL)).fetchall()
+                    if rows:
+                        logger.error("=" * 80)
+                        logger.error("LOCK DEBUG - Processes blocking this migration:")
+                        logger.error("=" * 80)
+                        for row in rows:
+                            logger.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
+                            logger.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
+                            logger.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
+                            logger.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
+                            logger.error("-" * 80)
+                    else:
+                        logger.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
+            except Exception as debug_error:
+                logger.error(f"Could not retrieve lock debug info: {debug_error}")
+            # Re-raise the original exception to ensure migration fails
+            raise
+        except Exception as e:
+            # Non-OperationalError - just log and raise
+            logger.error(f"DDL failed: {e}", exc_info=True)
+            raise
+    # Should never reach here, but handle it anyway
+    if last_error:
+        raise last_error
 
 def apply_migrations():
     """
@@ -328,6 +495,22 @@ def apply_migrations():
     checkpoint("Starting apply_migrations()")
     checkpoint(f"  SERVICE_ROLE: {service_role or 'not set (API server)'}")
     migrations_applied = []
+    
+    # 🔥 DB STABILITY CHECK: Verify database is responsive before starting migrations
+    checkpoint("Performing DB stability check...")
+    try:
+        migrate_engine = get_migrate_engine()
+        # Try to connect 5 times with retry logic
+        fetch_all(migrate_engine, "SELECT 1", retries=5)
+        checkpoint("✅ DB stability check passed - database is responsive")
+    except Exception as e:
+        checkpoint("=" * 80)
+        checkpoint(f"❌ DB STABILITY CHECK FAILED: {e}")
+        checkpoint("   Database appears unstable (restarting/OOM/network issues)")
+        checkpoint("   Cannot safely run migrations - aborting")
+        checkpoint("   Action: Check 'docker logs prosaas-postgres --tail 200' for issues")
+        checkpoint("=" * 80)
+        return 'skip'
     
     # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock with retry
     # Lock ID: 1234567890 (arbitrary unique integer)
@@ -1145,7 +1328,9 @@ def apply_migrations():
             
             try:
                 # Use single DO block for all call_log columns - more efficient
-                db.session.execute(text("""
+                # Use exec_sql with autocommit to prevent SSL connection failures
+                migrate_engine = get_migrate_engine()
+                exec_sql(migrate_engine, """
                     DO $$
                     BEGIN
                         -- Add final_transcript column
@@ -1185,7 +1370,7 @@ def apply_migrations():
                         END IF;
                     END;
                     $$;
-                """))
+                """, autocommit=True)
                 migrations_applied.append("add_call_log_extraction_fields")
                 log.info("✅ Applied migration 34: add_call_log_extraction_fields - POST-CALL EXTRACTION for CallLog")
             except Exception as e:
@@ -1196,11 +1381,11 @@ def apply_migrations():
         # Migration 35: POST-CALL EXTRACTION - Service type and city fields for Lead
         # 🔒 IDEMPOTENT: Uses PostgreSQL DO blocks to safely add columns
         if check_table_exists('leads'):
-            from sqlalchemy import text
-            
             try:
                 # Use single DO block for all leads columns - more efficient
-                db.session.execute(text("""
+                # Use exec_sql with autocommit to prevent SSL connection failures
+                migrate_engine = get_migrate_engine()
+                exec_sql(migrate_engine, """
                     DO $$
                     BEGIN
                         -- Add service_type column
@@ -1222,7 +1407,7 @@ def apply_migrations():
                         END IF;
                     END;
                     $$;
-                """))
+                """, autocommit=True)
                 migrations_applied.append("add_leads_extraction_fields")
                 log.info("✅ Applied migration 35: add_leads_extraction_fields - POST-CALL EXTRACTION for Lead")
             except Exception as e:
@@ -1233,11 +1418,10 @@ def apply_migrations():
         # Migration 36: BUILD 350 - Add last_call_direction to leads for inbound/outbound filtering
         # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column + index + backfill
         if check_table_exists('leads'):
-            from sqlalchemy import text
-            
             try:
-                # Use DO block to add column, index, and backfill in one transaction
-                db.session.execute(text("""
+                # Use DO block to add column with exec_sql and autocommit
+                migrate_engine = get_migrate_engine()
+                exec_sql(migrate_engine, """
                     DO $$
                     BEGIN
                         -- Add last_call_direction column if it doesn't exist
@@ -1250,13 +1434,13 @@ def apply_migrations():
                         END IF;
                     END;
                     $$;
-                """))
+                """, autocommit=True)
                 
                 # Create index for performance (idempotent)
-                db.session.execute(text("""
+                exec_sql(migrate_engine, """
                     CREATE INDEX IF NOT EXISTS idx_leads_last_call_direction 
                     ON leads(last_call_direction)
-                """))
+                """, autocommit=True)
                 
                 # Backfill last_call_direction from call_log table
                 # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
@@ -1265,7 +1449,8 @@ def apply_migrations():
                 # but it's a one-time operation and uses indexed columns (lead_id, created_at)
                 checkpoint("Backfilling last_call_direction from call_log...")
                 if check_table_exists('call_log'):
-                    backfill_result = db.session.execute(text("""
+                    # Use exec_sql without autocommit for UPDATE (needs transaction)
+                    exec_sql(migrate_engine, """
                         WITH first_calls AS (
                             SELECT DISTINCT ON (cl.lead_id) 
                                 cl.lead_id,
@@ -1282,9 +1467,8 @@ def apply_migrations():
                         FROM first_calls fc
                         WHERE l.id = fc.lead_id
                           AND l.last_call_direction IS NULL
-                    """))
-                    rows_updated = backfill_result.rowcount
-                    checkpoint(f"✅ Backfilled last_call_direction for {rows_updated} leads (using FIRST call direction)")
+                    """, autocommit=False)
+                    checkpoint(f"✅ Backfilled last_call_direction (using FIRST call direction)")
                 
                 migrations_applied.append("add_leads_last_call_direction")
                 log.info("✅ Applied migration 36: add_leads_last_call_direction - Inbound/outbound filtering support")
@@ -4448,9 +4632,9 @@ def apply_migrations():
             checkpoint("🔧 Running Migration 90: Expand contract_sign_events event_type constraint")
             
             try:
-                # 🔥 FIX: Use fetch_all_retry with engine.connect() instead of db.session
-                # This prevents SSL connection failures during metadata queries
-                rows = fetch_all_retry(db.engine, """
+                # Use migration engine with retry for metadata query
+                migrate_engine = get_migrate_engine()
+                rows = fetch_all_retry(migrate_engine, """
                     SELECT constraint_name, check_clause
                     FROM information_schema.check_constraints 
                     WHERE constraint_name LIKE :p
@@ -4474,20 +4658,19 @@ def apply_migrations():
                     else:
                         checkpoint(f"  → Adding missing event types: {', '.join(missing_types)}")
                         
-                        # Drop old constraint and add new one with ALL event types
-                        # Note: DDL operations still use db.session as they're transactional
-                        db.session.execute(text(f"""
+                        # Drop old constraint using exec_sql with autocommit
+                        exec_sql(migrate_engine, f"""
                             ALTER TABLE contract_sign_events 
                             DROP CONSTRAINT IF EXISTS {constraint_name}
-                        """))
+                        """, autocommit=True)
                         
                         # Build constraint with all event types from constant
                         event_types_sql = ', '.join([f"'{et}'" for et in CONTRACT_EVENT_TYPES])
-                        db.session.execute(text(f"""
+                        exec_sql(migrate_engine, f"""
                             ALTER TABLE contract_sign_events 
                             ADD CONSTRAINT contract_sign_events_event_type_check 
                             CHECK (event_type IN ({event_types_sql}))
-                        """))
+                        """, autocommit=True)
                         
                         migrations_applied.append('expand_contract_event_types')
                         checkpoint("✅ Migration 90 completed - Expanded event_type constraint")
@@ -4809,12 +4992,13 @@ def apply_migrations():
         
         # Migration 95: Add 'incomplete' status to receipts check constraint
         if check_table_exists('receipts'):
-            from sqlalchemy import text
             try:
                 checkpoint("🔧 Running Migration 95: Add 'incomplete' status to receipts")
                 
-                # Drop old constraint and create new one with 'incomplete'
-                db.session.execute(text("""
+                # Use exec_sql with autocommit for DDL with DO $$ block
+                # This prevents SSL connection failures and idle-in-transaction issues
+                migrate_engine = get_migrate_engine()
+                exec_sql(migrate_engine, """
                     DO $$ 
                     BEGIN
                         -- Drop existing constraint if it exists
@@ -4827,7 +5011,7 @@ def apply_migrations():
                         
                         RAISE NOTICE 'Added incomplete status to receipts check constraint';
                     END $$;
-                """))
+                """, autocommit=True)
                 
                 migrations_applied.append("add_incomplete_status_to_receipts")
                 checkpoint("✅ Migration 95 completed - 'incomplete' status added to receipts")
