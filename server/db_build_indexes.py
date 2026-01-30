@@ -58,8 +58,8 @@ def get_database_url() -> str:
     This avoids lock contention issues with pooler connections.
     """
     # Import here to avoid circular dependency
-    import sys
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import os
+    os.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from server.database_url import get_database_url as get_db_url
     
     try:

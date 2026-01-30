@@ -227,12 +227,12 @@ docker compose \
 log_header "Step 2.5: Checking Active Database Connections"
 log_info "Checking for active connections to the database..."
 
-# Use DATABASE_URL_DIRECT for migration-related checks
-# This ensures we're checking the direct connection, not the pooler
+# Run connection check using the migrate container
+# This will use DATABASE_URL_DIRECT from the environment
 if docker compose \
     -f "$BASE_COMPOSE" \
     -f "$PROD_COMPOSE" \
-    run --rm -e DATABASE_URL='${DATABASE_URL_DIRECT:-${DATABASE_URL}}' migrate \
+    run --rm migrate \
     python -c "
 import os
 import sys

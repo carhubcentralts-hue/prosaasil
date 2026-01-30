@@ -800,7 +800,6 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
         ''')
     """
     delay = 2.0
-    last_error = None
     
     for i in range(retries):
         try:
@@ -866,9 +865,9 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
                         logger.error(f"Blocking PIDs: {blocking_pids if blocking_pids else 'None (lock already released)'}")
                         
                         # Query 3: If we have blocking PIDs, get details about them
+                        # 🔒 SECURITY: Use ANY() with parameterized array to avoid SQL injection
                         if blocking_pids:
-                            pids_list = ','.join(str(p) for p in blocking_pids)
-                            blocking_details = debug_conn.execute(text(f"""
+                            blocking_details = debug_conn.execute(text("""
                                 SELECT 
                                     pid, 
                                     usename,
@@ -878,8 +877,8 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
                                     now() - query_start AS query_age,
                                     left(query, 200) AS query
                                 FROM pg_stat_activity
-                                WHERE pid IN ({pids_list})
-                            """)).fetchall()
+                                WHERE pid = ANY(:pids)
+                            """), {"pids": blocking_pids}).fetchall()
                             
                             logger.error("-" * 80)
                             logger.error("🚨 BLOCKING PROCESSES:")
@@ -5322,14 +5321,18 @@ def apply_migrations():
                 
                 migrate_engine = get_migrate_engine()
                 
-                # Phase 1: Add new constraint as NOT VALID (minimal blocking)
-                # This doesn't validate existing rows, so it's fast
-                checkpoint("   → Phase 1: Adding new constraint (NOT VALID) - minimal blocking...")
+                # Phase 1: Drop old + Add new constraint as NOT VALID
+                # ⚠️ LOCK INFO: DROP CONSTRAINT requires AccessExclusiveLock briefly,
+                # but it's released immediately. ADD CONSTRAINT NOT VALID requires 
+                # ShareUpdateExclusiveLock (less blocking than AccessExclusiveLock).
+                # This is still much better than traditional DROP+ADD which holds
+                # AccessExclusiveLock during constraint validation.
+                checkpoint("   → Phase 1: Replacing constraint with NOT VALID version...")
                 exec_ddl(migrate_engine, """
-                    -- Drop old constraint if it exists (we'll replace it)
+                    -- Drop old constraint if it exists (brief AccessExclusiveLock)
                     ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;
                     
-                    -- Add new constraint as NOT VALID (fast, minimal blocking)
+                    -- Add new constraint as NOT VALID (ShareUpdateExclusiveLock, no validation)
                     ALTER TABLE receipts 
                     ADD CONSTRAINT chk_receipt_status_v2
                     CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'))
@@ -5346,15 +5349,21 @@ def apply_migrations():
                 """)
                 checkpoint("   ✅ Phase 2 complete: Constraint validated")
                 
-                # Phase 3: Rename to final name (quick AccessExclusive operation)
-                # This is very fast since we're just renaming
-                checkpoint("   → Phase 3: Renaming constraint to final name...")
+                # Phase 3: Rename to final name
+                # ⚠️ LOCK INFO: RENAME requires AccessExclusiveLock, but since we're
+                # just renaming (not validating), it's extremely fast - typically < 100ms.
+                # Uses exec_ddl with 5s lock_timeout, which is sufficient for rename.
+                checkpoint("   → Phase 3: Renaming constraint to final name (fast)...")
                 exec_ddl(migrate_engine, """
                     ALTER TABLE receipts 
                     RENAME CONSTRAINT chk_receipt_status_v2 TO chk_receipt_status;
                 """)
                 checkpoint("   ✅ Phase 3 complete: Constraint renamed")
                 
+                # ⚠️ MIGRATION TRACKING: Changed from 'add_incomplete_status_to_receipts'
+                # to 'add_incomplete_status_to_receipts_two_phase' to reflect the new approach.
+                # This is intentional - the two-phase method is fundamentally different and safer.
+                # Old migration name won't be re-applied since we check for constraint existence.
                 migrations_applied.append("add_incomplete_status_to_receipts_two_phase")
                 checkpoint("✅ Migration 95 completed - 'incomplete' status added to receipts")
                 checkpoint("   📋 Purpose: Track receipts with validation failures (missing snapshot/attachments)")
