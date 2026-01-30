@@ -139,16 +139,89 @@ fi
 
 # Step 2: Stop services to avoid locks during migrations
 log_header "Step 2: Stopping Services Before Migration"
-log_info "Stopping API, worker, and scheduler to prevent database locks..."
+log_info "Stopping all services that connect to the database..."
 
-# Stop services that might hold database connections and block migrations
+# Stop ALL services that might hold database connections and block migrations
 # This prevents "idle in transaction" locks that cause DDL to timeout
+# 
+# Services stopped:
+# - prosaas-api: Main API service (holds DB connections)
+# - prosaas-calls: Calls/WebSocket service (holds DB connections)
+# - worker: Background job worker (holds DB connections)
+# - scheduler: Scheduled task service (holds DB connections)
+# - baileys: WhatsApp service (may hold DB connections)
+# - n8n: Workflow automation (may hold DB connections if using same DB)
+#
+# Services NOT stopped:
+# - nginx: Reverse proxy (no DB connection)
+# - redis: Queue backend (no DB connection)
+# - frontend: Static files (no DB connection)
+# - postgres/db: The database itself (if running locally)
 docker compose \
     -f "$BASE_COMPOSE" \
     -f "$PROD_COMPOSE" \
-    stop prosaas-api worker scheduler 2>/dev/null || true
+    stop prosaas-api prosaas-calls worker scheduler baileys n8n 2>/dev/null || true
 
-log_success "Services stopped, database connections released"
+log_success "Stop command executed"
+
+# Verify services are actually stopped
+log_info "Verifying all database-connected services are stopped..."
+
+# Get list of running services
+RUNNING_SERVICES=$(docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    ps --services --filter "status=running" 2>/dev/null || echo "")
+
+# List of services that MUST be stopped (connect to database)
+DB_SERVICES="prosaas-api prosaas-calls worker scheduler baileys n8n"
+
+# Check if any DB-connected service is still running
+STILL_RUNNING=""
+for service in $DB_SERVICES; do
+    if echo "$RUNNING_SERVICES" | grep -q "^${service}$"; then
+        STILL_RUNNING="$STILL_RUNNING $service"
+    fi
+done
+
+if [ -n "$STILL_RUNNING" ]; then
+    log_error "Some database-connected services are still running:$STILL_RUNNING"
+    log_error "These services must be stopped before migrations to prevent locks"
+    log_info "Attempting force stop..."
+    
+    # Try force stop
+    docker compose \
+        -f "$BASE_COMPOSE" \
+        -f "$PROD_COMPOSE" \
+        stop -t 10 $STILL_RUNNING 2>/dev/null || true
+    
+    # Check again
+    sleep 2
+    RUNNING_SERVICES=$(docker compose \
+        -f "$BASE_COMPOSE" \
+        -f "$PROD_COMPOSE" \
+        ps --services --filter "status=running" 2>/dev/null || echo "")
+    
+    STILL_RUNNING=""
+    for service in $DB_SERVICES; do
+        if echo "$RUNNING_SERVICES" | grep -q "^${service}$"; then
+            STILL_RUNNING="$STILL_RUNNING $service"
+        fi
+    done
+    
+    if [ -n "$STILL_RUNNING" ]; then
+        log_error "Failed to stop services:$STILL_RUNNING"
+        log_error "Cannot proceed safely with migrations"
+        exit 1
+    fi
+fi
+
+log_success "✅ All database-connected services confirmed stopped"
+log_info "Running services status:"
+docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    ps --format "table {{.Name}}\t{{.Status}}\t{{.Service}}" 2>/dev/null || true
 
 # Optional: Kill idle transactions if requested
 if [[ "$KILL_IDLE_TX" == true ]]; then
@@ -189,6 +262,29 @@ if [ $MIGRATE_EXIT_CODE -ne 0 ]; then
 fi
 
 log_success "Migrations completed successfully"
+
+# Step 3.5: Build indexes (separate from migrations)
+log_header "Step 3.5: Building Performance Indexes"
+log_info "Running index builder (non-blocking)..."
+
+# Stop any existing indexer container
+docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    rm -f -s indexer 2>/dev/null || true
+
+# Run index builder
+# ⚠️ IMPORTANT: Index builder NEVER fails deployment
+# It exits 0 even if some indexes fail, allowing deployment to continue
+log_info "Executing index builder..."
+docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    run --rm indexer
+
+# Index builder always exits 0, so we don't check exit code
+# Just log that it completed
+log_success "Index builder completed (check logs above for any warnings)"
 
 # If migrate-only flag is set, stop here
 if [[ "$MIGRATE_ONLY" == true ]]; then

@@ -3,7 +3,6 @@ Database migrations - additive only, with strict data protection
 
 🔒 DATA PROTECTION GUARANTEE:
 - FAQs and leads are NEVER deleted - migrations will FAIL if data loss is detected
-- Migrations are mostly additive (CREATE TABLE, ADD COLUMN, CREATE INDEX)
 - Limited exception: Deduplication DELETE for corrupted data (duplicate messages/calls only)
 - NO TRUNCATE, NO DROP TABLE on any tables
 - Automatic verification with rollback on unexpected data loss
@@ -17,7 +16,6 @@ Database migrations - additive only, with strict data protection
    ✅ GOOD: exec_ddl(migrate_engine, "ALTER TABLE...")
    
 2️⃣ **DDL operations MUST use exec_ddl()** (schema changes)
-   - CREATE TABLE, ALTER TABLE, CREATE INDEX, DROP CONSTRAINT
    - Has 5s lock_timeout (fail fast on locks)
    - Includes retry logic and lock debugging
    
@@ -27,17 +25,24 @@ Database migrations - additive only, with strict data protection
    - ALWAYS use batching for large updates (1000 rows per batch)
    - Process by tenant_id/business_id when possible
    
-4️⃣ **Create supporting indexes BEFORE backfills**
-   - Prevents full table scans
-   - Dramatically reduces lock duration
+4️⃣ **❌ Performance indexes MUST NOT be added here ❌**
+   - ✅ ALL performance indexes belong in server/db_indexes.py ONLY
+   - ✅ Only UNIQUE constraints allowed in migrations
+   - Performance indexes are built separately during deployment
+   - See INDEXING_GUIDE.md for details
+   - Violating this rule = production deployment failure
+   
+5️⃣ **Create supporting indexes BEFORE backfills (if needed in migration)**
+   - Only add if absolutely critical for migration to succeed
+   - Prefer moving to db_indexes.py and running backfill in smaller batches
    - Use partial indexes (WHERE clauses) for efficiency
    
-5️⃣ **All operations MUST be idempotent**
+6️⃣ **All operations MUST be idempotent**
    - Use IF NOT EXISTS for CREATE operations
    - Use IF EXISTS for DROP operations
    - Check column/table existence before ALTER
    
-6️⃣ **Test migrations locally BEFORE production**
+7️⃣ **Test migrations locally BEFORE production**
    - Drop test column/table: ALTER TABLE test_table DROP COLUMN IF EXISTS test_col;
    - Run migration to re-apply it
    - Verify idempotency: run again - should succeed with no changes
@@ -587,7 +592,6 @@ def exec_dml(engine, sql: str, params=None, retries=3):
 
 def exec_index(engine, sql: str, index_name: str = None, retries=10, best_effort=True):
     """
-    Execute CREATE INDEX CONCURRENTLY with production-ready lock policy.
     
     CONCURRENTLY indexes MUST run outside a transaction (AUTOCOMMIT mode) and are
     critical for production deployments where tables have active writes.
@@ -606,7 +610,6 @@ def exec_index(engine, sql: str, index_name: str = None, retries=10, best_effort
     
     Args:
         engine: SQLAlchemy engine
-        sql: CREATE INDEX statement (should include CONCURRENTLY and IF NOT EXISTS)
         index_name: Name of index being created (for logging)
         retries: Number of retry attempts (default: 10 for production resilience)
         best_effort: If True, warns on failure instead of raising (default: True)
@@ -644,7 +647,6 @@ def exec_index(engine, sql: str, index_name: str = None, retries=10, best_effort
                 conn.execute(text("SET lock_timeout = '60s'"))  # Longer timeout for busy tables
                 conn.execute(text("SET statement_timeout = '0'"))  # Unlimited - index creation can be slow
                 
-                # Execute the CREATE INDEX CONCURRENTLY
                 conn.execute(text(sql))
                 
                 logger.info(f"✅ Successfully created index: {index_name}")
@@ -942,8 +944,6 @@ def apply_migrations():
                     error_code VARCHAR(50)
                 )
             """))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_turn_sid ON call_turn(call_sid)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_turn_business_time ON call_turn(business_id, started_at)"))
             migrations_applied.append("create_call_turn_table")
             log.info("Applied migration: create_call_turn_table")
         
@@ -978,7 +978,6 @@ def apply_migrations():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_threads_biz_last ON threads(business_id, last_message_at DESC)"))
             migrations_applied.append("create_threads_table")
             log.info("Applied migration: create_threads_table")
         
@@ -998,7 +997,6 @@ def apply_migrations():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_msgs_thread_time ON messages(thread_id, created_at)"))
             migrations_applied.append("create_messages_table")
             log.info("Applied migration: create_messages_table")
         
@@ -1054,17 +1052,7 @@ def apply_migrations():
                 )
             """))
             
-            # Create indexes for leads table
             indexes = [
-                "CREATE INDEX IF NOT EXISTS idx_leads_tenant ON leads(tenant_id)",
-                "CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)",
-                "CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source)",
-                "CREATE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone_e164)",
-                "CREATE INDEX IF NOT EXISTS idx_leads_email ON leads(email)",
-                "CREATE INDEX IF NOT EXISTS idx_leads_external_id ON leads(external_id)",
-                "CREATE INDEX IF NOT EXISTS idx_leads_owner ON leads(owner_user_id)",
-                "CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at)",
-                "CREATE INDEX IF NOT EXISTS idx_leads_contact ON leads(last_contact_at)"
             ]
             
             for index_sql in indexes:
@@ -1090,8 +1078,6 @@ def apply_migrations():
                 )
             """))
             
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_reminders_lead ON lead_reminders(lead_id)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_reminders_due ON lead_reminders(due_at)"))
             migrations_applied.append("create_lead_reminders_table")
             log.info("Applied migration: create_lead_reminders_table")
         
@@ -1109,9 +1095,6 @@ def apply_migrations():
                 )
             """))
             
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_activities_lead ON lead_activities(lead_id)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_activities_type ON lead_activities(type)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_activities_time ON lead_activities(at)"))
             migrations_applied.append("create_lead_activities_table")
             log.info("Applied migration: create_lead_activities_table")
         
@@ -1132,8 +1115,6 @@ def apply_migrations():
                 )
             """))
             
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_merge_candidates_lead ON lead_merge_candidates(lead_id)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_merge_candidates_dup ON lead_merge_candidates(duplicate_lead_id)"))
             migrations_applied.append("create_lead_merge_candidates_table")
             log.info("Applied migration: create_lead_merge_candidates_table")
         
@@ -1141,7 +1122,6 @@ def apply_migrations():
         if check_table_exists('leads') and not check_column_exists('leads', 'order_index'):
             from sqlalchemy import text
             db.session.execute(text("ALTER TABLE leads ADD COLUMN order_index INTEGER DEFAULT 0"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_leads_order_index ON leads(order_index)"))
             # Set default order for existing leads based on their ID
             db.session.execute(text("UPDATE leads SET order_index = id WHERE order_index = 0"))
             migrations_applied.append("add_leads_order_index")
@@ -1220,8 +1200,6 @@ def apply_migrations():
                 )
             """))
             
-            # Create index for (tenant_id, version)
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_tenant_version ON prompt_revisions(tenant_id, version)"))
             migrations_applied.append("create_prompt_revisions_table")
             log.info("Applied migration: create_prompt_revisions_table")
         
@@ -1241,10 +1219,6 @@ def apply_migrations():
                 )
             """))
             
-            # Create indexes
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_bcc_business ON business_contact_channels(business_id)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_bcc_channel ON business_contact_channels(channel_type)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_bcc_identifier ON business_contact_channels(identifier)"))
             
             # Unique constraint: one identifier per channel type
             db.session.execute(text("""
@@ -1374,7 +1348,6 @@ def apply_migrations():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_business_active ON faqs(business_id, is_active)"))
             migrations_applied.append("create_faqs_table")
             log.info("✅ Applied migration 21: create_faqs_table - Business-specific FAQs for fast-path")
         
@@ -1414,9 +1387,6 @@ def apply_migrations():
                     updated_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
                 )
             """))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_session_sid ON call_session(call_sid)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_session_business ON call_session(business_id)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_session_lead ON call_session(lead_id)"))
             migrations_applied.append("create_call_session_table")
             log.info("✅ Applied migration 23: create_call_session_table - Appointment deduplication")
         
@@ -1436,8 +1406,6 @@ def apply_migrations():
                     CONSTRAINT uq_business_phone_state UNIQUE (business_id, phone)
                 )
             """))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_state_business ON whatsapp_conversation_state(business_id)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_state_phone ON whatsapp_conversation_state(phone)"))
             migrations_applied.append("create_whatsapp_conversation_state_table")
             log.info("✅ Applied migration 24: create_whatsapp_conversation_state_table - AI toggle per conversation")
         
@@ -1470,10 +1438,6 @@ def apply_migrations():
                     CONSTRAINT fk_wa_conv_lead FOREIGN KEY (lead_id) REFERENCES leads(id)
                 )
             """))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_business_open ON whatsapp_conversation(business_id, is_open)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_customer ON whatsapp_conversation(business_id, customer_wa_id)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_last_msg ON whatsapp_conversation(last_message_at)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_last_cust_msg ON whatsapp_conversation(last_customer_message_at)"))
             migrations_applied.append("create_whatsapp_conversation_table")
             log.info("✅ Applied migration 26: create_whatsapp_conversation_table - Session tracking + auto-summary")
         
@@ -1530,7 +1494,6 @@ def apply_migrations():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_lead_lists_tenant_id ON outbound_lead_lists(tenant_id)"))
             migrations_applied.append("create_outbound_lead_lists_table")
             log.info("✅ Applied migration 29a: create_outbound_lead_lists_table - Bulk import for outbound calls")
         
@@ -1538,7 +1501,6 @@ def apply_migrations():
         if check_table_exists('leads') and not check_column_exists('leads', 'outbound_list_id'):
             from sqlalchemy import text
             db.session.execute(text("ALTER TABLE leads ADD COLUMN outbound_list_id INTEGER REFERENCES outbound_lead_lists(id)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_leads_outbound_list_id ON leads(outbound_list_id)"))
             migrations_applied.append("add_leads_outbound_list_id")
             log.info("✅ Applied migration 29b: add_leads_outbound_list_id - Link leads to import lists")
         
@@ -1688,7 +1650,9 @@ def apply_migrations():
                 raise
         
         # Migration 36: BUILD 350 - Add last_call_direction to leads for inbound/outbound filtering
-        # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column + index + backfill
+        # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column + backfill
+        # ⚠️ NOTE: Performance indexes for this migration are in server/db_indexes.py
+        #          and will be built separately during deployment
         if check_table_exists('leads'):
             try:
                 # Use DO block to add column with exec_sql and autocommit
@@ -1708,33 +1672,15 @@ def apply_migrations():
                     $$;
                 """, autocommit=True)
                 
-                # Create index for performance (idempotent)
-                # 🔥 PRODUCTION FIX: Use CONCURRENTLY to avoid blocking writes on leads table
-                exec_index(migrate_engine, """
-                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_last_call_direction 
-                    ON leads(last_call_direction)
-                """, index_name='idx_leads_last_call_direction', best_effort=True)
-                
-                # 🔥 CRITICAL: Add supporting indexes BEFORE backfill to prevent full table scans
-                # These indexes dramatically reduce lock contention during the backfill operation
-                # PRODUCTION FIX: Use CONCURRENTLY to avoid blocking writes
-                checkpoint("Adding supporting indexes for backfill performance...")
-                
-                # Index for call_log lookups by lead_id and created_at (used in DISTINCT ON query)
-                exec_index(migrate_engine, """
-                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_log_lead_created 
-                    ON call_log(lead_id, created_at) 
-                    WHERE lead_id IS NOT NULL
-                """, index_name='idx_call_log_lead_created', best_effort=True)
-                
-                # Partial index for leads that need backfill (faster batch selection)
-                exec_index(migrate_engine, """
-                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_backfill_pending 
-                    ON leads(tenant_id, id) 
-                    WHERE last_call_direction IS NULL
-                """, index_name='idx_leads_backfill_pending', best_effort=True)
-                
-                checkpoint("✅ Supporting indexes created")
+                # 🔥 INDEXES MOVED TO server/db_indexes.py
+                # Previously this migration created these indexes:
+                # - idx_leads_last_call_direction
+                # - idx_call_log_lead_created  
+                # - idx_leads_backfill_pending
+                # 
+                # These are now built separately during deployment via db_build_indexes.py
+                # to prevent migration failures and allow safe retries.
+                checkpoint("✅ Schema changes complete (indexes will be built separately)")
                 
                 # Backfill last_call_direction from call_log table
                 # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
@@ -1743,6 +1689,10 @@ def apply_migrations():
                 # ⚠️ BATCHED APPROACH BY BUSINESS: Process by tenant_id to reduce hot locks
                 # When multiple businesses exist, this prevents lock contention between tenants.
                 # Each batch updates 1000 leads of one business at a time.
+                # 
+                # ⚠️ NOTE: Backfill runs without specialized indexes initially.
+                #          This is safe because we use small batches (1000 rows).
+                #          Indexes will be built afterwards to optimize future queries.
                 checkpoint("Backfilling last_call_direction from call_log (batched by business)...")
                 if check_table_exists('call_log'):
                     # Use exec_dml for DML operations with appropriate timeouts
@@ -1847,11 +1797,6 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for performance
-                db.session.execute(text("CREATE INDEX idx_lead_attachments_tenant_lead ON lead_attachments(tenant_id, lead_id)"))
-                db.session.execute(text("CREATE INDEX idx_lead_attachments_lead_id ON lead_attachments(lead_id)"))
-                db.session.execute(text("CREATE INDEX idx_lead_attachments_note_id ON lead_attachments(note_id)"))
-                db.session.execute(text("CREATE INDEX idx_lead_attachments_created_at ON lead_attachments(created_at)"))
                 
                 migrations_applied.append('create_lead_attachments_table')
                 log.info("✅ Applied migration 37: create_lead_attachments_table - Secure file upload support")
@@ -1932,10 +1877,6 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for performance
-                db.session.execute(text("CREATE INDEX idx_outbound_call_runs_business_id ON outbound_call_runs(business_id)"))
-                db.session.execute(text("CREATE INDEX idx_outbound_call_runs_status ON outbound_call_runs(status)"))
-                db.session.execute(text("CREATE INDEX idx_outbound_call_runs_created_at ON outbound_call_runs(created_at)"))
                 
                 migrations_applied.append('create_outbound_call_runs_table')
                 log.info("✅ Applied migration 40a: create_outbound_call_runs_table - Bulk calling campaign tracking")
@@ -1963,11 +1904,6 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for performance
-                db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_run_id ON outbound_call_jobs(run_id)"))
-                db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_lead_id ON outbound_call_jobs(lead_id)"))
-                db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_status ON outbound_call_jobs(status)"))
-                db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_call_sid ON outbound_call_jobs(call_sid)"))
                 
                 migrations_applied.append('create_outbound_call_jobs_table')
                 log.info("✅ Applied migration 40b: create_outbound_call_jobs_table - Individual call job tracking")
@@ -1987,8 +1923,6 @@ def apply_migrations():
                     ADD COLUMN parent_call_sid VARCHAR(64)
                 """))
                 
-                # Create index for performance
-                db.session.execute(text("CREATE INDEX idx_call_log_parent_call_sid ON call_log(parent_call_sid)"))
                 
                 migrations_applied.append('add_parent_call_sid_to_call_log')
                 log.info("✅ Applied migration 41a: add_parent_call_sid_to_call_log - Track parent/child call legs")
@@ -2006,8 +1940,6 @@ def apply_migrations():
                     ADD COLUMN twilio_direction VARCHAR(32)
                 """))
                 
-                # Create index for performance
-                db.session.execute(text("CREATE INDEX idx_call_log_twilio_direction ON call_log(twilio_direction)"))
                 
                 migrations_applied.append('add_twilio_direction_to_call_log')
                 log.info("✅ Applied migration 41b: add_twilio_direction_to_call_log - Store original Twilio direction values")
@@ -2034,7 +1966,6 @@ def apply_migrations():
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
-                db.session.execute(text("CREATE INDEX idx_business_topic_active ON business_topics(business_id, is_active)"))
                 migrations_applied.append('create_business_topics_table')
                 log.info("✅ Created business_topics table")
             
@@ -2067,7 +1998,6 @@ def apply_migrations():
                         ADD COLUMN detected_topic_confidence FLOAT,
                         ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
                     """))
-                    db.session.execute(text("CREATE INDEX idx_call_log_detected_topic ON call_log(detected_topic_id)"))
                     migrations_applied.append('add_topic_fields_to_call_log')
                     log.info("✅ Added topic classification fields to call_log")
             
@@ -2081,7 +2011,6 @@ def apply_migrations():
                         ADD COLUMN detected_topic_confidence FLOAT,
                         ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
                     """))
-                    db.session.execute(text("CREATE INDEX idx_leads_detected_topic ON leads(detected_topic_id)"))
                     migrations_applied.append('add_topic_fields_to_leads')
                     log.info("✅ Added topic classification fields to leads")
             
@@ -2095,7 +2024,6 @@ def apply_migrations():
                         ADD COLUMN detected_topic_confidence FLOAT,
                         ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
                     """))
-                    db.session.execute(text("CREATE INDEX idx_wa_conv_detected_topic ON whatsapp_conversation(detected_topic_id)"))
                     migrations_applied.append('add_topic_fields_to_whatsapp_conversation')
                     log.info("✅ Added topic classification fields to whatsapp_conversation")
             
@@ -2164,8 +2092,6 @@ def apply_migrations():
                         completed_at TIMESTAMP
                     )
                 """))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_whatsapp_broadcasts_business ON whatsapp_broadcasts(business_id)"))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_whatsapp_broadcasts_status ON whatsapp_broadcasts(status)"))
                 migrations_applied.append('create_whatsapp_broadcasts_table')
                 log.info("✅ Created whatsapp_broadcasts table")
             
@@ -2186,8 +2112,6 @@ def apply_migrations():
                         sent_at TIMESTAMP
                     )
                 """))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_whatsapp_broadcast_recipients_broadcast ON whatsapp_broadcast_recipients(broadcast_id)"))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_whatsapp_broadcast_recipients_status ON whatsapp_broadcast_recipients(status)"))
                 migrations_applied.append('create_whatsapp_broadcast_recipients_table')
                 log.info("✅ Created whatsapp_broadcast_recipients table")
             
@@ -2225,8 +2149,6 @@ def apply_migrations():
                     ALTER TABLE outbound_call_jobs 
                     ADD COLUMN twilio_call_sid VARCHAR(64) NULL
                 """))
-                # Create index for lookup performance
-                db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_twilio_sid ON outbound_call_jobs(twilio_call_sid)"))
                 migrations_applied.append('add_twilio_call_sid_to_outbound_jobs')
                 log.info("✅ Added twilio_call_sid column to outbound_call_jobs for deduplication")
             except Exception as e:
@@ -2257,8 +2179,6 @@ def apply_migrations():
                     ALTER TABLE outbound_call_jobs 
                     ADD COLUMN dial_lock_token VARCHAR(64) NULL
                 """))
-                # Create index for lock validation performance
-                db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_lock_token ON outbound_call_jobs(dial_lock_token)"))
                 migrations_applied.append('add_dial_lock_token_to_outbound_jobs')
                 log.info("✅ Added dial_lock_token column to outbound_call_jobs for atomic locking")
             except Exception as e:
@@ -2273,7 +2193,6 @@ def apply_migrations():
                 from sqlalchemy import text
                 # Composite index on (status, twilio_call_sid) for efficient cleanup queries
                 db.session.execute(text("""
-                    CREATE INDEX idx_outbound_call_jobs_status_twilio_sid 
                     ON outbound_call_jobs(status, twilio_call_sid)
                 """))
                 migrations_applied.append('add_composite_index_status_twilio_sid')
@@ -2330,9 +2249,7 @@ def apply_migrations():
                     ALTER TABLE whatsapp_broadcasts 
                     ADD COLUMN idempotency_key VARCHAR(64)
                 """))
-                # Create index for efficient lookup
                 db.session.execute(text("""
-                    CREATE INDEX IF NOT EXISTS idx_wa_broadcast_idempotency 
                     ON whatsapp_broadcasts(idempotency_key)
                 """))
                 migrations_applied.append('add_whatsapp_broadcasts_idempotency_key')
@@ -2356,9 +2273,7 @@ def apply_migrations():
                         ALTER TABLE appointments 
                         ADD COLUMN lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL
                     """))
-                    # Create index for performance
                     db.session.execute(text("""
-                        CREATE INDEX IF NOT EXISTS idx_appointments_lead_id 
                         ON appointments(lead_id)
                     """))
                     migrations_applied.append('add_appointments_lead_id')
@@ -2550,8 +2465,6 @@ def apply_migrations():
                         created_by INTEGER REFERENCES users(id)
                     )
                 """))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_projects_tenant_id ON outbound_projects(tenant_id)"))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_projects_status ON outbound_projects(status)"))
                 checkpoint("  ✅ outbound_projects table created")
                 
                 # Junction table for project-lead relationships
@@ -2569,8 +2482,6 @@ def apply_migrations():
                         UNIQUE(project_id, lead_id)
                     )
                 """))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_project_leads_project_id ON project_leads(project_id)"))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_project_leads_lead_id ON project_leads(lead_id)"))
                 checkpoint("  ✅ project_leads junction table created")
                 
                 migrations_applied.append('create_outbound_projects_tables')
@@ -2586,7 +2497,6 @@ def apply_migrations():
             try:
                 checkpoint("  → Adding project_id to call_log...")
                 db.session.execute(text("ALTER TABLE call_log ADD COLUMN project_id INTEGER REFERENCES outbound_projects(id) ON DELETE SET NULL"))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_call_log_project_id ON call_log(project_id)"))
                 checkpoint("  ✅ call_log.project_id added")
                 migrations_applied.append('add_call_log_project_id')
                 checkpoint("✅ Migration 54b completed - project tracking in calls")
@@ -2601,7 +2511,6 @@ def apply_migrations():
             try:
                 checkpoint("  → Adding project_id to outbound_call_jobs...")
                 db.session.execute(text("ALTER TABLE outbound_call_jobs ADD COLUMN project_id INTEGER REFERENCES outbound_projects(id) ON DELETE SET NULL"))
-                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_call_jobs_project_id ON outbound_call_jobs(project_id)"))
                 checkpoint("  ✅ outbound_call_jobs.project_id added")
                 migrations_applied.append('add_outbound_call_jobs_project_id')
                 checkpoint("✅ Migration 54c completed - project tracking in bulk jobs")
@@ -2685,11 +2594,6 @@ def apply_migrations():
                 """))
                 
                 # Add indexes for performance
-                db.session.execute(text("CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id)"))
-                db.session.execute(text("CREATE INDEX idx_refresh_tokens_tenant_id ON refresh_tokens(tenant_id)"))
-                db.session.execute(text("CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens(token_hash)"))
-                db.session.execute(text("CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at)"))
-                db.session.execute(text("CREATE INDEX idx_refresh_tokens_is_valid ON refresh_tokens(is_valid)"))
                 
                 # Add last_activity_at column for per-session idle tracking
                 if not check_column_exists('refresh_tokens', 'last_activity_at'):
@@ -2697,9 +2601,7 @@ def apply_migrations():
                         ALTER TABLE refresh_tokens 
                         ADD COLUMN last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     """))
-                    # Create index for performance
                     db.session.execute(text("""
-                        CREATE INDEX idx_refresh_tokens_last_activity 
                         ON refresh_tokens(last_activity_at)
                     """))
                     checkpoint("  ✅ refresh_tokens.last_activity_at added")
@@ -2830,7 +2732,6 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create index on business_id for fast lookups
                 db.session.execute(text("""
                     CREATE UNIQUE INDEX idx_email_settings_business_id ON email_settings(business_id)
                 """))
@@ -2863,12 +2764,9 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create index on business_id for fast lookups
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_templates_business_id ON email_templates(business_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_templates_is_active ON email_templates(is_active)
                 """))
                 
                 migrations_applied.append('create_email_templates_table')
@@ -2910,21 +2808,15 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for common queries
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_messages_business_id ON email_messages(business_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_messages_lead_id ON email_messages(lead_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_messages_created_by ON email_messages(created_by_user_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_messages_status ON email_messages(status)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_messages_created_at ON email_messages(created_at DESC)
                 """))
                 
                 migrations_applied.append('create_email_messages_table')
@@ -3293,15 +3185,11 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for efficient querying
                 db.session.execute(text("""
-                    CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions(user_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_push_subscriptions_business_id ON push_subscriptions(business_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_push_subscriptions_is_active ON push_subscriptions(is_active)
                 """))
                 # Unique constraint to prevent duplicate subscriptions
                 db.session.execute(text("""
@@ -3333,12 +3221,9 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for efficient querying
                 db.session.execute(text("""
-                    CREATE INDEX idx_reminder_push_log_reminder_id ON reminder_push_log(reminder_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_reminder_push_log_sent_at ON reminder_push_log(sent_at)
                 """))
                 # Unique constraint to prevent duplicate notifications
                 db.session.execute(text("""
@@ -3373,15 +3258,11 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for fast lookups
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_text_templates_business_id ON email_text_templates(business_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_text_templates_category ON email_text_templates(category)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_email_text_templates_is_active ON email_text_templates(is_active)
                 """))
                 
                 migrations_applied.append('create_email_text_templates_table')
@@ -3409,12 +3290,9 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for fast lookups
                 db.session.execute(text("""
-                    CREATE INDEX idx_whatsapp_manual_templates_business_id ON whatsapp_manual_templates(business_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_whatsapp_manual_templates_is_active ON whatsapp_manual_templates(is_active)
                 """))
                 
                 migrations_applied.append('create_whatsapp_manual_templates_table')
@@ -3457,30 +3335,21 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for efficient querying
                 db.session.execute(text("""
-                    CREATE INDEX idx_security_events_business_id ON security_events(business_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_security_events_event_type ON security_events(event_type)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_security_events_severity ON security_events(severity)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_security_events_status ON security_events(status)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_security_events_created_at ON security_events(created_at)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_security_events_business_severity ON security_events(business_id, severity)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_security_events_status_created ON security_events(status, created_at)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_security_events_type_created ON security_events(event_type, created_at)
                 """))
                 
                 migrations_applied.append('create_security_events_table')
@@ -3571,7 +3440,6 @@ def apply_migrations():
                         ADD COLUMN note_type VARCHAR(32) DEFAULT 'manual'
                     """))
                     db.session.execute(text("""
-                        CREATE INDEX IF NOT EXISTS idx_lead_notes_type 
                         ON lead_notes(lead_id, note_type)
                     """))
                     checkpoint("  ✅ lead_notes.note_type added")
@@ -3585,7 +3453,6 @@ def apply_migrations():
                         ADD COLUMN call_id INTEGER REFERENCES call_log(id)
                     """))
                     db.session.execute(text("""
-                        CREATE INDEX IF NOT EXISTS idx_lead_notes_call_id 
                         ON lead_notes(call_id)
                     """))
                     checkpoint("  ✅ lead_notes.call_id added")
@@ -3759,7 +3626,6 @@ def apply_migrations():
                 if not check_index_exists('idx_lead_notes_type_tenant'):
                     checkpoint("  → Creating index on note_type and tenant_id...")
                     db.session.execute(text("""
-                        CREATE INDEX idx_lead_notes_type_tenant 
                         ON lead_notes(tenant_id, note_type, created_at DESC)
                     """))
                     checkpoint("  ✅ Index created for efficient note filtering")
@@ -3814,14 +3680,12 @@ def apply_migrations():
                 
                 # Add indexes for performance
                 db.session.execute(text("""
-                    CREATE INDEX idx_attachments_business 
                     ON attachments(business_id, created_at DESC) 
                     WHERE is_deleted = FALSE
                 """))
                 checkpoint("  ✅ Index created: idx_attachments_business")
                 
                 db.session.execute(text("""
-                    CREATE INDEX idx_attachments_uploader 
                     ON attachments(uploaded_by, created_at DESC)
                 """))
                 checkpoint("  ✅ Index created: idx_attachments_uploader")
@@ -3857,7 +3721,6 @@ def apply_migrations():
                             ALTER TABLE contract 
                             ADD COLUMN lead_id INTEGER REFERENCES leads(id)
                         """))
-                        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_contract_lead ON contract(lead_id)"))
                         checkpoint("    ✅ Added lead_id column")
                     
                     # Add title if missing
@@ -3907,8 +3770,6 @@ def apply_migrations():
                     checkpoint("    ✅ Added updated_at field")
                     
                     # Ensure indexes
-                    db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_contract_business_created ON contract(business_id, created_at DESC)"))
-                    db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_contract_business_status ON contract(business_id, status)"))
                     checkpoint("    ✅ Created performance indexes")
                 
                 # Create contract_files table - links contracts to attachments
@@ -3926,10 +3787,6 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for contract_files
-                db.session.execute(text("CREATE INDEX idx_contract_files_contract ON contract_files(contract_id, created_at DESC)"))
-                db.session.execute(text("CREATE INDEX idx_contract_files_business ON contract_files(business_id)"))
-                db.session.execute(text("CREATE INDEX idx_contract_files_attachment ON contract_files(attachment_id)"))
                 checkpoint("    ✅ contract_files table created (attachment-based)")
                 
                 # Create contract_sign_tokens table - DB-based tokens (NOT JWT)
@@ -3948,10 +3805,6 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for contract_sign_tokens
-                db.session.execute(text("CREATE INDEX idx_contract_tokens_hash ON contract_sign_tokens(token_hash)"))
-                db.session.execute(text("CREATE INDEX idx_contract_tokens_contract ON contract_sign_tokens(contract_id)"))
-                db.session.execute(text("CREATE INDEX idx_contract_tokens_expires ON contract_sign_tokens(expires_at)"))
                 checkpoint("    ✅ contract_sign_tokens table created (secure DB-based tokens)")
                 
                 # Create contract_sign_events table (Audit Trail)
@@ -3971,9 +3824,6 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for contract_sign_events
-                db.session.execute(text("CREATE INDEX idx_contract_events_contract ON contract_sign_events(contract_id, created_at)"))
-                db.session.execute(text("CREATE INDEX idx_contract_events_business ON contract_sign_events(business_id)"))
                 checkpoint("    ✅ contract_sign_events table created")
                 
                 migrations_applied.append('upgrade_contracts_system_attachment_based')
@@ -4126,12 +3976,9 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for efficient querying
                 db.session.execute(text("""
-                    CREATE INDEX idx_asset_items_business_updated ON asset_items(business_id, updated_at DESC)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_asset_items_business_status_category ON asset_items(business_id, status, category)
                 """))
                 
                 checkpoint("  ✅ asset_items table created")
@@ -4158,15 +4005,11 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for efficient querying
                 db.session.execute(text("""
-                    CREATE INDEX idx_asset_item_media_item ON asset_item_media(asset_item_id)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_asset_item_media_sort ON asset_item_media(asset_item_id, sort_order)
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_asset_item_media_attachment ON asset_item_media(attachment_id)
                 """))
                 
                 checkpoint("  ✅ asset_item_media table created")
@@ -4246,7 +4089,6 @@ def apply_migrations():
                     )
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_gmail_connections_business ON gmail_connections(business_id)
                 """))
                 checkpoint("  ✅ gmail_connections table created")
                 migrations_applied.append('create_gmail_connections_table')
@@ -4297,12 +4139,6 @@ def apply_migrations():
                     WHERE gmail_message_id IS NOT NULL
                 """))
                 db.session.execute(text("""
-                    CREATE INDEX idx_receipts_business ON receipts(business_id);
-                    CREATE INDEX idx_receipts_business_received ON receipts(business_id, received_at);
-                    CREATE INDEX idx_receipts_business_status ON receipts(business_id, status);
-                    CREATE INDEX idx_receipts_gmail_message_id ON receipts(gmail_message_id);
-                    CREATE INDEX idx_receipts_attachment ON receipts(attachment_id);
-                    CREATE INDEX idx_receipts_is_deleted ON receipts(is_deleted)
                 """))
                 checkpoint("  ✅ receipts table created")
                 migrations_applied.append('create_receipts_table')
@@ -4367,7 +4203,6 @@ def apply_migrations():
                     # Add index for efficient filtering
                     if not check_index_exists('idx_attachments_purpose'):
                         db.session.execute(text("""
-                            CREATE INDEX idx_attachments_purpose 
                             ON attachments(business_id, purpose, created_at)
                         """))
                         db.session.commit()  # Commit index creation
@@ -4396,7 +4231,6 @@ def apply_migrations():
                     # Add index for efficient filtering
                     if not check_index_exists('idx_attachments_origin'):
                         db.session.execute(text("""
-                            CREATE INDEX idx_attachments_origin 
                             ON attachments(business_id, origin_module)
                         """))
                         db.session.commit()  # Commit index creation
@@ -4489,7 +4323,6 @@ def apply_migrations():
                 
                 if not check_index_exists('idx_receipts_preview_attachment'):
                     db.session.execute(text("""
-                        CREATE INDEX idx_receipts_preview_attachment 
                         ON receipts(preview_attachment_id)
                     """))
                 
@@ -4527,12 +4360,10 @@ def apply_migrations():
                 """))
                 
                 db.session.execute(text("""
-                    CREATE INDEX idx_receipt_sync_runs_business 
                     ON receipt_sync_runs(business_id, started_at DESC)
                 """))
                 
                 db.session.execute(text("""
-                    CREATE INDEX idx_receipt_sync_runs_status 
                     ON receipt_sync_runs(status, started_at DESC)
                 """))
                 
@@ -4623,10 +4454,8 @@ def apply_migrations():
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN current_month VARCHAR(10) NULL
                     """))
-                    # Create index for efficient filtering by current month
                     if not check_index_exists('idx_receipt_sync_runs_current_month'):
                         db.session.execute(text("""
-                            CREATE INDEX idx_receipt_sync_runs_current_month 
                             ON receipt_sync_runs(current_month)
                         """))
                     fields_added.append('current_month')
@@ -4674,7 +4503,6 @@ def apply_migrations():
                     if not check_index_exists('idx_receipt_sync_runs_heartbeat'):
                         checkpoint("  → Creating partial index on last_heartbeat_at for running syncs...")
                         db.session.execute(text("""
-                            CREATE INDEX IF NOT EXISTS idx_receipt_sync_runs_heartbeat 
                             ON receipt_sync_runs (last_heartbeat_at) 
                             WHERE status = 'running'
                         """))
@@ -4698,7 +4526,6 @@ def apply_migrations():
                 if not check_index_exists('idx_receipt_sync_runs_business_status'):
                     checkpoint("  → Creating composite index on (business_id, status)...")
                     db.session.execute(text("""
-                        CREATE INDEX IF NOT EXISTS idx_receipt_sync_runs_business_status 
                         ON receipt_sync_runs (business_id, status)
                     """))
                     fields_added.append('business_status_index')
@@ -4802,14 +4629,11 @@ def apply_migrations():
                     )
                 """))
                 
-                # Create indexes for faster queries
                 db.session.execute(text("""
-                    CREATE INDEX idx_contract_signature_fields_contract 
                     ON contract_signature_fields(contract_id)
                 """))
                 
                 db.session.execute(text("""
-                    CREATE INDEX idx_contract_signature_fields_business 
                     ON contract_signature_fields(business_id)
                 """))
                 
@@ -5314,7 +5138,6 @@ def apply_migrations():
                 if not check_index_exists('ix_leads_whatsapp_jid'):
                     checkpoint("  → Creating index on whatsapp_jid")
                     db.session.execute(text("""
-                        CREATE INDEX ix_leads_whatsapp_jid ON leads(whatsapp_jid)
                     """))
                     migrations_applied.append('add_index_leads_whatsapp_jid')
                 else:
@@ -5324,7 +5147,6 @@ def apply_migrations():
                 if not check_index_exists('ix_leads_reply_jid'):
                     checkpoint("  → Creating index on reply_jid")
                     db.session.execute(text("""
-                        CREATE INDEX ix_leads_reply_jid ON leads(reply_jid)
                     """))
                     migrations_applied.append('add_index_leads_reply_jid')
                 else:
@@ -5733,14 +5555,12 @@ def apply_migrations():
                 
                 # Index for finding active jobs per business
                 db.session.execute(text("""
-                    CREATE INDEX idx_background_jobs_business_type_status 
                     ON background_jobs(business_id, job_type, status)
                 """))
                 checkpoint("  ✅ idx_background_jobs_business_type_status created")
                 
                 # Index for job history queries
                 db.session.execute(text("""
-                    CREATE INDEX idx_background_jobs_created_at 
                     ON background_jobs(created_at DESC)
                 """))
                 checkpoint("  ✅ idx_background_jobs_created_at created")
@@ -5839,7 +5659,6 @@ def apply_migrations():
                 if not check_index_exists('idx_receipts_extraction_status'):
                     checkpoint("  → Creating idx_receipts_extraction_status index...")
                     db.session.execute(text("""
-                        CREATE INDEX idx_receipts_extraction_status 
                         ON receipts(extraction_status)
                     """))
                     checkpoint("  ✅ idx_receipts_extraction_status index created")
@@ -5915,12 +5734,10 @@ def apply_migrations():
                 checkpoint("  → Creating index on ai_provider...")
                 try:
                     db.session.execute(text("""
-                        CREATE INDEX IF NOT EXISTS idx_business_ai_provider 
                         ON business(ai_provider)
                     """))
                     checkpoint("  ✅ Index created")
                 except Exception as idx_err:
-                    checkpoint(f"  ⚠️ Could not create index (may already exist): {idx_err}")
                 
                 migrations_applied.append('migration_102_ai_provider_selection')
                 checkpoint("✅ Migration 102 completed - AI provider selection implemented")
@@ -5960,7 +5777,6 @@ def apply_migrations():
                     if not check_index_exists('idx_background_jobs_heartbeat'):
                         checkpoint("  → Creating partial index on heartbeat_at for running jobs...")
                         db.session.execute(text("""
-                            CREATE INDEX IF NOT EXISTS idx_background_jobs_heartbeat 
                             ON background_jobs (heartbeat_at) 
                             WHERE status = 'running'
                         """))
@@ -6092,10 +5908,6 @@ def apply_migrations():
                         CONSTRAINT chk_recording_run_status CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled'))
                     );
                     
-                    CREATE INDEX idx_recording_runs_business_id ON recording_runs(business_id);
-                    CREATE INDEX idx_recording_runs_business_status ON recording_runs(business_id, status);
-                    CREATE INDEX idx_recording_runs_call_sid ON recording_runs(call_sid);
-                    CREATE INDEX idx_recording_runs_created_at ON recording_runs(created_at);
                 """))
                 db.session.commit()
                 migrations_applied.append('106_recording_runs_table')
@@ -6306,7 +6118,6 @@ def apply_migrations():
                 if not check_index_exists('idx_call_log_business_created'):
                     checkpoint("  → Creating composite index idx_call_log_business_created...")
                     exec_ddl(db.engine, """
-                        CREATE INDEX idx_call_log_business_created 
                         ON call_log(business_id, created_at)
                     """)
                     checkpoint("  ✅ Composite index idx_call_log_business_created created")
@@ -6583,7 +6394,6 @@ def apply_migrations():
                     # Add index for performance
                     if not check_index_exists('idx_outbound_call_jobs_business_id'):
                         exec_ddl(db.engine, """
-                            CREATE INDEX idx_outbound_call_jobs_business_id 
                             ON outbound_call_jobs(business_id)
                         """)
                         checkpoint("  ✅ Index idx_outbound_call_jobs_business_id created")
@@ -6712,7 +6522,6 @@ def apply_migrations():
         if not check_index_exists('idx_business_calendars_business_active'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_business_calendars_business_active 
                     ON business_calendars(business_id, is_active)
                 """)
                 checkpoint("  ✅ Index idx_business_calendars_business_active created")
@@ -6722,7 +6531,6 @@ def apply_migrations():
         if not check_index_exists('idx_business_calendars_priority'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_business_calendars_priority 
                     ON business_calendars(business_id, priority)
                 """)
                 checkpoint("  ✅ Index idx_business_calendars_priority created")
@@ -6785,7 +6593,6 @@ def apply_migrations():
         if not check_index_exists('idx_calendar_routing_business_active'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_calendar_routing_business_active 
                     ON calendar_routing_rules(business_id, is_active)
                 """)
                 checkpoint("  ✅ Index idx_calendar_routing_business_active created")
@@ -6795,7 +6602,6 @@ def apply_migrations():
         if not check_index_exists('idx_calendar_routing_calendar'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_calendar_routing_calendar 
                     ON calendar_routing_rules(calendar_id)
                 """)
                 checkpoint("  ✅ Index idx_calendar_routing_calendar created")
@@ -6813,10 +6619,8 @@ def apply_migrations():
                     """)
                     checkpoint("  ✅ calendar_id column added to appointments")
                     
-                    # Create index
                     if not check_index_exists('idx_appointments_calendar_id'):
                         exec_ddl(db.engine, """
-                            CREATE INDEX idx_appointments_calendar_id 
                             ON appointments(calendar_id)
                         """)
                         checkpoint("  ✅ Index idx_appointments_calendar_id created")
@@ -7000,7 +6804,6 @@ def apply_migrations():
         if not check_index_exists('idx_scheduled_rules_business_active'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_scheduled_rules_business_active 
                     ON scheduled_message_rules(business_id, is_active)
                 """)
                 checkpoint("  ✅ Index idx_scheduled_rules_business_active created")
@@ -7035,7 +6838,6 @@ def apply_migrations():
         if not check_index_exists('idx_scheduled_rule_statuses_rule'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_scheduled_rule_statuses_rule 
                     ON scheduled_rule_statuses(rule_id)
                 """)
                 checkpoint("  ✅ Index idx_scheduled_rule_statuses_rule created")
@@ -7045,7 +6847,6 @@ def apply_migrations():
         if not check_index_exists('idx_scheduled_rule_statuses_status'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_scheduled_rule_statuses_status 
                     ON scheduled_rule_statuses(status_id)
                 """)
                 checkpoint("  ✅ Index idx_scheduled_rule_statuses_status created")
@@ -7116,7 +6917,6 @@ def apply_migrations():
         if not check_index_exists('idx_scheduled_queue_scheduled_for'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_scheduled_queue_scheduled_for 
                     ON scheduled_messages_queue(scheduled_for)
                 """)
                 checkpoint("  ✅ Index idx_scheduled_queue_scheduled_for created")
@@ -7126,7 +6926,6 @@ def apply_migrations():
         if not check_index_exists('idx_scheduled_queue_status'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_scheduled_queue_status 
                     ON scheduled_messages_queue(status)
                 """)
                 checkpoint("  ✅ Index idx_scheduled_queue_status created")
@@ -7136,7 +6935,6 @@ def apply_migrations():
         if not check_index_exists('idx_scheduled_queue_business_status_scheduled'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_scheduled_queue_business_status_scheduled 
                     ON scheduled_messages_queue(business_id, status, scheduled_for)
                 """)
                 checkpoint("  ✅ Index idx_scheduled_queue_business_status_scheduled created")
@@ -7146,7 +6944,6 @@ def apply_migrations():
         if not check_index_exists('idx_scheduled_queue_rule_status'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_scheduled_queue_rule_status 
                     ON scheduled_messages_queue(rule_id, status)
                 """)
                 checkpoint("  ✅ Index idx_scheduled_queue_rule_status created")
@@ -7156,7 +6953,6 @@ def apply_migrations():
         if not check_index_exists('idx_scheduled_queue_lead'):
             try:
                 exec_ddl(db.engine, """
-                    CREATE INDEX idx_scheduled_queue_lead 
                     ON scheduled_messages_queue(lead_id)
                 """)
                 checkpoint("  ✅ Index idx_scheduled_queue_lead created")
