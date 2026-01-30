@@ -7,6 +7,44 @@ Database migrations - additive only, with strict data protection
 - Limited exception: Deduplication DELETE for corrupted data (duplicate messages/calls only)
 - NO TRUNCATE, NO DROP TABLE on any tables
 - Automatic verification with rollback on unexpected data loss
+
+⚠️ CRITICAL MIGRATION RULES - READ BEFORE ADDING NEW MIGRATIONS ⚠️
+
+📋 THE IRON LAWS OF MIGRATIONS (למנוע תקלות בפרודקשן):
+
+1️⃣ **NEVER use db.session.execute() for migrations**
+   ❌ BAD:  db.session.execute(text("ALTER TABLE..."))
+   ✅ GOOD: exec_ddl(migrate_engine, "ALTER TABLE...")
+   
+2️⃣ **DDL operations MUST use exec_ddl()** (schema changes)
+   - CREATE TABLE, ALTER TABLE, CREATE INDEX, DROP CONSTRAINT
+   - Has 5s lock_timeout (fail fast on locks)
+   - Includes retry logic and lock debugging
+   
+3️⃣ **DML operations MUST use exec_dml()** (data changes)
+   - UPDATE, INSERT, DELETE, large backfills
+   - Has 60s lock_timeout (handles busy tables)
+   - ALWAYS use batching for large updates (1000 rows per batch)
+   - Process by tenant_id/business_id when possible
+   
+4️⃣ **Create supporting indexes BEFORE backfills**
+   - Prevents full table scans
+   - Dramatically reduces lock duration
+   - Use partial indexes (WHERE clauses) for efficiency
+   
+5️⃣ **All operations MUST be idempotent**
+   - Use IF NOT EXISTS for CREATE operations
+   - Use IF EXISTS for DROP operations
+   - Check column/table existence before ALTER
+   
+6️⃣ **Test migrations locally BEFORE production**
+   - Drop test column/table: ALTER TABLE test_table DROP COLUMN IF EXISTS test_col;
+   - Run migration to re-apply it
+   - Verify idempotency: run again - should succeed with no changes
+
+📖 For detailed guidelines, see MIGRATION_GUIDELINES.md
+
+🔥 REMEMBER: Breaking these rules = production downtime + data locks!
 """
 from server.db import db
 from datetime import datetime
@@ -512,7 +550,7 @@ def exec_dml(engine, sql: str, params=None, retries=3):
             if (is_lock_error or is_connection_error) and i < retries - 1:
                 sleep_time = 2.0 * (i + 1)
                 error_type = "lock" if is_lock_error else "connection"
-                log.warning(f"⚠️ DML {error_type} error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
+                logger.warning(f"⚠️ DML {error_type} error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
                 continue
             
@@ -1570,12 +1608,14 @@ def apply_migrations():
                     batch_size = 1000
                     max_iterations = 10000  # Safety limit (10M rows max)
                     
-                    # Get list of distinct tenant_ids that need backfill
+                     # Get list of distinct tenant_ids that need backfill
+                    # ⚠️ Filter NULL tenant_ids - they should not exist but handle edge case
                     with migrate_engine.connect() as conn:
                         result = conn.execute(text("""
                             SELECT DISTINCT tenant_id 
                             FROM leads 
                             WHERE last_call_direction IS NULL
+                              AND tenant_id IS NOT NULL
                             ORDER BY tenant_id
                         """))
                         tenant_ids = [row[0] for row in result.fetchall()]
@@ -1622,13 +1662,17 @@ def apply_migrations():
                                     # No more rows for this business
                                     break
                                 
-                                # Log progress for this business
-                                if rows_updated < batch_size:
-                                    checkpoint(f"  Business {tenant_id}: {business_total} rows updated")
+                                # Log progress every 10 batches or on final batch
+                                if (iteration + 1) % 10 == 0 or rows_updated < batch_size:
+                                    checkpoint(f"  Business {tenant_id}: Batch {iteration + 1}, {business_total} rows updated so far")
                                 
                                 # Small delay between batches to reduce DB pressure
                                 if rows_updated == batch_size:
                                     time.sleep(0.1)
+                            
+                            # Check if we hit max_iterations (safety limit)
+                            if iteration >= max_iterations - 1 and rows_updated > 0:
+                                logger.warning(f"⚠️ Business {tenant_id}: Reached max_iterations ({max_iterations}). May have more rows to process.")
                             
                             if business_total > 0:
                                 checkpoint(f"  ✅ Business {tenant_id}: Completed {business_total} rows")
