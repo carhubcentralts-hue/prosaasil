@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 _CONNECTION_LOCKED = False
 _LOCKED_CONNECTION_TYPE = None
 _LOCKED_URL = None
+_CONNECTION_LOGGED = False  # Track if we've logged the connection choice
 
 
 def _try_connect_direct(url: str, timeout: int = 5) -> bool:
@@ -73,7 +74,7 @@ def get_database_url(connection_type: str = "pooler", verbose: bool = True, try_
     
     Connection Policy (per requirements):
     - Default: Work on POOLER
-    - When try_direct_first=True (at migration start): Try DIRECT once with 3-5s timeout
+    - When try_direct_first=True (at migration start): Try DIRECT once with 5s timeout
     - If DIRECT succeeds: Use DIRECT for entire run (locked)
     - If DIRECT fails: Use POOLER for entire run (locked)
     - Never retry DIRECT in the middle of a run
@@ -95,16 +96,16 @@ def get_database_url(connection_type: str = "pooler", verbose: bool = True, try_
     Raises:
         RuntimeError: If no database configuration is found
     """
-    global _CONNECTION_LOCKED, _LOCKED_CONNECTION_TYPE, _LOCKED_URL
+    global _CONNECTION_LOCKED, _LOCKED_CONNECTION_TYPE, _LOCKED_URL, _CONNECTION_LOGGED
     
     connection_type = connection_type.lower()
     
     # ✅ LOCK ENFORCEMENT: Once connection is chosen, stick to it for entire run
     if _CONNECTION_LOCKED:
-        if verbose and _LOCKED_URL != "logged":
+        if verbose and not _CONNECTION_LOGGED:
             logger.info(f"🔒 Using LOCKED connection: {_LOCKED_CONNECTION_TYPE.upper()}")
-            _LOCKED_URL = "logged"  # Prevent duplicate logs
-        return _LOCKED_URL if _LOCKED_URL != "logged" else _get_url_by_type(_LOCKED_CONNECTION_TYPE)
+            _CONNECTION_LOGGED = True
+        return _LOCKED_URL
     
     # For non-migration requests (pooler), just return pooler without trying DIRECT
     if connection_type == "pooler" and not try_direct_first:
@@ -129,12 +130,14 @@ def get_database_url(connection_type: str = "pooler", verbose: bool = True, try_
                 _CONNECTION_LOCKED = True
                 _LOCKED_CONNECTION_TYPE = "direct"
                 _LOCKED_URL = direct_url
+                _CONNECTION_LOGGED = False  # Will log on next call
                 
                 if verbose:
                     logger.info("=" * 80)
                     logger.info("✅ Using DIRECT")
                     logger.info("=" * 80)
                     _log_connection_info("direct", direct_url, "DATABASE_URL_DIRECT")
+                    _CONNECTION_LOGGED = True
                 
                 return direct_url
             else:
@@ -156,6 +159,7 @@ def get_database_url(connection_type: str = "pooler", verbose: bool = True, try_
         _CONNECTION_LOCKED = True
         _LOCKED_CONNECTION_TYPE = "pooler"
         _LOCKED_URL = pooler_url
+        _CONNECTION_LOGGED = True  # Already logged above
         return pooler_url
     
     # Default path: get URL by type without DIRECT attempt

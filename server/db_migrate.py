@@ -178,143 +178,74 @@ def mark_migration_applied(engine, migration_id: str, reconciled: bool = False, 
 
 def reconcile_existing_state(engine):
     """
-    Smart Reconciliation - Automatic Migration State Detection
-    ===========================================================
+    Minimal Smart Reconciliation - Only for Critical Existing State
+    ================================================================
     
-    This function automatically detects which migrations have already been applied
-    by checking the actual database state (tables, columns, indexes, constraints).
+    This function reconciles ONLY the most critical existing migrations that
+    commonly cause "already exists" errors on existing deployments.
     
-    NO HARDCODED NUMBERS - The DB tells us what exists.
+    Strategy: Start minimal, add more fingerprints only as needed.
     
     For each migration:
     1. If marked in schema_migrations → SKIP
     2. If not marked but fingerprint exists in DB → MARK as reconciled + SKIP  
     3. Otherwise → Will be run later
     
-    This prevents 100% of "already exists" errors on existing deployments.
+    This prevents "already exists" errors on the most common cases.
     """
     checkpoint("=" * 80)
-    checkpoint("🔄 SMART RECONCILIATION: Auto-detecting applied migrations from DB state")
+    checkpoint("🔄 MINIMAL RECONCILIATION: Checking for existing critical migrations")
     checkpoint("=" * 80)
-    checkpoint("   Strategy: Check actual DB objects (tables/columns/indexes/constraints)")
-    checkpoint("   No guessing, no hardcoded numbers - the DB tells us what exists")
+    checkpoint("   Strategy: Only reconcile migrations that commonly cause 'already exists' errors")
+    checkpoint("   Start minimal, expand as needed")
     checkpoint("=" * 80)
     
     reconciled = []
     
     # ========================================================================
-    # MIGRATION FINGERPRINTS - Comprehensive List
+    # MINIMAL FINGERPRINT LIST - Only Critical Migrations
     # ========================================================================
-    # Each migration has a unique fingerprint that can be detected in the DB
-    # Format: (migration_id, description, check_function)
+    # These are the migrations most likely to already exist on deployed systems
+    # and cause "already exists" errors. We check these first.
     
     migrations_to_check = [
-        # Core Tables (always check these first)
-        ("core_tables_business", "Business table exists", 
+        # Core infrastructure tables (always exist on existing deployments)
+        ("core_business_table", "Business table exists", 
          lambda: check_table_exists('business')),
         
-        ("core_tables_leads", "Leads table exists", 
+        ("core_leads_table", "Leads table exists", 
          lambda: check_table_exists('leads')),
         
-        ("core_tables_call_log", "Call log table exists", 
+        ("core_call_log_table", "Call log table exists", 
          lambda: check_table_exists('call_log')),
         
-        ("core_tables_threads", "Threads table exists", 
+        # Messaging system (commonly deployed)
+        ("messaging_threads_table", "Threads table exists", 
          lambda: check_table_exists('threads')),
         
-        ("core_tables_messages", "Messages table exists", 
+        ("messaging_messages_table", "Messages table exists", 
          lambda: check_table_exists('messages')),
         
-        # WhatsApp System
-        ("whatsapp_system_baileys", "Baileys sessions table exists",
-         lambda: check_table_exists('baileys_sessions')),
-        
-        ("whatsapp_fields_leads", "WhatsApp fields in leads",
-         lambda: check_column_exists('leads', 'phone_whatsapp')),
-        
-        ("whatsapp_fields_business", "WhatsApp enabled in business",
-         lambda: check_column_exists('business', 'whatsapp_enabled')),
-        
-        # Email/Gmail System  
-        ("gmail_receipts_table", "Gmail receipts table exists",
-         lambda: check_table_exists('gmail_receipts')),
-        
-        ("gmail_sync_fields", "Gmail sync fields in business",
-         lambda: check_column_exists('business', 'gmail_sync_enabled')),
-        
-        # Recording System
-        ("recording_mode_field", "Recording mode in business",
-         lambda: check_column_exists('business', 'recording_mode')),
-        
-        ("call_log_recording_url", "Recording URL in call_log",
-         lambda: check_column_exists('call_log', 'recording_url')),
-        
-        # Contract System
-        ("contracts_table", "Contracts table exists",
-         lambda: check_table_exists('contracts')),
-        
-        ("contract_templates_table", "Contract templates table exists",
-         lambda: check_table_exists('contract_templates')),
-        
-        # Broadcast System
-        ("broadcast_jobs_table", "Broadcast jobs table exists",
-         lambda: check_table_exists('broadcast_jobs')),
-        
-        ("broadcast_delivered_at", "Delivered_at in broadcast_jobs",
-         lambda: check_column_exists('broadcast_jobs', 'delivered_at')),
-        
-        # Lead Management
-        ("lead_tabs_config", "Lead tabs config in business",
-         lambda: check_column_exists('business', 'lead_tabs_config')),
-        
-        ("lead_reminders_table", "Lead reminders table exists",
-         lambda: check_table_exists('lead_reminders')),
-        
-        ("lead_activities_table", "Lead activities table exists",
-         lambda: check_table_exists('lead_activities')),
-        
-        ("last_call_direction", "Last call direction in leads",
+        # Recent critical fields that cause issues
+        ("leads_last_call_direction", "Last call direction in leads",
          lambda: check_column_exists('leads', 'last_call_direction')),
         
-        # Appointment System
-        ("appointment_fields", "Appointment fields in call_log",
-         lambda: check_column_exists('call_log', 'appointment_scheduled_at')),
-        
-        ("business_calendars_table", "Business calendars table exists",
-         lambda: check_table_exists('business_calendars')),
-        
-        # Voice/TTS System
-        ("voice_id_field", "Voice ID in business",
-         lambda: check_column_exists('business', 'voice_id')),
-        
-        # Push Notifications
-        ("push_enabled_field", "Push enabled in business",
-         lambda: check_column_exists('business', 'push_enabled')),
-        
-        # Webhook System
-        ("webhook_secret_field", "Webhook secret in business",
-         lambda: check_column_exists('business', 'webhook_secret')),
-        
-        # Call Turn Table (Performance Tracking)
-        ("call_turn_table", "Call turn table exists",
-         lambda: check_table_exists('call_turn')),
+        ("business_lead_tabs_config", "Lead tabs config in business",
+         lambda: check_column_exists('business', 'lead_tabs_config')),
         
         ("call_log_transcript", "Transcript in call_log",
          lambda: check_column_exists('call_log', 'transcript')),
         
-        # Deal/Project System
-        ("deals_table", "Deals table exists",
-         lambda: check_table_exists('deal')),
+        # WhatsApp system (if deployed)
+        ("whatsapp_phone_field", "WhatsApp phone in leads",
+         lambda: check_column_exists('leads', 'phone_whatsapp')),
         
-        # User/Owner System  
-        ("user_table", "User table exists",
-         lambda: check_table_exists('user')),
-        
-        ("owner_table", "Owner table exists",
-         lambda: check_table_exists('owner')),
+        # Recording system (if deployed)
+        ("recording_url_field", "Recording URL in call_log",
+         lambda: check_column_exists('call_log', 'recording_url')),
     ]
     
-    checkpoint(f"   Checking {len(migrations_to_check)} migration fingerprints...")
+    checkpoint(f"   Checking {len(migrations_to_check)} critical migration fingerprints...")
     checkpoint("")
     
     # Check each migration fingerprint
@@ -329,21 +260,18 @@ def reconcile_existing_state(engine):
                 checkpoint(f"  ✅ {migration_id}: {description} - RECONCILED")
                 mark_migration_applied(engine, migration_id, reconciled=True, notes=f"Auto-detected: {description}")
                 reconciled.append(migration_id)
-            else:
-                checkpoint(f"  ⏭️  {migration_id}: {description} - Not found (will run if needed)")
                 
         except Exception as e:
+            # Don't fail on check errors - just log and continue
             checkpoint(f"  ⚠️  {migration_id}: Could not check - {e}")
     
     checkpoint("")
     checkpoint("=" * 80)
     if reconciled:
-        checkpoint(f"✅ RECONCILIATION COMPLETE: {len(reconciled)} migrations auto-detected as applied")
-        checkpoint("   These migrations were already applied and are now properly tracked")
-        checkpoint("   Future runs will skip them automatically")
+        checkpoint(f"✅ RECONCILIATION: {len(reconciled)} existing migrations detected and marked")
+        checkpoint("   Future runs will skip these automatically")
     else:
-        checkpoint("✅ RECONCILIATION COMPLETE: All migrations properly tracked (or fresh DB)")
-        checkpoint("   No reconciliation needed")
+        checkpoint("✅ RECONCILIATION: No existing migrations detected (fresh DB or all tracked)")
     checkpoint("=" * 80)
     checkpoint("")
     
@@ -703,21 +631,6 @@ def check_constraint_exists(table_name, constraint_name):
             WHERE conname = :constraint_name 
               AND conrelid = to_regclass(:table_name)::oid
         """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"})
-        return len(rows) > 0
-    except Exception as e:
-        log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
-        return False
-
-def check_constraint_exists(constraint_name):
-    """Check if constraint exists using independent connection with retry"""
-    try:
-        # Use migration engine with pool_pre_ping for resilience
-        engine = get_migrate_engine()
-        rows = fetch_all(engine, """
-            SELECT 1 FROM pg_constraint 
-            WHERE conname = :constraint_name
-            LIMIT 1
-        """, {"constraint_name": constraint_name})
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
@@ -1257,6 +1170,9 @@ def apply_migrations():
     
     🔒 WORKER PROTECTION: Workers should NEVER run migrations. Migrations only run
     in API service during startup.
+    
+    🔒 CONNECTION LOCKING: Connection choice (DIRECT or POOLER) is made ONCE at the
+    start and locked for entire run. No mid-run connection changes.
     """
     import os
     import time
@@ -1288,35 +1204,39 @@ def apply_migrations():
     checkpoint(f"  SERVICE_ROLE: {service_role or 'not set (API server)'}")
     migrations_applied = []
     
-    # 🔥 DB STABILITY CHECK: Verify database is responsive before starting migrations
-    checkpoint("Performing DB stability check...")
+    # 🔥 CRITICAL: Create migration engine ONCE at start - this locks connection choice
+    # Try DIRECT first (with 5s timeout), fall back to POOLER if unavailable
+    # After this, connection is LOCKED for entire run - no mid-run changes
+    checkpoint("=" * 80)
+    checkpoint("🔒 ESTABLISHING DATABASE CONNECTION (one-time decision)")
+    checkpoint("=" * 80)
     migrate_engine = None
     try:
         migrate_engine = get_migrate_engine()
         # Try to connect 5 times with retry logic
         fetch_all(migrate_engine, "SELECT 1", retries=5)
-        checkpoint("✅ DB stability check passed - database is responsive")
+        checkpoint("✅ DB connection established and locked for this run")
     except Exception as e:
         error_str = str(e).lower()
         # Check if this is a network unreachability issue (DIRECT not accessible)
         if "network is unreachable" in error_str or "could not connect to server" in error_str:
             checkpoint("=" * 80)
-            checkpoint(f"⚠️  DB STABILITY CHECK: DIRECT connection unreachable")
-            checkpoint(f"   Error: {e}")
-            checkpoint("   This is expected when DATABASE_URL_DIRECT is not accessible")
-            checkpoint("   Migrations will use POOLER connection instead")
+            checkpoint(f"⚠️  DIRECT connection unreachable: {e}")
+            checkpoint("   Falling back to POOLER (this is expected when DIRECT unavailable)")
             checkpoint("=" * 80)
-            # Don't skip migrations - POOLER will be used automatically by get_migrate_engine()
-            # The database_url.py module already handles DIRECT→POOLER fallback
+            # Connection is already locked to POOLER by get_migrate_engine()
+            # No need to retry - the fallback already happened
         else:
             # Real database stability issue - abort migrations
             checkpoint("=" * 80)
-            checkpoint(f"❌ DB STABILITY CHECK FAILED: {e}")
+            checkpoint(f"❌ DATABASE CONNECTION FAILED: {e}")
             checkpoint("   Database appears unstable (restarting/OOM/network issues)")
-            checkpoint("   This is NOT a network unreachability issue - database is truly unstable")
-            checkpoint("   Action: Check 'docker logs prosaas-postgres --tail 200' for issues")
+            checkpoint("   Action: Check database logs for issues")
             checkpoint("=" * 80)
-            raise RuntimeError(f"Database stability check failed: {e}")
+            raise RuntimeError(f"Database connection failed: {e}")
+    
+    checkpoint("=" * 80)
+    checkpoint("")
     
     # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock with retry
     # Lock ID: 1234567890 (arbitrary unique integer)
@@ -1386,12 +1306,12 @@ def apply_migrations():
                 checkpoint(f"❌ Failed to create tables: {e}")
                 raise
         
-        # 🔥 NEW: Ensure migration tracking table exists
+        # 🔥 CRITICAL: Use the SAME migrate_engine for ALL operations
+        # Never call get_migrate_engine() again - connection is already locked
         checkpoint("Setting up migration state tracking...")
-        migrate_engine = get_migrate_engine()
         ensure_migration_tracking_table(migrate_engine)
         
-        # 🔥 NEW: Reconcile existing state (mark migrations 1-110 as applied if they already exist)
+        # 🔥 Reconcile existing state with SAME engine
         reconcile_existing_state(migrate_engine)
         
         # 🔒 BUILD 111: TRIPLE LAYER DATA PROTECTION
