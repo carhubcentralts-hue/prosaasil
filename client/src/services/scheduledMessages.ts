@@ -75,6 +75,14 @@ export interface UpdateRuleRequest {
   is_active?: boolean;
 }
 
+export interface ManualTemplate {
+  id: number;
+  name: string;
+  message_text: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // === RULES API ===
 
 /**
@@ -87,24 +95,43 @@ export async function getRules(isActive?: boolean): Promise<ScheduledRule[]> {
   }
   
   const url = `/api/scheduled-messages/rules${params.toString() ? '?' + params.toString() : ''}`;
-  const response = await http.get(url);
-  return response.data.rules;
+  
+  try {
+    const response = await http.get<any>(url);
+    
+    // Guard: http.get returns the parsed JSON directly, check if it has rules property
+    const rules = Array.isArray(response?.rules) ? response.rules : [];
+    
+    return rules;
+  } catch (err: any) {
+    const status = err?.status;
+    
+    // If 401 or 403 - no permission or feature disabled, return empty array
+    // Don't crash the UI
+    if (status === 401 || status === 403) {
+      console.warn('No permission to access scheduled messages:', status);
+      return [];
+    }
+    
+    // For other errors, rethrow
+    throw err;
+  }
 }
 
 /**
  * Create a new scheduling rule
  */
 export async function createRule(data: CreateRuleRequest): Promise<ScheduledRule> {
-  const response = await http.post('/api/scheduled-messages/rules', data);
-  return response.data.rule;
+  const response = await http.post<any>('/api/scheduled-messages/rules', data);
+  return response?.rule || response;
 }
 
 /**
  * Update an existing scheduling rule
  */
 export async function updateRule(ruleId: number, data: UpdateRuleRequest): Promise<ScheduledRule> {
-  const response = await http.patch(`/api/scheduled-messages/rules/${ruleId}`, data);
-  return response.data.rule;
+  const response = await http.patch<any>(`/api/scheduled-messages/rules/${ruleId}`, data);
+  return response?.rule || response;
 }
 
 /**
@@ -118,8 +145,8 @@ export async function deleteRule(ruleId: number): Promise<void> {
  * Cancel all pending messages for a rule
  */
 export async function cancelPendingForRule(ruleId: number): Promise<{ cancelled_count: number }> {
-  const response = await http.post(`/api/scheduled-messages/rules/${ruleId}/cancel-pending`);
-  return response.data;
+  const response = await http.post<any>(`/api/scheduled-messages/rules/${ruleId}/cancel-pending`);
+  return response;
 }
 
 // === QUEUE API ===
@@ -140,8 +167,8 @@ export async function getQueue(params?: {
   if (params?.per_page) searchParams.append('per_page', String(params.per_page));
   
   const url = `/api/scheduled-messages/queue${searchParams.toString() ? '?' + searchParams.toString() : ''}`;
-  const response = await http.get(url);
-  return response.data;
+  const response = await http.get<QueueResponse>(url);
+  return response;
 }
 
 /**
@@ -161,6 +188,22 @@ export async function getStats(ruleId?: number): Promise<StatsResponse> {
   if (ruleId) params.append('rule_id', String(ruleId));
   
   const url = `/api/scheduled-messages/stats${params.toString() ? '?' + params.toString() : ''}`;
-  const response = await http.get(url);
-  return response.data;
+  const response = await http.get<StatsResponse>(url);
+  return response;
+}
+
+// === TEMPLATES API ===
+
+/**
+ * Get all WhatsApp manual templates
+ */
+export async function getManualTemplates(): Promise<ManualTemplate[]> {
+  try {
+    const response = await http.get<any>('/api/whatsapp/manual-templates');
+    const templates = Array.isArray(response?.items) ? response.items : [];
+    return templates;
+  } catch (err: any) {
+    console.warn('Failed to load templates:', err);
+    return [];
+  }
 }
