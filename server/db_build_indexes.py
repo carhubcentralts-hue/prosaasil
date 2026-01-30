@@ -62,6 +62,10 @@ def get_database_url() -> str:
     from server.database_url import get_database_url as get_db_url
     
     try:
+        # Indexer always uses POOLER (optimal for CREATE INDEX CONCURRENTLY)
+        logger.info("=" * 80)
+        logger.info("✅ Using POOLER (optimal for indexer)")
+        logger.info("=" * 80)
         return get_db_url(connection_type="pooler")
     except RuntimeError as e:
         logger.error(f"❌ {e}")

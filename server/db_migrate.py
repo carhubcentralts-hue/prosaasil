@@ -116,6 +116,8 @@ def ensure_migration_tracking_table(engine):
     - migration_id: Unique identifier for the migration (e.g., "001_add_transcript")
     - applied_at: Timestamp when migration was applied
     - success: Whether the migration completed successfully
+    - reconciled: Whether this was detected as already applied (not actually run)
+    - notes: Additional information about the migration
     """
     try:
         with engine.begin() as conn:
@@ -124,6 +126,7 @@ def ensure_migration_tracking_table(engine):
                     migration_id TEXT PRIMARY KEY,
                     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     success BOOLEAN NOT NULL DEFAULT TRUE,
+                    reconciled BOOLEAN NOT NULL DEFAULT FALSE,
                     notes TEXT
                 )
             """))
@@ -146,94 +149,133 @@ def is_migration_applied(engine, migration_id: str) -> bool:
         log.debug(f"Could not check migration status for {migration_id}: {e}")
         return False
 
-def mark_migration_applied(engine, migration_id: str, notes: str = None):
-    """Mark a migration as successfully applied"""
+def mark_migration_applied(engine, migration_id: str, reconciled: bool = False, notes: str = None):
+    """
+    Mark a migration as successfully applied.
+    
+    Args:
+        engine: Database engine
+        migration_id: Unique identifier for the migration
+        reconciled: True if migration was detected as already applied (not actually run)
+        notes: Additional information
+    """
     try:
         with engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO schema_migrations (migration_id, applied_at, success, notes)
-                    VALUES (:id, NOW(), TRUE, :notes)
+                    INSERT INTO schema_migrations (migration_id, applied_at, success, reconciled, notes)
+                    VALUES (:id, NOW(), TRUE, :reconciled, :notes)
                     ON CONFLICT (migration_id) DO UPDATE
-                    SET applied_at = NOW(), success = TRUE, notes = COALESCE(:notes, schema_migrations.notes)
+                    SET applied_at = NOW(), success = TRUE, reconciled = :reconciled, 
+                        notes = COALESCE(:notes, schema_migrations.notes)
                 """),
-                {"id": migration_id, "notes": notes}
+                {"id": migration_id, "reconciled": reconciled, "notes": notes}
             )
-        log.info(f"✅ Marked migration {migration_id} as applied")
+        status = "reconciled" if reconciled else "applied"
+        log.info(f"✅ Marked migration {migration_id} as {status}")
     except Exception as e:
         log.warning(f"⚠️ Could not mark migration {migration_id} as applied: {e}")
 
 def reconcile_existing_state(engine):
     """
-    Reconcile existing database state with migration history.
+    Minimal Smart Reconciliation - Only for Critical Existing State
+    ================================================================
     
-    This marks migrations as applied if their effects already exist in the database,
-    preventing failures on deployments where schema already matches desired state.
+    This function reconciles ONLY the most critical existing migrations that
+    commonly cause "already exists" errors on existing deployments.
     
-    This is critical for existing Supabase deployments where migrations 1-110
-    have already been applied historically.
+    Strategy: Start minimal, add more fingerprints only as needed.
+    
+    For each migration:
+    1. If marked in schema_migrations → SKIP
+    2. If not marked but fingerprint exists in DB → MARK as reconciled + SKIP  
+    3. Otherwise → Will be run later
+    
+    This prevents "already exists" errors on the most common cases.
     """
     checkpoint("=" * 80)
-    checkpoint("🔄 RECONCILIATION: Checking which migrations are already applied")
+    checkpoint("🔄 MINIMAL RECONCILIATION: Checking for existing critical migrations")
+    checkpoint("=" * 80)
+    checkpoint("   Strategy: Only reconcile migrations that commonly cause 'already exists' errors")
+    checkpoint("   Start minimal, expand as needed")
     checkpoint("=" * 80)
     
     reconciled = []
     
-    # Define all migrations and their detection logic
-    # These are checked in order and marked as applied if their effects exist
+    # ========================================================================
+    # MINIMAL FINGERPRINT LIST - Only Critical Migrations
+    # ========================================================================
+    # These are the migrations most likely to already exist on deployed systems
+    # and cause "already exists" errors. We check these first.
+    
     migrations_to_check = [
-        ("001_add_call_log_transcript", lambda: check_table_exists('call_log') and check_column_exists('call_log', 'transcript')),
-        ("002_create_call_turn_table", lambda: check_table_exists('call_turn')),
-        ("003_add_business_flags", lambda: check_table_exists('business') and check_column_exists('business', 'enable_calls_stream')),
-        ("004_create_threads_table", lambda: check_table_exists('threads')),
-        ("005_create_messages_table", lambda: check_table_exists('messages')),
-        ("006_add_unique_provider_msg_id", lambda: check_table_exists('messages') and check_column_exists('messages', 'provider_message_id')),
-        ("007_create_leads_table", lambda: check_table_exists('leads')),
-        ("008_create_lead_reminders_table", lambda: check_table_exists('lead_reminders')),
-        ("009_create_lead_activities_table", lambda: check_table_exists('lead_activities')),
-        ("010_add_business_whatsapp_fields", lambda: check_table_exists('business') and check_column_exists('business', 'whatsapp_enabled')),
-        # Add all common migrations - assume if tables exist, migrations 1-110 are applied
-        ("bulk_existing_migrations", lambda: (
-            check_table_exists('leads') and 
-            check_table_exists('business') and 
-            check_table_exists('threads') and
-            check_table_exists('messages') and
-            check_column_exists('leads', 'phone_raw') and
-            check_column_exists('business', 'lead_tabs_config')
-        )),
+        # Core infrastructure tables (always exist on existing deployments)
+        ("core_business_table", "Business table exists", 
+         lambda: check_table_exists('business')),
+        
+        ("core_leads_table", "Leads table exists", 
+         lambda: check_table_exists('leads')),
+        
+        ("core_call_log_table", "Call log table exists", 
+         lambda: check_table_exists('call_log')),
+        
+        # Messaging system (commonly deployed)
+        ("messaging_threads_table", "Threads table exists", 
+         lambda: check_table_exists('threads')),
+        
+        ("messaging_messages_table", "Messages table exists", 
+         lambda: check_table_exists('messages')),
+        
+        # Recent critical fields that cause issues
+        ("leads_last_call_direction", "Last call direction in leads",
+         lambda: check_column_exists('leads', 'last_call_direction')),
+        
+        ("business_lead_tabs_config", "Lead tabs config in business",
+         lambda: check_column_exists('business', 'lead_tabs_config')),
+        
+        ("call_log_transcript", "Transcript in call_log",
+         lambda: check_column_exists('call_log', 'transcript')),
+        
+        # WhatsApp system (if deployed)
+        ("whatsapp_phone_field", "WhatsApp phone in leads",
+         lambda: check_column_exists('leads', 'phone_whatsapp')),
+        
+        # Recording system (if deployed)
+        ("recording_url_field", "Recording URL in call_log",
+         lambda: check_column_exists('call_log', 'recording_url')),
     ]
     
-    for migration_id, check_func in migrations_to_check:
+    checkpoint(f"   Checking {len(migrations_to_check)} critical migration fingerprints...")
+    checkpoint("")
+    
+    # Check each migration fingerprint
+    for migration_id, description, check_func in migrations_to_check:
         try:
-            # Check if migration already applied in tracking table
+            # Check if migration already tracked
             if is_migration_applied(engine, migration_id):
-                continue  # Already tracked, no need to log
+                continue  # Already tracked, skip silently
             
             # Check if migration effect exists in database
             if check_func():
-                checkpoint(f"  🔄 {migration_id}: Effect exists, marking as applied")
-                mark_migration_applied(engine, migration_id, notes="Reconciled from existing state")
+                checkpoint(f"  ✅ {migration_id}: {description} - RECONCILED")
+                mark_migration_applied(engine, migration_id, reconciled=True, notes=f"Auto-detected: {description}")
                 reconciled.append(migration_id)
+                
         except Exception as e:
+            # Don't fail on check errors - just log and continue
             checkpoint(f"  ⚠️  {migration_id}: Could not check - {e}")
     
-    # Special case: if bulk_existing_migrations passed, mark all migrations 1-110 as applied
-    if "bulk_existing_migrations" in reconciled:
-        checkpoint("=" * 80)
-        checkpoint("✅ Detected existing Supabase deployment with migrations 1-110 already applied")
-        checkpoint("   Marking all historical migrations as applied to prevent re-runs")
-        checkpoint("=" * 80)
-        for i in range(1, 111):
-            migration_id = f"migration_{i:03d}"
-            if not is_migration_applied(engine, migration_id):
-                mark_migration_applied(engine, migration_id, notes="Bulk reconciliation - existing Supabase state")
-    
+    checkpoint("")
+    checkpoint("=" * 80)
     if reconciled:
-        checkpoint("=" * 80)
-        checkpoint(f"✅ RECONCILIATION COMPLETE: Marked {len(reconciled)} existing migrations as applied")
-        checkpoint("=" * 80)
+        checkpoint(f"✅ RECONCILIATION: {len(reconciled)} existing migrations detected and marked")
+        checkpoint("   Future runs will skip these automatically")
     else:
-        checkpoint("✅ RECONCILIATION COMPLETE: No migrations needed reconciliation")
+        checkpoint("✅ RECONCILIATION: No existing migrations detected (fresh DB or all tracked)")
+    checkpoint("=" * 80)
+    checkpoint("")
+    
+    return reconciled
     
     return reconciled
 
@@ -452,8 +494,9 @@ def get_migrate_engine():
     Get or create a dedicated engine for migrations with pool_pre_ping and pool_recycle.
     
     Automatically chooses the best connection for migrations:
-    1. Tries DIRECT connection first (preferred for DDL operations)
+    1. Tries DIRECT connection first with 5s timeout (preferred for DDL operations)
     2. Falls back to POOLER if DIRECT is unreachable (with appropriate timeouts)
+    3. Locks to chosen connection for entire migration run (no retrying)
     
     This prevents stale connections from breaking migrations due to:
     - SSL connection closures
@@ -467,10 +510,13 @@ def get_migrate_engine():
     if _MIGRATE_ENGINE is None:
         from server.database_url import get_database_url
         
-        # 🔥 CRITICAL: Try DIRECT first, but auto-fallback to POOLER if unreachable
-        # The get_database_url() function handles this fallback automatically
-        # when DATABASE_URL_DIRECT is not set or not reachable
-        database_url = get_database_url(connection_type="direct")
+        # 🔥 CRITICAL: Try DIRECT first with timeout, lock to chosen connection
+        # The get_database_url() function with try_direct_first=True will:
+        # 1. Try DIRECT with 5s timeout
+        # 2. If successful, lock to DIRECT for entire run
+        # 3. If failed, lock to POOLER for entire run
+        # 4. Never retry DIRECT during the run
+        database_url = get_database_url(connection_type="direct", try_direct_first=True)
         
         _MIGRATE_ENGINE = create_engine(
             database_url,
@@ -479,16 +525,11 @@ def get_migrate_engine():
             pool_size=5,
             max_overflow=10,
             connect_args={
-                'connect_timeout': 5,  # 5 second timeout for connection attempts
+                'connect_timeout': 10,  # 10 second timeout for subsequent connections
             }
         )
         
-        # Log which connection type is being used
-        host = database_url.split('@')[1].split(':')[0] if '@' in database_url else 'unknown'
-        if 'pooler' in host.lower():
-            log.info("✅ Created migration engine with POOLER connection (DIRECT not available)")
-        else:
-            log.info("✅ Created migration engine with DIRECT connection")
+        log.info("✅ Created migration engine (connection locked for entire run)")
     return _MIGRATE_ENGINE
 
 def fetch_all_retry(engine, sql, params=None, attempts=3):
@@ -581,16 +622,15 @@ def check_index_exists(index_name):
         log.warning(f"Error checking if index {index_name} exists: {e}")
         return False
 
-def check_constraint_exists(constraint_name):
+def check_constraint_exists(table_name, constraint_name):
     """Check if constraint exists using independent connection with retry"""
     try:
-        # Use migration engine with pool_pre_ping for resilience
         engine = get_migrate_engine()
         rows = fetch_all(engine, """
-            SELECT 1 FROM pg_constraint 
-            WHERE conname = :constraint_name
-            LIMIT 1
-        """, {"constraint_name": constraint_name})
+            SELECT conname FROM pg_constraint 
+            WHERE conname = :constraint_name 
+              AND conrelid = to_regclass(:table_name)::oid
+        """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"})
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
@@ -1130,6 +1170,9 @@ def apply_migrations():
     
     🔒 WORKER PROTECTION: Workers should NEVER run migrations. Migrations only run
     in API service during startup.
+    
+    🔒 CONNECTION LOCKING: Connection choice (DIRECT or POOLER) is made ONCE at the
+    start and locked for entire run. No mid-run connection changes.
     """
     import os
     import time
@@ -1161,35 +1204,39 @@ def apply_migrations():
     checkpoint(f"  SERVICE_ROLE: {service_role or 'not set (API server)'}")
     migrations_applied = []
     
-    # 🔥 DB STABILITY CHECK: Verify database is responsive before starting migrations
-    checkpoint("Performing DB stability check...")
+    # 🔥 CRITICAL: Create migration engine ONCE at start - this locks connection choice
+    # Try DIRECT first (with 5s timeout), fall back to POOLER if unavailable
+    # After this, connection is LOCKED for entire run - no mid-run changes
+    checkpoint("=" * 80)
+    checkpoint("🔒 ESTABLISHING DATABASE CONNECTION (one-time decision)")
+    checkpoint("=" * 80)
     migrate_engine = None
     try:
         migrate_engine = get_migrate_engine()
         # Try to connect 5 times with retry logic
         fetch_all(migrate_engine, "SELECT 1", retries=5)
-        checkpoint("✅ DB stability check passed - database is responsive")
+        checkpoint("✅ DB connection established and locked for this run")
     except Exception as e:
         error_str = str(e).lower()
         # Check if this is a network unreachability issue (DIRECT not accessible)
         if "network is unreachable" in error_str or "could not connect to server" in error_str:
             checkpoint("=" * 80)
-            checkpoint(f"⚠️  DB STABILITY CHECK: DIRECT connection unreachable")
-            checkpoint(f"   Error: {e}")
-            checkpoint("   This is expected when DATABASE_URL_DIRECT is not accessible")
-            checkpoint("   Migrations will use POOLER connection instead")
+            checkpoint(f"⚠️  DIRECT connection unreachable: {e}")
+            checkpoint("   Falling back to POOLER (this is expected when DIRECT unavailable)")
             checkpoint("=" * 80)
-            # Don't skip migrations - POOLER will be used automatically by get_migrate_engine()
-            # The database_url.py module already handles DIRECT→POOLER fallback
+            # Connection is already locked to POOLER by get_migrate_engine()
+            # No need to retry - the fallback already happened
         else:
             # Real database stability issue - abort migrations
             checkpoint("=" * 80)
-            checkpoint(f"❌ DB STABILITY CHECK FAILED: {e}")
+            checkpoint(f"❌ DATABASE CONNECTION FAILED: {e}")
             checkpoint("   Database appears unstable (restarting/OOM/network issues)")
-            checkpoint("   This is NOT a network unreachability issue - database is truly unstable")
-            checkpoint("   Action: Check 'docker logs prosaas-postgres --tail 200' for issues")
+            checkpoint("   Action: Check database logs for issues")
             checkpoint("=" * 80)
-            raise RuntimeError(f"Database stability check failed: {e}")
+            raise RuntimeError(f"Database connection failed: {e}")
+    
+    checkpoint("=" * 80)
+    checkpoint("")
     
     # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock with retry
     # Lock ID: 1234567890 (arbitrary unique integer)
@@ -1259,12 +1306,12 @@ def apply_migrations():
                 checkpoint(f"❌ Failed to create tables: {e}")
                 raise
         
-        # 🔥 NEW: Ensure migration tracking table exists
+        # 🔥 CRITICAL: Use the SAME migrate_engine for ALL operations
+        # Never call get_migrate_engine() again - connection is already locked
         checkpoint("Setting up migration state tracking...")
-        migrate_engine = get_migrate_engine()
         ensure_migration_tracking_table(migrate_engine)
         
-        # 🔥 NEW: Reconcile existing state (mark migrations 1-110 as applied if they already exist)
+        # 🔥 Reconcile existing state with SAME engine
         reconcile_existing_state(migrate_engine)
         
         # 🔒 BUILD 111: TRIPLE LAYER DATA PROTECTION
