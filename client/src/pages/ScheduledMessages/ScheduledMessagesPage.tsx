@@ -85,12 +85,20 @@ export function ScheduledMessagesPage() {
         scheduledMessagesApi.getRules(),
         http.get('/api/statuses').then(r => r.data.items || [])
       ]);
-      setRules(rulesData);
-      setStatuses(statusesData);
+      
+      // Guard: ensure rulesData is an array
+      const rules = Array.isArray(rulesData) ? rulesData : [];
+      const statuses = Array.isArray(statusesData) ? statusesData : [];
+      
+      setRules(rules);
+      setStatuses(statuses);
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
       console.error('Error loading data:', err);
+      // Set empty arrays to prevent crashes
+      setRules([]);
+      setStatuses([]);
     } finally {
       setLoading(false);
     }
@@ -194,7 +202,7 @@ export function ScheduledMessagesPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {rules.length === 0 ? (
+                {(!rules || rules.length === 0) ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                       <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
@@ -409,7 +417,7 @@ function CreateRuleModal({
                 סטטוסים *
               </label>
               <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-md p-3">
-                {statuses.map((status) => (
+                {(statuses || []).map((status) => (
                   <label key={status.id} className="flex items-center gap-2">
                     <input
                       type="checkbox"

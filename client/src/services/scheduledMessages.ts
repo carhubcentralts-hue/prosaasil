@@ -87,8 +87,28 @@ export async function getRules(isActive?: boolean): Promise<ScheduledRule[]> {
   }
   
   const url = `/api/scheduled-messages/rules${params.toString() ? '?' + params.toString() : ''}`;
-  const response = await http.get(url);
-  return response.data.rules;
+  
+  try {
+    const response = await http.get(url);
+    
+    // Guard: ensure data exists and has rules property
+    const payload = response?.data ?? {};
+    const rules = Array.isArray(payload.rules) ? payload.rules : [];
+    
+    return rules;
+  } catch (err: any) {
+    const status = err?.response?.status;
+    
+    // If 401 or 403 - no permission or feature disabled, return empty array
+    // Don't crash the UI
+    if (status === 401 || status === 403) {
+      console.warn('No permission to access scheduled messages:', status);
+      return [];
+    }
+    
+    // For other errors, rethrow
+    throw err;
+  }
 }
 
 /**
