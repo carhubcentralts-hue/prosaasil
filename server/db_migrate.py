@@ -455,6 +455,9 @@ def _is_already_exists_error(e: Exception) -> bool:
     - duplicate_column
     
     Any other DDL error (SyntaxError, ProgrammingError, etc.) should FAIL HARD.
+    
+    Note: This specifically checks for DDL "already exists" errors, not data integrity
+    errors like "duplicate key value violates unique constraint" during INSERT/UPDATE.
     """
     msg = str(e).lower()
     # Check for "already exists" type errors that are safe to ignore
@@ -463,7 +466,6 @@ def _is_already_exists_error(e: Exception) -> bool:
         "duplicate_object",
         "duplicate_table", 
         "duplicate_column",
-        "duplicate key",  # For UNIQUE constraints
     ]
     return any(pattern in msg for pattern in safe_patterns)
 
@@ -1339,6 +1341,10 @@ def execute_with_retry(engine, sql: str, params=None, *, max_retries=10, fetch=F
             
         except Exception as e:
             # ⚠️ IRON RULE: DDL FAILURES = FAIL HARD (except "already exists")
+            # Note: This catch block is for non-connection errors (ProgrammingError, SyntaxError, etc.)
+            # Connection errors are handled in the (OperationalError, DBAPIError) block above and retried.
+            # DDL syntax/programming errors are not transient and won't be fixed by retrying.
+            
             # Check if this is a DDL operation (ALTER, CREATE, DROP)
             sql_upper = sql.strip().upper()
             is_ddl = any(sql_upper.startswith(cmd) for cmd in ['ALTER', 'CREATE', 'DROP'])

@@ -75,13 +75,13 @@ def test_already_exists_error_helper():
         ("column does not exist", False),
     ]
     
-    for error_msg, should_pass in test_cases:
+    for error_msg, expected_is_safe in test_cases:
         e = MockException(error_msg)
         result = _is_already_exists_error(e)
-        if result == should_pass:
+        if result == expected_is_safe:
             print(f"  ✅ Correctly handled: '{error_msg}' -> {result}")
         else:
-            print(f"  ❌ Failed: '{error_msg}' expected {should_pass}, got {result}")
+            print(f"  ❌ Failed: '{error_msg}' expected {expected_is_safe}, got {result}")
             return False
     
     print("✅ _is_already_exists_error logic is correct")
