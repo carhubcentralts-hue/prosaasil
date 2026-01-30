@@ -7381,6 +7381,54 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ Skipping Migration 117: business table or enabled_pages column not found")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 118: Add error tracking fields to call_log table
+        # 🎯 PURPOSE: Add error_message and error_code columns for failed call tracking
+        # ISSUE: PostgreSQL error "column 'error_message' of relation 'call_log' does not exist"
+        # FIX: Add error_message (TEXT) and error_code (VARCHAR) columns with idempotency
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 118: Adding error tracking fields to call_log")
+        
+        if check_table_exists('call_log'):
+            try:
+                columns_to_add = []
+                
+                # Check error_message column
+                if not check_column_exists('call_log', 'error_message'):
+                    checkpoint("  → Adding error_message column to call_log...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE call_log 
+                        ADD COLUMN error_message TEXT
+                    """)
+                    columns_to_add.append('error_message')
+                    checkpoint("  ✅ error_message column added to call_log")
+                else:
+                    checkpoint("  ℹ️ error_message column already exists")
+                
+                # Check error_code column
+                if not check_column_exists('call_log', 'error_code'):
+                    checkpoint("  → Adding error_code column to call_log...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE call_log 
+                        ADD COLUMN error_code VARCHAR(64)
+                    """)
+                    columns_to_add.append('error_code')
+                    checkpoint("  ✅ error_code column added to call_log")
+                else:
+                    checkpoint("  ℹ️ error_code column already exists")
+                
+                if columns_to_add:
+                    migrations_applied.append('118_call_log_error_fields')
+                    checkpoint(f"✅ Migration 118 complete: Error tracking fields added to call_log ({', '.join(columns_to_add)})")
+                else:
+                    checkpoint("✅ Migration 118 complete: Error tracking fields already exist on call_log")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 118 (error tracking fields) failed: {e}")
+                logger.error(f"Migration 118 error tracking fields error: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ call_log table does not exist - skipping Migration 118")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
