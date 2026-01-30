@@ -1602,7 +1602,9 @@ def apply_migrations():
         # Migration 6: Add unique index for message deduplication
         if check_table_exists('messages') and not check_index_exists('uniq_msg_provider_id'):
             try:
-                # First remove any existing duplicates (keep the earliest)
+                # 🔄 SAFE DML: Required deduplication before creating UNIQUE index
+                # This DELETE is necessary to enforce the UNIQUE constraint.
+                # Keeps the earliest message (MIN(id)) for each provider_msg_id.
                 execute_with_retry(migrate_engine, """
                     DELETE FROM messages 
                     WHERE id NOT IN (
