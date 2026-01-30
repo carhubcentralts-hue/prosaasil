@@ -182,6 +182,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      indexer:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
