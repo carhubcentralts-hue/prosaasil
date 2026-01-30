@@ -440,6 +440,7 @@ RETRYABLE_ERROR_PATTERNS = (
     "server closed the connection",
     "network is unreachable",
     "could not connect to server",
+    "connection reset by peer",
 )
 
 def _is_retryable(e: Exception) -> bool:
@@ -549,12 +550,15 @@ _MIGRATE_ENGINE = None
 
 def get_migrate_engine():
     """
-    Get or create a dedicated engine for migrations with pool_pre_ping and pool_recycle.
+    Get or create a dedicated engine for migrations with POOLER-only connection.
     
-    Automatically chooses the best connection for migrations:
-    1. Tries DIRECT connection first with 5s timeout (preferred for DDL operations)
-    2. Falls back to POOLER if DIRECT is unreachable (with appropriate timeouts)
-    3. Locks to chosen connection for entire migration run (no retrying)
+    🔥 IRON RULE: POOLER ONLY - NO DIRECT CONNECTION SWITCHING
+    
+    This function creates a migration engine that:
+    1. Uses POOLER connection ONLY (locked at start)
+    2. Never switches to DIRECT during run
+    3. Has pool_pre_ping and pool_recycle for connection resilience
+    4. All queries go through execute_with_retry() which handles SSL errors
     
     This prevents stale connections from breaking migrations due to:
     - SSL connection closures
@@ -568,13 +572,8 @@ def get_migrate_engine():
     if _MIGRATE_ENGINE is None:
         from server.database_url import get_database_url
         
-        # 🔥 CRITICAL: Try DIRECT first with timeout, lock to chosen connection
-        # The get_database_url() function with try_direct_first=True will:
-        # 1. Try DIRECT with 5s timeout
-        # 2. If successful, lock to DIRECT for entire run
-        # 3. If failed, lock to POOLER for entire run
-        # 4. Never retry DIRECT during the run
-        database_url = get_database_url(connection_type="direct", try_direct_first=True)
+        # 🔥 IRON RULE: POOLER ONLY - locked at start, never switch to DIRECT
+        database_url = get_database_url(connection_type="pooler")
         
         _MIGRATE_ENGINE = create_engine(
             database_url,
@@ -587,7 +586,12 @@ def get_migrate_engine():
             }
         )
         
-        log.info("✅ Created migration engine (connection locked for entire run)")
+        checkpoint("=" * 80)
+        checkpoint("🔒 USING POOLER (LOCKED)")
+        checkpoint("   Connection type locked for entire migration run")
+        checkpoint("   All queries will use retry logic with engine.dispose() on SSL errors")
+        checkpoint("=" * 80)
+        log.info("✅ Created migration engine with POOLER (locked)")
     return _MIGRATE_ENGINE
 
 def fetch_all_retry(engine, sql, params=None, attempts=3):
@@ -1216,37 +1220,97 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
     # Should never reach here, but handle it anyway
     raise RuntimeError(f"DDL heavy failed due to locks after {retries} retries")
 
-def execute_with_retry(engine, sql: str, params=None):
+def execute_with_retry(engine, sql: str, params=None, *, max_retries=10, fetch=False):
     """
-    Wrapper function for executing SQL with automatic retry logic.
+    Execute SQL with robust retry logic and engine.dispose() on SSL errors.
     
-    This function wraps SQL in text() internally and delegates to the appropriate
-    exec function based on the SQL type. This is a convenience function for
-    migrations that need simple execute-with-retry semantics.
+    🔥 IRON RULE: ALL migration queries MUST go through this function
+    
+    This function provides POOLER-safe execution with:
+    - Detection of SSL/connection errors
+    - engine.dispose() on errors to refresh connection pool
+    - Exponential backoff: 1s, 2s, 4s, 8s...
+    - Max 8-10 retries
     
     Args:
         engine: SQLAlchemy engine instance
-        sql: SQL statement to execute (will be wrapped in text() internally)
-        params: Optional dictionary of query parameters
-        
+        sql: SQL statement to execute
+        params: Dictionary of query parameters (default: None)
+        max_retries: Maximum number of retry attempts (default: 10)
+        fetch: If True, return query results; if False, execute only
+    
     Returns:
-        List of result rows if the SQL is a SELECT query, None otherwise
-        
+        Query results if fetch=True, None otherwise
+    
+    Raises:
+        Exception: If all retry attempts fail
+    
     Example:
-        execute_with_retry(migrate_engine, "ALTER TABLE users ADD COLUMN age INTEGER")
-        execute_with_retry(migrate_engine, "UPDATE users SET status = :status", {"status": "active"})
-        rows = execute_with_retry(migrate_engine, "SELECT * FROM users WHERE id = :id", {"id": 1})
+        # Execute DDL
+        execute_with_retry(engine, "ALTER TABLE leads ADD COLUMN name TEXT")
+        
+        # Fetch results (for SELECT queries or any query that returns results)
+        rows = execute_with_retry(engine, "SELECT * FROM schema_migrations", fetch=True)
+        
+        # Note: This function automatically detects SELECT and returns results
+        rows = execute_with_retry(engine, "SELECT COUNT(*) FROM leads")
     """
-    # For SELECT queries, we need to return results
-    if sql.strip().upper().startswith('SELECT'):
-        # Use fetch_all for SELECT queries (returns result rows)
-        return fetch_all(engine, sql, params)
-    elif any(keyword in sql.upper() for keyword in ['UPDATE', 'INSERT', 'DELETE']):
-        # DML operations - use exec_dml
-        return exec_dml(engine, sql, params)
-    else:
-        # DDL operations (ALTER, CREATE, DROP, etc.) - use exec_ddl
-        return exec_ddl(engine, sql)
+    last_error = None
+    
+    # Auto-detect if this is a SELECT query
+    is_select = sql.strip().upper().startswith('SELECT')
+    should_fetch = fetch or is_select
+    
+    for attempt in range(max_retries):
+        try:
+            with engine.begin() as conn:
+                result = conn.execute(text(sql), params or {})
+                if should_fetch:
+                    return result.fetchall()
+                return None  # Success for non-fetch
+                
+        except (OperationalError, DBAPIError) as e:
+            last_error = e
+            error_msg = str(e).lower()
+            
+            # Check if this is a retryable connection error
+            is_ssl_error = any(pattern.lower() in error_msg for pattern in [
+                "ssl connection has been closed unexpectedly",
+                "server closed the connection unexpectedly",
+                "connection reset by peer",
+                "could not receive data from server",
+                "connection not open",
+                "connection already closed",
+                "network is unreachable",
+                "could not connect to server"
+            ])
+            
+            if is_ssl_error and attempt < max_retries - 1:
+                # 🔥 CRITICAL: Dispose engine on SSL error to refresh connection pool
+                try:
+                    engine.dispose()
+                    log.info(f"🔄 Disposed engine after SSL/connection error")
+                except Exception as dispose_error:
+                    log.warning(f"⚠️ Error disposing engine: {dispose_error}")
+                
+                # Exponential backoff: 1s, 2s, 4s, 8s (capped at 8s)
+                sleep_time = min(2 ** attempt, 8)
+                log.warning(f"⚠️ SSL/connection error (attempt {attempt + 1}/{max_retries}), "
+                          f"retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            
+            # Non-retryable or last attempt
+            log.error(f"❌ execute_with_retry failed after {attempt + 1} attempts: {e}")
+            raise
+            
+        except Exception as e:
+            # Non-connection error - don't retry
+            log.error(f"❌ Non-retryable error in execute_with_retry: {e}")
+            raise
+    
+    # Should never reach here, but handle it
+    raise last_error
 
 def apply_migrations():
     """
@@ -1333,26 +1397,24 @@ def apply_migrations():
     # This ensures only ONE process runs migrations at a time
     LOCK_ID = 1234567890
     LOCK_WAIT_SECONDS = int(os.getenv("MIGRATION_LOCK_WAIT_SECONDS", "30"))
-    # 🔥 PERFORMANCE: Set to '0' (unlimited) for migrations to avoid timeouts on large tables
-    # Can be overridden with MIGRATION_STATEMENT_TIMEOUT env var if needed
-    STATEMENT_TIMEOUT = os.getenv("MIGRATION_STATEMENT_TIMEOUT", "0")
     
     checkpoint("Acquiring PostgreSQL advisory lock for migrations...")
     from sqlalchemy import text
     lock_acquired = False
     
     try:
-        # 🔥 CRITICAL: Set statement_timeout locally for this connection
-        # This prevents the database from killing our lock acquisition attempts
-        conn = db.session.connection()
-        conn.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
-        checkpoint(f"✅ Set statement_timeout to {STATEMENT_TIMEOUT} for migration connection")
-        
-        # 🔥 NEW: Try to acquire lock with retry loop
+        # 🔥 IRON RULE: Use migrate_engine for lock acquisition (not db.session)
+        # Try to acquire lock with retry loop
         start_time = time.time()
         while time.time() - start_time < LOCK_WAIT_SECONDS:
-            result = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": LOCK_ID})
-            lock_acquired = result.scalar()
+            # Use execute_with_retry for lock acquisition
+            result = execute_with_retry(
+                migrate_engine,
+                "SELECT pg_try_advisory_lock(:id)",
+                {"id": LOCK_ID},
+                fetch=True
+            )
+            lock_acquired = result[0][0] if result else False
             
             if lock_acquired:
                 checkpoint("✅ Acquired migration lock")
@@ -4540,14 +4602,12 @@ def apply_migrations():
                         ALTER TABLE attachments 
                         ADD COLUMN purpose VARCHAR(50) NOT NULL DEFAULT 'general_upload'
                     """)
-                    db.session.commit()  # Commit immediately to persist the column
                     
                     # Add index for efficient filtering
                     if not check_index_exists('idx_attachments_purpose'):
                         execute_with_retry(migrate_engine, """
                             ON attachments(business_id, purpose, created_at)
                         """)
-                        db.session.commit()  # Commit index creation
                     
                     migrations_applied.append("add_purpose_to_attachments")
                     checkpoint("✅ Migration 84a complete: purpose added with index")
@@ -4566,14 +4626,12 @@ def apply_migrations():
                         ALTER TABLE attachments 
                         ADD COLUMN origin_module VARCHAR(50)
                     """)
-                    db.session.commit()  # Commit immediately to persist the column
                     
                     # Add index for efficient filtering
                     if not check_index_exists('idx_attachments_origin'):
                         execute_with_retry(migrate_engine, """
                             ON attachments(business_id, origin_module)
                         """)
-                        db.session.commit()  # Commit index creation
                     
                     migrations_applied.append("add_origin_module_to_attachments")
                     checkpoint("✅ Migration 84b complete: origin_module added with index")
@@ -6212,7 +6270,6 @@ def apply_migrations():
                         ALTER TABLE outbound_call_runs 
                         ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT FALSE
                     """)
-                    db.session.commit()
                     migrations_applied.append('105_outbound_cancel_requested')
                     checkpoint("✅ Migration 105 complete: cancel_requested column added to outbound_call_runs")
                 else:
@@ -6248,7 +6305,6 @@ def apply_migrations():
                     );
                     
                 """)
-                db.session.commit()
                 migrations_applied.append('106_recording_runs_table')
                 checkpoint("✅ Migration 106 complete: recording_runs table created")
                 checkpoint("   🎯 Enables RQ worker-based recording with progress/cancel support")
@@ -6431,7 +6487,6 @@ def apply_migrations():
                     updated_rows = result.rowcount
                     checkpoint(f"  ✅ Marked {updated_rows} existing calls with summaries as 'completed'")
                     
-                    db.session.commit()
                     migrations_applied.append('110_call_log_summary_status')
                 else:
                     checkpoint("  ℹ️ summary_status already exists on call_log")
@@ -6482,7 +6537,6 @@ def apply_migrations():
                     # Default timeout may be too short for large production tables
                     checkpoint("  → Setting statement timeout to 10 minutes for ALTER TABLE...")
                     execute_with_retry(migrate_engine, "SET statement_timeout = '600000'")  # 10 minutes
-                    db.session.commit()
                     
                     # Step 1: Add column as nullable (fast, no table rewrite)
                     checkpoint("  → Step 1/3: Adding column as nullable...")
@@ -6506,7 +6560,6 @@ def apply_migrations():
                         SET lead_tabs_config = '{}'::jsonb 
                         WHERE lead_tabs_config IS NULL
                     """)
-                    db.session.commit()
                     
                     # Now add NOT NULL constraint (requires scan but no rewrite since all values are non-NULL)
                     exec_ddl(db.engine, """
@@ -6517,7 +6570,6 @@ def apply_migrations():
                     # Reset statement timeout to default
                     checkpoint("  → Resetting statement timeout to default...")
                     execute_with_retry(migrate_engine, "SET statement_timeout = DEFAULT")
-                    db.session.commit()
                     
                     # Add column comment
                     exec_ddl(db.engine, """
@@ -6642,7 +6694,6 @@ def apply_migrations():
                     deleted_count = result.rowcount
                     if deleted_count > 0:
                         checkpoint(f"  ℹ️ Removed {deleted_count} duplicate jobs")
-                    db.session.commit()
                     
                     # Now add the unique constraint
                     exec_ddl(db.engine, """
@@ -6707,7 +6758,6 @@ def apply_migrations():
                         """)
                         checkpoint(f"  ℹ️ Deleted {orphaned_check} orphaned jobs")
                     
-                    db.session.commit()
                     
                     # Make it NOT NULL and add FK
                     checkpoint("  → Adding NOT NULL constraint and foreign key...")
@@ -6770,7 +6820,6 @@ def apply_migrations():
                     """)
                     updated_count = result.rowcount
                     checkpoint(f"  ℹ️ Initialized {updated_count} running runs with heartbeat")
-                    db.session.commit()
                     
                     migrations_applied.append('114_outbound_heartbeat')
                 else:
@@ -7013,7 +7062,6 @@ def apply_migrations():
                     """)
                     
                     created_count = result.rowcount
-                    db.session.commit()
                     checkpoint(f"  ✅ Created default calendars for {created_count} business(es)")
                     migrations_applied.append('115_default_calendars')
                 else:
@@ -7053,7 +7101,6 @@ def apply_migrations():
                         """)
                         
                         linked_count = result.rowcount
-                        db.session.commit()
                         checkpoint(f"  ✅ Linked {linked_count} appointment(s) to default calendars")
                         migrations_applied.append('115_link_appointments')
                     else:
@@ -7337,7 +7384,6 @@ def apply_migrations():
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:
-            db.session.commit()
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
         else:
             checkpoint("No migrations needed - database is up to date")
