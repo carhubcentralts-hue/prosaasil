@@ -162,7 +162,66 @@ docker compose \
     -f "$PROD_COMPOSE" \
     stop prosaas-api prosaas-calls worker scheduler baileys n8n 2>/dev/null || true
 
-log_success "All database-connected services stopped"
+log_success "Stop command executed"
+
+# Verify services are actually stopped
+log_info "Verifying all database-connected services are stopped..."
+
+# Get list of running services
+RUNNING_SERVICES=$(docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    ps --services --filter "status=running" 2>/dev/null || echo "")
+
+# List of services that MUST be stopped (connect to database)
+DB_SERVICES="prosaas-api prosaas-calls worker scheduler baileys n8n"
+
+# Check if any DB-connected service is still running
+STILL_RUNNING=""
+for service in $DB_SERVICES; do
+    if echo "$RUNNING_SERVICES" | grep -q "^${service}$"; then
+        STILL_RUNNING="$STILL_RUNNING $service"
+    fi
+done
+
+if [ -n "$STILL_RUNNING" ]; then
+    log_error "Some database-connected services are still running:$STILL_RUNNING"
+    log_error "These services must be stopped before migrations to prevent locks"
+    log_info "Attempting force stop..."
+    
+    # Try force stop
+    docker compose \
+        -f "$BASE_COMPOSE" \
+        -f "$PROD_COMPOSE" \
+        stop -t 10 $STILL_RUNNING 2>/dev/null || true
+    
+    # Check again
+    sleep 2
+    RUNNING_SERVICES=$(docker compose \
+        -f "$BASE_COMPOSE" \
+        -f "$PROD_COMPOSE" \
+        ps --services --filter "status=running" 2>/dev/null || echo "")
+    
+    STILL_RUNNING=""
+    for service in $DB_SERVICES; do
+        if echo "$RUNNING_SERVICES" | grep -q "^${service}$"; then
+            STILL_RUNNING="$STILL_RUNNING $service"
+        fi
+    done
+    
+    if [ -n "$STILL_RUNNING" ]; then
+        log_error "Failed to stop services:$STILL_RUNNING"
+        log_error "Cannot proceed safely with migrations"
+        exit 1
+    fi
+fi
+
+log_success "✅ All database-connected services confirmed stopped"
+log_info "Running services status:"
+docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    ps --format "table {{.Name}}\t{{.Status}}\t{{.Service}}" 2>/dev/null || true
 
 # Optional: Kill idle transactions if requested
 if [[ "$KILL_IDLE_TX" == true ]]; then

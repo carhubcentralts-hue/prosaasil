@@ -226,17 +226,21 @@ def build_indexes():
         logger.info("")
     
     # Print summary
+    logger.info("")
     logger.info("=" * 60)
-    logger.info("Index Build Summary")
     logger.info("=" * 60)
+    logger.info("INDEX BUILD SUMMARY - FINAL REPORT")
+    logger.info("=" * 60)
+    logger.info("=" * 60)
+    logger.info("")
     logger.info(f"Total indexes:  {len(INDEX_DEFS)}")
-    logger.info(f"Created:        {len(created)}")
-    logger.info(f"Skipped:        {len(skipped)} (already existed)")
-    logger.info(f"Failed:         {len(failed)}")
+    logger.info(f"✅ Created:     {len(created)}")
+    logger.info(f"⏭️  Skipped:     {len(skipped)} (already existed)")
+    logger.info(f"❌ Failed:      {len(failed)}")
     logger.info("")
     
     if created:
-        logger.info("✅ Created indexes:")
+        logger.info("✅ Successfully created indexes:")
         for name in created:
             logger.info(f"   • {name}")
         logger.info("")
@@ -248,24 +252,38 @@ def build_indexes():
         logger.info("")
     
     if failed:
-        logger.warning("❌ Failed indexes:")
+        logger.warning("=" * 60)
+        logger.warning("⚠️  ATTENTION: SOME INDEXES FAILED TO BUILD")
+        logger.warning("=" * 60)
+        logger.warning("")
+        logger.warning(f"❌ {len(failed)} index(es) failed:")
         for name in failed:
             logger.warning(f"   • {name}")
         logger.warning("")
-        logger.warning("⚠️  Some indexes failed to build.")
-        logger.warning("⚠️  This is not critical - deployment will continue.")
-        logger.warning("⚠️  Run the indexer again during low traffic:")
+        logger.warning("⚠️  This is NOT critical - deployment will continue successfully.")
+        logger.warning("⚠️  The application will work, but queries may be slower without these indexes.")
+        logger.warning("")
+        logger.warning("🔧 TO RETRY FAILED INDEXES:")
+        logger.warning("    Run this command during low traffic:")
+        logger.warning("")
         logger.warning("    docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm indexer")
         logger.warning("")
+        logger.warning("    Or in development:")
+        logger.warning("    python server/db_build_indexes.py")
+        logger.warning("")
+        logger.warning("=" * 60)
     else:
-        logger.info("🎉 All indexes processed successfully!")
+        logger.info("=" * 60)
+        logger.info("🎉 SUCCESS: All indexes processed successfully!")
+        logger.info("=" * 60)
         logger.info("")
     
     # Clean up
     engine.dispose()
     
+    logger.info("")
     logger.info("=" * 60)
-    logger.info("Index build complete")
+    logger.info("Index build complete - Deployment continuing")
     logger.info("=" * 60)
 
 
