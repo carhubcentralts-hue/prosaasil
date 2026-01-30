@@ -52,7 +52,7 @@ def test_exec_ddl_heavy_timeouts():
         
         # Extract exec_ddl_heavy function
         exec_ddl_heavy_match = re.search(
-            r'def exec_ddl_heavy\(.*?\):.*?(?=\ndef [a-z_]|\Z)', 
+            r'def exec_ddl_heavy\(.*?\):.*?(?=\ndef |\nclass |\Z)', 
             content, 
             re.DOTALL
         )
@@ -105,7 +105,7 @@ def test_exec_ddl_heavy_retry_logic():
         
         # Extract exec_ddl_heavy function
         exec_ddl_heavy_match = re.search(
-            r'def exec_ddl_heavy\(.*?\):.*?(?=\ndef [a-z_]|\Z)', 
+            r'def exec_ddl_heavy\(.*?\):.*?(?=\ndef |\nclass |\Z)', 
             content, 
             re.DOTALL
         )
@@ -172,7 +172,7 @@ def test_exec_ddl_heavy_lock_debugging():
         
         # Extract exec_ddl_heavy function
         exec_ddl_heavy_match = re.search(
-            r'def exec_ddl_heavy\(.*?\):.*?(?=\ndef [a-z_]|\Z)', 
+            r'def exec_ddl_heavy\(.*?\):.*?(?=\ndef |\nclass |\Z)', 
             content, 
             re.DOTALL
         )

@@ -809,32 +809,32 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
             
             if is_lock_error and i < retries - 1:
                 # Log warning and retry
-                log.warning(f"⚠️ Lock error on heavy DDL (attempt {i + 1}/{retries}), retrying in {delay}s: {e}")
+                logger.warning(f"⚠️ Lock error on heavy DDL (attempt {i + 1}/{retries}), retrying in {delay}s: {e}")
                 time.sleep(delay)
                 delay = min(delay * 1.5, 30)  # Exponential backoff, max 30s
                 continue
             
             # Non-lock error or last attempt - log lock debug info
-            log.error(f"❌ Heavy DDL failed (attempt {i + 1}/{retries}): {e}")
+            logger.error(f"❌ Heavy DDL failed (attempt {i + 1}/{retries}): {e}")
             
             # Try to log lock information
             try:
                 with engine.connect() as debug_conn:
                     rows = debug_conn.execute(text(LOCK_DEBUG_SQL)).fetchall()
                     if rows:
-                        log.error("=" * 80)
-                        log.error("LOCK DEBUG - Processes blocking this DDL:")
-                        log.error("=" * 80)
+                        logger.error("=" * 80)
+                        logger.error("LOCK DEBUG - Processes blocking this DDL:")
+                        logger.error("=" * 80)
                         for row in rows:
-                            log.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
-                            log.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
-                            log.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
-                            log.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
-                            log.error("-" * 80)
+                            logger.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
+                            logger.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
+                            logger.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
+                            logger.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
+                            logger.error("-" * 80)
                     else:
-                        log.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
+                        logger.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
             except Exception as debug_error:
-                log.error(f"Could not retrieve lock debug info: {debug_error}")
+                logger.error(f"Could not retrieve lock debug info: {debug_error}")
             
             # If it's a lock error and we've exhausted retries, raise special error
             if is_lock_error:
@@ -5249,7 +5249,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 95 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ receipts table does not exist - skipping")
