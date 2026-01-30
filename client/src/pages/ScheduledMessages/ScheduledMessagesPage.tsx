@@ -67,6 +67,7 @@ interface LeadStatus {
 export function ScheduledMessagesPage() {
   const [rules, setRules] = useState<scheduledMessagesApi.ScheduledRule[]>([]);
   const [statuses, setStatuses] = useState<LeadStatus[]>([]);
+  const [templates, setTemplates] = useState<scheduledMessagesApi.ManualTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -81,17 +82,22 @@ export function ScheduledMessagesPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [rulesData, statusesData] = await Promise.all([
+      const [rulesData, statusesResponse, templatesData] = await Promise.all([
         scheduledMessagesApi.getRules(),
-        http.get('/api/statuses').then(r => r.data.items || [])
+        http.get<any>('/api/statuses'),
+        scheduledMessagesApi.getManualTemplates()
       ]);
       
       // Guard: ensure rulesData is an array
       const rules = Array.isArray(rulesData) ? rulesData : [];
+      // http.get returns JSON directly - check for items property
+      const statusesData = statusesResponse?.items || statusesResponse || [];
       const statuses = Array.isArray(statusesData) ? statusesData : [];
+      const templates = Array.isArray(templatesData) ? templatesData : [];
       
       setRules(rules);
       setStatuses(statuses);
+      setTemplates(templates);
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
@@ -99,6 +105,7 @@ export function ScheduledMessagesPage() {
       // Set empty arrays to prevent crashes
       setRules([]);
       setStatuses([]);
+      setTemplates([]);
     } finally {
       setLoading(false);
     }
@@ -297,6 +304,7 @@ export function ScheduledMessagesPage() {
           <CreateRuleModal
             rule={selectedRule}
             statuses={statuses}
+            templates={templates}
             onClose={() => {
               setShowCreateModal(false);
               setSelectedRule(null);
@@ -325,11 +333,13 @@ export function ScheduledMessagesPage() {
 function CreateRuleModal({
   rule,
   statuses,
+  templates,
   onClose,
   onSave
 }: {
   rule: scheduledMessagesApi.ScheduledRule | null;
   statuses: LeadStatus[];
+  templates: scheduledMessagesApi.ManualTemplate[];
   onClose: () => void;
   onSave: () => void;
 }) {
@@ -342,6 +352,7 @@ function CreateRuleModal({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -442,6 +453,43 @@ function CreateRuleModal({
                 ))}
               </div>
             </div>
+            
+            {/* Template Selector */}
+            {templates.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  בחר תבנית (אופציונלי)
+                </label>
+                <select
+                  value={selectedTemplate}
+                  onChange={(e) => {
+                    const templateId = e.target.value;
+                    setSelectedTemplate(templateId);
+                    if (templateId) {
+                      const template = templates.find(t => t.id === parseInt(templateId));
+                      if (template) {
+                        setFormData({
+                          ...formData,
+                          message_text: template.message_text,
+                          name: formData.name || template.name
+                        });
+                      }
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+                >
+                  <option value="">-- בחר תבנית --</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  בחירת תבנית תמלא את תוכן ההודעה אוטומטית
+                </p>
+              </div>
+            )}
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
