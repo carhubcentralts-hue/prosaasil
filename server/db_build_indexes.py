@@ -57,9 +57,7 @@ def get_database_url() -> str:
     Uses POOLER connection for index building operations.
     Pooler is safe for CREATE INDEX CONCURRENTLY with proper settings.
     """
-    # Import here to avoid circular dependency
-    import sys
-    import os
+    # Add parent directory to path for server imports
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from server.database_url import get_database_url as get_db_url
     

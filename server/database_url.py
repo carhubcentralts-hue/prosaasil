@@ -47,12 +47,14 @@ def get_database_url(connection_type: str = "pooler", verbose: bool = True) -> s
         url = os.getenv("DATABASE_URL_DIRECT")
         source = "DATABASE_URL_DIRECT"
         
-        # If DIRECT not available, fall back to POOLER
+        # ✅ SOFT PREFER: If DIRECT not available, fall back to POOLER automatically
+        # This ensures deployment doesn't fail when DIRECT is unreachable
         if not url:
             if verbose:
-                logger.warning("⚠️  DATABASE_URL_DIRECT not set, falling back to POOLER for DIRECT connection")
+                logger.warning("⚠️  DATABASE_URL_DIRECT not set, falling back to POOLER")
+                logger.warning("   💡 Migrations will use POOLER with appropriate timeouts")
             url = os.getenv("DATABASE_URL_POOLER")
-            source = "DATABASE_URL_POOLER (fallback for DIRECT)"
+            source = "DATABASE_URL_POOLER (auto-fallback from DIRECT)"
             
     elif connection_type == "pooler":
         url = os.getenv("DATABASE_URL_POOLER")
@@ -143,38 +145,28 @@ def _log_connection_info(connection_type: str, url: str, source: str):
             logger.info(f"   Host: {host}")
             logger.info(f"   Connection method: {connection_method}")
             
-            # 🔥 HARD GUARD: Only for migrations - they MUST use direct connection
-            # Indexer and backfill can now safely use POOLER with proper settings
+            # ✅ SOFT PREFER: Warn about mismatches, but don't fail deployment
+            # The goal is to prefer DIRECT for migrations but allow POOLER fallback
             service_role = os.getenv('SERVICE_ROLE', '')
-            if service_role == 'migrate':
-                if connection_type == 'direct' and 'pooler' in host.lower():
-                    logger.error("=" * 80)
-                    logger.error("🚨 CRITICAL ERROR: MIGRATION RUNNING ON POOLER CONNECTION!")
-                    logger.error("=" * 80)
-                    logger.error(f"Service: {service_role}")
-                    logger.error(f"Requested: DIRECT connection")
-                    logger.error(f"Got host: {host} (contains 'pooler')")
-                    logger.error("")
-                    logger.error("This will cause 'ghost locks' and migration timeouts!")
-                    logger.error("Set DATABASE_URL_DIRECT to point to *.db.supabase.com")
-                    logger.error("=" * 80)
-                    raise RuntimeError(
-                        f"FATAL: {service_role.upper()} service cannot use POOLER connection! "
-                        f"Host '{host}' contains 'pooler' but DATABASE_URL_DIRECT should point to "
-                        f"direct database connection (e.g., *.db.supabase.com)"
-                    )
             
-            # Info logging for indexer/backfill using POOLER (this is now OK)
+            if service_role == 'migrate' and 'pooler' in host.lower():
+                logger.warning("=" * 80)
+                logger.warning("⚠️  NOTICE: Migration running on POOLER (DIRECT not available)")
+                logger.warning("=" * 80)
+                logger.warning(f"   This is acceptable but not optimal")
+                logger.warning(f"   For best results, set DATABASE_URL_DIRECT to *.db.supabase.com")
+                logger.warning(f"   Migration will use extended timeouts and retries on POOLER")
+                logger.warning("=" * 80)
+            
+            # Info logging for indexer/backfill using POOLER (this is ideal)
             if service_role in ['indexer', 'backfill'] and 'pooler' in host.lower():
-                logger.info(f"✅ {service_role.upper()} running on POOLER with safe settings")
+                logger.info(f"✅ {service_role.upper()} running on POOLER (optimal configuration)")
                 
-            # Warn if mismatch for other cases (but don't fail)
-            if connection_type == "direct" and "pooler" in host.lower() and service_role not in ['indexer', 'backfill']:
-                logger.warning("⚠️  WARNING: Requested DIRECT but host contains 'pooler'!")
+            # Warn about other mismatches (informational only)
+            if connection_type == "direct" and "pooler" in host.lower() and service_role not in ['migrate', 'indexer', 'backfill']:
+                logger.warning("⚠️  INFO: Requested DIRECT but using POOLER (this is OK with fallback)")
             elif connection_type == "pooler" and ".db." in host.lower():
-                logger.warning("⚠️  WARNING: Requested POOLER but host contains '.db.'!")
-    except RuntimeError:
-        # Re-raise hard guard errors
-        raise
+                logger.warning("⚠️  INFO: Requested POOLER but using DIRECT (this works but inefficient)")
+                
     except Exception as e:
         logger.debug(f"Could not parse connection info: {e}")

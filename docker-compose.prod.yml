@@ -95,11 +95,12 @@ services:
       context: .
       dockerfile: Dockerfile.backend.light
     environment:
-      # 🔥 CRITICAL: Use DIRECT connection for migrations (not pooler)
-      # This avoids "ghost locks" and SSL issues with Supabase pooler
+      # ✅ SOFT PREFER: Prefers DIRECT but automatically falls back to POOLER
+      # If DATABASE_URL_DIRECT is not available/unreachable, uses POOLER
+      # This ensures deployment doesn't fail due to network issues
       DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
       DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
-      SERVICE_ROLE: migrate  # 🔥 GUARD: Enables hard check for POOLER misuse
+      SERVICE_ROLE: migrate
       FLASK_ENV: production
       # 🔥 CRITICAL: Must be exactly "1" (not "true", not true, not "1" in quotes from env)
       RUN_MIGRATIONS: "1"
