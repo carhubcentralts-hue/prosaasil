@@ -223,6 +223,65 @@ docker compose \
     -f "$PROD_COMPOSE" \
     ps --format "table {{.Name}}\t{{.Status}}\t{{.Service}}" 2>/dev/null || true
 
+# Step 2.5: Check active database connections
+log_header "Step 2.5: Checking Active Database Connections"
+log_info "Checking for active connections to the database..."
+
+# Use DATABASE_URL_DIRECT for migration-related checks
+# This ensures we're checking the direct connection, not the pooler
+if docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    run --rm -e DATABASE_URL='${DATABASE_URL_DIRECT:-${DATABASE_URL}}' migrate \
+    python -c "
+import os
+import sys
+from sqlalchemy import create_engine, text
+
+try:
+    # Import centralized database_url module
+    sys.path.insert(0, '/app')
+    from server.database_url import get_database_url
+    
+    # Get direct database URL
+    db_url = get_database_url(connection_type='direct')
+    engine = create_engine(db_url)
+    
+    with engine.connect() as conn:
+        result = conn.execute(text('''
+            SELECT 
+                pid,
+                usename,
+                application_name,
+                state,
+                left(query, 80) as query
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+            AND pid != pg_backend_pid()
+            ORDER BY state, query_start DESC
+        '''))
+        
+        rows = result.fetchall()
+        if rows:
+            print('\n📊 Active database connections:')
+            print('=' * 80)
+            for row in rows:
+                print(f'  PID: {row[0]} | User: {row[1]} | App: {row[2]} | State: {row[3]}')
+                print(f'    Query: {row[4] if row[4] else \"(idle)\"}')
+                print('-' * 80)
+            print(f'\nTotal connections: {len(rows)}')
+        else:
+            print('✅ No active database connections (besides this check)')
+            
+except Exception as e:
+    print(f'⚠️  Could not check database connections: {e}')
+    print('   This is not critical - continuing with deployment')
+" 2>/dev/null || log_warning "Could not check database connections"; then
+    log_success "Database connection check completed"
+else
+    log_warning "Database connection check failed (non-critical)"
+fi
+
 # Optional: Kill idle transactions if requested
 if [[ "$KILL_IDLE_TX" == true ]]; then
     log_info "Killing idle transactions (--kill-idle-tx flag set)..."
