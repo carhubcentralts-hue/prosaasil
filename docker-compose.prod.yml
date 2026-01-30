@@ -147,6 +147,50 @@ services:
       - prosaas-net
 
   # ===========================================
+  # Backfill Service - Runs data backfill operations
+  # Runs AFTER migrations and indexes
+  # Never fails deployment - exits 0 even on errors
+  # Designed for production stability:
+  # - Uses small batches (100 rows) to reduce lock contention
+  # - Uses FOR UPDATE SKIP LOCKED to avoid blocking
+  # - Time-boxed execution (10 minutes by default)
+  # - Idempotent and safe to run multiple times
+  # ===========================================
+  backfill:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.light
+    restart: "no"  # Run once and exit
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      FLASK_ENV: production
+      # 🔥 LOGGING - Production mode
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    command: ["python", "server/db_backfill.py", "--max-time=600", "--batch-size=100"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+    networks:
+      - prosaas-net
+
+  # ===========================================
   # Disable local database in production
   # (Use managed DB like Railway, Supabase, Neon, etc.)
   # ===========================================

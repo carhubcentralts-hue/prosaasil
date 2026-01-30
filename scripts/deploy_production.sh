@@ -286,6 +286,30 @@ docker compose \
 # Just log that it completed
 log_success "Index builder completed (check logs above for any warnings)"
 
+# Step 3.6: Run data backfill (separate from migrations)
+log_header "Step 3.6: Running Data Backfill Operations"
+log_info "Running backfill tool (non-blocking)..."
+
+# Stop any existing backfill container
+docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    rm -f -s backfill 2>/dev/null || true
+
+# Run backfill tool
+# ⚠️ IMPORTANT: Backfill tool NEVER fails deployment
+# It exits 0 even if incomplete, allowing deployment to continue
+# Backfill is idempotent and will continue on next deployment if needed
+log_info "Executing backfill tool..."
+docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    run --rm backfill
+
+# Backfill tool always exits 0, so we don't check exit code
+# Just log that it completed
+log_success "Backfill tool completed (check logs above for any warnings)"
+
 # If migrate-only flag is set, stop here
 if [[ "$MIGRATE_ONLY" == true ]]; then
     log_header "Migration-Only Mode"
