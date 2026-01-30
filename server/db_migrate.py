@@ -5744,7 +5744,6 @@ def apply_migrations():
                     checkpoint("    ✅ business.whatsapp_max_tokens added")
                 
                 checkpoint("  ✅ Part 1 completed - WhatsApp prompt fields added")
-                migrations_applied.append('add_business_whatsapp_fields_96')
             else:
                 checkpoint("  ℹ️  business table does not exist - skipping Part 1")
             
@@ -5774,7 +5773,6 @@ def apply_migrations():
                     checkpoint("    ✅ leads.name_updated_at added")
                 
                 checkpoint("  ✅ Part 2 completed - Lead name tracking fields added")
-                migrations_applied.append('add_leads_name_fields_96')
             else:
                 checkpoint("  ℹ️  leads table does not exist - skipping Part 2")
             
@@ -5783,11 +5781,14 @@ def apply_migrations():
             checkpoint("   ℹ️  Command: python server/db_run_backfills.py --only migration_96_lead_name")
         
         # Run migration 96 with fingerprint-based reconciliation
+        # Note: run_migration() handles all tracking via schema_migrations table
         status_96 = run_migration("096", fp_96, run_96, migrate_engine)
         if status_96 == "RUN":
-            # Only add to migrations_applied if actually executed
-            # (fingerprint function already adds tracking)
-            pass
+            # Migration was executed - add to legacy tracking for backward compatibility
+            migrations_applied.extend([
+                'add_business_whatsapp_fields_96',
+                'add_leads_name_fields_96'
+            ])
         
         # ═══════════════════════════════════════════════════════════════════════
         # Migration 97: Add unique constraint to receipts to prevent duplicates

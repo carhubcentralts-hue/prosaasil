@@ -186,6 +186,8 @@ def backfill_96_lead_name(engine, batch_size=200, max_time_seconds=600):
     total_updated = 0
     iteration = 0
     max_iterations = 10000  # Safety limit
+    retry_count = 0
+    max_retries_per_batch = 3  # Prevent infinite retry loop
     
     while iteration < max_iterations:
         if time.time() >= deadline:
@@ -227,6 +229,8 @@ def backfill_96_lead_name(engine, batch_size=200, max_time_seconds=600):
                 
                 rows_updated = result.rowcount if hasattr(result, 'rowcount') else 0
             
+            # Success - reset retry count and move to next iteration
+            retry_count = 0
             total_updated += rows_updated
             iteration += 1
             
@@ -248,9 +252,15 @@ def backfill_96_lead_name(engine, batch_size=200, max_time_seconds=600):
         except OperationalError as e:
             error_str = str(e).lower()
             
-            # Handle connection errors - retry
+            # Handle connection errors - retry with limit
             if any(x in error_str for x in ['ssl connection', 'connection reset', 'timeout']):
-                logger.warning(f"  Connection error on batch {iteration}: {e}")
+                retry_count += 1
+                if retry_count > max_retries_per_batch:
+                    logger.error(f"  Max retries ({max_retries_per_batch}) exceeded for batch {iteration}")
+                    logger.error(f"  Stopping backfill. Progress: {total_updated} rows")
+                    break
+                
+                logger.warning(f"  Connection error on batch {iteration} (retry {retry_count}/{max_retries_per_batch}): {e}")
                 logger.warning(f"  Retrying in 2 seconds...")
                 time.sleep(2.0)
                 # Don't increment iteration - retry this batch
@@ -260,6 +270,7 @@ def backfill_96_lead_name(engine, batch_size=200, max_time_seconds=600):
             if 'lock_timeout' in error_str:
                 logger.warning(f"  Lock timeout on batch {iteration} - skipping")
                 iteration += 1
+                retry_count = 0  # Reset retry count for next batch
                 time.sleep(1.0)
                 continue
             
