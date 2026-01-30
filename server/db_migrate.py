@@ -7,9 +7,36 @@ Database migrations - additive only, with strict data protection
 - NO TRUNCATE, NO DROP TABLE on any tables
 - Automatic verification with rollback on unexpected data loss
 
-⚠️ CRITICAL MIGRATION RULES - READ BEFORE ADDING NEW MIGRATIONS ⚠️
+⚠️ ═══════════════════════════════════════════════════════════════════════════
+⚠️ IRON RULE: MIGRATIONS = SCHEMA ONLY (ONE SOURCE OF TRUTH)
+⚠️ ═══════════════════════════════════════════════════════════════════════════
 
-📋 THE IRON LAWS OF MIGRATIONS (למנוע תקלות בפרודקשן):
+📋 THE THREE PILLARS OF DATABASE OPERATIONS:
+
+1️⃣ **MIGRATIONS (db_migrate.py)** = Schema Changes ONLY
+   ✅ Allowed: CREATE/ALTER/DROP TABLE/COLUMN, ADD CONSTRAINT
+   ❌ FORBIDDEN: UPDATE/INSERT/DELETE on tables with many rows
+   ❌ FORBIDDEN: CREATE INDEX (goes to db_indexes.py)
+   ❌ FORBIDDEN: Data backfills (goes to db_backfills.py)
+   
+2️⃣ **INDEXES (db_indexes.py + db_build_indexes.py)** = Performance Indexes ONLY
+   ✅ Only CREATE INDEX CONCURRENTLY statements
+   ❌ FORBIDDEN: Schema changes, backfills, migrations
+   
+3️⃣ **BACKFILLS (db_backfills.py + db_run_backfills.py)** = Data Operations ONLY
+   ✅ Only UPDATE/INSERT for populating existing columns
+   ❌ FORBIDDEN: Schema changes, index creation, ALTER TABLE
+
+⚠️ VIOLATION = PRODUCTION FAILURE + LOCK TIMEOUTS + DEPLOYMENT ISSUES
+
+📖 For detailed guidelines, see:
+- MIGRATION_GUIDELINES.md (schema changes)
+- INDEXING_GUIDE.md (index creation)
+- MIGRATION_36_BACKFILL_SEPARATION.md (backfill operations)
+
+⚠️ ═══════════════════════════════════════════════════════════════════════════
+
+📋 DETAILED MIGRATION RULES:
 
 1️⃣ **NEVER use db.session.execute() for migrations**
    ❌ BAD:  db.session.execute(text("ALTER TABLE..."))
@@ -19,35 +46,27 @@ Database migrations - additive only, with strict data protection
    - Has 5s lock_timeout (fail fast on locks)
    - Includes retry logic and lock debugging
    
-3️⃣ **DML operations MUST use exec_dml()** (data changes)
-   - UPDATE, INSERT, DELETE, large backfills
-   - Has 60s lock_timeout (handles busy tables)
-   - ALWAYS use batching for large updates (1000 rows per batch)
-   - Process by tenant_id/business_id when possible
+3️⃣ **DML operations BELONG IN db_backfills.py**
+   - NO UPDATE/INSERT/DELETE in migrations
+   - Backfills run separately via db_run_backfills.py
+   - Use batching + SKIP LOCKED for production safety
    
-4️⃣ **❌ Performance indexes MUST NOT be added here ❌**
-   - ✅ ALL performance indexes belong in server/db_indexes.py ONLY
+4️⃣ **❌ Performance indexes BELONG IN db_indexes.py ❌**
+   - ✅ ALL performance indexes go to db_indexes.py ONLY
    - ✅ Only UNIQUE constraints allowed in migrations
    - Performance indexes are built separately during deployment
    - See INDEXING_GUIDE.md for details
    - Violating this rule = production deployment failure
    
-5️⃣ **Create supporting indexes BEFORE backfills (if needed in migration)**
-   - Only add if absolutely critical for migration to succeed
-   - Prefer moving to db_indexes.py and running backfill in smaller batches
-   - Use partial indexes (WHERE clauses) for efficiency
-   
-6️⃣ **All operations MUST be idempotent**
+5️⃣ **All operations MUST be idempotent**
    - Use IF NOT EXISTS for CREATE operations
    - Use IF EXISTS for DROP operations
    - Check column/table existence before ALTER
    
-7️⃣ **Test migrations locally BEFORE production**
+6️⃣ **Test migrations locally BEFORE production**
    - Drop test column/table: ALTER TABLE test_table DROP COLUMN IF EXISTS test_col;
    - Run migration to re-apply it
    - Verify idempotency: run again - should succeed with no changes
-
-📖 For detailed guidelines, see MIGRATION_GUIDELINES.md
 
 🔥 REMEMBER: Breaking these rules = production downtime + data locks!
 """

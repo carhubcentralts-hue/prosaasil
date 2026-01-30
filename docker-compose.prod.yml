@@ -151,6 +151,7 @@ services:
   # Runs AFTER migrations and indexes
   # Never fails deployment - exits 0 even on errors
   # Designed for production stability:
+  # - Uses central registry system (db_backfills.py)
   # - Uses small batches (100 rows) to reduce lock contention
   # - Uses FOR UPDATE SKIP LOCKED to avoid blocking
   # - Time-boxed execution (10 minutes by default)
@@ -178,7 +179,8 @@ services:
       - ndots:0
       - timeout:2
       - attempts:2
-    command: ["python", "server/db_backfill.py", "--max-time=600", "--batch-size=100"]
+    # Run central backfill runner (ONE SOURCE OF TRUTH)
+    command: ["python", "server/db_run_backfills.py", "--all", "--max-minutes=10"]
     depends_on:
       migrate:
         condition: service_completed_successfully
