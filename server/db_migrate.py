@@ -5738,6 +5738,7 @@ def apply_migrations():
                     """))
                     checkpoint("  ✅ Index created")
                 except Exception as idx_err:
+                    pass  # Index might already exist, that's okay
                 
                 migrations_applied.append('migration_102_ai_provider_selection')
                 checkpoint("✅ Migration 102 completed - AI provider selection implemented")
