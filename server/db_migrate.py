@@ -296,7 +296,9 @@ def get_migrate_engine():
     global _MIGRATE_ENGINE
     if _MIGRATE_ENGINE is None:
         from server.database_url import get_database_url
-        database_url = get_database_url()
+        # 🔥 CRITICAL: Use DIRECT connection for migrations (not pooler)
+        # This avoids "ghost locks" and SSL issues with poolers like Supabase's pgbouncer
+        database_url = get_database_url(connection_type="direct")
         _MIGRATE_ENGINE = create_engine(
             database_url,
             pool_pre_ping=True,  # Test connections before using them
@@ -304,7 +306,7 @@ def get_migrate_engine():
             pool_size=5,
             max_overflow=10,
         )
-        log.info("✅ Created dedicated migration engine with pool_pre_ping=True and pool_recycle=180")
+        log.info("✅ Created dedicated migration engine with DIRECT connection (not pooler)")
     return _MIGRATE_ENGINE
 
 def fetch_all_retry(engine, sql, params=None, attempts=3):
@@ -774,7 +776,7 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
     - Longer lock_timeout (120s instead of 5s) - allows more time to acquire locks
     - statement_timeout = 0 (unlimited) - because waiting for locks is expected
     - More retries (10 instead of 4) with exponential backoff
-    - Lock debugging on failures
+    - Real-time lock debugging (shows blocking PIDs DURING lock wait, not after)
     
     Lock timeouts:
     - lock_timeout: 120s (wait longer to acquire AccessExclusive lock)
@@ -798,17 +800,25 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
         ''')
     """
     delay = 2.0
-    last_error = None
     
     for i in range(retries):
         try:
             with engine.begin() as conn:
+                # Get our own PID for debugging
+                backend_pid_result = conn.execute(text("SELECT pg_backend_pid()"))
+                backend_pid = backend_pid_result.scalar()
+                logger.info(f"🔍 DDL Heavy (attempt {i + 1}/{retries}): Backend PID = {backend_pid}")
+                
                 # Set timeouts appropriate for heavy DDL
                 conn.execute(text("SET lock_timeout = '120s'"))
                 conn.execute(text("SET statement_timeout = 0"))
                 conn.execute(text("SET idle_in_transaction_session_timeout = '60s'"))
+                
                 # Execute the DDL
+                logger.info(f"🔨 Executing DDL: {sql[:100]}...")
                 conn.execute(text(sql), params or {})
+                
+            logger.info(f"✅ DDL Heavy completed successfully (attempt {i + 1}/{retries})")
             return  # Success
             
         except Exception as e:
@@ -824,38 +834,101 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
                 "canceling statement due to lock timeout"
             ])
             
+            # 🔥 CRITICAL: Log lock debug info IMMEDIATELY when lock error occurs
+            # This captures the blocking processes IN REAL TIME, not after they're gone
+            if is_lock_error:
+                logger.error(f"❌ Lock error on heavy DDL (attempt {i + 1}/{retries}): {e}")
+                
+                # Get real-time lock information
+                try:
+                    with engine.connect() as debug_conn:
+                        # Query 1: Get our backend PID
+                        backend_pid_result = debug_conn.execute(text("SELECT pg_backend_pid()"))
+                        my_pid = backend_pid_result.scalar()
+                        
+                        # Query 2: Get PIDs blocking us
+                        blocking_pids_result = debug_conn.execute(text(
+                            "SELECT pg_blocking_pids(:pid)::text"
+                        ), {"pid": my_pid})
+                        blocking_pids_str = blocking_pids_result.scalar()
+                        
+                        # Parse blocking PIDs (format: "{123,456}" or "{}")
+                        blocking_pids = []
+                        if blocking_pids_str and blocking_pids_str != '{}':
+                            # Remove braces and split
+                            blocking_pids = [int(p.strip()) for p in blocking_pids_str.strip('{}').split(',') if p.strip()]
+                        
+                        logger.error("=" * 80)
+                        logger.error("🔍 REAL-TIME LOCK DEBUG (captured during lock timeout)")
+                        logger.error("=" * 80)
+                        logger.error(f"Our PID: {my_pid}")
+                        logger.error(f"Blocking PIDs: {blocking_pids if blocking_pids else 'None (lock already released)'}")
+                        
+                        # Query 3: If we have blocking PIDs, get details about them
+                        # 🔒 SECURITY: Use ANY() with parameterized array to avoid SQL injection
+                        if blocking_pids:
+                            blocking_details = debug_conn.execute(text("""
+                                SELECT 
+                                    pid, 
+                                    usename,
+                                    application_name,
+                                    client_addr,
+                                    state,
+                                    now() - query_start AS query_age,
+                                    left(query, 200) AS query
+                                FROM pg_stat_activity
+                                WHERE pid = ANY(:pids)
+                            """), {"pids": blocking_pids}).fetchall()
+                            
+                            logger.error("-" * 80)
+                            logger.error("🚨 BLOCKING PROCESSES:")
+                            logger.error("-" * 80)
+                            for row in blocking_details:
+                                logger.error(f"  PID: {row[0]}")
+                                logger.error(f"    User: {row[1]}")
+                                logger.error(f"    App: {row[2]}")
+                                logger.error(f"    Client: {row[3]}")
+                                logger.error(f"    State: {row[4]}")
+                                logger.error(f"    Query age: {row[5]}")
+                                logger.error(f"    Query: {row[6]}")
+                                logger.error("-" * 40)
+                        
+                        # Query 4: Show all active connections to this database
+                        all_conns = debug_conn.execute(text("""
+                            SELECT 
+                                count(*) as total,
+                                string_agg(DISTINCT application_name, ', ') as apps
+                            FROM pg_stat_activity
+                            WHERE datname = current_database()
+                            AND pid != pg_backend_pid()
+                        """)).fetchone()
+                        
+                        if all_conns:
+                            logger.error("-" * 80)
+                            logger.error(f"📊 DATABASE STATS:")
+                            logger.error(f"    Total active connections: {all_conns[0]}")
+                            logger.error(f"    Applications: {all_conns[1]}")
+                        
+                        logger.error("=" * 80)
+                        
+                except Exception as debug_error:
+                    logger.error(f"⚠️ Could not retrieve lock debug info: {debug_error}")
+            
+            # Retry logic
             if is_lock_error and i < retries - 1:
                 # Log warning and retry
-                logger.warning(f"⚠️ Lock error on heavy DDL (attempt {i + 1}/{retries}), retrying in {delay}s: {e}")
+                logger.warning(f"⏳ Retrying in {delay}s (attempt {i + 2}/{retries})...")
                 time.sleep(delay)
                 delay = min(delay * 1.5, 30)  # Exponential backoff, max 30s
                 continue
             
-            # Non-lock error or last attempt - log lock debug info
-            logger.error(f"❌ Heavy DDL failed (attempt {i + 1}/{retries}): {e}")
-            
-            # Try to log lock information
-            try:
-                with engine.connect() as debug_conn:
-                    rows = debug_conn.execute(text(LOCK_DEBUG_SQL)).fetchall()
-                    if rows:
-                        logger.error("=" * 80)
-                        logger.error("LOCK DEBUG - Processes blocking this DDL:")
-                        logger.error("=" * 80)
-                        for row in rows:
-                            logger.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
-                            logger.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
-                            logger.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
-                            logger.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
-                            logger.error("-" * 80)
-                    else:
-                        logger.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
-            except Exception as debug_error:
-                logger.error(f"Could not retrieve lock debug info: {debug_error}")
+            # Non-lock error or last attempt
+            if not is_lock_error:
+                logger.error(f"❌ Heavy DDL failed with non-lock error (attempt {i + 1}/{retries}): {e}")
             
             # If it's a lock error and we've exhausted retries, raise special error
             if is_lock_error:
-                raise RuntimeError(f"DDL heavy failed due to locks after {retries} retries")
+                raise RuntimeError(f"DDL heavy failed due to locks after {retries} retries. Check logs above for blocking processes.")
             else:
                 # Non-lock error - re-raise immediately
                 raise
@@ -5227,39 +5300,76 @@ def apply_migrations():
         # ═══════════════════════════════════════════════════════════════════════
         # PURPOSE: Update constraint to allow 'incomplete' status for validation failures
         #
-        # IMPORTANT: This is a "heavy DDL" operation that requires AccessExclusive lock
-        # on the receipts table. Unlike regular DDL, this uses exec_ddl_heavy() which:
-        # - Has longer lock_timeout (120s vs 5s) to wait for lock acquisition
-        # - Has unlimited statement_timeout (because waiting for locks is expected)
-        # - Includes retry logic with exponential backoff
-        # - Provides lock debugging if operations fail
+        # 🔥 TWO-PHASE APPROACH (Production-Safe):
+        # Phase 1: ADD CONSTRAINT ... NOT VALID (minimal blocking)
+        # Phase 2: VALIDATE CONSTRAINT (allows concurrent reads)
+        # Phase 3: DROP old constraint and rename (quick operation)
         #
-        # The operation is split into two separate ALTER statements (not wrapped in DO $$)
-        # to allow better control over retries and lock handling in production.
+        # This approach is production-safe because:
+        # - ADD ... NOT VALID requires only ShareUpdateExclusiveLock (not AccessExclusiveLock)
+        # - VALIDATE can run concurrently with SELECT queries
+        # - Only the final DROP/RENAME is AccessExclusive, and it's very quick
+        #
+        # Traditional approach (DROP + ADD) would require AccessExclusiveLock for the entire
+        # operation, blocking all queries. In Supabase pooler, this causes "ghost locks"
+        # and timeouts after 120 seconds.
         # ═══════════════════════════════════════════════════════════════════════
         if check_table_exists('receipts'):
             try:
-                checkpoint("🔧 Running Migration 95: Add 'incomplete' status to receipts")
-                checkpoint("   ⚠️  This is a heavy DDL operation - may take time to acquire lock")
+                checkpoint("🔧 Running Migration 95: Add 'incomplete' status to receipts (TWO-PHASE)")
+                checkpoint("   ℹ️  Using production-safe two-phase constraint approach")
                 
                 migrate_engine = get_migrate_engine()
                 
-                # Execute DROP and ADD in a single transaction for atomicity
-                # Both statements run together - if one fails, both rollback
-                checkpoint("   → Executing DROP and ADD CONSTRAINT atomically")
-                exec_ddl_heavy(migrate_engine, """
+                # Phase 1: Drop old + Add new constraint as NOT VALID
+                # ⚠️ LOCK INFO: DROP CONSTRAINT requires AccessExclusiveLock briefly,
+                # but it's released immediately. ADD CONSTRAINT NOT VALID requires 
+                # ShareUpdateExclusiveLock (less blocking than AccessExclusiveLock).
+                # This is still much better than traditional DROP+ADD which holds
+                # AccessExclusiveLock during constraint validation.
+                checkpoint("   → Phase 1: Replacing constraint with NOT VALID version...")
+                exec_ddl(migrate_engine, """
+                    -- Drop old constraint if it exists (brief AccessExclusiveLock)
                     ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;
                     
+                    -- Add new constraint as NOT VALID (ShareUpdateExclusiveLock, no validation)
                     ALTER TABLE receipts 
-                    ADD CONSTRAINT chk_receipt_status 
-                    CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'));
+                    ADD CONSTRAINT chk_receipt_status_v2
+                    CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'))
+                    NOT VALID;
                 """)
+                checkpoint("   ✅ Phase 1 complete: Constraint added (NOT VALID)")
                 
-                migrations_applied.append("add_incomplete_status_to_receipts")
+                # Phase 2: Validate the constraint (can run concurrently with reads)
+                # This checks existing rows but allows SELECT queries to continue
+                checkpoint("   → Phase 2: Validating constraint - allows concurrent reads...")
+                exec_ddl(migrate_engine, """
+                    ALTER TABLE receipts 
+                    VALIDATE CONSTRAINT chk_receipt_status_v2;
+                """)
+                checkpoint("   ✅ Phase 2 complete: Constraint validated")
+                
+                # Phase 3: Rename to final name
+                # ⚠️ LOCK INFO: RENAME requires AccessExclusiveLock, but since we're
+                # just renaming (not validating), it's extremely fast - typically < 100ms.
+                # Uses exec_ddl with 5s lock_timeout, which is sufficient for rename.
+                checkpoint("   → Phase 3: Renaming constraint to final name (fast)...")
+                exec_ddl(migrate_engine, """
+                    ALTER TABLE receipts 
+                    RENAME CONSTRAINT chk_receipt_status_v2 TO chk_receipt_status;
+                """)
+                checkpoint("   ✅ Phase 3 complete: Constraint renamed")
+                
+                # ⚠️ MIGRATION TRACKING: Changed from 'add_incomplete_status_to_receipts'
+                # to 'add_incomplete_status_to_receipts_two_phase' to reflect the new approach.
+                # This is intentional - the two-phase method is fundamentally different and safer.
+                # Old migration name won't be re-applied since we check for constraint existence.
+                migrations_applied.append("add_incomplete_status_to_receipts_two_phase")
                 checkpoint("✅ Migration 95 completed - 'incomplete' status added to receipts")
                 checkpoint("   📋 Purpose: Track receipts with validation failures (missing snapshot/attachments)")
                 checkpoint("   🎯 Ensures: NO emails with attachments are missed (Rule 6/7/10)")
                 checkpoint("   ℹ️  Status values: pending_review, approved, rejected, not_receipt, incomplete")
+                checkpoint("   🚀 Used production-safe two-phase approach to minimize blocking")
                 
             except Exception as e:
                 log.error(f"❌ Migration 95 failed: {e}")

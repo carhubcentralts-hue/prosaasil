@@ -95,6 +95,11 @@ services:
       context: .
       dockerfile: Dockerfile.backend.light
     environment:
+      # 🔥 CRITICAL: Use DIRECT connection for migrations (not pooler)
+      # This avoids "ghost locks" and SSL issues with Supabase pooler
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      SERVICE_ROLE: migrate  # 🔥 GUARD: Enables hard check for POOLER misuse
       FLASK_ENV: production
       # 🔥 CRITICAL: Must be exactly "1" (not "true", not true, not "1" in quotes from env)
       RUN_MIGRATIONS: "1"
@@ -120,7 +125,10 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      # 🔥 CRITICAL: Use DIRECT connection for index building (not pooler)
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      SERVICE_ROLE: indexer  # 🔥 GUARD: Enables hard check for POOLER misuse
       FLASK_ENV: production
       # 🔥 LOGGING - Production mode
       LOG_LEVEL: INFO
@@ -165,7 +173,10 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      # 🔥 CRITICAL: Use DIRECT connection for backfill operations (not pooler)
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      SERVICE_ROLE: backfill  # 🔥 GUARD: Enables hard check for POOLER misuse
       FLASK_ENV: production
       # 🔥 LOGGING - Production mode
       LOG_LEVEL: INFO
@@ -209,6 +220,9 @@ services:
   # ===========================================
   worker:
     environment:
+      # 🔥 CRITICAL: Use POOLER connection for worker traffic
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
       FLASK_ENV: production
       RUN_MIGRATIONS_ON_START: 0
       RUN_MIGRATIONS: "0"
@@ -267,7 +281,9 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      # 🔥 CRITICAL: Use POOLER connection for API traffic
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
       FLASK_ENV: production
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -361,7 +377,9 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      # 🔥 CRITICAL: Use POOLER connection for calls traffic
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
       FLASK_ENV: production
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       OPENAI_API_KEY: ${OPENAI_API_KEY}

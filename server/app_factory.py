@@ -209,8 +209,9 @@ def create_minimal_app():
     
     # 🔥 FIX: Single source of truth for database URL
     # Use unified function that prioritizes DATABASE_URL, falls back to DB_POSTGRESDB_*
+    # 🔥 CRITICAL: Use POOLER connection for API/Worker traffic (not direct)
     from server.database_url import get_database_url
-    DATABASE_URL = get_database_url()
+    DATABASE_URL = get_database_url(connection_type="pooler")
     
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY', secrets.token_hex(32)),
@@ -310,8 +311,9 @@ def create_app():
     
     # 🔥 FIX: Single source of truth for database URL
     # Use unified function that prioritizes DATABASE_URL, falls back to DB_POSTGRESDB_*
+    # 🔥 CRITICAL: Use POOLER connection for API/Worker traffic (not direct)
     from server.database_url import get_database_url
-    DATABASE_URL = get_database_url()
+    DATABASE_URL = get_database_url(connection_type="pooler")
     
     # Enterprise Security Configuration
     app.config.update({

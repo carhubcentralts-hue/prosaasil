@@ -18,9 +18,10 @@ class ProductionConfig:
     
     # Database configuration - use single source of truth
     # 🔥 FIX: Use get_database_url() for consistent DB connection
+    # 🔥 CRITICAL: Use POOLER connection for API traffic (not direct)
     try:
         from server.database_url import get_database_url
-        SQLALCHEMY_DATABASE_URI = get_database_url()
+        SQLALCHEMY_DATABASE_URI = get_database_url(connection_type="pooler")
     except Exception:
         # Fallback for edge cases (e.g., during import before env is set)
         SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///./agentlocator.db")
