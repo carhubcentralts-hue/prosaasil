@@ -46,6 +46,21 @@ Database migrations - additive only, with strict data protection
    - Has 5s lock_timeout (fail fast on locks)
    - Includes retry logic and lock debugging
    
+2️⃣b **HEAVY DDL operations MUST use exec_ddl_heavy()** (AccessExclusive locks)
+   ⚠️ IRON RULE: These operations require AccessExclusive lock and MUST use exec_ddl_heavy():
+   - ALTER TABLE ... DROP CONSTRAINT / ADD CONSTRAINT
+   - ALTER TABLE ... ALTER COLUMN TYPE (changes column type)
+   - ALTER TABLE ... ADD CHECK / DROP CHECK on large tables
+   - Any constraint modification on tables with active writes
+   
+   ✅ exec_ddl_heavy() provides:
+   - lock_timeout = 120s (vs 5s for regular DDL)
+   - statement_timeout = 0 (unlimited, waiting for locks is expected)
+   - 10 retries with exponential backoff (2s → 30s)
+   - Lock debugging on failures
+   
+   ❌ DO NOT use exec_ddl() or exec_sql() for these operations!
+   
 3️⃣ **DML operations BELONG IN db_backfills.py**
    - NO UPDATE/INSERT/DELETE in migrations
    - Backfills run separately via db_run_backfills.py
@@ -745,6 +760,108 @@ def exec_index(engine, sql: str, index_name: str = None, retries=10, best_effort
             raise last_error
     
     return True  # Success
+
+def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
+    """
+    Execute heavy DDL operations that require AccessExclusive locks.
+    
+    This is designed for operations like:
+    - ALTER TABLE ... DROP CONSTRAINT
+    - ALTER TABLE ... ADD CONSTRAINT
+    - Other DDL that needs to wait for locks on busy tables
+    
+    Key differences from exec_ddl():
+    - Longer lock_timeout (120s instead of 5s) - allows more time to acquire locks
+    - statement_timeout = 0 (unlimited) - because waiting for locks is expected
+    - More retries (10 instead of 4) with exponential backoff
+    - Lock debugging on failures
+    
+    Lock timeouts:
+    - lock_timeout: 120s (wait longer to acquire AccessExclusive lock)
+    - statement_timeout: 0 (unlimited - operation may need time)
+    - idle_in_transaction_session_timeout: 60s (kill stuck transactions)
+    
+    Args:
+        engine: SQLAlchemy engine
+        sql: DDL statement to execute
+        params: Optional parameters for the SQL statement
+        retries: Number of retry attempts (default: 10)
+        
+    Raises:
+        RuntimeError: If DDL fails after all retries due to lock contention
+        Exception: If DDL fails for non-lock reasons
+        
+    Example:
+        exec_ddl_heavy(migrate_engine, '''
+            ALTER TABLE receipts 
+            DROP CONSTRAINT IF EXISTS chk_receipt_status
+        ''')
+    """
+    delay = 2.0
+    last_error = None
+    
+    for i in range(retries):
+        try:
+            with engine.begin() as conn:
+                # Set timeouts appropriate for heavy DDL
+                conn.execute(text("SET lock_timeout = '120s'"))
+                conn.execute(text("SET statement_timeout = 0"))
+                conn.execute(text("SET idle_in_transaction_session_timeout = '60s'"))
+                # Execute the DDL
+                conn.execute(text(sql), params or {})
+            return  # Success
+            
+        except Exception as e:
+            last_error = e
+            # Check if this is a lock-related error
+            # Note: psycopg2.errors.LockNotAvailable comes through e.orig
+            msg = str(getattr(e, "orig", e)).lower()
+            is_lock_error = any(pattern in msg for pattern in [
+                "locknotavailable",
+                "lock timeout",
+                "could not obtain lock",
+                "deadlock detected",
+                "canceling statement due to lock timeout"
+            ])
+            
+            if is_lock_error and i < retries - 1:
+                # Log warning and retry
+                logger.warning(f"⚠️ Lock error on heavy DDL (attempt {i + 1}/{retries}), retrying in {delay}s: {e}")
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)  # Exponential backoff, max 30s
+                continue
+            
+            # Non-lock error or last attempt - log lock debug info
+            logger.error(f"❌ Heavy DDL failed (attempt {i + 1}/{retries}): {e}")
+            
+            # Try to log lock information
+            try:
+                with engine.connect() as debug_conn:
+                    rows = debug_conn.execute(text(LOCK_DEBUG_SQL)).fetchall()
+                    if rows:
+                        logger.error("=" * 80)
+                        logger.error("LOCK DEBUG - Processes blocking this DDL:")
+                        logger.error("=" * 80)
+                        for row in rows:
+                            logger.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
+                            logger.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
+                            logger.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
+                            logger.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
+                            logger.error("-" * 80)
+                    else:
+                        logger.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
+            except Exception as debug_error:
+                logger.error(f"Could not retrieve lock debug info: {debug_error}")
+            
+            # If it's a lock error and we've exhausted retries, raise special error
+            if is_lock_error:
+                raise RuntimeError(f"DDL heavy failed due to locks after {retries} retries")
+            else:
+                # Non-lock error - re-raise immediately
+                raise
+    
+    # Should never reach here, but handle it anyway
+    raise RuntimeError(f"DDL heavy failed due to locks after {retries} retries")
 
 def apply_migrations():
     """
@@ -5105,28 +5222,38 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ leads table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
         # Migration 95: Add 'incomplete' status to receipts check constraint
+        # ═══════════════════════════════════════════════════════════════════════
+        # PURPOSE: Update constraint to allow 'incomplete' status for validation failures
+        #
+        # IMPORTANT: This is a "heavy DDL" operation that requires AccessExclusive lock
+        # on the receipts table. Unlike regular DDL, this uses exec_ddl_heavy() which:
+        # - Has longer lock_timeout (120s vs 5s) to wait for lock acquisition
+        # - Has unlimited statement_timeout (because waiting for locks is expected)
+        # - Includes retry logic with exponential backoff
+        # - Provides lock debugging if operations fail
+        #
+        # The operation is split into two separate ALTER statements (not wrapped in DO $$)
+        # to allow better control over retries and lock handling in production.
+        # ═══════════════════════════════════════════════════════════════════════
         if check_table_exists('receipts'):
             try:
                 checkpoint("🔧 Running Migration 95: Add 'incomplete' status to receipts")
+                checkpoint("   ⚠️  This is a heavy DDL operation - may take time to acquire lock")
                 
-                # Use exec_sql with autocommit for DDL with DO $$ block
-                # This prevents SSL connection failures and idle-in-transaction issues
                 migrate_engine = get_migrate_engine()
-                exec_sql(migrate_engine, """
-                    DO $$ 
-                    BEGIN
-                        -- Drop existing constraint if it exists
-                        ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;
-                        
-                        -- Create new constraint with 'incomplete' status
-                        ALTER TABLE receipts 
-                        ADD CONSTRAINT chk_receipt_status 
-                        CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'));
-                        
-                        RAISE NOTICE 'Added incomplete status to receipts check constraint';
-                    END $$;
-                """, autocommit=True)
+                
+                # Execute DROP and ADD in a single transaction for atomicity
+                # Both statements run together - if one fails, both rollback
+                checkpoint("   → Executing DROP and ADD CONSTRAINT atomically")
+                exec_ddl_heavy(migrate_engine, """
+                    ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;
+                    
+                    ALTER TABLE receipts 
+                    ADD CONSTRAINT chk_receipt_status 
+                    CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'));
+                """)
                 
                 migrations_applied.append("add_incomplete_status_to_receipts")
                 checkpoint("✅ Migration 95 completed - 'incomplete' status added to receipts")
@@ -5136,7 +5263,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 95 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ receipts table does not exist - skipping")
