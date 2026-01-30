@@ -94,9 +94,9 @@ def backfill_last_call_direction(engine, batch_size=100, max_time_seconds=600):
             
             try:
                 with engine.begin() as conn:
-                    # DML timeout policy (NOT DDL!)
-                    # For backfill operations we need patience, not fail-fast
-                    conn.execute(text("SET lock_timeout = '60s'"))  # Patient for busy tables
+                    # POOLER-SAFE timeout policy for backfill operations
+                    # These settings work well with connection poolers like Supabase
+                    conn.execute(text("SET lock_timeout = '15s'"))  # Max wait for locks on POOLER
                     conn.execute(text("SET statement_timeout = '120s'"))  # Allow time for batch operations
                     conn.execute(text("SET idle_in_transaction_session_timeout = '120s'"))  # Prevent stuck transactions
                     

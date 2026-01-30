@@ -61,16 +61,15 @@ def get_database_url() -> str:
     """
     Get database URL from environment.
     
-    Uses DIRECT connection (not pooler) for backfill operations.
-    This avoids lock contention issues with pooler connections.
+    Uses POOLER connection for backfill operations.
+    Pooler is safe with proper batch sizes, SKIP LOCKED, and timeouts.
     """
-    # Import here to avoid circular dependency
-    import os
-    os.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Add parent directory to path for server imports
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from server.database_url import get_database_url as get_db_url
     
     try:
-        return get_db_url(connection_type="direct")
+        return get_db_url(connection_type="pooler")
     except RuntimeError as e:
         logger.error(f"❌ {e}")
         sys.exit(0)

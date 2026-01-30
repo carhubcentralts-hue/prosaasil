@@ -95,11 +95,12 @@ services:
       context: .
       dockerfile: Dockerfile.backend.light
     environment:
-      # 🔥 CRITICAL: Use DIRECT connection for migrations (not pooler)
-      # This avoids "ghost locks" and SSL issues with Supabase pooler
+      # ✅ SOFT PREFER: Prefers DIRECT but automatically falls back to POOLER
+      # If DATABASE_URL_DIRECT is not available/unreachable, uses POOLER
+      # This ensures deployment doesn't fail due to network issues
       DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
       DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
-      SERVICE_ROLE: migrate  # 🔥 GUARD: Enables hard check for POOLER misuse
+      SERVICE_ROLE: migrate
       FLASK_ENV: production
       # 🔥 CRITICAL: Must be exactly "1" (not "true", not true, not "1" in quotes from env)
       RUN_MIGRATIONS: "1"
@@ -125,10 +126,11 @@ services:
     env_file:
       - .env
     environment:
-      # 🔥 CRITICAL: Use DIRECT connection for index building (not pooler)
+      # ✅ POOLER-SAFE: Index building now works on POOLER with proper settings
+      # Uses AUTOCOMMIT + CREATE INDEX CONCURRENTLY + proper timeouts
       DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
       DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
-      SERVICE_ROLE: indexer  # 🔥 GUARD: Enables hard check for POOLER misuse
+      SERVICE_ROLE: indexer
       FLASK_ENV: production
       # 🔥 LOGGING - Production mode
       LOG_LEVEL: INFO
@@ -164,6 +166,7 @@ services:
   # - Uses FOR UPDATE SKIP LOCKED to avoid blocking
   # - Time-boxed execution (10 minutes by default)
   # - Idempotent and safe to run multiple times
+  # - POOLER-SAFE with proper timeouts and batch sizes
   # ===========================================
   backfill:
     build:
@@ -173,10 +176,11 @@ services:
     env_file:
       - .env
     environment:
-      # 🔥 CRITICAL: Use DIRECT connection for backfill operations (not pooler)
+      # ✅ POOLER-SAFE: Backfill now works on POOLER with proper settings
+      # Uses small batches + SKIP LOCKED + proper timeouts
       DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
       DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
-      SERVICE_ROLE: backfill  # 🔥 GUARD: Enables hard check for POOLER misuse
+      SERVICE_ROLE: backfill
       FLASK_ENV: production
       # 🔥 LOGGING - Production mode
       LOG_LEVEL: INFO
