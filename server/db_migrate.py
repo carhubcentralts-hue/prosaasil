@@ -7,9 +7,36 @@ Database migrations - additive only, with strict data protection
 - NO TRUNCATE, NO DROP TABLE on any tables
 - Automatic verification with rollback on unexpected data loss
 
-⚠️ CRITICAL MIGRATION RULES - READ BEFORE ADDING NEW MIGRATIONS ⚠️
+⚠️ ═══════════════════════════════════════════════════════════════════════════
+⚠️ IRON RULE: MIGRATIONS = SCHEMA ONLY (ONE SOURCE OF TRUTH)
+⚠️ ═══════════════════════════════════════════════════════════════════════════
 
-📋 THE IRON LAWS OF MIGRATIONS (למנוע תקלות בפרודקשן):
+📋 THE THREE PILLARS OF DATABASE OPERATIONS:
+
+1️⃣ **MIGRATIONS (db_migrate.py)** = Schema Changes ONLY
+   ✅ Allowed: CREATE/ALTER/DROP TABLE/COLUMN, ADD CONSTRAINT
+   ❌ FORBIDDEN: UPDATE/INSERT/DELETE on tables with many rows
+   ❌ FORBIDDEN: CREATE INDEX (goes to db_indexes.py)
+   ❌ FORBIDDEN: Data backfills (goes to db_backfills.py)
+   
+2️⃣ **INDEXES (db_indexes.py + db_build_indexes.py)** = Performance Indexes ONLY
+   ✅ Only CREATE INDEX CONCURRENTLY statements
+   ❌ FORBIDDEN: Schema changes, backfills, migrations
+   
+3️⃣ **BACKFILLS (db_backfills.py + db_run_backfills.py)** = Data Operations ONLY
+   ✅ Only UPDATE/INSERT for populating existing columns
+   ❌ FORBIDDEN: Schema changes, index creation, ALTER TABLE
+
+⚠️ VIOLATION = PRODUCTION FAILURE + LOCK TIMEOUTS + DEPLOYMENT ISSUES
+
+📖 For detailed guidelines, see:
+- MIGRATION_GUIDELINES.md (schema changes)
+- INDEXING_GUIDE.md (index creation)
+- MIGRATION_36_BACKFILL_SEPARATION.md (backfill operations)
+
+⚠️ ═══════════════════════════════════════════════════════════════════════════
+
+📋 DETAILED MIGRATION RULES:
 
 1️⃣ **NEVER use db.session.execute() for migrations**
    ❌ BAD:  db.session.execute(text("ALTER TABLE..."))
@@ -19,35 +46,27 @@ Database migrations - additive only, with strict data protection
    - Has 5s lock_timeout (fail fast on locks)
    - Includes retry logic and lock debugging
    
-3️⃣ **DML operations MUST use exec_dml()** (data changes)
-   - UPDATE, INSERT, DELETE, large backfills
-   - Has 60s lock_timeout (handles busy tables)
-   - ALWAYS use batching for large updates (1000 rows per batch)
-   - Process by tenant_id/business_id when possible
+3️⃣ **DML operations BELONG IN db_backfills.py**
+   - NO UPDATE/INSERT/DELETE in migrations
+   - Backfills run separately via db_run_backfills.py
+   - Use batching + SKIP LOCKED for production safety
    
-4️⃣ **❌ Performance indexes MUST NOT be added here ❌**
-   - ✅ ALL performance indexes belong in server/db_indexes.py ONLY
+4️⃣ **❌ Performance indexes BELONG IN db_indexes.py ❌**
+   - ✅ ALL performance indexes go to db_indexes.py ONLY
    - ✅ Only UNIQUE constraints allowed in migrations
    - Performance indexes are built separately during deployment
    - See INDEXING_GUIDE.md for details
    - Violating this rule = production deployment failure
    
-5️⃣ **Create supporting indexes BEFORE backfills (if needed in migration)**
-   - Only add if absolutely critical for migration to succeed
-   - Prefer moving to db_indexes.py and running backfill in smaller batches
-   - Use partial indexes (WHERE clauses) for efficiency
-   
-6️⃣ **All operations MUST be idempotent**
+5️⃣ **All operations MUST be idempotent**
    - Use IF NOT EXISTS for CREATE operations
    - Use IF EXISTS for DROP operations
    - Check column/table existence before ALTER
    
-7️⃣ **Test migrations locally BEFORE production**
+6️⃣ **Test migrations locally BEFORE production**
    - Drop test column/table: ALTER TABLE test_table DROP COLUMN IF EXISTS test_col;
    - Run migration to re-apply it
    - Verify idempotency: run again - should succeed with no changes
-
-📖 For detailed guidelines, see MIGRATION_GUIDELINES.md
 
 🔥 REMEMBER: Breaking these rules = production downtime + data locks!
 """
@@ -1650,9 +1669,11 @@ def apply_migrations():
                 raise
         
         # Migration 36: BUILD 350 - Add last_call_direction to leads for inbound/outbound filtering
-        # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column + backfill
+        # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column (SCHEMA ONLY)
         # ⚠️ NOTE: Performance indexes for this migration are in server/db_indexes.py
         #          and will be built separately during deployment
+        # 🔥 BACKFILL MOVED: Data backfill now runs via server/db_backfill.py (separate step)
+        #    This prevents migration failures due to lock timeouts on large tables
         if check_table_exists('leads'):
             try:
                 # Use DO block to add column with exec_sql and autocommit
@@ -1682,97 +1703,18 @@ def apply_migrations():
                 # to prevent migration failures and allow safe retries.
                 checkpoint("✅ Schema changes complete (indexes will be built separately)")
                 
-                # Backfill last_call_direction from call_log table
-                # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
-                # This determines the lead's origin (inbound vs outbound)
-                # 
-                # ⚠️ BATCHED APPROACH BY BUSINESS: Process by tenant_id to reduce hot locks
-                # When multiple businesses exist, this prevents lock contention between tenants.
-                # Each batch updates 1000 leads of one business at a time.
-                # 
-                # ⚠️ NOTE: Backfill runs without specialized indexes initially.
-                #          This is safe because we use small batches (1000 rows).
-                #          Indexes will be built afterwards to optimize future queries.
-                checkpoint("Backfilling last_call_direction from call_log (batched by business)...")
-                if check_table_exists('call_log'):
-                    # Use exec_dml for DML operations with appropriate timeouts
-                    total_updated = 0
-                    batch_size = 1000
-                    max_iterations = 10000  # Safety limit (10M rows max)
-                    
-                     # Get list of distinct tenant_ids that need backfill
-                    # ⚠️ Filter NULL tenant_ids - they should not exist but handle edge case
-                    with migrate_engine.connect() as conn:
-                        result = conn.execute(text("""
-                            SELECT DISTINCT tenant_id 
-                            FROM leads 
-                            WHERE last_call_direction IS NULL
-                              AND tenant_id IS NOT NULL
-                            ORDER BY tenant_id
-                        """))
-                        tenant_ids = [row[0] for row in result.fetchall()]
-                    
-                    if not tenant_ids:
-                        checkpoint("✅ No leads require backfill")
-                    else:
-                        checkpoint(f"Found {len(tenant_ids)} business(es) with leads requiring backfill")
-                        
-                        # Process each business separately
-                        for tenant_id in tenant_ids:
-                            business_total = 0
-                            
-                            for iteration in range(max_iterations):
-                                # Update one batch of leads for this business
-                                rows_updated = exec_dml(migrate_engine, """
-                                    WITH batch AS (
-                                        SELECT id
-                                        FROM leads
-                                        WHERE tenant_id = :tenant_id 
-                                          AND last_call_direction IS NULL
-                                        ORDER BY id
-                                        LIMIT :batch_size
-                                    ),
-                                    first_calls AS (
-                                        SELECT DISTINCT ON (cl.lead_id) 
-                                            cl.lead_id,
-                                            cl.direction
-                                        FROM call_log cl
-                                        JOIN batch b ON b.id = cl.lead_id
-                                        WHERE cl.direction IN ('inbound', 'outbound')
-                                        ORDER BY cl.lead_id, cl.created_at ASC
-                                    )
-                                    UPDATE leads l
-                                    SET last_call_direction = fc.direction
-                                    FROM first_calls fc
-                                    WHERE l.id = fc.lead_id
-                                """, params={"tenant_id": tenant_id, "batch_size": batch_size})
-                                
-                                business_total += rows_updated
-                                total_updated += rows_updated
-                                
-                                if rows_updated == 0:
-                                    # No more rows for this business
-                                    break
-                                
-                                # Log progress every 10 batches or on final batch
-                                if (iteration + 1) % 10 == 0 or rows_updated < batch_size:
-                                    checkpoint(f"  Business {tenant_id}: Batch {iteration + 1}, {business_total} rows updated so far")
-                                
-                                # Small delay between batches to reduce DB pressure
-                                if rows_updated == batch_size:
-                                    time.sleep(0.1)
-                            
-                            # Check if we hit max_iterations (safety limit)
-                            if iteration >= max_iterations - 1 and rows_updated > 0:
-                                logger.warning(f"⚠️ Business {tenant_id}: Reached max_iterations ({max_iterations}). May have more rows to process.")
-                            
-                            if business_total > 0:
-                                checkpoint(f"  ✅ Business {tenant_id}: Completed {business_total} rows")
-                    
-                    checkpoint(f"✅ Backfilled last_call_direction: {total_updated} total rows (using FIRST call direction)")
+                # 🔥 BACKFILL MOVED TO SEPARATE TOOL
+                # Backfill is now handled by server/db_backfill.py which runs after migrations
+                # This separation ensures:
+                # 1. Migrations never fail due to lock timeouts on data operations
+                # 2. Backfill can retry on lock conflicts using SKIP LOCKED
+                # 3. Deployment continues even if backfill is incomplete
+                # 4. Schema changes (critical) are separated from data maintenance (non-critical)
+                checkpoint("ℹ️  Backfill will run separately via db_backfill.py after migrations")
+                checkpoint("   (This is normal - backfill is a separate maintenance step)")
                 
                 migrations_applied.append("add_leads_last_call_direction")
-                log.info("✅ Applied migration 36: add_leads_last_call_direction - Inbound/outbound filtering support")
+                log.info("✅ Applied migration 36: add_leads_last_call_direction - Schema only (backfill runs separately)")
             except Exception as e:
                 log.error(f"❌ Migration 36 failed: {e}")
                 db.session.rollback()
