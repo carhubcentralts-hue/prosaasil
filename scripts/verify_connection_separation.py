@@ -225,13 +225,26 @@ def check_5_indexer_uses_concurrently(results):
     else:
         results.add_fail("Indexer should use CONCURRENTLY for all index creation")
     
-    # Check that all CREATE INDEX use CONCURRENTLY
-    create_index_lines = re.findall(r'CREATE.*INDEX.*', content, re.IGNORECASE)
-    non_concurrent = [line for line in create_index_lines if 'CONCURRENTLY' not in line.upper()]
+    # Improved check: Look for actual CREATE INDEX in SQL strings
+    # Match multiline SQL with CREATE INDEX
+    sql_strings = re.findall(r'["\']+(.*?)["\']+', content, re.DOTALL)
     
-    if non_concurrent:
-        results.add_warning(f"Found {len(non_concurrent)} CREATE INDEX without CONCURRENTLY",
-                          f"Lines: {non_concurrent[:3]}")
+    non_concurrent_indexes = []
+    for sql in sql_strings:
+        # Only check if it contains CREATE INDEX
+        if 'CREATE INDEX' in sql.upper():
+            # Check if CONCURRENTLY is present
+            if 'CONCURRENTLY' not in sql.upper():
+                # Extract just the CREATE INDEX part for reporting
+                index_match = re.search(r'CREATE\s+INDEX[^\n;]*', sql, re.IGNORECASE)
+                if index_match:
+                    non_concurrent_indexes.append(index_match.group(0)[:80])
+    
+    if non_concurrent_indexes:
+        results.add_fail(f"Found {len(non_concurrent_indexes)} CREATE INDEX without CONCURRENTLY in SQL",
+                       f"Examples: {non_concurrent_indexes[:2]}")
+    else:
+        results.add_pass("All CREATE INDEX statements in SQL use CONCURRENTLY")
 
 
 def check_6_backfills_separated(results):
@@ -247,23 +260,30 @@ def check_6_backfills_separated(results):
     
     migrate_content = migrate_file.read_text()
     
-    # Check for heavy backfill operations in migrations
-    backfill_indicators = [
-        'UPDATE.*WHERE.*LIMIT.*100',  # Batch updates
-        'FOR UPDATE SKIP LOCKED',      # Backfill pattern
-        'db_run_backfills',            # Direct backfill reference
+    # Check for actual backfill EXECUTION (not just imports)
+    # Look for patterns that indicate backfill execution
+    execution_patterns = [
+        r'run_backfill\s*\(',           # Function call
+        r'execute_backfill\s*\(',       # Function call
+        r'UPDATE.*WHERE.*LIMIT\s+\d+',  # Batch update pattern
+        r'FOR UPDATE SKIP LOCKED',      # Backfill pattern
     ]
     
-    found_backfills = []
-    for pattern in backfill_indicators:
-        if re.search(pattern, migrate_content, re.IGNORECASE):
-            found_backfills.append(pattern)
+    found_executions = []
+    for pattern in execution_patterns:
+        matches = re.findall(pattern, migrate_content, re.IGNORECASE)
+        if matches:
+            found_executions.extend(matches)
     
-    if found_backfills:
-        results.add_warning("Possible backfill operations found in db_migrate.py",
-                          f"Patterns: {found_backfills}")
+    if found_executions:
+        results.add_fail("Found backfill EXECUTION in migrations",
+                       f"Patterns: {found_executions[:3]}")
     else:
-        results.add_pass("No heavy backfill operations found in migrations")
+        results.add_pass("No backfill execution found in migrations")
+    
+    # Check for imports (these are OK)
+    if 'db_run_backfills' in migrate_content or 'from.*backfill' in migrate_content:
+        results.add_pass("Backfill imports found (OK - imports are fine)")
     
     # Check that backfill runner exists separately
     if backfill_file.exists():

@@ -135,10 +135,34 @@ def _log_connection_info(connection_type: str, url: str, source: str):
             logger.info(f"   Host: {host}")
             logger.info(f"   Connection method: {connection_method}")
             
-            # Warn if mismatch
+            # 🔥 HARD GUARD: Prevent migrations from running on POOLER
+            # This is a critical safety check - migrations MUST use direct connection
+            service_role = os.getenv('SERVICE_ROLE', '')
+            if service_role in ['migrate', 'indexer', 'backfill']:
+                if connection_type == 'direct' and 'pooler' in host.lower():
+                    logger.error("=" * 80)
+                    logger.error("🚨 CRITICAL ERROR: MIGRATION RUNNING ON POOLER CONNECTION!")
+                    logger.error("=" * 80)
+                    logger.error(f"Service: {service_role}")
+                    logger.error(f"Requested: DIRECT connection")
+                    logger.error(f"Got host: {host} (contains 'pooler')")
+                    logger.error("")
+                    logger.error("This will cause 'ghost locks' and migration timeouts!")
+                    logger.error("Set DATABASE_URL_DIRECT to point to *.db.supabase.com")
+                    logger.error("=" * 80)
+                    raise RuntimeError(
+                        f"FATAL: {service_role.upper()} service cannot use POOLER connection! "
+                        f"Host '{host}' contains 'pooler' but DATABASE_URL_DIRECT should point to "
+                        f"direct database connection (e.g., *.db.supabase.com)"
+                    )
+            
+            # Warn if mismatch (but don't fail for other services)
             if connection_type == "direct" and "pooler" in host.lower():
                 logger.warning("⚠️  WARNING: Requested DIRECT but host contains 'pooler'!")
             elif connection_type == "pooler" and ".db." in host.lower():
                 logger.warning("⚠️  WARNING: Requested POOLER but host contains '.db.'!")
+    except RuntimeError:
+        # Re-raise hard guard errors
+        raise
     except Exception as e:
         logger.debug(f"Could not parse connection info: {e}")

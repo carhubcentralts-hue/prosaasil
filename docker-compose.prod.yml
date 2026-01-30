@@ -99,6 +99,7 @@ services:
       # This avoids "ghost locks" and SSL issues with Supabase pooler
       DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
       DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      SERVICE_ROLE: migrate  # 🔥 GUARD: Enables hard check for POOLER misuse
       FLASK_ENV: production
       # 🔥 CRITICAL: Must be exactly "1" (not "true", not true, not "1" in quotes from env)
       RUN_MIGRATIONS: "1"
@@ -127,6 +128,7 @@ services:
       # 🔥 CRITICAL: Use DIRECT connection for index building (not pooler)
       DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
       DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      SERVICE_ROLE: indexer  # 🔥 GUARD: Enables hard check for POOLER misuse
       FLASK_ENV: production
       # 🔥 LOGGING - Production mode
       LOG_LEVEL: INFO
@@ -174,6 +176,7 @@ services:
       # 🔥 CRITICAL: Use DIRECT connection for backfill operations (not pooler)
       DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
       DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      SERVICE_ROLE: backfill  # 🔥 GUARD: Enables hard check for POOLER misuse
       FLASK_ENV: production
       # 🔥 LOGGING - Production mode
       LOG_LEVEL: INFO

@@ -94,6 +94,64 @@ log_header() {
     echo ""
 }
 
+# ==========================================
+# 🔥 GUARD 3: Validate Environment Variables
+# ==========================================
+log_header "Pre-Flight Check: Environment Variables"
+
+# Load .env file if it exists
+if [[ -f ".env" ]]; then
+    log_success ".env file found"
+    # Export variables from .env for validation
+    set -a
+    source .env
+    set +a
+else
+    log_warning ".env file not found - using environment variables"
+fi
+
+# Check for required DATABASE_URL variables
+ENV_VALID=true
+
+if [[ -z "$DATABASE_URL_DIRECT" ]] && [[ -z "$DATABASE_URL" ]]; then
+    log_error "DATABASE_URL_DIRECT is not set!"
+    log_error "  Migrations MUST use direct connection (not pooler)"
+    log_error "  Set DATABASE_URL_DIRECT=postgresql://...@*.db.supabase.com:5432/postgres"
+    ENV_VALID=false
+fi
+
+if [[ -z "$DATABASE_URL_POOLER" ]] && [[ -z "$DATABASE_URL" ]]; then
+    log_warning "DATABASE_URL_POOLER is not set"
+    log_warning "  API/Worker should use pooler connection for best performance"
+    log_warning "  Set DATABASE_URL_POOLER=postgresql://...@*.pooler.supabase.com:5432/postgres"
+fi
+
+# Check that DIRECT doesn't contain 'pooler'
+if [[ -n "$DATABASE_URL_DIRECT" ]] && [[ "$DATABASE_URL_DIRECT" == *"pooler"* ]]; then
+    log_error "DATABASE_URL_DIRECT contains 'pooler'!"
+    log_error "  This will cause migration timeouts!"
+    log_error "  DIRECT should point to: *.db.supabase.com (not *.pooler.supabase.com)"
+    ENV_VALID=false
+fi
+
+# Warn if POOLER contains '.db.'
+if [[ -n "$DATABASE_URL_POOLER" ]] && [[ "$DATABASE_URL_POOLER" == *".db."* ]]; then
+    log_warning "DATABASE_URL_POOLER contains '.db.'"
+    log_warning "  This may not use connection pooler (less optimal for API traffic)"
+    log_warning "  POOLER should point to: *.pooler.supabase.com"
+fi
+
+if [[ "$ENV_VALID" == false ]]; then
+    log_error "Environment validation failed - cannot proceed safely"
+    log_error "Fix the issues above and try again"
+    exit 1
+fi
+
+log_success "Environment variables validated"
+echo ""
+
+# Continue with existing code...
+
 # Check that compose files exist
 if [[ ! -f "$BASE_COMPOSE" || ! -f "$PROD_COMPOSE" ]]; then
     log_error "Docker compose files not found"
