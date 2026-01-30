@@ -120,16 +120,15 @@ def ensure_migration_tracking_table(engine):
     - notes: Additional information about the migration
     """
     try:
-        with engine.begin() as conn:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    migration_id TEXT PRIMARY KEY,
-                    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    success BOOLEAN NOT NULL DEFAULT TRUE,
-                    reconciled BOOLEAN NOT NULL DEFAULT FALSE,
-                    notes TEXT
-                )
-            """))
+        execute_with_retry(engine, """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                migration_id TEXT PRIMARY KEY,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                success BOOLEAN NOT NULL DEFAULT TRUE,
+                reconciled BOOLEAN NOT NULL DEFAULT FALSE,
+                notes TEXT
+            )
+        """)
         log.info("✅ schema_migrations table ready")
     except Exception as e:
         log.error(f"❌ Failed to create schema_migrations table: {e}")
@@ -138,12 +137,13 @@ def ensure_migration_tracking_table(engine):
 def is_migration_applied(engine, migration_id: str) -> bool:
     """Check if a migration has already been applied"""
     try:
-        with engine.connect() as conn:
-            result = conn.execute(
-                text("SELECT 1 FROM schema_migrations WHERE migration_id = :id AND success = TRUE"),
-                {"id": migration_id}
-            )
-            return result.fetchone() is not None
+        result = execute_with_retry(
+            engine,
+            "SELECT 1 FROM schema_migrations WHERE migration_id = :id AND success = TRUE",
+            {"id": migration_id},
+            fetch=True
+        )
+        return len(result) > 0
     except Exception as e:
         # If table doesn't exist or query fails, assume migration not applied
         log.debug(f"Could not check migration status for {migration_id}: {e}")
@@ -160,17 +160,13 @@ def mark_migration_applied(engine, migration_id: str, reconciled: bool = False, 
         notes: Additional information
     """
     try:
-        with engine.begin() as conn:
-            conn.execute(
-                text("""
-                    INSERT INTO schema_migrations (migration_id, applied_at, success, reconciled, notes)
-                    VALUES (:id, NOW(), TRUE, :reconciled, :notes)
-                    ON CONFLICT (migration_id) DO UPDATE
-                    SET applied_at = NOW(), success = TRUE, reconciled = :reconciled, 
-                        notes = COALESCE(:notes, schema_migrations.notes)
-                """),
-                {"id": migration_id, "reconciled": reconciled, "notes": notes}
-            )
+        execute_with_retry(engine, """
+            INSERT INTO schema_migrations (migration_id, applied_at, success, reconciled, notes)
+            VALUES (:id, NOW(), TRUE, :reconciled, :notes)
+            ON CONFLICT (migration_id) DO UPDATE
+            SET applied_at = NOW(), success = TRUE, reconciled = :reconciled, 
+                notes = COALESCE(:notes, schema_migrations.notes)
+        """, {"id": migration_id, "reconciled": reconciled, "notes": notes})
         status = "reconciled" if reconciled else "applied"
         log.info(f"✅ Marked migration {migration_id} as {status}")
     except Exception as e:
@@ -502,10 +498,10 @@ def exec_sql(engine, sql: str, params=None, *, autocommit=False, retries=4, slee
 
 def fetch_all(engine, sql: str, params=None, retries=4):
     """
-    Execute a query and fetch all results with retry logic.
+    Execute a query and fetch all results with retry logic and engine.dispose().
     
-    Uses short-lived connections and AUTOCOMMIT isolation level to prevent
-    SSL connection failures during metadata queries.
+    Uses short-lived connections to prevent SSL connection failures during 
+    metadata queries. Calls engine.dispose() on SSL errors to refresh connection pool.
     
     Args:
         engine: SQLAlchemy engine instance
@@ -535,6 +531,11 @@ def fetch_all(engine, sql: str, params=None, retries=4):
         except OperationalError as e:
             last_error = e
             if _is_retryable(e) and i < retries - 1:
+                # 🔥 Dispose engine on retryable error
+                try:
+                    engine.dispose()
+                except Exception:
+                    pass
                 sleep_time = 1.0 * (i + 1)
                 log.warning(f"⚠️ Retryable connection error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
@@ -643,56 +644,53 @@ def fetch_all_retry(engine, sql, params=None, attempts=3):
     raise last_error
 
 def check_column_exists(table_name, column_name):
-    """Check if column exists in table using independent connection with retry"""
+    """Check if column exists in table using execute_with_retry"""
     try:
-        # Use migration engine with pool_pre_ping for resilience
         engine = get_migrate_engine()
-        rows = fetch_all(engine, """
+        rows = execute_with_retry(engine, """
             SELECT column_name FROM information_schema.columns 
             WHERE table_schema = 'public' AND table_name = :table_name AND column_name = :column_name
-        """, {"table_name": table_name, "column_name": column_name})
+        """, {"table_name": table_name, "column_name": column_name}, fetch=True)
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if column {column_name} exists in {table_name}: {e}")
         return False
 
 def check_table_exists(table_name):
-    """Check if table exists using independent connection with retry"""
+    """Check if table exists using execute_with_retry"""
     try:
-        # Use migration engine with pool_pre_ping for resilience
         engine = get_migrate_engine()
-        rows = fetch_all(engine, """
+        rows = execute_with_retry(engine, """
             SELECT table_name FROM information_schema.tables 
             WHERE table_schema = 'public' AND table_name = :table_name
-        """, {"table_name": table_name})
+        """, {"table_name": table_name}, fetch=True)
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if table {table_name} exists: {e}")
         return False
 
 def check_index_exists(index_name):
-    """Check if index exists using independent connection with retry"""
+    """Check if index exists using execute_with_retry"""
     try:
-        # Use migration engine with pool_pre_ping for resilience
         engine = get_migrate_engine()
-        rows = fetch_all(engine, """
+        rows = execute_with_retry(engine, """
             SELECT indexname FROM pg_indexes 
             WHERE schemaname = 'public' AND indexname = :index_name
-        """, {"index_name": index_name})
+        """, {"index_name": index_name}, fetch=True)
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if index {index_name} exists: {e}")
         return False
 
 def check_constraint_exists(table_name, constraint_name):
-    """Check if constraint exists using independent connection with retry"""
+    """Check if constraint exists using execute_with_retry"""
     try:
         engine = get_migrate_engine()
-        rows = fetch_all(engine, """
+        rows = execute_with_retry(engine, """
             SELECT conname FROM pg_constraint 
             WHERE conname = :constraint_name 
               AND conrelid = to_regclass(:table_name)::oid
-        """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"})
+        """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"}, fetch=True)
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
