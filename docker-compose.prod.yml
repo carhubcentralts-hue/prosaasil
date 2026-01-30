@@ -217,6 +217,9 @@ services:
   # ===========================================
   worker:
     environment:
+      # 🔥 CRITICAL: Use POOLER connection for worker traffic
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
       FLASK_ENV: production
       RUN_MIGRATIONS_ON_START: 0
       RUN_MIGRATIONS: "0"
