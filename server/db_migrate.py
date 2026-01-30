@@ -4322,7 +4322,7 @@ def apply_migrations():
                     WHERE constraint_name LIKE '%event_type%'
                     AND constraint_schema = 'public'
                 """)
-                result = result[0] if result else None
+                constraint_row = result[0] if result else None
 
                 
                 if constraint_row:
