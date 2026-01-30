@@ -4890,10 +4890,7 @@ def apply_migrations():
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN current_month VARCHAR(10) NULL
                     """)
-                    if not check_index_exists('idx_receipt_sync_runs_current_month'):
-                        execute_with_retry(migrate_engine, """
-                            ON receipt_sync_runs(current_month)
-                        """)
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                     fields_added.append('current_month')
                     checkpoint("  ✅ current_month added with index")
                 
@@ -6075,15 +6072,7 @@ def apply_migrations():
                 else:
                     checkpoint("  ℹ️  extraction_error column already exists")
                 
-                # Add index for extraction_status for filtering queries
-                if not check_index_exists('idx_receipts_extraction_status'):
-                    checkpoint("  → Creating idx_receipts_extraction_status index...")
-                    execute_with_retry(migrate_engine, """
-                        ON receipts(extraction_status)
-                    """)
-                    checkpoint("  ✅ idx_receipts_extraction_status index created")
-                else:
-                    checkpoint("  ℹ️  idx_receipts_extraction_status index already exists")
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                 
                 checkpoint("✅ Migration 101 completed - Enhanced receipt processing fields ready")
                 
