@@ -94,8 +94,11 @@ def backfill_last_call_direction(engine, batch_size=100, max_time_seconds=600):
             
             try:
                 with engine.begin() as conn:
-                    conn.execute(text("SET lock_timeout = '5s'"))
-                    conn.execute(text("SET statement_timeout = '30s'"))
+                    # DML timeout policy (NOT DDL!)
+                    # For backfill operations we need patience, not fail-fast
+                    conn.execute(text("SET lock_timeout = '60s'"))  # Patient for busy tables
+                    conn.execute(text("SET statement_timeout = '120s'"))  # Allow time for batch operations
+                    conn.execute(text("SET idle_in_transaction_session_timeout = '120s'"))  # Prevent stuck transactions
                     
                     result = conn.execute(text("""
                         WITH batch AS (
@@ -170,7 +173,7 @@ BACKFILL_DEFS: List[Dict] = [
         'migration_number': '36',
         'description': 'Populate last_call_direction on leads from first call in call_log',
         'tables': ['leads', 'call_log'],
-        'batch_size': 100,
+        'batch_size': 200,  # Balanced: not too small (100) nor too large (1000)
         'max_runtime_seconds': 600,
         'priority': 'HIGH',
         'safe_to_run_online': True,  # Uses SKIP LOCKED
