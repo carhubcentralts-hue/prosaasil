@@ -707,15 +707,36 @@ def check_index_exists(index_name):
         log.warning(f"Error checking if index {index_name} exists: {e}")
         return False
 
-def check_constraint_exists(table_name, constraint_name):
-    """Check if constraint exists using execute_with_retry"""
+def check_constraint_exists(constraint_name, table_name=None):
+    """
+    Check if constraint exists using execute_with_retry
+    
+    Args:
+        constraint_name: Name of the constraint (required)
+        table_name: Name of the table (optional for backward compatibility)
+    
+    Returns:
+        bool: True if constraint exists, False otherwise
+    
+    Note: Backward compatible - can be called with just constraint_name
+    """
     try:
         engine = get_migrate_engine()
-        rows = execute_with_retry(engine, """
-            SELECT conname FROM pg_constraint 
-            WHERE conname = :constraint_name 
-              AND conrelid = to_regclass(:table_name)::oid
-        """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"}, fetch=True)
+        
+        if table_name:
+            # New style: check constraint on specific table
+            rows = execute_with_retry(engine, """
+                SELECT conname FROM pg_constraint 
+                WHERE conname = :constraint_name 
+                  AND conrelid = to_regclass(:table_name)::oid
+            """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"}, fetch=True)
+        else:
+            # Old style: check constraint by name only (any table)
+            rows = execute_with_retry(engine, """
+                SELECT conname FROM pg_constraint 
+                WHERE conname = :constraint_name
+            """, {"constraint_name": constraint_name}, fetch=True)
+        
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
@@ -1302,7 +1323,7 @@ def execute_with_retry(engine, sql: str, params=None, *, max_retries=10, fetch=F
                 result = conn.execute(text(sql), params or {})
                 if should_fetch:
                     return result.fetchall()
-                return None  # Success for non-fetch
+                return result  # Return result object so caller can access rowcount
                 
         except (OperationalError, DBAPIError) as e:
             last_error = e
@@ -1353,7 +1374,10 @@ def execute_with_retry(engine, sql: str, params=None, *, max_retries=10, fetch=F
                 # For DDL operations, check if error is "already exists" type
                 if _is_already_exists_error(e):
                     log.warning(f"⚠️ DDL object already exists (safe to continue): {e}")
-                    return None if not should_fetch else []  # Success - object already exists
+                    # Return a mock result with rowcount=0 for DDL operations
+                    class MockResult:
+                        rowcount = 0
+                    return MockResult() if not should_fetch else []  # Success - object already exists
                 
                 # Any other DDL error = FAIL HARD
                 log.error(f"❌ DDL FAILED in execute_with_retry - STOPPING MIGRATION: {e}")
@@ -3892,7 +3916,7 @@ def apply_migrations():
                        OR json_array_length(CAST(enabled_pages AS json)) = 0
                 """, {"pages": default_pages_json})
                 
-                updated_count = result.rowcount
+                updated_count = getattr(result, "rowcount", 0)
                 checkpoint(f"  ✅ Updated {updated_count} existing businesses with all pages enabled")
                 
                 migrations_applied.append('add_business_enabled_pages')
@@ -4507,7 +4531,7 @@ def apply_migrations():
                     WHERE enabled_pages IS NOT NULL
                       AND NOT (enabled_pages::jsonb ? 'assets')
                 """)
-                updated_count = result.rowcount
+                updated_count = getattr(result, "rowcount", 0)
                 
                 if updated_count > 0:
                     checkpoint(f"  ✅ Enabled 'assets' page for {updated_count} businesses")
@@ -4522,7 +4546,7 @@ def apply_migrations():
                        OR enabled_pages::text = '[]'
                        OR jsonb_array_length(enabled_pages::jsonb) = 0
                 """)
-                updated_count2 = result2.rowcount
+                updated_count2 = getattr(result2, "rowcount", 0)
                 
                 if updated_count2 > 0:
                     checkpoint(f"  ✅ Set default pages (including assets) for {updated_count2} businesses with empty pages")
@@ -4843,7 +4867,7 @@ def apply_migrations():
                         WHERE r.attachment_id = a.id
                     ) AND a.purpose = 'general_upload'
                 """)
-                receipt_count = result.rowcount
+                receipt_count = getattr(result, "rowcount", 0)
                 
                 # Mark contract attachments (if contract_files table exists)
                 contract_count = 0
@@ -4860,7 +4884,7 @@ def apply_migrations():
                         WHERE cf.attachment_id = a.id
                         AND a.purpose = 'general_upload'
                     """)
-                    contract_count = result.rowcount
+                    contract_count = getattr(result, "rowcount", 0)
                 
                 # Set origin_module for remaining general uploads
                 execute_with_retry(migrate_engine, """
@@ -5018,7 +5042,7 @@ def apply_migrations():
                         AND provider_message_id IS NOT NULL
                     """)
                     result = execute_with_retry(migrate_engine, duplicates_query)
-                    rows_deleted = result.rowcount
+                    rows_deleted = getattr(result, "rowcount", 0)
                     
                     if rows_deleted > 0:
                         checkpoint(f"  → Removed {rows_deleted} duplicate messages (kept oldest per business)")
@@ -6196,15 +6220,8 @@ def apply_migrations():
                 
                 checkpoint("  ✅ Existing provider settings migrated to openai defaults")
                 
-                # Create simple index on ai_provider for queries
-                checkpoint("  → Creating index on ai_provider...")
-                try:
-                    execute_with_retry(migrate_engine, """
-                        ON business(ai_provider)
-                    """)
-                    checkpoint("  ✅ Index created")
-                except Exception as idx_err:
-                    pass  # Index might already exist, that's okay
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
+                # Performance indexes MUST be created separately via db_build_indexes.py
                 
                 migrations_applied.append('migration_102_ai_provider_selection')
                 checkpoint("✅ Migration 102 completed - AI provider selection implemented")
@@ -6254,7 +6271,7 @@ def apply_migrations():
                         SET heartbeat_at = COALESCE(updated_at, started_at, created_at)
                         WHERE status IN ('running', 'queued') AND heartbeat_at IS NULL
                     """)
-                    updated_count = result.rowcount
+                    updated_count = getattr(result, "rowcount", 0)
                     if updated_count > 0:
                         checkpoint(f"  ✅ Initialized heartbeat for {updated_count} existing job(s)")
                     
@@ -6548,7 +6565,7 @@ def apply_migrations():
                           AND summary != ''
                           AND summary_status IS NULL
                     """)
-                    updated_rows = result.rowcount
+                    updated_rows = getattr(result, "rowcount", 0)
                     checkpoint(f"  ✅ Marked {updated_rows} existing calls with summaries as 'completed'")
                     
                     migrations_applied.append('110_call_log_summary_status')
@@ -6740,7 +6757,7 @@ def apply_migrations():
         if check_table_exists('outbound_call_jobs'):
             try:
                 # Check if constraint exists using engine.connect() to avoid idle-in-transaction
-                if not check_constraint_exists('outbound_call_jobs', 'unique_run_lead'):
+                if not check_constraint_exists('unique_run_lead', 'outbound_call_jobs'):
                     checkpoint("  → Adding unique constraint on (run_id, lead_id)...")
                     
                     # First, remove any existing duplicates (keep oldest)
@@ -6755,7 +6772,7 @@ def apply_migrations():
                           AND a.run_id IS NOT NULL
                           AND a.lead_id IS NOT NULL
                     """)
-                    deleted_count = result.rowcount
+                    deleted_count = getattr(result, "rowcount", 0)
                     if deleted_count > 0:
                         checkpoint(f"  ℹ️ Removed {deleted_count} duplicate jobs")
                     
@@ -6802,7 +6819,7 @@ def apply_migrations():
                         WHERE outbound_call_jobs.run_id = subquery.run_id
                           AND outbound_call_jobs.business_id IS NULL
                     """)
-                    updated_count = result.rowcount
+                    updated_count = getattr(result, "rowcount", 0)
                     checkpoint(f"  ℹ️ Updated {updated_count} jobs with business_id")
                     
                     # Check for orphaned jobs without business_id
@@ -6882,7 +6899,7 @@ def apply_migrations():
                         SET last_heartbeat_at = COALESCE(lock_ts, updated_at, created_at)
                         WHERE status IN ('running', 'pending')
                     """)
-                    updated_count = result.rowcount
+                    updated_count = getattr(result, "rowcount", 0)
                     checkpoint(f"  ℹ️ Initialized {updated_count} running runs with heartbeat")
                     
                     migrations_applied.append('114_outbound_heartbeat')
@@ -7063,38 +7080,77 @@ def apply_migrations():
                 if businesses_without_calendars > 0:
                     checkpoint(f"  → Creating default calendars for {businesses_without_calendars} business(es)...")
                     
-                    # Create default calendar for businesses that don't have one
-                    result = execute_with_retry(migrate_engine, """
-                        INSERT INTO business_calendars (
-                            business_id, 
-                            name, 
-                            type_key, 
-                            provider, 
-                            is_active, 
-                            priority,
-                            default_duration_minutes,
-                            allowed_tags
-                        )
-                        SELECT 
-                            b.id,
-                            'לוח ברירת מחדל' as name,
-                            'default' as type_key,
-                            'internal' as provider,
-                            TRUE as is_active,
-                            1 as priority,
-                            COALESCE(
-                                (SELECT bs.slot_size_min FROM business_settings bs WHERE bs.business_id = b.id LIMIT 1),
-                                60
-                            ) as default_duration_minutes,
-                            '[]'::jsonb as allowed_tags
-                        FROM business b
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM business_calendars bc 
-                            WHERE bc.business_id = b.id
-                        )
-                    """)
+                    # Check if business_settings table has business_id column
+                    has_business_settings_fk = False
+                    if check_table_exists('business_settings'):
+                        has_business_settings_fk = check_column_exists('business_settings', 'business_id')
                     
-                    created_count = result.rowcount
+                    # Create default calendar for businesses that don't have one
+                    # Use business_settings.slot_size_min if available, otherwise default to 60
+                    if has_business_settings_fk:
+                        # Business_settings has business_id FK - use it
+                        insert_sql = """
+                            INSERT INTO business_calendars (
+                                business_id, 
+                                name, 
+                                type_key, 
+                                provider, 
+                                is_active, 
+                                priority,
+                                default_duration_minutes,
+                                allowed_tags
+                            )
+                            SELECT 
+                                b.id,
+                                'לוח ברירת מחדל' as name,
+                                'default' as type_key,
+                                'internal' as provider,
+                                TRUE as is_active,
+                                1 as priority,
+                                COALESCE(
+                                    (SELECT bs.slot_size_min FROM business_settings bs WHERE bs.business_id = b.id LIMIT 1),
+                                    60
+                                ) as default_duration_minutes,
+                                '[]'::jsonb as allowed_tags
+                            FROM business b
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM business_calendars bc 
+                                WHERE bc.business_id = b.id
+                            )
+                        """
+                    else:
+                        # Business_settings doesn't have business_id FK - use default duration
+                        checkpoint("  ℹ️ business_settings.business_id not found, using default 60 minute duration")
+                        insert_sql = """
+                            INSERT INTO business_calendars (
+                                business_id, 
+                                name, 
+                                type_key, 
+                                provider, 
+                                is_active, 
+                                priority,
+                                default_duration_minutes,
+                                allowed_tags
+                            )
+                            SELECT 
+                                b.id,
+                                'לוח ברירת מחדל' as name,
+                                'default' as type_key,
+                                'internal' as provider,
+                                TRUE as is_active,
+                                1 as priority,
+                                60 as default_duration_minutes,
+                                '[]'::jsonb as allowed_tags
+                            FROM business b
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM business_calendars bc 
+                                WHERE bc.business_id = b.id
+                            )
+                        """
+                    
+                    result = execute_with_retry(migrate_engine, insert_sql)
+                    
+                    created_count = getattr(result, "rowcount", 0)
                     checkpoint(f"  ✅ Created default calendars for {created_count} business(es)")
                     migrations_applied.append('115_default_calendars')
                 else:
@@ -7133,7 +7189,7 @@ def apply_migrations():
                               AND a.calendar_id IS NULL
                         """)
                         
-                        linked_count = result.rowcount
+                        linked_count = getattr(result, "rowcount", 0)
                         checkpoint(f"  ✅ Linked {linked_count} appointment(s) to default calendars")
                         migrations_applied.append('115_link_appointments')
                     else:
