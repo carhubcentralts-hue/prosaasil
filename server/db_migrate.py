@@ -707,15 +707,36 @@ def check_index_exists(index_name):
         log.warning(f"Error checking if index {index_name} exists: {e}")
         return False
 
-def check_constraint_exists(table_name, constraint_name):
-    """Check if constraint exists using execute_with_retry"""
+def check_constraint_exists(constraint_name, table_name=None):
+    """
+    Check if constraint exists using execute_with_retry
+    
+    Args:
+        constraint_name: Name of the constraint (required)
+        table_name: Name of the table (optional for backward compatibility)
+    
+    Returns:
+        bool: True if constraint exists, False otherwise
+    
+    Note: Backward compatible - can be called with just constraint_name
+    """
     try:
         engine = get_migrate_engine()
-        rows = execute_with_retry(engine, """
-            SELECT conname FROM pg_constraint 
-            WHERE conname = :constraint_name 
-              AND conrelid = to_regclass(:table_name)::oid
-        """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"}, fetch=True)
+        
+        if table_name:
+            # New style: check constraint on specific table
+            rows = execute_with_retry(engine, """
+                SELECT conname FROM pg_constraint 
+                WHERE conname = :constraint_name 
+                  AND conrelid = to_regclass(:table_name)::oid
+            """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"}, fetch=True)
+        else:
+            # Old style: check constraint by name only (any table)
+            rows = execute_with_retry(engine, """
+                SELECT conname FROM pg_constraint 
+                WHERE conname = :constraint_name
+            """, {"constraint_name": constraint_name}, fetch=True)
+        
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
@@ -1302,7 +1323,7 @@ def execute_with_retry(engine, sql: str, params=None, *, max_retries=10, fetch=F
                 result = conn.execute(text(sql), params or {})
                 if should_fetch:
                     return result.fetchall()
-                return None  # Success for non-fetch
+                return result  # Return result object so caller can access rowcount
                 
         except (OperationalError, DBAPIError) as e:
             last_error = e
@@ -1353,7 +1374,10 @@ def execute_with_retry(engine, sql: str, params=None, *, max_retries=10, fetch=F
                 # For DDL operations, check if error is "already exists" type
                 if _is_already_exists_error(e):
                     log.warning(f"⚠️ DDL object already exists (safe to continue): {e}")
-                    return None if not should_fetch else []  # Success - object already exists
+                    # Return a mock result with rowcount=0 for DDL operations
+                    class MockResult:
+                        rowcount = 0
+                    return MockResult() if not should_fetch else []  # Success - object already exists
                 
                 # Any other DDL error = FAIL HARD
                 log.error(f"❌ DDL FAILED in execute_with_retry - STOPPING MIGRATION: {e}")
@@ -2715,10 +2739,8 @@ def apply_migrations():
         if check_table_exists('outbound_call_jobs') and not check_index_exists('idx_outbound_call_jobs_status_twilio_sid'):
             checkpoint("Migration 46d: Adding composite index for cleanup query performance")
             try:
-                # Composite index on (status, twilio_call_sid) for efficient cleanup queries
-                execute_with_retry(migrate_engine, """
-                    ON outbound_call_jobs(status, twilio_call_sid)
-                """)
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
+                # Performance indexes MUST be created separately via db_build_indexes.py
                 migrations_applied.append('add_composite_index_status_twilio_sid')
                 log.info("✅ Added composite index on (status, twilio_call_sid) for cleanup query performance")
             except Exception as e:
@@ -2767,9 +2789,7 @@ def apply_migrations():
                     ALTER TABLE whatsapp_broadcasts 
                     ADD COLUMN idempotency_key VARCHAR(64)
                 """)
-                execute_with_retry(migrate_engine, """
-                    ON whatsapp_broadcasts(idempotency_key)
-                """)
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                 migrations_applied.append('add_whatsapp_broadcasts_idempotency_key')
                 log.info("✅ Added idempotency_key column to whatsapp_broadcasts table for duplicate prevention")
             except Exception as e:
@@ -2789,9 +2809,7 @@ def apply_migrations():
                         ALTER TABLE appointments 
                         ADD COLUMN lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL
                     """)
-                    execute_with_retry(migrate_engine, """
-                        ON appointments(lead_id)
-                    """)
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                     migrations_applied.append('add_appointments_lead_id')
                     log.info("✅ Added lead_id column to appointments table")
                 
@@ -3107,9 +3125,7 @@ def apply_migrations():
                         ALTER TABLE refresh_tokens 
                         ADD COLUMN last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     """)
-                    execute_with_retry(migrate_engine, """
-                        ON refresh_tokens(last_activity_at)
-                    """)
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                     checkpoint("  ✅ refresh_tokens.last_activity_at added")
                     migrations_applied.append('add_refresh_tokens_last_activity_at')
                 
@@ -3892,7 +3908,7 @@ def apply_migrations():
                        OR json_array_length(CAST(enabled_pages AS json)) = 0
                 """, {"pages": default_pages_json})
                 
-                updated_count = result.rowcount
+                updated_count = getattr(result, "rowcount", 0)
                 checkpoint(f"  ✅ Updated {updated_count} existing businesses with all pages enabled")
                 
                 migrations_applied.append('add_business_enabled_pages')
@@ -3918,9 +3934,7 @@ def apply_migrations():
                         ALTER TABLE lead_notes 
                         ADD COLUMN note_type VARCHAR(32) DEFAULT 'manual'
                     """)
-                    execute_with_retry(migrate_engine, """
-                        ON lead_notes(lead_id, note_type)
-                    """)
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                     checkpoint("  ✅ lead_notes.note_type added")
                     migrations_applied.append('add_lead_notes_note_type')
                 
@@ -3931,9 +3945,7 @@ def apply_migrations():
                         ALTER TABLE lead_notes 
                         ADD COLUMN call_id INTEGER REFERENCES call_log(id)
                     """)
-                    execute_with_retry(migrate_engine, """
-                        ON lead_notes(call_id)
-                    """)
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                     checkpoint("  ✅ lead_notes.call_id added")
                     migrations_applied.append('add_lead_notes_call_id')
                 
@@ -4101,11 +4113,8 @@ def apply_migrations():
                 
                 # Step 2: Add index for faster filtering by note_type
                 if not check_index_exists('idx_lead_notes_type_tenant'):
-                    checkpoint("  → Creating index on note_type and tenant_id...")
-                    execute_with_retry(migrate_engine, """
-                        ON lead_notes(tenant_id, note_type, created_at DESC)
-                    """)
-                    checkpoint("  ✅ Index created for efficient note filtering")
+                    checkpoint("  → Index for note_type filtering removed (belongs in db_indexes.py)")
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                 
                 migrations_applied.append('separate_customer_service_ai_notes')
                 checkpoint("✅ Migration 75 completed - Customer Service AI notes now separate from Free Notes")
@@ -4153,17 +4162,8 @@ def apply_migrations():
                 """)
                 checkpoint("  ✅ attachments table created")
                 
-                # Add indexes for performance
-                execute_with_retry(migrate_engine, """
-                    ON attachments(business_id, created_at DESC) 
-                    WHERE is_deleted = FALSE
-                """)
-                checkpoint("  ✅ Index created: idx_attachments_business")
-                
-                execute_with_retry(migrate_engine, """
-                    ON attachments(uploaded_by, created_at DESC)
-                """)
-                checkpoint("  ✅ Index created: idx_attachments_uploader")
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
+                # Performance indexes MUST be created separately via db_build_indexes.py
                 
                 # Create storage directory structure
                 import os
@@ -4507,7 +4507,7 @@ def apply_migrations():
                     WHERE enabled_pages IS NOT NULL
                       AND NOT (enabled_pages::jsonb ? 'assets')
                 """)
-                updated_count = result.rowcount
+                updated_count = getattr(result, "rowcount", 0)
                 
                 if updated_count > 0:
                     checkpoint(f"  ✅ Enabled 'assets' page for {updated_count} businesses")
@@ -4522,7 +4522,7 @@ def apply_migrations():
                        OR enabled_pages::text = '[]'
                        OR jsonb_array_length(enabled_pages::jsonb) = 0
                 """)
-                updated_count2 = result2.rowcount
+                updated_count2 = getattr(result2, "rowcount", 0)
                 
                 if updated_count2 > 0:
                     checkpoint(f"  ✅ Set default pages (including assets) for {updated_count2} businesses with empty pages")
@@ -4609,8 +4609,6 @@ def apply_migrations():
                     ON receipts(business_id, gmail_message_id) 
                     WHERE gmail_message_id IS NOT NULL
                 """)
-                execute_with_retry(migrate_engine, """
-                """)
                 checkpoint("  ✅ receipts table created")
                 migrations_applied.append('create_receipts_table')
             except Exception as e:
@@ -4667,11 +4665,8 @@ def apply_migrations():
                         ADD COLUMN purpose VARCHAR(50) NOT NULL DEFAULT 'general_upload'
                     """)
                     
-                    # Add index for efficient filtering
-                    if not check_index_exists('idx_attachments_purpose'):
-                        execute_with_retry(migrate_engine, """
-                            ON attachments(business_id, purpose, created_at)
-                        """)
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
+                    # Performance indexes MUST be created separately via db_build_indexes.py
                     
                     migrations_applied.append("add_purpose_to_attachments")
                     checkpoint("✅ Migration 84a complete: purpose added with index")
@@ -4691,11 +4686,8 @@ def apply_migrations():
                         ADD COLUMN origin_module VARCHAR(50)
                     """)
                     
-                    # Add index for efficient filtering
-                    if not check_index_exists('idx_attachments_origin'):
-                        execute_with_retry(migrate_engine, """
-                            ON attachments(business_id, origin_module)
-                        """)
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
+                    # Performance indexes MUST be created separately via db_build_indexes.py
                     
                     migrations_applied.append("add_origin_module_to_attachments")
                     checkpoint("✅ Migration 84b complete: origin_module added with index")
@@ -4779,10 +4771,7 @@ def apply_migrations():
                     REFERENCES attachments(id) ON DELETE SET NULL
                 """)
                 
-                if not check_index_exists('idx_receipts_preview_attachment'):
-                    execute_with_retry(migrate_engine, """
-                        ON receipts(preview_attachment_id)
-                    """)
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                 
                 migrations_applied.append("add_preview_attachment_id_to_receipts")
                 checkpoint("✅ Migration 84d complete: preview_attachment_id added")
@@ -4815,13 +4804,8 @@ def apply_migrations():
                     )
                 """)
                 
-                execute_with_retry(migrate_engine, """
-                    ON receipt_sync_runs(business_id, started_at DESC)
-                """)
-                
-                execute_with_retry(migrate_engine, """
-                    ON receipt_sync_runs(status, started_at DESC)
-                """)
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
+                # Performance indexes MUST be created separately via db_build_indexes.py
                 
                 migrations_applied.append("create_receipt_sync_runs_table")
                 checkpoint("✅ Migration 84e complete: receipt_sync_runs table created")
@@ -4843,7 +4827,7 @@ def apply_migrations():
                         WHERE r.attachment_id = a.id
                     ) AND a.purpose = 'general_upload'
                 """)
-                receipt_count = result.rowcount
+                receipt_count = getattr(result, "rowcount", 0)
                 
                 # Mark contract attachments (if contract_files table exists)
                 contract_count = 0
@@ -4860,7 +4844,7 @@ def apply_migrations():
                         WHERE cf.attachment_id = a.id
                         AND a.purpose = 'general_upload'
                     """)
-                    contract_count = result.rowcount
+                    contract_count = getattr(result, "rowcount", 0)
                 
                 # Set origin_module for remaining general uploads
                 execute_with_retry(migrate_engine, """
@@ -4906,10 +4890,7 @@ def apply_migrations():
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN current_month VARCHAR(10) NULL
                     """)
-                    if not check_index_exists('idx_receipt_sync_runs_current_month'):
-                        execute_with_retry(migrate_engine, """
-                            ON receipt_sync_runs(current_month)
-                        """)
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                     fields_added.append('current_month')
                     checkpoint("  ✅ current_month added with index")
                 
@@ -4948,15 +4929,7 @@ def apply_migrations():
                         ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP NULL
                     """)
                     
-                    # Create partial index for efficient stale run detection
-                    # Only index running syncs since we only check those for staleness
-                    if not check_index_exists('idx_receipt_sync_runs_heartbeat'):
-                        checkpoint("  → Creating partial index on last_heartbeat_at for running syncs...")
-                        execute_with_retry(migrate_engine, """
-                            ON receipt_sync_runs (last_heartbeat_at) 
-                            WHERE status = 'running'
-                        """)
-                        checkpoint("  ✅ Partial index created for efficient stale detection")
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                     
                     # Initialize heartbeat for existing running syncs to prevent false positives
                     checkpoint("  → Initializing heartbeat for existing running syncs...")
@@ -4970,16 +4943,9 @@ def apply_migrations():
                         checkpoint(f"  ✅ Initialized heartbeat for {updated_count} existing running sync(s)")
                     
                     fields_added.append('last_heartbeat_at')
-                    checkpoint("  ✅ last_heartbeat_at added with partial index")
+                    checkpoint("  ✅ last_heartbeat_at added")
                 
-                # Also add business_id + status composite index if not exists (for stale detection query)
-                if not check_index_exists('idx_receipt_sync_runs_business_status'):
-                    checkpoint("  → Creating composite index on (business_id, status)...")
-                    execute_with_retry(migrate_engine, """
-                        ON receipt_sync_runs (business_id, status)
-                    """)
-                    fields_added.append('business_status_index')
-                    checkpoint("  ✅ Composite index created for efficient sync run lookup")
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                 
                 if fields_added:
                     migrations_applied.append("add_receipt_sync_heartbeat")
@@ -5018,7 +4984,7 @@ def apply_migrations():
                         AND provider_message_id IS NOT NULL
                     """)
                     result = execute_with_retry(migrate_engine, duplicates_query)
-                    rows_deleted = result.rowcount
+                    rows_deleted = getattr(result, "rowcount", 0)
                     
                     if rows_deleted > 0:
                         checkpoint(f"  → Removed {rows_deleted} duplicate messages (kept oldest per business)")
@@ -5076,13 +5042,7 @@ def apply_migrations():
                     )
                 """)
                 
-                execute_with_retry(migrate_engine, """
-                    ON contract_signature_fields(contract_id)
-                """)
-                
-                execute_with_retry(migrate_engine, """
-                    ON contract_signature_fields(business_id)
-                """)
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                 
                 migrations_applied.append("create_contract_signature_fields_table")
                 checkpoint("✅ Migration 88: Created contract_signature_fields table with indexes")
@@ -6021,17 +5981,7 @@ def apply_migrations():
                 # Add indexes for performance
                 checkpoint("  → Creating indexes...")
                 
-                # Index for finding active jobs per business
-                execute_with_retry(migrate_engine, """
-                    ON background_jobs(business_id, job_type, status)
-                """)
-                checkpoint("  ✅ idx_background_jobs_business_type_status created")
-                
-                # Index for job history queries
-                execute_with_retry(migrate_engine, """
-                    ON background_jobs(created_at DESC)
-                """)
-                checkpoint("  ✅ idx_background_jobs_created_at created")
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                 
                 # Add unique constraint to prevent duplicate active jobs
                 checkpoint("  → Creating unique constraint...")
@@ -6122,15 +6072,7 @@ def apply_migrations():
                 else:
                     checkpoint("  ℹ️  extraction_error column already exists")
                 
-                # Add index for extraction_status for filtering queries
-                if not check_index_exists('idx_receipts_extraction_status'):
-                    checkpoint("  → Creating idx_receipts_extraction_status index...")
-                    execute_with_retry(migrate_engine, """
-                        ON receipts(extraction_status)
-                    """)
-                    checkpoint("  ✅ idx_receipts_extraction_status index created")
-                else:
-                    checkpoint("  ℹ️  idx_receipts_extraction_status index already exists")
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                 
                 checkpoint("✅ Migration 101 completed - Enhanced receipt processing fields ready")
                 
@@ -6196,15 +6138,8 @@ def apply_migrations():
                 
                 checkpoint("  ✅ Existing provider settings migrated to openai defaults")
                 
-                # Create simple index on ai_provider for queries
-                checkpoint("  → Creating index on ai_provider...")
-                try:
-                    execute_with_retry(migrate_engine, """
-                        ON business(ai_provider)
-                    """)
-                    checkpoint("  ✅ Index created")
-                except Exception as idx_err:
-                    pass  # Index might already exist, that's okay
+                # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
+                # Performance indexes MUST be created separately via db_build_indexes.py
                 
                 migrations_applied.append('migration_102_ai_provider_selection')
                 checkpoint("✅ Migration 102 completed - AI provider selection implemented")
@@ -6237,15 +6172,7 @@ def apply_migrations():
                         ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP NULL
                     """)
                     
-                    # Create partial index for efficient stale job detection
-                    # Only index running jobs since we only check those for staleness
-                    if not check_index_exists('idx_background_jobs_heartbeat'):
-                        checkpoint("  → Creating partial index on heartbeat_at for running jobs...")
-                        execute_with_retry(migrate_engine, """
-                            ON background_jobs (heartbeat_at) 
-                            WHERE status = 'running'
-                        """)
-                        checkpoint("  ✅ Partial index created for efficient stale detection")
+                    # NOTE: Index creation removed - indexes belong in db_indexes.py (INDEXING_GUIDE.md)
                     
                     # Initialize heartbeat for existing running jobs to prevent false positives
                     checkpoint("  → Initializing heartbeat for existing running jobs...")
@@ -6254,7 +6181,7 @@ def apply_migrations():
                         SET heartbeat_at = COALESCE(updated_at, started_at, created_at)
                         WHERE status IN ('running', 'queued') AND heartbeat_at IS NULL
                     """)
-                    updated_count = result.rowcount
+                    updated_count = getattr(result, "rowcount", 0)
                     if updated_count > 0:
                         checkpoint(f"  ✅ Initialized heartbeat for {updated_count} existing job(s)")
                     
@@ -6548,7 +6475,7 @@ def apply_migrations():
                           AND summary != ''
                           AND summary_status IS NULL
                     """)
-                    updated_rows = result.rowcount
+                    updated_rows = getattr(result, "rowcount", 0)
                     checkpoint(f"  ✅ Marked {updated_rows} existing calls with summaries as 'completed'")
                     
                     migrations_applied.append('110_call_log_summary_status')
@@ -6740,7 +6667,7 @@ def apply_migrations():
         if check_table_exists('outbound_call_jobs'):
             try:
                 # Check if constraint exists using engine.connect() to avoid idle-in-transaction
-                if not check_constraint_exists('outbound_call_jobs', 'unique_run_lead'):
+                if not check_constraint_exists('unique_run_lead', 'outbound_call_jobs'):
                     checkpoint("  → Adding unique constraint on (run_id, lead_id)...")
                     
                     # First, remove any existing duplicates (keep oldest)
@@ -6755,7 +6682,7 @@ def apply_migrations():
                           AND a.run_id IS NOT NULL
                           AND a.lead_id IS NOT NULL
                     """)
-                    deleted_count = result.rowcount
+                    deleted_count = getattr(result, "rowcount", 0)
                     if deleted_count > 0:
                         checkpoint(f"  ℹ️ Removed {deleted_count} duplicate jobs")
                     
@@ -6802,7 +6729,7 @@ def apply_migrations():
                         WHERE outbound_call_jobs.run_id = subquery.run_id
                           AND outbound_call_jobs.business_id IS NULL
                     """)
-                    updated_count = result.rowcount
+                    updated_count = getattr(result, "rowcount", 0)
                     checkpoint(f"  ℹ️ Updated {updated_count} jobs with business_id")
                     
                     # Check for orphaned jobs without business_id
@@ -6882,7 +6809,7 @@ def apply_migrations():
                         SET last_heartbeat_at = COALESCE(lock_ts, updated_at, created_at)
                         WHERE status IN ('running', 'pending')
                     """)
-                    updated_count = result.rowcount
+                    updated_count = getattr(result, "rowcount", 0)
                     checkpoint(f"  ℹ️ Initialized {updated_count} running runs with heartbeat")
                     
                     migrations_applied.append('114_outbound_heartbeat')
@@ -7063,38 +6990,77 @@ def apply_migrations():
                 if businesses_without_calendars > 0:
                     checkpoint(f"  → Creating default calendars for {businesses_without_calendars} business(es)...")
                     
-                    # Create default calendar for businesses that don't have one
-                    result = execute_with_retry(migrate_engine, """
-                        INSERT INTO business_calendars (
-                            business_id, 
-                            name, 
-                            type_key, 
-                            provider, 
-                            is_active, 
-                            priority,
-                            default_duration_minutes,
-                            allowed_tags
-                        )
-                        SELECT 
-                            b.id,
-                            'לוח ברירת מחדל' as name,
-                            'default' as type_key,
-                            'internal' as provider,
-                            TRUE as is_active,
-                            1 as priority,
-                            COALESCE(
-                                (SELECT bs.slot_size_min FROM business_settings bs WHERE bs.business_id = b.id LIMIT 1),
-                                60
-                            ) as default_duration_minutes,
-                            '[]'::jsonb as allowed_tags
-                        FROM business b
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM business_calendars bc 
-                            WHERE bc.business_id = b.id
-                        )
-                    """)
+                    # Check if business_settings table has business_id column
+                    has_business_settings_fk = False
+                    if check_table_exists('business_settings'):
+                        has_business_settings_fk = check_column_exists('business_settings', 'business_id')
                     
-                    created_count = result.rowcount
+                    # Create default calendar for businesses that don't have one
+                    # Use business_settings.slot_size_min if available, otherwise default to 60
+                    if has_business_settings_fk:
+                        # Business_settings has business_id FK - use it
+                        insert_sql = """
+                            INSERT INTO business_calendars (
+                                business_id, 
+                                name, 
+                                type_key, 
+                                provider, 
+                                is_active, 
+                                priority,
+                                default_duration_minutes,
+                                allowed_tags
+                            )
+                            SELECT 
+                                b.id,
+                                'לוח ברירת מחדל' as name,
+                                'default' as type_key,
+                                'internal' as provider,
+                                TRUE as is_active,
+                                1 as priority,
+                                COALESCE(
+                                    (SELECT bs.slot_size_min FROM business_settings bs WHERE bs.business_id = b.id LIMIT 1),
+                                    60
+                                ) as default_duration_minutes,
+                                '[]'::jsonb as allowed_tags
+                            FROM business b
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM business_calendars bc 
+                                WHERE bc.business_id = b.id
+                            )
+                        """
+                    else:
+                        # Business_settings doesn't have business_id FK - use default duration
+                        checkpoint("  ℹ️ business_settings.business_id not found, using default 60 minute duration")
+                        insert_sql = """
+                            INSERT INTO business_calendars (
+                                business_id, 
+                                name, 
+                                type_key, 
+                                provider, 
+                                is_active, 
+                                priority,
+                                default_duration_minutes,
+                                allowed_tags
+                            )
+                            SELECT 
+                                b.id,
+                                'לוח ברירת מחדל' as name,
+                                'default' as type_key,
+                                'internal' as provider,
+                                TRUE as is_active,
+                                1 as priority,
+                                60 as default_duration_minutes,
+                                '[]'::jsonb as allowed_tags
+                            FROM business b
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM business_calendars bc 
+                                WHERE bc.business_id = b.id
+                            )
+                        """
+                    
+                    result = execute_with_retry(migrate_engine, insert_sql)
+                    
+                    created_count = getattr(result, "rowcount", 0)
                     checkpoint(f"  ✅ Created default calendars for {created_count} business(es)")
                     migrations_applied.append('115_default_calendars')
                 else:
@@ -7133,7 +7099,7 @@ def apply_migrations():
                               AND a.calendar_id IS NULL
                         """)
                         
-                        linked_count = result.rowcount
+                        linked_count = getattr(result, "rowcount", 0)
                         checkpoint(f"  ✅ Linked {linked_count} appointment(s) to default calendars")
                         migrations_applied.append('115_link_appointments')
                     else:
@@ -7399,7 +7365,7 @@ def apply_migrations():
                       AND enabled_pages::jsonb ? 'whatsapp_broadcast'
                       AND NOT (enabled_pages::jsonb ? 'scheduled_messages')
                 """)
-                updated_count = result.rowcount
+                updated_count = getattr(result, "rowcount", 0)
                 
                 if updated_count > 0:
                     checkpoint(f"  ✅ Enabled 'scheduled_messages' page for {updated_count} businesses with WhatsApp")
