@@ -653,6 +653,42 @@ INDEX_DEFS_MISC = [
         "critical": False,
         "description": "Index on business_topics for business topic active"
     },
+    # Calendars and appointments indexes (moved from Migration 115)
+    {
+        "name": "idx_business_calendars_business_active",
+        "table": "business_calendars",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_business_calendars_business_active ON business_calendars(business_id, is_active)",
+        "critical": False,
+        "description": "Index on business_calendars for filtering active calendars by business"
+    },
+    {
+        "name": "idx_business_calendars_priority",
+        "table": "business_calendars",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_business_calendars_priority ON business_calendars(business_id, priority)",
+        "critical": False,
+        "description": "Index on business_calendars for ordering calendars by priority"
+    },
+    {
+        "name": "idx_calendar_routing_business_active",
+        "table": "calendar_routing_rules",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_calendar_routing_business_active ON calendar_routing_rules(business_id, is_active)",
+        "critical": False,
+        "description": "Index on calendar_routing_rules for filtering active routing rules by business"
+    },
+    {
+        "name": "idx_calendar_routing_calendar",
+        "table": "calendar_routing_rules",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_calendar_routing_calendar ON calendar_routing_rules(calendar_id)",
+        "critical": False,
+        "description": "Index on calendar_routing_rules for looking up rules by calendar"
+    },
+    {
+        "name": "idx_appointments_calendar_id",
+        "table": "appointments",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_appointments_calendar_id ON appointments(calendar_id)",
+        "critical": False,
+        "description": "Index on appointments for looking up appointments by calendar"
+    },
 ]
 
 
