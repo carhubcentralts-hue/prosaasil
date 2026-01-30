@@ -80,6 +80,53 @@ def checkpoint(message):
     # Print to stderr directly instead of using logger with file argument
     print(msg, file=sys.stderr, flush=True)
 
+def fetch_all_retry(engine, sql, params=None, attempts=3):
+    """
+    Execute a metadata query with retry logic for transient connection failures.
+    
+    Uses short-lived connections and AUTOCOMMIT isolation level to prevent
+    SSL connection failures from breaking migrations.
+    
+    Args:
+        engine: SQLAlchemy engine instance
+        sql: SQL query string
+        params: Dictionary of query parameters (default: None)
+        attempts: Number of retry attempts (default: 3)
+    
+    Returns:
+        List of result rows
+    
+    Raises:
+        OperationalError: If all retry attempts fail
+    
+    Example:
+        rows = fetch_all_retry(db.engine, '''
+            SELECT constraint_name, check_clause
+            FROM information_schema.check_constraints
+            WHERE constraint_name LIKE :p
+        ''', {"p": "%event_type%"})
+    """
+    import time
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+    
+    for i in range(attempts):
+        try:
+            # Use short-lived connection, not long session
+            with engine.connect() as conn:
+                # AUTOCOMMIT for metadata queries reduces risk of idle transaction
+                conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+                return conn.execute(text(sql), params or {}).fetchall()
+        except OperationalError as e:
+            if i == attempts - 1:
+                # Last attempt failed - re-raise
+                log.error(f"❌ fetch_all_retry failed after {attempts} attempts: {e}")
+                raise
+            # Exponential backoff: 1.5s, 3s, 4.5s, etc.
+            sleep_time = 1.5 * (i + 1)
+            log.warning(f"⚠️ Connection error (attempt {i + 1}/{attempts}), retrying in {sleep_time}s: {e}")
+            time.sleep(sleep_time)
+
 def check_column_exists(table_name, column_name):
     """Check if column exists in table using independent connection"""
     from sqlalchemy import text
@@ -4401,14 +4448,16 @@ def apply_migrations():
             checkpoint("🔧 Running Migration 90: Expand contract_sign_events event_type constraint")
             
             try:
-                # Check if constraint exists by querying check_constraints
-                result = db.session.execute(text("""
+                # 🔥 FIX: Use fetch_all_retry with engine.connect() instead of db.session
+                # This prevents SSL connection failures during metadata queries
+                rows = fetch_all_retry(db.engine, """
                     SELECT constraint_name, check_clause
                     FROM information_schema.check_constraints 
-                    WHERE constraint_name LIKE '%event_type%'
+                    WHERE constraint_name LIKE :p
                     AND constraint_schema = 'public'
-                """))
-                constraint_row = result.fetchone()
+                """, {"p": "%event_type%"})
+                
+                constraint_row = rows[0] if rows else None
                 
                 if constraint_row:
                     constraint_name = constraint_row[0]
@@ -4426,6 +4475,7 @@ def apply_migrations():
                         checkpoint(f"  → Adding missing event types: {', '.join(missing_types)}")
                         
                         # Drop old constraint and add new one with ALL event types
+                        # Note: DDL operations still use db.session as they're transactional
                         db.session.execute(text(f"""
                             ALTER TABLE contract_sign_events 
                             DROP CONSTRAINT IF EXISTS {constraint_name}
