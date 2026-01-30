@@ -307,6 +307,64 @@ def run_migration_with_tracking(migration_id: str, migration_func, engine):
         checkpoint(f"❌ Failed {migration_id}: {e}")
         raise
 
+def run_migration(migration_id: str, fingerprint_fn, run_fn, engine):
+    """
+    Enhanced migration wrapper with fingerprint-based reconciliation.
+    
+    This is the IRON RULE wrapper - all migrations MUST use this.
+    
+    Args:
+        migration_id: Unique migration ID (e.g., "096" or "096_whatsapp_prompt_mode")
+        fingerprint_fn: Function that returns True if migration already exists in DB
+        run_fn: Function that executes the migration DDL
+        engine: SQLAlchemy engine for state tracking
+    
+    Returns:
+        str: Status - "SKIP" (already applied), "RECONCILE" (detected in DB), or "RUN" (executed)
+    
+    Example:
+        def fp_96():
+            return (
+                column_exists("leads", "name") and
+                column_exists("business", "whatsapp_prompt_mode")
+            )
+        
+        def run_96():
+            exec_ddl(engine, "ALTER TABLE leads ADD COLUMN name VARCHAR(255)")
+            exec_ddl(engine, "ALTER TABLE business ADD COLUMN whatsapp_prompt_mode TEXT")
+        
+        run_migration("096", fp_96, run_96, engine)
+    """
+    # Check if already tracked as applied
+    if is_migration_applied(engine, migration_id):
+        checkpoint(f"⏭️  SKIP {migration_id} - already applied")
+        return "SKIP"
+    
+    # Check fingerprint - does schema already exist?
+    try:
+        if fingerprint_fn():
+            # Schema exists but not tracked - reconcile
+            mark_migration_applied(engine, migration_id, reconciled=True, 
+                                   notes="Detected in DB via fingerprint")
+            checkpoint(f"🔄 RECONCILE {migration_id} - schema already exists")
+            return "RECONCILE"
+    except Exception as e:
+        # If fingerprint check fails, assume migration needs to run
+        checkpoint(f"⚠️  Fingerprint check failed for {migration_id}: {e}")
+        checkpoint(f"   Assuming migration needs to run")
+    
+    # Schema doesn't exist - run the migration
+    checkpoint(f"🔨 RUN {migration_id}...")
+    try:
+        run_fn()
+        mark_migration_applied(engine, migration_id, reconciled=False, 
+                               notes="Successfully executed")
+        checkpoint(f"✅ Completed {migration_id}")
+        return "RUN"
+    except Exception as e:
+        checkpoint(f"❌ Failed {migration_id}: {e}")
+        raise
+
 # Migration 89 required columns for receipt_sync_runs
 MIGRATION_89_REQUIRED_COLUMNS = [
     'from_date', 'to_date', 'months_back',
@@ -5629,126 +5687,107 @@ def apply_migrations():
             checkpoint("  ℹ️ receipts table does not exist - skipping")
         
         # ═══════════════════════════════════════════════════════════════════════
-        # Migration 96: WhatsApp Prompt-Only Mode + Lead Name Tracking
+        # Migration 96: WhatsApp Prompt-Only Mode + Lead Name Tracking (DDL ONLY)
         # 🎯 PURPOSE: Add dedicated WhatsApp prompt fields to business table
         #            Add name tracking fields to leads table
+        # ⚠️  CRITICAL: DATA MIGRATION MOVED TO BACKFILL (db_backfills.py)
         # ═══════════════════════════════════════════════════════════════════════
-        checkpoint("Migration 96: WhatsApp Prompt-Only Mode + Lead Name Tracking")
         
-        # Part 1: Add WhatsApp prompt fields to business table
-        if check_table_exists('business'):
-            try:
-                # whatsapp_system_prompt - dedicated WhatsApp AI prompt
+        # Define fingerprint function for migration 96
+        def fp_96():
+            """Check if migration 96 schema already exists"""
+            return (
+                check_column_exists("leads", "name") and
+                check_column_exists("leads", "name_source") and
+                check_column_exists("leads", "name_updated_at") and
+                check_column_exists("business", "whatsapp_system_prompt") and
+                check_column_exists("business", "whatsapp_temperature") and
+                check_column_exists("business", "whatsapp_model") and
+                check_column_exists("business", "whatsapp_max_tokens")
+            )
+        
+        # Define DDL function for migration 96
+        def run_96():
+            """Execute migration 96 DDL - schema changes only"""
+            checkpoint("Migration 96: WhatsApp Prompt-Only Mode + Lead Name Tracking (DDL ONLY)")
+            
+            # Part 1: Add WhatsApp prompt fields to business table
+            if check_table_exists('business'):
+                checkpoint("  → Part 1: Adding WhatsApp prompt fields to business...")
+                
                 if not check_column_exists('business', 'whatsapp_system_prompt'):
-                    checkpoint("  → Adding whatsapp_system_prompt to business...")
-                    db.session.execute(text("""
+                    exec_ddl(migrate_engine, """
                         ALTER TABLE business 
-                        ADD COLUMN whatsapp_system_prompt TEXT
-                    """))
-                    checkpoint("  ✅ business.whatsapp_system_prompt added")
-                    migrations_applied.append('add_business_whatsapp_system_prompt')
+                        ADD COLUMN IF NOT EXISTS whatsapp_system_prompt TEXT
+                    """)
+                    checkpoint("    ✅ business.whatsapp_system_prompt added")
                 
-                # whatsapp_temperature - temperature for WhatsApp responses
                 if not check_column_exists('business', 'whatsapp_temperature'):
-                    checkpoint("  → Adding whatsapp_temperature to business...")
-                    db.session.execute(text("""
+                    exec_ddl(migrate_engine, """
                         ALTER TABLE business 
-                        ADD COLUMN whatsapp_temperature FLOAT DEFAULT 0.0
-                    """))
-                    checkpoint("  ✅ business.whatsapp_temperature added")
-                    migrations_applied.append('add_business_whatsapp_temperature')
+                        ADD COLUMN IF NOT EXISTS whatsapp_temperature FLOAT DEFAULT 0.0
+                    """)
+                    checkpoint("    ✅ business.whatsapp_temperature added")
                 
-                # whatsapp_model - AI model for WhatsApp
                 if not check_column_exists('business', 'whatsapp_model'):
-                    checkpoint("  → Adding whatsapp_model to business...")
-                    db.session.execute(text("""
+                    exec_ddl(migrate_engine, """
                         ALTER TABLE business 
-                        ADD COLUMN whatsapp_model VARCHAR(50) DEFAULT 'gpt-4o-mini'
-                    """))
-                    checkpoint("  ✅ business.whatsapp_model added")
-                    migrations_applied.append('add_business_whatsapp_model')
+                        ADD COLUMN IF NOT EXISTS whatsapp_model VARCHAR(50) DEFAULT 'gpt-4o-mini'
+                    """)
+                    checkpoint("    ✅ business.whatsapp_model added")
                 
-                # whatsapp_max_tokens - max tokens for WhatsApp
                 if not check_column_exists('business', 'whatsapp_max_tokens'):
-                    checkpoint("  → Adding whatsapp_max_tokens to business...")
-                    db.session.execute(text("""
+                    exec_ddl(migrate_engine, """
                         ALTER TABLE business 
-                        ADD COLUMN whatsapp_max_tokens INTEGER DEFAULT 350
-                    """))
-                    checkpoint("  ✅ business.whatsapp_max_tokens added")
-                    migrations_applied.append('add_business_whatsapp_max_tokens')
+                        ADD COLUMN IF NOT EXISTS whatsapp_max_tokens INTEGER DEFAULT 350
+                    """)
+                    checkpoint("    ✅ business.whatsapp_max_tokens added")
                 
-                checkpoint("✅ Migration 96 Part 1 completed - WhatsApp prompt fields added to business")
-            except Exception as e:
-                log.error(f"❌ Migration 96 Part 1 failed: {e}")
-                db.session.rollback()
-                raise
-        else:
-            checkpoint("  ℹ️ business table does not exist - skipping Part 1")
-        
-        # Part 2: Add name tracking fields to leads table
-        if check_table_exists('leads'):
-            try:
-                # name - unified name field
+                checkpoint("  ✅ Part 1 completed - WhatsApp prompt fields added")
+                migrations_applied.append('add_business_whatsapp_fields_96')
+            else:
+                checkpoint("  ℹ️  business table does not exist - skipping Part 1")
+            
+            # Part 2: Add name tracking fields to leads table
+            if check_table_exists('leads'):
+                checkpoint("  → Part 2: Adding name tracking fields to leads...")
+                
                 if not check_column_exists('leads', 'name'):
-                    checkpoint("  → Adding name to leads...")
-                    db.session.execute(text("""
+                    exec_ddl(migrate_engine, """
                         ALTER TABLE leads 
-                        ADD COLUMN name VARCHAR(255)
-                    """))
-                    checkpoint("  ✅ leads.name added")
-                    migrations_applied.append('add_leads_name')
+                        ADD COLUMN IF NOT EXISTS name VARCHAR(255)
+                    """)
+                    checkpoint("    ✅ leads.name added")
                 
-                # name_source - source of name (whatsapp/call/manual)
                 if not check_column_exists('leads', 'name_source'):
-                    checkpoint("  → Adding name_source to leads...")
-                    db.session.execute(text("""
+                    exec_ddl(migrate_engine, """
                         ALTER TABLE leads 
-                        ADD COLUMN name_source VARCHAR(32)
-                    """))
-                    checkpoint("  ✅ leads.name_source added")
-                    migrations_applied.append('add_leads_name_source')
+                        ADD COLUMN IF NOT EXISTS name_source VARCHAR(32)
+                    """)
+                    checkpoint("    ✅ leads.name_source added")
                 
-                # name_updated_at - when name was last updated
                 if not check_column_exists('leads', 'name_updated_at'):
-                    checkpoint("  → Adding name_updated_at to leads...")
-                    db.session.execute(text("""
+                    exec_ddl(migrate_engine, """
                         ALTER TABLE leads 
-                        ADD COLUMN name_updated_at TIMESTAMP
-                    """))
-                    checkpoint("  ✅ leads.name_updated_at added")
-                    migrations_applied.append('add_leads_name_updated_at')
+                        ADD COLUMN IF NOT EXISTS name_updated_at TIMESTAMP
+                    """)
+                    checkpoint("    ✅ leads.name_updated_at added")
                 
-                # Migrate existing lead names to new name column
-                checkpoint("  → Migrating existing lead names...")
-                result = db.session.execute(text("""
-                    UPDATE leads 
-                    SET name = CASE 
-                        WHEN first_name IS NOT NULL AND last_name IS NOT NULL 
-                            THEN first_name || ' ' || last_name
-                        WHEN first_name IS NOT NULL 
-                            THEN first_name
-                        WHEN last_name IS NOT NULL 
-                            THEN last_name
-                        ELSE NULL
-                    END,
-                    name_source = 'manual',
-                    name_updated_at = updated_at
-                    WHERE name IS NULL 
-                    AND (first_name IS NOT NULL OR last_name IS NOT NULL)
-                """))
-                rows_updated = result.rowcount if hasattr(result, 'rowcount') else 0
-                checkpoint(f"  ✅ Migrated {rows_updated} existing lead names")
-                
-                checkpoint("✅ Migration 96 Part 2 completed - Lead name tracking fields added")
-            except Exception as e:
-                log.error(f"❌ Migration 96 Part 2 failed: {e}")
-                db.session.rollback()
-                raise
-        else:
-            checkpoint("  ℹ️ leads table does not exist - skipping Part 2")
+                checkpoint("  ✅ Part 2 completed - Lead name tracking fields added")
+                migrations_applied.append('add_leads_name_fields_96')
+            else:
+                checkpoint("  ℹ️  leads table does not exist - skipping Part 2")
+            
+            checkpoint("✅ Migration 96 DDL completed")
+            checkpoint("   ℹ️  DATA MIGRATION: Run separately via backfill system")
+            checkpoint("   ℹ️  Command: python server/db_run_backfills.py --only migration_96_lead_name")
         
-        checkpoint("✅ Migration 96 completed - WhatsApp Prompt-Only Mode + Lead Name Tracking")
+        # Run migration 96 with fingerprint-based reconciliation
+        status_96 = run_migration("096", fp_96, run_96, migrate_engine)
+        if status_96 == "RUN":
+            # Only add to migrations_applied if actually executed
+            # (fingerprint function already adds tracking)
+            pass
         
         # ═══════════════════════════════════════════════════════════════════════
         # Migration 97: Add unique constraint to receipts to prevent duplicates
