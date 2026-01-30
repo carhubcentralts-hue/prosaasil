@@ -125,6 +125,49 @@ def check_index_exists(index_name):
         log.warning(f"Error checking if index {index_name} exists: {e}")
         return False
 
+def check_constraint_exists(constraint_name):
+    """Check if constraint exists using independent connection"""
+    from sqlalchemy import text
+    try:
+        # Use engine.connect() instead of db.session to avoid leaving transactions open
+        with db.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT 1 FROM pg_constraint 
+                WHERE conname = :constraint_name
+                LIMIT 1
+            """), {"constraint_name": constraint_name})
+            return result.fetchone() is not None
+    except Exception as e:
+        log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
+        return False
+
+def terminate_idle_in_tx(engine, older_than_seconds=30):
+    """
+    Terminate idle-in-transaction connections that are older than the specified time.
+    
+    This prevents stale connections from holding locks and blocking DDL operations.
+    
+    Args:
+        engine: SQLAlchemy engine
+        older_than_seconds: Minimum age of idle transactions to terminate (default: 30s)
+    """
+    from sqlalchemy import text
+    try:
+        sql = """
+        SELECT pg_terminate_backend(pid)
+        FROM pg_stat_activity
+        WHERE state = 'idle in transaction'
+          AND now() - xact_start > (INTERVAL '1 second' * :secs)
+          AND pid <> pg_backend_pid()
+        """
+        with engine.connect() as conn:
+            result = conn.execute(text(sql), {"secs": older_than_seconds})
+            terminated_count = sum(1 for row in result if row[0])
+            if terminated_count > 0:
+                log.info(f"Terminated {terminated_count} idle-in-transaction connection(s) older than {older_than_seconds}s")
+    except Exception as e:
+        log.warning(f"Error terminating idle transactions: {e}")
+
 def exec_ddl(engine, sql: str):
     """
     Execute a single DDL statement in its own transaction with strict lock timeouts.
@@ -151,6 +194,19 @@ def exec_ddl(engine, sql: str):
         Exception: If DDL fails (including lock timeout)
     """
     from sqlalchemy import text
+    
+    # First, check and log idle-in-transaction count
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT count(*) FROM pg_stat_activity WHERE state='idle in transaction'"))
+            idle_count = result.scalar()
+            if idle_count > 0:
+                log.warning(f"Found {idle_count} idle-in-transaction connection(s) before DDL")
+                # Terminate old idle transactions to prevent lock contention
+                terminate_idle_in_tx(engine, 30)
+    except Exception as check_error:
+        log.warning(f"Could not check idle transactions: {check_error}")
+    
     try:
         with engine.begin() as conn:  # begin() = auto commit/rollback
             # Set strict timeouts to prevent long waits on locks
@@ -5839,14 +5895,8 @@ def apply_migrations():
         # Add unique constraint on (run_id, lead_id) in outbound_call_jobs
         if check_table_exists('outbound_call_jobs'):
             try:
-                # Check if constraint exists
-                from sqlalchemy import text
-                constraint_check = db.session.execute(text("""
-                    SELECT 1 FROM pg_constraint 
-                    WHERE conname='unique_run_lead'
-                """)).fetchone()
-                
-                if not constraint_check:
+                # Check if constraint exists using engine.connect() to avoid idle-in-transaction
+                if not check_constraint_exists('unique_run_lead'):
                     checkpoint("  → Adding unique constraint on (run_id, lead_id)...")
                     
                     # First, remove any existing duplicates (keep oldest)
