@@ -452,8 +452,9 @@ def get_migrate_engine():
     Get or create a dedicated engine for migrations with pool_pre_ping and pool_recycle.
     
     Automatically chooses the best connection for migrations:
-    1. Tries DIRECT connection first (preferred for DDL operations)
+    1. Tries DIRECT connection first with 5s timeout (preferred for DDL operations)
     2. Falls back to POOLER if DIRECT is unreachable (with appropriate timeouts)
+    3. Locks to chosen connection for entire migration run (no retrying)
     
     This prevents stale connections from breaking migrations due to:
     - SSL connection closures
@@ -467,10 +468,13 @@ def get_migrate_engine():
     if _MIGRATE_ENGINE is None:
         from server.database_url import get_database_url
         
-        # 🔥 CRITICAL: Try DIRECT first, but auto-fallback to POOLER if unreachable
-        # The get_database_url() function handles this fallback automatically
-        # when DATABASE_URL_DIRECT is not set or not reachable
-        database_url = get_database_url(connection_type="direct")
+        # 🔥 CRITICAL: Try DIRECT first with timeout, lock to chosen connection
+        # The get_database_url() function with try_direct_first=True will:
+        # 1. Try DIRECT with 5s timeout
+        # 2. If successful, lock to DIRECT for entire run
+        # 3. If failed, lock to POOLER for entire run
+        # 4. Never retry DIRECT during the run
+        database_url = get_database_url(connection_type="direct", try_direct_first=True)
         
         _MIGRATE_ENGINE = create_engine(
             database_url,
@@ -479,16 +483,11 @@ def get_migrate_engine():
             pool_size=5,
             max_overflow=10,
             connect_args={
-                'connect_timeout': 5,  # 5 second timeout for connection attempts
+                'connect_timeout': 10,  # 10 second timeout for subsequent connections
             }
         )
         
-        # Log which connection type is being used
-        host = database_url.split('@')[1].split(':')[0] if '@' in database_url else 'unknown'
-        if 'pooler' in host.lower():
-            log.info("✅ Created migration engine with POOLER connection (DIRECT not available)")
-        else:
-            log.info("✅ Created migration engine with DIRECT connection")
+        log.info("✅ Created migration engine (connection locked for entire run)")
     return _MIGRATE_ENGINE
 
 def fetch_all_retry(engine, sql, params=None, attempts=3):

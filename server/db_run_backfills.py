@@ -69,6 +69,10 @@ def get_database_url() -> str:
     from server.database_url import get_database_url as get_db_url
     
     try:
+        # Backfill always uses POOLER (optimal for batch operations)
+        logger.info("=" * 80)
+        logger.info("✅ Using POOLER (optimal for backfill)")
+        logger.info("=" * 80)
         return get_db_url(connection_type="pooler")
     except RuntimeError as e:
         logger.error(f"❌ {e}")
