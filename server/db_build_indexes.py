@@ -54,16 +54,17 @@ def get_database_url() -> str:
     """
     Get database URL from environment.
     
-    Uses DIRECT connection (not pooler) for index building operations.
-    This avoids lock contention issues with pooler connections.
+    Uses POOLER connection for index building operations.
+    Pooler is safe for CREATE INDEX CONCURRENTLY with proper settings.
     """
     # Import here to avoid circular dependency
+    import sys
     import os
-    os.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from server.database_url import get_database_url as get_db_url
     
     try:
-        return get_db_url(connection_type="direct")
+        return get_db_url(connection_type="pooler")
     except RuntimeError as e:
         logger.error(f"❌ {e}")
         sys.exit(0)  # Exit 0 to not block deployment
@@ -104,10 +105,12 @@ def create_index_with_retry(
     engine,
     index_def: Dict[str, str],
     max_retries: int = 10,
-    initial_backoff: float = 5.0
+    initial_backoff: float = 2.0
 ) -> Tuple[bool, str]:
     """
     Create an index with retry logic on lock conflicts.
+    
+    Uses exponential backoff: 2s, 4s, 8s, 16s, 30s (capped at 30s)
     
     Returns:
         (success: bool, message: str)
@@ -118,14 +121,14 @@ def create_index_with_retry(
     for attempt in range(max_retries):
         try:
             # Use AUTOCOMMIT isolation level for CREATE INDEX CONCURRENTLY
-            # This is required because CONCURRENTLY cannot run inside a transaction
+            # This is MANDATORY because CONCURRENTLY cannot run inside a transaction
             with engine.connect().execution_options(
                 isolation_level="AUTOCOMMIT"
             ) as conn:
-                # Set generous timeouts for index creation
-                # lock_timeout: 5 minutes (300 seconds) - time to wait for locks
+                # Set POOLER-safe timeouts for index creation
+                # lock_timeout: 60s - reasonable wait for locks on POOLER
                 # statement_timeout: 0 (unlimited) - index creation can take long
-                conn.execute(text("SET lock_timeout = '300s'"))
+                conn.execute(text("SET lock_timeout = '60s'"))
                 conn.execute(text("SET statement_timeout = 0"))
                 
                 # Execute the index creation
@@ -138,7 +141,8 @@ def create_index_with_retry(
             
             # Check if it's a lock timeout or deadlock
             if "lock" in error_msg.lower() or "timeout" in error_msg.lower():
-                backoff = initial_backoff * (2 ** attempt)
+                # Exponential backoff with cap at 30s
+                backoff = min(initial_backoff * (2 ** attempt), 30.0)
                 logger.warning(
                     f"⚠️  Index {index_name} blocked (attempt {attempt + 1}/{max_retries}). "
                     f"Retrying in {backoff:.1f}s..."
