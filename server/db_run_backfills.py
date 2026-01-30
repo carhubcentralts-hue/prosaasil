@@ -58,12 +58,22 @@ except ImportError as e:
 
 
 def get_database_url() -> str:
-    """Get database URL from environment."""
-    db_url = os.environ.get('DATABASE_URL')
-    if not db_url:
-        logger.error("❌ DATABASE_URL environment variable not set")
+    """
+    Get database URL from environment.
+    
+    Uses DIRECT connection (not pooler) for backfill operations.
+    This avoids lock contention issues with pooler connections.
+    """
+    # Import here to avoid circular dependency
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from server.database_url import get_database_url as get_db_url
+    
+    try:
+        return get_db_url(connection_type="direct")
+    except RuntimeError as e:
+        logger.error(f"❌ {e}")
         sys.exit(0)
-    return db_url
 
 
 def create_db_engine(database_url: str):

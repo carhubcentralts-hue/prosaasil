@@ -296,7 +296,9 @@ def get_migrate_engine():
     global _MIGRATE_ENGINE
     if _MIGRATE_ENGINE is None:
         from server.database_url import get_database_url
-        database_url = get_database_url()
+        # 🔥 CRITICAL: Use DIRECT connection for migrations (not pooler)
+        # This avoids "ghost locks" and SSL issues with poolers like Supabase's pgbouncer
+        database_url = get_database_url(connection_type="direct")
         _MIGRATE_ENGINE = create_engine(
             database_url,
             pool_pre_ping=True,  # Test connections before using them
@@ -304,7 +306,7 @@ def get_migrate_engine():
             pool_size=5,
             max_overflow=10,
         )
-        log.info("✅ Created dedicated migration engine with pool_pre_ping=True and pool_recycle=180")
+        log.info("✅ Created dedicated migration engine with DIRECT connection (not pooler)")
     return _MIGRATE_ENGINE
 
 def fetch_all_retry(engine, sql, params=None, attempts=3):
