@@ -89,15 +89,14 @@ export async function getRules(isActive?: boolean): Promise<ScheduledRule[]> {
   const url = `/api/scheduled-messages/rules${params.toString() ? '?' + params.toString() : ''}`;
   
   try {
-    const response = await http.get(url);
+    const response = await http.get<any>(url);
     
-    // Guard: ensure data exists and has rules property
-    const payload = response?.data ?? {};
-    const rules = Array.isArray(payload.rules) ? payload.rules : [];
+    // Guard: http.get returns the parsed JSON directly, check if it has rules property
+    const rules = Array.isArray(response?.rules) ? response.rules : [];
     
     return rules;
   } catch (err: any) {
-    const status = err?.response?.status;
+    const status = err?.status;
     
     // If 401 or 403 - no permission or feature disabled, return empty array
     // Don't crash the UI
