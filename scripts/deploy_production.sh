@@ -113,11 +113,21 @@ fi
 # Check for required DATABASE_URL variables
 ENV_VALID=true
 
-if [[ -z "$DATABASE_URL_DIRECT" ]] && [[ -z "$DATABASE_URL" ]]; then
-    log_error "DATABASE_URL_DIRECT is not set!"
-    log_error "  Migrations MUST use direct connection (not pooler)"
-    log_error "  Set DATABASE_URL_DIRECT=postgresql://...@*.db.supabase.com:5432/postgres"
+# Set defaults for optional variables to avoid unbound variable errors
+DATABASE_URL_DIRECT=${DATABASE_URL_DIRECT:-}
+DATABASE_URL_POOLER=${DATABASE_URL_POOLER:-$DATABASE_URL}
+
+if [[ -z "$DATABASE_URL_DIRECT" ]] && [[ -z "$DATABASE_URL_POOLER" ]] && [[ -z "$DATABASE_URL" ]]; then
+    log_error "No database URL is configured!"
+    log_error "  Set at least one of: DATABASE_URL_DIRECT, DATABASE_URL_POOLER, or DATABASE_URL"
     ENV_VALID=false
+fi
+
+# Info message if only POOLER is available (this is acceptable)
+if [[ -z "$DATABASE_URL_DIRECT" ]] && [[ -n "$DATABASE_URL_POOLER" ]]; then
+    log_info "DATABASE_URL_DIRECT not set - migrations will use POOLER"
+    log_info "  This is acceptable but DIRECT is preferred for DDL operations"
+    log_info "  Set DATABASE_URL_DIRECT=postgresql://...@*.db.supabase.com:5432/postgres for optimal performance"
 fi
 
 if [[ -z "$DATABASE_URL_POOLER" ]] && [[ -z "$DATABASE_URL" ]]; then
@@ -126,7 +136,7 @@ if [[ -z "$DATABASE_URL_POOLER" ]] && [[ -z "$DATABASE_URL" ]]; then
     log_warning "  Set DATABASE_URL_POOLER=postgresql://...@*.pooler.supabase.com:5432/postgres"
 fi
 
-# Check that DIRECT doesn't contain 'pooler'
+# Check that DIRECT doesn't contain 'pooler' (only if DIRECT is set)
 if [[ -n "$DATABASE_URL_DIRECT" ]] && [[ "$DATABASE_URL_DIRECT" == *"pooler"* ]]; then
     log_error "DATABASE_URL_DIRECT contains 'pooler'!"
     log_error "  This will cause migration timeouts!"
@@ -134,7 +144,7 @@ if [[ -n "$DATABASE_URL_DIRECT" ]] && [[ "$DATABASE_URL_DIRECT" == *"pooler"* ]]
     ENV_VALID=false
 fi
 
-# Warn if POOLER contains '.db.'
+# Warn if POOLER contains '.db.' (only if POOLER is set)
 if [[ -n "$DATABASE_URL_POOLER" ]] && [[ "$DATABASE_URL_POOLER" == *".db."* ]]; then
     log_warning "DATABASE_URL_POOLER contains '.db.'"
     log_warning "  This may not use connection pooler (less optimal for API traffic)"

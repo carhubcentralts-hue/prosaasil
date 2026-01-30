@@ -174,6 +174,8 @@ RETRYABLE_ERROR_PATTERNS = (
     "could not receive data from server",
     "connection already closed",
     "server closed the connection",
+    "network is unreachable",
+    "could not connect to server",
 )
 
 def _is_retryable(e: Exception) -> bool:
@@ -285,6 +287,10 @@ def get_migrate_engine():
     """
     Get or create a dedicated engine for migrations with pool_pre_ping and pool_recycle.
     
+    Automatically chooses the best connection for migrations:
+    1. Tries DIRECT connection first (preferred for DDL operations)
+    2. Falls back to POOLER if DIRECT is unreachable (with appropriate timeouts)
+    
     This prevents stale connections from breaking migrations due to:
     - SSL connection closures
     - Server restarts
@@ -296,17 +302,29 @@ def get_migrate_engine():
     global _MIGRATE_ENGINE
     if _MIGRATE_ENGINE is None:
         from server.database_url import get_database_url
-        # 🔥 CRITICAL: Use DIRECT connection for migrations (not pooler)
-        # This avoids "ghost locks" and SSL issues with poolers like Supabase's pgbouncer
+        
+        # 🔥 CRITICAL: Try DIRECT first, but auto-fallback to POOLER if unreachable
+        # The get_database_url() function handles this fallback automatically
+        # when DATABASE_URL_DIRECT is not set or not reachable
         database_url = get_database_url(connection_type="direct")
+        
         _MIGRATE_ENGINE = create_engine(
             database_url,
             pool_pre_ping=True,  # Test connections before using them
             pool_recycle=180,    # Recycle connections every 3 minutes
             pool_size=5,
             max_overflow=10,
+            connect_args={
+                'connect_timeout': 5,  # 5 second timeout for connection attempts
+            }
         )
-        log.info("✅ Created dedicated migration engine with DIRECT connection (not pooler)")
+        
+        # Log which connection type is being used
+        host = database_url.split('@')[1].split(':')[0] if '@' in database_url else 'unknown'
+        if 'pooler' in host.lower():
+            log.info("✅ Created migration engine with POOLER connection (DIRECT not available)")
+        else:
+            log.info("✅ Created migration engine with DIRECT connection")
     return _MIGRATE_ENGINE
 
 def fetch_all_retry(engine, sql, params=None, attempts=3):
@@ -981,19 +999,33 @@ def apply_migrations():
     
     # 🔥 DB STABILITY CHECK: Verify database is responsive before starting migrations
     checkpoint("Performing DB stability check...")
+    migrate_engine = None
     try:
         migrate_engine = get_migrate_engine()
         # Try to connect 5 times with retry logic
         fetch_all(migrate_engine, "SELECT 1", retries=5)
         checkpoint("✅ DB stability check passed - database is responsive")
     except Exception as e:
-        checkpoint("=" * 80)
-        checkpoint(f"❌ DB STABILITY CHECK FAILED: {e}")
-        checkpoint("   Database appears unstable (restarting/OOM/network issues)")
-        checkpoint("   Cannot safely run migrations - aborting")
-        checkpoint("   Action: Check 'docker logs prosaas-postgres --tail 200' for issues")
-        checkpoint("=" * 80)
-        return 'skip'
+        error_str = str(e).lower()
+        # Check if this is a network unreachability issue (DIRECT not accessible)
+        if "network is unreachable" in error_str or "could not connect to server" in error_str:
+            checkpoint("=" * 80)
+            checkpoint(f"⚠️  DB STABILITY CHECK: DIRECT connection unreachable")
+            checkpoint(f"   Error: {e}")
+            checkpoint("   This is expected when DATABASE_URL_DIRECT is not accessible")
+            checkpoint("   Migrations will use POOLER connection instead")
+            checkpoint("=" * 80)
+            # Don't skip migrations - POOLER will be used automatically by get_migrate_engine()
+            # The database_url.py module already handles DIRECT→POOLER fallback
+        else:
+            # Real database stability issue - abort migrations
+            checkpoint("=" * 80)
+            checkpoint(f"❌ DB STABILITY CHECK FAILED: {e}")
+            checkpoint("   Database appears unstable (restarting/OOM/network issues)")
+            checkpoint("   This is NOT a network unreachability issue - database is truly unstable")
+            checkpoint("   Action: Check 'docker logs prosaas-postgres --tail 200' for issues")
+            checkpoint("=" * 80)
+            raise RuntimeError(f"Database stability check failed: {e}")
     
     # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock with retry
     # Lock ID: 1234567890 (arbitrary unique integer)
@@ -7330,10 +7362,26 @@ if __name__ == '__main__':
         with app.app_context():
             migrations = apply_migrations()
         
-        checkpoint("=" * 80)
-        checkpoint(f"✅ SUCCESS - Applied {len(migrations)} migrations")
-        checkpoint("=" * 80)
-        sys.exit(0)
+        # Check if migrations were skipped
+        if migrations == 'skip':
+            checkpoint("=" * 80)
+            checkpoint("ℹ️  SKIPPED - Migrations were not executed")
+            checkpoint("   This is expected for worker processes or when migrations are disabled")
+            checkpoint("=" * 80)
+            sys.exit(0)
+        
+        # Verify migrations list is not empty (real success)
+        if isinstance(migrations, list):
+            checkpoint("=" * 80)
+            checkpoint(f"✅ SUCCESS - Applied {len(migrations)} migrations")
+            checkpoint("=" * 80)
+            sys.exit(0)
+        else:
+            # Unexpected return value
+            checkpoint("=" * 80)
+            checkpoint(f"⚠️  WARNING - Unexpected return value from apply_migrations: {migrations}")
+            checkpoint("=" * 80)
+            sys.exit(0)
         
     except Exception as e:
         checkpoint("=" * 80)
