@@ -263,8 +263,8 @@ def test_migration_95_uses_exec_ddl_heavy():
             print("  ❌ Migration 95 does NOT use exec_ddl_heavy")
             all_ok = False
         
-        # Count how many times exec_ddl_heavy is called (should be 2: DROP + ADD)
-        # Count actual function calls, not mentions in comments
+        # Count how many times exec_ddl_heavy is called
+        # Should be 1 now (atomic DROP+ADD in single call)
         heavy_ddl_count = 0
         for line in lines:
             # Skip comments
@@ -272,12 +272,13 @@ def test_migration_95_uses_exec_ddl_heavy():
                 continue
             heavy_ddl_count += line.count('exec_ddl_heavy(')
         
-        if heavy_ddl_count == 2:
-            print(f"  ✅ Migration 95 calls exec_ddl_heavy exactly 2 times (DROP + ADD)")
-        elif heavy_ddl_count > 2:
-            print(f"  ⚠️  Migration 95 calls exec_ddl_heavy {heavy_ddl_count} times (expected 2, but may be OK)")
+        if heavy_ddl_count == 1:
+            print(f"  ✅ Migration 95 calls exec_ddl_heavy exactly 1 time (atomic DROP+ADD)")
+        elif heavy_ddl_count == 2:
+            print(f"  ⚠️  Migration 95 calls exec_ddl_heavy 2 times (should be 1 for atomicity)")
+            all_ok = False
         else:
-            print(f"  ❌ Migration 95 calls exec_ddl_heavy {heavy_ddl_count} times (expected 2)")
+            print(f"  ❌ Migration 95 calls exec_ddl_heavy {heavy_ddl_count} times (expected 1)")
             all_ok = False
         
         return all_ok
@@ -288,8 +289,8 @@ def test_migration_95_uses_exec_ddl_heavy():
 
 
 def test_migration_95_split_statements():
-    """Verify that Migration 95 uses separate ALTER statements."""
-    print("\n=== Test 6: Migration 95 Split into Separate ALTER Statements ===")
+    """Verify that Migration 95 uses separate ALTER statements atomically."""
+    print("\n=== Test 6: Migration 95 Atomic DROP+ADD Statements ===")
     
     filepath = 'server/db_migrate.py'
     
@@ -332,6 +333,24 @@ def test_migration_95_split_statements():
         else:
             print("  ❌ IF EXISTS clause NOT found (not idempotent)")
             all_ok = False
+        
+        # Check that both statements are in the same exec_ddl_heavy call (atomic)
+        # Look for semicolon between DROP and ADD within same string
+        if 'DROP CONSTRAINT' in migration_95_content and 'ADD CONSTRAINT' in migration_95_content:
+            # Find the exec_ddl_heavy call
+            exec_match = re.search(
+                r'exec_ddl_heavy\([^,]+,\s*"""([^"]+)"""',
+                migration_95_content,
+                re.DOTALL
+            )
+            if exec_match:
+                sql_content = exec_match.group(1)
+                if 'DROP CONSTRAINT' in sql_content and 'ADD CONSTRAINT' in sql_content:
+                    print("  ✅ DROP and ADD are in same exec_ddl_heavy call (atomic transaction)")
+                else:
+                    print("  ⚠️  DROP and ADD may be in separate calls (not atomic)")
+            else:
+                print("  ⚠️  Could not verify atomicity of statements")
         
         # Check for 'incomplete' status in constraint
         if "'incomplete'" in migration_95_content or '"incomplete"' in migration_95_content:

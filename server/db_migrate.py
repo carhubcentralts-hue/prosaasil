@@ -46,6 +46,21 @@ Database migrations - additive only, with strict data protection
    - Has 5s lock_timeout (fail fast on locks)
    - Includes retry logic and lock debugging
    
+2️⃣b **HEAVY DDL operations MUST use exec_ddl_heavy()** (AccessExclusive locks)
+   ⚠️ IRON RULE: These operations require AccessExclusive lock and MUST use exec_ddl_heavy():
+   - ALTER TABLE ... DROP CONSTRAINT / ADD CONSTRAINT
+   - ALTER TABLE ... ALTER COLUMN TYPE (changes column type)
+   - ALTER TABLE ... ADD CHECK / DROP CHECK on large tables
+   - Any constraint modification on tables with active writes
+   
+   ✅ exec_ddl_heavy() provides:
+   - lock_timeout = 120s (vs 5s for regular DDL)
+   - statement_timeout = 0 (unlimited, waiting for locks is expected)
+   - 10 retries with exponential backoff (2s → 30s)
+   - Lock debugging on failures
+   
+   ❌ DO NOT use exec_ddl() or exec_sql() for these operations!
+   
 3️⃣ **DML operations BELONG IN db_backfills.py**
    - NO UPDATE/INSERT/DELETE in migrations
    - Backfills run separately via db_run_backfills.py
@@ -799,12 +814,14 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
         except Exception as e:
             last_error = e
             # Check if this is a lock-related error
+            # Note: psycopg2.errors.LockNotAvailable comes through e.orig
             msg = str(getattr(e, "orig", e)).lower()
             is_lock_error = any(pattern in msg for pattern in [
                 "locknotavailable",
                 "lock timeout",
                 "could not obtain lock",
-                "deadlock detected"
+                "deadlock detected",
+                "canceling statement due to lock timeout"
             ])
             
             if is_lock_error and i < retries - 1:
@@ -5227,18 +5244,15 @@ def apply_migrations():
                 
                 migrate_engine = get_migrate_engine()
                 
-                # Step 1: Drop existing constraint (if exists)
-                checkpoint("   → Step 1: Dropping existing constraint (if exists)")
+                # Execute DROP and ADD in a single transaction for atomicity
+                # Both statements run together - if one fails, both rollback
+                checkpoint("   → Executing DROP and ADD CONSTRAINT atomically")
                 exec_ddl_heavy(migrate_engine, """
-                    ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status
-                """)
-                
-                # Step 2: Add new constraint with 'incomplete' status
-                checkpoint("   → Step 2: Adding new constraint with 'incomplete' status")
-                exec_ddl_heavy(migrate_engine, """
+                    ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;
+                    
                     ALTER TABLE receipts 
                     ADD CONSTRAINT chk_receipt_status 
-                    CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'))
+                    CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'));
                 """)
                 
                 migrations_applied.append("add_incomplete_status_to_receipts")

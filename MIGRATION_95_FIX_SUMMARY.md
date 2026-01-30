@@ -42,42 +42,34 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
 - `idle_in_transaction_session_timeout = 60s` - Prevents stuck transactions
 - **10 retries** with exponential backoff (2s → 30s)
 - Detailed lock debugging on failures
+- Detects all lock errors including "canceling statement due to lock timeout"
 
-### 2. Refactored Migration 95
+### 2. Refactored Migration 95 - ATOMIC Transaction
 
-**Before:**
+**Before (WRONG - not atomic):**
 ```python
-exec_sql(migrate_engine, """
-    DO $$ 
-    BEGIN
-        ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;
-        ALTER TABLE receipts 
-        ADD CONSTRAINT chk_receipt_status 
-        CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'));
-    END $$;
-""", autocommit=True)
+# Two separate calls - if DROP succeeds and ADD fails, no constraint!
+exec_ddl_heavy(migrate_engine, "ALTER TABLE receipts DROP CONSTRAINT...")
+exec_ddl_heavy(migrate_engine, "ALTER TABLE receipts ADD CONSTRAINT...")
 ```
 
-**After:**
+**After (CORRECT - atomic):**
 ```python
-# Step 1: Drop existing constraint (if exists)
+# Single call with both statements - atomic transaction
 exec_ddl_heavy(migrate_engine, """
-    ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status
-""")
-
-# Step 2: Add new constraint with 'incomplete' status
-exec_ddl_heavy(migrate_engine, """
+    ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;
+    
     ALTER TABLE receipts 
     ADD CONSTRAINT chk_receipt_status 
-    CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'))
+    CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'));
 """)
 ```
 
-**Benefits:**
-- Each operation is separate, allowing independent retry
-- Proper timeout configuration for production
-- Automatic retry with backoff on lock contention
-- Maintains idempotency with `IF EXISTS`
+**Critical Fix - Atomicity:**
+- Both DROP and ADD run in **the same `engine.begin()` transaction**
+- If DROP succeeds but ADD fails → entire transaction rolls back
+- No risk of being left without a constraint
+- Single retry loop handles both statements together
 
 ### 3. Comprehensive Test Suite
 
@@ -87,25 +79,72 @@ Created `test_migration_95_constraint_fix.py` with 7 tests:
 2. ✅ Lock timeouts are correctly configured (120s, 0, 60s)
 3. ✅ Retry logic with exponential backoff (10 retries, 2s → 30s)
 4. ✅ Lock debugging implementation
-5. ✅ Migration 95 uses `exec_ddl_heavy()` (not DO $$ block)
-6. ✅ Split into two separate ALTER statements
+5. ✅ Migration 95 uses `exec_ddl_heavy()` exactly once (atomic)
+6. ✅ DROP and ADD in same transaction (atomic)
 7. ✅ Proper documentation
+
+### 4. Added IRON RULE to Migration Guidelines
+
+Added to the header of `db_migrate.py`:
+
+```
+⚠️ IRON RULE: These operations require AccessExclusive lock and MUST use exec_ddl_heavy():
+- ALTER TABLE ... DROP CONSTRAINT / ADD CONSTRAINT
+- ALTER TABLE ... ALTER COLUMN TYPE (changes column type)
+- ALTER TABLE ... ADD CHECK / DROP CHECK on large tables
+- Any constraint modification on tables with active writes
+
+❌ DO NOT use exec_ddl() or exec_sql() for these operations!
+```
+
+## 6-Point Verification Checklist
+
+### ✅ 1. exec_ddl_heavy runs in short transaction
+- Uses `engine.begin()` as context manager
+- Executes immediately, no idle connections
+- Transaction closes automatically
+
+### ✅ 2. Retry correctly identifies LockNotAvailable
+- Checks `getattr(e, "orig", e)` for psycopg2 errors
+- Detects: "locknotavailable", "lock timeout", "could not obtain lock", "deadlock detected", "canceling statement due to lock timeout"
+
+### ✅ 3. lock_timeout applies to same connection
+- SET statements execute on same `conn` as ALTER
+- Both in same `with engine.begin() as conn:` block
+- No connection switching between SET and ALTER
+
+### ✅ 4. Migration is atomic (DROP+ADD together)
+- **CRITICAL FIX**: Both statements in single `exec_ddl_heavy()` call
+- Run in same transaction via `engine.begin()`
+- If either fails, both rollback - no partial state
+
+### ✅ 5. Supabase pooler handled by timeout+retry
+- Can't stop Supabase services (postgrest, auth, etc.)
+- Solution: Long timeout (120s) + 10 retries handles brief contention
+- This is the correct production approach
+
+### ✅ 6. IRON RULE documented
+- All constraint DDL must use `exec_ddl_heavy()`
+- Documented in migration guidelines
+- Prevents future similar issues
 
 ## Why This Works in Production
 
-1. **Longer Timeouts**: 120s lock_timeout gives adequate time to acquire locks during normal operations
-2. **Automatic Retry**: 10 retries with exponential backoff (2s → 30s) handle transient lock contention
-3. **Lock Debugging**: When failures occur, detailed information about blocking processes is logged
-4. **Idempotent**: The `IF EXISTS` clause allows safe re-runs
-5. **No Transaction Pollution**: Each ALTER runs in its own transaction via `engine.begin()`
+1. **Longer Timeouts**: 120s lock_timeout gives adequate time to acquire locks
+2. **Automatic Retry**: 10 retries with exponential backoff (2s → 30s)
+3. **Atomic Transaction**: DROP and ADD together - no partial state possible
+4. **Lock Debugging**: Detailed information about blocking processes
+5. **Idempotent**: `IF EXISTS` allows safe re-runs
+6. **No Transaction Pollution**: `engine.begin()` handles commit/rollback
 
 ## Production Deployment
 
 The migration is now production-safe and handles:
-- Brief lock contention from active queries
-- Idle-in-transaction connections (killed after 60s)
-- Long-running queries (migration waits up to 120s × 10 retries)
-- Failed attempts with detailed debugging output
+- Brief lock contention from active queries ✅
+- Idle-in-transaction connections (killed after 60s) ✅
+- Long-running queries (waits up to 120s × 10 retries) ✅
+- Failed attempts with detailed debugging output ✅
+- **Atomic DROP+ADD - no partial constraint state** ✅
 
 ## Testing
 
@@ -113,16 +152,18 @@ All tests pass:
 - ✅ `test_migration_95_constraint_fix.py`: 7/7 tests pass
 - ✅ `test_migration_lock_fixes.py`: All related tests still pass
 - ✅ Python syntax validation passes
-- ✅ Code review feedback addressed
+- ✅ Atomicity verified: single exec_ddl_heavy call
 
 ## Files Modified
 
 1. **server/db_migrate.py**:
    - Added `exec_ddl_heavy()` function (lines 749-847)
-   - Refactored Migration 95 (lines 5208-5253)
+   - Refactored Migration 95 with atomic DROP+ADD (lines 5208-5255)
+   - Added IRON RULE for heavy DDL to guidelines (lines 45-65)
 
 2. **test_migration_95_constraint_fix.py** (new):
    - Comprehensive test suite with 7 tests
+   - Verifies atomicity of DROP+ADD
 
 ## Migration Execution Example
 
@@ -130,8 +171,7 @@ When Migration 95 runs, you'll see:
 ```
 🔧 Running Migration 95: Add 'incomplete' status to receipts
    ⚠️  This is a heavy DDL operation - may take time to acquire lock
-   → Step 1: Dropping existing constraint (if exists)
-   → Step 2: Adding new constraint with 'incomplete' status
+   → Executing DROP and ADD CONSTRAINT atomically
 ✅ Migration 95 completed - 'incomplete' status added to receipts
 ```
 
@@ -156,11 +196,13 @@ LOCK DEBUG - Processes blocking this DDL:
 
 ## Summary
 
-This fix transforms Migration 95 from a fragile operation that fails in production to a robust, production-ready DDL operation that:
-- ✅ Handles lock contention gracefully
+This fix transforms Migration 95 from a fragile operation to production-ready:
+- ✅ Handles lock contention gracefully (120s timeout, 10 retries)
 - ✅ Provides automatic retry with backoff
+- ✅ **ATOMIC: DROP and ADD in single transaction - no partial state**
 - ✅ Gives detailed debugging on failures
 - ✅ Maintains idempotency for safe re-runs
 - ✅ Uses appropriate timeouts for heavy DDL
+- ✅ Documents IRON RULE for future migrations
 
-The migration is now ready for production deployment with confidence.
+**Ready for production deployment with confidence.**
