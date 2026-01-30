@@ -444,6 +444,31 @@ def _is_retryable(e: Exception) -> bool:
     msg = str(e).lower()
     return any(pattern.lower() in msg for pattern in RETRYABLE_ERROR_PATTERNS)
 
+def _is_already_exists_error(e: Exception) -> bool:
+    """
+    Check if an exception is an 'already exists' error that can be safely ignored in migrations.
+    
+    According to the IRON RULE, migrations should only continue for:
+    - already exists
+    - duplicate_object  
+    - duplicate_table
+    - duplicate_column
+    
+    Any other DDL error (SyntaxError, ProgrammingError, etc.) should FAIL HARD.
+    
+    Note: This specifically checks for DDL "already exists" errors, not data integrity
+    errors like "duplicate key value violates unique constraint" during INSERT/UPDATE.
+    """
+    msg = str(e).lower()
+    # Check for "already exists" type errors that are safe to ignore
+    safe_patterns = [
+        "already exists",
+        "duplicate_object",
+        "duplicate_table", 
+        "duplicate_column",
+    ]
+    return any(pattern in msg for pattern in safe_patterns)
+
 def exec_sql(engine, sql: str, params=None, *, autocommit=False, retries=4, sleep=1.0):
     """
     Execute SQL with retry logic for transient connection failures.
@@ -807,8 +832,20 @@ def exec_ddl(engine, sql: str):
             # Re-raise the original exception to ensure migration fails
             raise
         except Exception as e:
-            # Non-OperationalError - just log and raise
-            logger.error(f"DDL failed: {e}", exc_info=True)
+            # ⚠️ IRON RULE: DDL FAILURES = FAIL HARD (except "already exists")
+            # Check if this is an "already exists" error that can be safely ignored
+            if _is_already_exists_error(e):
+                logger.warning(f"⚠️ DDL object already exists (safe to continue): {e}")
+                return  # Success - object already exists
+            
+            # Any other DDL error = FAIL HARD
+            # This includes SyntaxError, ProgrammingError, etc.
+            logger.error(f"❌ DDL FAILED - STOPPING MIGRATION: {e}", exc_info=True)
+            logger.error("=" * 80)
+            logger.error("⚠️ MIGRATION STOPPED: DDL statement failed")
+            logger.error("⚠️ This is NOT an 'already exists' error - something is broken")
+            logger.error("⚠️ Fix the migration code and try again")
+            logger.error("=" * 80)
             raise
     # Should never reach here, but handle it anyway
     if last_error:
@@ -1303,9 +1340,33 @@ def execute_with_retry(engine, sql: str, params=None, *, max_retries=10, fetch=F
             raise
             
         except Exception as e:
-            # Non-connection error - don't retry
-            log.error(f"❌ Non-retryable error in execute_with_retry: {e}")
-            raise
+            # ⚠️ IRON RULE: DDL FAILURES = FAIL HARD (except "already exists")
+            # Note: This catch block is for non-connection errors (ProgrammingError, SyntaxError, etc.)
+            # Connection errors are handled in the (OperationalError, DBAPIError) block above and retried.
+            # DDL syntax/programming errors are not transient and won't be fixed by retrying.
+            
+            # Check if this is a DDL operation (ALTER, CREATE, DROP)
+            sql_upper = sql.strip().upper()
+            is_ddl = any(sql_upper.startswith(cmd) for cmd in ['ALTER', 'CREATE', 'DROP'])
+            
+            if is_ddl:
+                # For DDL operations, check if error is "already exists" type
+                if _is_already_exists_error(e):
+                    log.warning(f"⚠️ DDL object already exists (safe to continue): {e}")
+                    return None if not should_fetch else []  # Success - object already exists
+                
+                # Any other DDL error = FAIL HARD
+                log.error(f"❌ DDL FAILED in execute_with_retry - STOPPING MIGRATION: {e}")
+                log.error("=" * 80)
+                log.error("⚠️ MIGRATION STOPPED: DDL statement failed")
+                log.error("⚠️ This is NOT an 'already exists' error - something is broken")
+                log.error("⚠️ Fix the migration code and try again")
+                log.error("=" * 80)
+                raise
+            else:
+                # Non-DDL error - just log and raise (could be DML, SELECT, etc.)
+                log.error(f"❌ Non-retryable error in execute_with_retry: {e}")
+                raise
     
     # Should never reach here, but handle it
     raise last_error
@@ -4314,6 +4375,9 @@ def apply_migrations():
         if check_table_exists('contract_sign_events'):
             checkpoint("🔧 Running Migration 80: Add 'file_downloaded' to contract_sign_events event types")
             
+            # Initialize constraint_row before try block to avoid UnboundLocalError
+            constraint_row = None
+            
             try:
                 # Check if constraint exists by querying check_constraints
                 result = execute_with_retry(migrate_engine, """
@@ -6676,7 +6740,7 @@ def apply_migrations():
         if check_table_exists('outbound_call_jobs'):
             try:
                 # Check if constraint exists using engine.connect() to avoid idle-in-transaction
-                if not check_constraint_exists('unique_run_lead'):
+                if not check_constraint_exists('outbound_call_jobs', 'unique_run_lead'):
                     checkpoint("  → Adding unique constraint on (run_id, lead_id)...")
                     
                     # First, remove any existing duplicates (keep oldest)
@@ -6895,24 +6959,10 @@ def apply_migrations():
             else:
                 checkpoint("  ✅ business_calendars table schema looks good")
         
-        # Ensure indexes exist (whether table was just created or already existed)
-        if not check_index_exists('idx_business_calendars_business_active'):
-            try:
-                exec_ddl(db.engine, """
-                    ON business_calendars(business_id, is_active)
-                """)
-                checkpoint("  ✅ Index idx_business_calendars_business_active created")
-            except Exception as e:
-                checkpoint(f"  ⚠️ Could not create idx_business_calendars_business_active: {e}")
-        
-        if not check_index_exists('idx_business_calendars_priority'):
-            try:
-                exec_ddl(db.engine, """
-                    ON business_calendars(business_id, priority)
-                """)
-                checkpoint("  ✅ Index idx_business_calendars_priority created")
-            except Exception as e:
-                checkpoint(f"  ⚠️ Could not create idx_business_calendars_priority: {e}")
+        # ⚠️ Performance indexes moved to db_indexes.py (IRON RULE: no indexes in migrations)
+        # Indexes for business_calendars:
+        # - idx_business_calendars_business_active
+        # - idx_business_calendars_priority
         
         # Step 2: Create calendar_routing_rules table (or verify if exists)
         if not check_table_exists('calendar_routing_rules'):
@@ -6966,24 +7016,10 @@ def apply_migrations():
             else:
                 checkpoint("  ✅ calendar_routing_rules table schema looks good")
         
-        # Ensure indexes exist (whether table was just created or already existed)
-        if not check_index_exists('idx_calendar_routing_business_active'):
-            try:
-                exec_ddl(db.engine, """
-                    ON calendar_routing_rules(business_id, is_active)
-                """)
-                checkpoint("  ✅ Index idx_calendar_routing_business_active created")
-            except Exception as e:
-                checkpoint(f"  ⚠️ Could not create idx_calendar_routing_business_active: {e}")
-        
-        if not check_index_exists('idx_calendar_routing_calendar'):
-            try:
-                exec_ddl(db.engine, """
-                    ON calendar_routing_rules(calendar_id)
-                """)
-                checkpoint("  ✅ Index idx_calendar_routing_calendar created")
-            except Exception as e:
-                checkpoint(f"  ⚠️ Could not create idx_calendar_routing_calendar: {e}")
+        # ⚠️ Performance indexes moved to db_indexes.py (IRON RULE: no indexes in migrations)
+        # Indexes for calendar_routing_rules:
+        # - idx_calendar_routing_business_active
+        # - idx_calendar_routing_calendar
         
         # Step 3: Add calendar_id to appointments table
         if check_table_exists('appointments'):
@@ -6996,11 +7032,8 @@ def apply_migrations():
                     """)
                     checkpoint("  ✅ calendar_id column added to appointments")
                     
-                    if not check_index_exists('idx_appointments_calendar_id'):
-                        exec_ddl(db.engine, """
-                            ON appointments(calendar_id)
-                        """)
-                        checkpoint("  ✅ Index idx_appointments_calendar_id created")
+                    # ⚠️ Performance index moved to db_indexes.py (IRON RULE: no indexes in migrations)
+                    # Index: idx_appointments_calendar_id
                     
                     migrations_applied.append('115_appointments_calendar_id')
                 except Exception as e:
