@@ -7,6 +7,44 @@ Database migrations - additive only, with strict data protection
 - Limited exception: Deduplication DELETE for corrupted data (duplicate messages/calls only)
 - NO TRUNCATE, NO DROP TABLE on any tables
 - Automatic verification with rollback on unexpected data loss
+
+⚠️ CRITICAL MIGRATION RULES - READ BEFORE ADDING NEW MIGRATIONS ⚠️
+
+📋 THE IRON LAWS OF MIGRATIONS (למנוע תקלות בפרודקשן):
+
+1️⃣ **NEVER use db.session.execute() for migrations**
+   ❌ BAD:  db.session.execute(text("ALTER TABLE..."))
+   ✅ GOOD: exec_ddl(migrate_engine, "ALTER TABLE...")
+   
+2️⃣ **DDL operations MUST use exec_ddl()** (schema changes)
+   - CREATE TABLE, ALTER TABLE, CREATE INDEX, DROP CONSTRAINT
+   - Has 5s lock_timeout (fail fast on locks)
+   - Includes retry logic and lock debugging
+   
+3️⃣ **DML operations MUST use exec_dml()** (data changes)
+   - UPDATE, INSERT, DELETE, large backfills
+   - Has 60s lock_timeout (handles busy tables)
+   - ALWAYS use batching for large updates (1000 rows per batch)
+   - Process by tenant_id/business_id when possible
+   
+4️⃣ **Create supporting indexes BEFORE backfills**
+   - Prevents full table scans
+   - Dramatically reduces lock duration
+   - Use partial indexes (WHERE clauses) for efficiency
+   
+5️⃣ **All operations MUST be idempotent**
+   - Use IF NOT EXISTS for CREATE operations
+   - Use IF EXISTS for DROP operations
+   - Check column/table existence before ALTER
+   
+6️⃣ **Test migrations locally BEFORE production**
+   - Drop test column/table: ALTER TABLE test_table DROP COLUMN IF EXISTS test_col;
+   - Run migration to re-apply it
+   - Verify idempotency: run again - should succeed with no changes
+
+📖 For detailed guidelines, see MIGRATION_GUIDELINES.md
+
+🔥 REMEMBER: Breaking these rules = production downtime + data locks!
 """
 from server.db import db
 from datetime import datetime
@@ -15,7 +53,7 @@ import sys
 import time
 import os
 from sqlalchemy import text, create_engine
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, DBAPIError
 
 # Configure logging with explicit format
 
@@ -448,6 +486,100 @@ def exec_ddl(engine, sql: str):
         except Exception as e:
             # Non-OperationalError - just log and raise
             logger.error(f"DDL failed: {e}", exc_info=True)
+            raise
+    # Should never reach here, but handle it anyway
+    if last_error:
+        raise last_error
+
+def exec_dml(engine, sql: str, params=None, retries=3):
+    """
+    Execute a DML (Data Manipulation Language) statement with appropriate timeouts for data operations.
+    
+    DML operations (UPDATE, INSERT, DELETE) need different timeout policies than DDL:
+    - Longer lock_timeout (60s) to handle busy tables
+    - No statement_timeout limit (or very high) to allow large batch operations
+    - idle_in_transaction_session_timeout (60s) to prevent stuck transactions
+    
+    This is especially important for backfill operations that may need to update many rows.
+    
+    Lock timeouts:
+    - lock_timeout: 60s (longer than DDL to handle concurrent access)
+    - statement_timeout: 0 (unlimited - for large data operations)
+    - idle_in_transaction_session_timeout: 60s (kill idle transactions)
+    
+    Args:
+        engine: SQLAlchemy engine
+        sql: DML statement to execute (UPDATE, INSERT, DELETE)
+        params: Dictionary of query parameters (default: None)
+        retries: Number of retry attempts (default: 3)
+        
+    Returns:
+        Number of rows affected (for UPDATE/INSERT/DELETE)
+        
+    Raises:
+        Exception: If DML fails after all retries (including lock timeout)
+    """
+    last_error = None
+    for i in range(retries):
+        try:
+            with engine.begin() as conn:  # begin() = auto commit/rollback
+                # Set timeouts appropriate for DML operations
+                conn.execute(text("SET lock_timeout = '60s'"))
+                conn.execute(text("SET statement_timeout = '0'"))  # Unlimited for large operations
+                conn.execute(text("SET idle_in_transaction_session_timeout = '60s'"))
+                # Execute the DML
+                result = conn.execute(text(sql), params or {})
+                rowcount = result.rowcount if hasattr(result, 'rowcount') else 0
+                return rowcount  # Success
+        except (OperationalError, DBAPIError) as e:
+            last_error = e
+            # Check if this is a retryable error (connection or lock)
+            is_lock_error = False
+            is_connection_error = False
+            
+            # Check for LockNotAvailable in the original exception
+            if hasattr(e, 'orig') and e.orig is not None:
+                error_str = str(e.orig).lower()
+                if 'locknotavailable' in error_str or 'lock_timeout' in error_str or 'could not obtain lock' in error_str:
+                    is_lock_error = True
+            
+            # Check for connection errors
+            is_connection_error = _is_retryable(e)
+            
+            # Retry on lock errors or connection errors
+            if (is_lock_error or is_connection_error) and i < retries - 1:
+                sleep_time = 2.0 * (i + 1)
+                error_type = "lock" if is_lock_error else "connection"
+                logger.warning(f"⚠️ DML {error_type} error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            
+            # Non-retryable or last attempt - fall through to error handling
+            logger.error(f"DML failed: {e}", exc_info=True)
+            # Try to log lock information
+            try:
+                # Use a fresh connection to query lock information
+                with engine.connect() as debug_conn:
+                    rows = debug_conn.execute(text(LOCK_DEBUG_SQL)).fetchall()
+                    if rows:
+                        logger.error("=" * 80)
+                        logger.error("LOCK DEBUG - Processes blocking this DML operation:")
+                        logger.error("=" * 80)
+                        for row in rows:
+                            logger.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
+                            logger.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
+                            logger.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
+                            logger.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
+                            logger.error("-" * 80)
+                    else:
+                        logger.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
+            except Exception as debug_error:
+                logger.error(f"Could not retrieve lock debug info: {debug_error}")
+            # Re-raise the original exception to ensure migration fails
+            raise
+        except Exception as e:
+            # Non-OperationalError - just log and raise
+            logger.error(f"DML failed: {e}", exc_info=True)
             raise
     # Should never reach here, but handle it anyway
     if last_error:
@@ -1442,33 +1574,110 @@ def apply_migrations():
                     ON leads(last_call_direction)
                 """, autocommit=True)
                 
+                # 🔥 CRITICAL: Add supporting indexes BEFORE backfill to prevent full table scans
+                # These indexes dramatically reduce lock contention during the backfill operation
+                checkpoint("Adding supporting indexes for backfill performance...")
+                
+                # Index for call_log lookups by lead_id and created_at (used in DISTINCT ON query)
+                exec_sql(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_call_log_lead_created 
+                    ON call_log(lead_id, created_at) 
+                    WHERE lead_id IS NOT NULL
+                """, autocommit=True)
+                
+                # Partial index for leads that need backfill (faster batch selection)
+                exec_sql(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_leads_backfill_pending 
+                    ON leads(tenant_id, id) 
+                    WHERE last_call_direction IS NULL
+                """, autocommit=True)
+                
+                checkpoint("✅ Supporting indexes created")
+                
                 # Backfill last_call_direction from call_log table
                 # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
                 # This determines the lead's origin (inbound vs outbound)
-                # ⚠️ PERFORMANCE: For very large datasets (>100K calls), this may take time
-                # but it's a one-time operation and uses indexed columns (lead_id, created_at)
-                checkpoint("Backfilling last_call_direction from call_log...")
+                # 
+                # ⚠️ BATCHED APPROACH BY BUSINESS: Process by tenant_id to reduce hot locks
+                # When multiple businesses exist, this prevents lock contention between tenants.
+                # Each batch updates 1000 leads of one business at a time.
+                checkpoint("Backfilling last_call_direction from call_log (batched by business)...")
                 if check_table_exists('call_log'):
-                    # Use exec_sql without autocommit for UPDATE (needs transaction)
-                    exec_sql(migrate_engine, """
-                        WITH first_calls AS (
-                            SELECT DISTINCT ON (cl.lead_id) 
-                                cl.lead_id,
-                                cl.direction,
-                                cl.created_at
-                            FROM call_log cl
-                            WHERE cl.lead_id IS NOT NULL 
-                              AND cl.direction IS NOT NULL
-                              AND cl.direction IN ('inbound', 'outbound')
-                            ORDER BY cl.lead_id, cl.created_at ASC
-                        )
-                        UPDATE leads l
-                        SET last_call_direction = fc.direction
-                        FROM first_calls fc
-                        WHERE l.id = fc.lead_id
-                          AND l.last_call_direction IS NULL
-                    """, autocommit=False)
-                    checkpoint(f"✅ Backfilled last_call_direction (using FIRST call direction)")
+                    # Use exec_dml for DML operations with appropriate timeouts
+                    total_updated = 0
+                    batch_size = 1000
+                    max_iterations = 10000  # Safety limit (10M rows max)
+                    
+                     # Get list of distinct tenant_ids that need backfill
+                    # ⚠️ Filter NULL tenant_ids - they should not exist but handle edge case
+                    with migrate_engine.connect() as conn:
+                        result = conn.execute(text("""
+                            SELECT DISTINCT tenant_id 
+                            FROM leads 
+                            WHERE last_call_direction IS NULL
+                              AND tenant_id IS NOT NULL
+                            ORDER BY tenant_id
+                        """))
+                        tenant_ids = [row[0] for row in result.fetchall()]
+                    
+                    if not tenant_ids:
+                        checkpoint("✅ No leads require backfill")
+                    else:
+                        checkpoint(f"Found {len(tenant_ids)} business(es) with leads requiring backfill")
+                        
+                        # Process each business separately
+                        for tenant_id in tenant_ids:
+                            business_total = 0
+                            
+                            for iteration in range(max_iterations):
+                                # Update one batch of leads for this business
+                                rows_updated = exec_dml(migrate_engine, """
+                                    WITH batch AS (
+                                        SELECT id
+                                        FROM leads
+                                        WHERE tenant_id = :tenant_id 
+                                          AND last_call_direction IS NULL
+                                        ORDER BY id
+                                        LIMIT :batch_size
+                                    ),
+                                    first_calls AS (
+                                        SELECT DISTINCT ON (cl.lead_id) 
+                                            cl.lead_id,
+                                            cl.direction
+                                        FROM call_log cl
+                                        JOIN batch b ON b.id = cl.lead_id
+                                        WHERE cl.direction IN ('inbound', 'outbound')
+                                        ORDER BY cl.lead_id, cl.created_at ASC
+                                    )
+                                    UPDATE leads l
+                                    SET last_call_direction = fc.direction
+                                    FROM first_calls fc
+                                    WHERE l.id = fc.lead_id
+                                """, params={"tenant_id": tenant_id, "batch_size": batch_size})
+                                
+                                business_total += rows_updated
+                                total_updated += rows_updated
+                                
+                                if rows_updated == 0:
+                                    # No more rows for this business
+                                    break
+                                
+                                # Log progress every 10 batches or on final batch
+                                if (iteration + 1) % 10 == 0 or rows_updated < batch_size:
+                                    checkpoint(f"  Business {tenant_id}: Batch {iteration + 1}, {business_total} rows updated so far")
+                                
+                                # Small delay between batches to reduce DB pressure
+                                if rows_updated == batch_size:
+                                    time.sleep(0.1)
+                            
+                            # Check if we hit max_iterations (safety limit)
+                            if iteration >= max_iterations - 1 and rows_updated > 0:
+                                logger.warning(f"⚠️ Business {tenant_id}: Reached max_iterations ({max_iterations}). May have more rows to process.")
+                            
+                            if business_total > 0:
+                                checkpoint(f"  ✅ Business {tenant_id}: Completed {business_total} rows")
+                    
+                    checkpoint(f"✅ Backfilled last_call_direction: {total_updated} total rows (using FIRST call direction)")
                 
                 migrations_applied.append("add_leads_last_call_direction")
                 log.info("✅ Applied migration 36: add_leads_last_call_direction - Inbound/outbound filtering support")
