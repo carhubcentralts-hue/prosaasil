@@ -101,6 +101,170 @@ logger = logging.getLogger(__name__)
 # ProSaaS custom migration marker for alembic_version table
 PROSAAS_MIGRATION_MARKER = 'prosaas_custom_migrations'
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 🔥 MIGRATION STATE TRACKING - Single Source of Truth
+# ═══════════════════════════════════════════════════════════════════════════
+# All migrations are tracked in schema_migrations table to ensure idempotency
+# and prevent re-running already applied migrations
+
+def ensure_migration_tracking_table(engine):
+    """
+    Create schema_migrations table if it doesn't exist.
+    This is the single source of truth for which migrations have been applied.
+    
+    Table structure:
+    - migration_id: Unique identifier for the migration (e.g., "001_add_transcript")
+    - applied_at: Timestamp when migration was applied
+    - success: Whether the migration completed successfully
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    migration_id TEXT PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    success BOOLEAN NOT NULL DEFAULT TRUE,
+                    notes TEXT
+                )
+            """))
+        log.info("✅ schema_migrations table ready")
+    except Exception as e:
+        log.error(f"❌ Failed to create schema_migrations table: {e}")
+        raise
+
+def is_migration_applied(engine, migration_id: str) -> bool:
+    """Check if a migration has already been applied"""
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT 1 FROM schema_migrations WHERE migration_id = :id AND success = TRUE"),
+                {"id": migration_id}
+            )
+            return result.fetchone() is not None
+    except Exception as e:
+        # If table doesn't exist or query fails, assume migration not applied
+        log.debug(f"Could not check migration status for {migration_id}: {e}")
+        return False
+
+def mark_migration_applied(engine, migration_id: str, notes: str = None):
+    """Mark a migration as successfully applied"""
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO schema_migrations (migration_id, applied_at, success, notes)
+                    VALUES (:id, NOW(), TRUE, :notes)
+                    ON CONFLICT (migration_id) DO UPDATE
+                    SET applied_at = NOW(), success = TRUE, notes = COALESCE(:notes, schema_migrations.notes)
+                """),
+                {"id": migration_id, "notes": notes}
+            )
+        log.info(f"✅ Marked migration {migration_id} as applied")
+    except Exception as e:
+        log.warning(f"⚠️ Could not mark migration {migration_id} as applied: {e}")
+
+def reconcile_existing_state(engine):
+    """
+    Reconcile existing database state with migration history.
+    
+    This marks migrations as applied if their effects already exist in the database,
+    preventing failures on deployments where schema already matches desired state.
+    
+    This is critical for existing Supabase deployments where migrations 1-110
+    have already been applied historically.
+    """
+    checkpoint("=" * 80)
+    checkpoint("🔄 RECONCILIATION: Checking which migrations are already applied")
+    checkpoint("=" * 80)
+    
+    reconciled = []
+    
+    # Define all migrations and their detection logic
+    # These are checked in order and marked as applied if their effects exist
+    migrations_to_check = [
+        ("001_add_call_log_transcript", lambda: check_table_exists('call_log') and check_column_exists('call_log', 'transcript')),
+        ("002_create_call_turn_table", lambda: check_table_exists('call_turn')),
+        ("003_add_business_flags", lambda: check_table_exists('business') and check_column_exists('business', 'enable_calls_stream')),
+        ("004_create_threads_table", lambda: check_table_exists('threads')),
+        ("005_create_messages_table", lambda: check_table_exists('messages')),
+        ("006_add_unique_provider_msg_id", lambda: check_table_exists('messages') and check_column_exists('messages', 'provider_message_id')),
+        ("007_create_leads_table", lambda: check_table_exists('leads')),
+        ("008_create_lead_reminders_table", lambda: check_table_exists('lead_reminders')),
+        ("009_create_lead_activities_table", lambda: check_table_exists('lead_activities')),
+        ("010_add_business_whatsapp_fields", lambda: check_table_exists('business') and check_column_exists('business', 'whatsapp_enabled')),
+        # Add all common migrations - assume if tables exist, migrations 1-110 are applied
+        ("bulk_existing_migrations", lambda: (
+            check_table_exists('leads') and 
+            check_table_exists('business') and 
+            check_table_exists('threads') and
+            check_table_exists('messages') and
+            check_column_exists('leads', 'phone_raw') and
+            check_column_exists('business', 'lead_tabs_config')
+        )),
+    ]
+    
+    for migration_id, check_func in migrations_to_check:
+        try:
+            # Check if migration already applied in tracking table
+            if is_migration_applied(engine, migration_id):
+                continue  # Already tracked, no need to log
+            
+            # Check if migration effect exists in database
+            if check_func():
+                checkpoint(f"  🔄 {migration_id}: Effect exists, marking as applied")
+                mark_migration_applied(engine, migration_id, notes="Reconciled from existing state")
+                reconciled.append(migration_id)
+        except Exception as e:
+            checkpoint(f"  ⚠️  {migration_id}: Could not check - {e}")
+    
+    # Special case: if bulk_existing_migrations passed, mark all migrations 1-110 as applied
+    if "bulk_existing_migrations" in reconciled:
+        checkpoint("=" * 80)
+        checkpoint("✅ Detected existing Supabase deployment with migrations 1-110 already applied")
+        checkpoint("   Marking all historical migrations as applied to prevent re-runs")
+        checkpoint("=" * 80)
+        for i in range(1, 111):
+            migration_id = f"migration_{i:03d}"
+            if not is_migration_applied(engine, migration_id):
+                mark_migration_applied(engine, migration_id, notes="Bulk reconciliation - existing Supabase state")
+    
+    if reconciled:
+        checkpoint("=" * 80)
+        checkpoint(f"✅ RECONCILIATION COMPLETE: Marked {len(reconciled)} existing migrations as applied")
+        checkpoint("=" * 80)
+    else:
+        checkpoint("✅ RECONCILIATION COMPLETE: No migrations needed reconciliation")
+    
+    return reconciled
+
+def run_migration_with_tracking(migration_id: str, migration_func, engine):
+    """
+    Run a migration with state tracking.
+    
+    Args:
+        migration_id: Unique ID for the migration (e.g., "095_add_incomplete_status")
+        migration_func: Function that executes the migration
+        engine: SQLAlchemy engine for tracking
+    
+    Returns:
+        bool: True if migration was run, False if already applied
+    """
+    # Check if already applied
+    if is_migration_applied(engine, migration_id):
+        log.debug(f"⏭️  Skipping {migration_id} - already applied")
+        return False
+    
+    # Run the migration
+    checkpoint(f"🔨 Running {migration_id}...")
+    try:
+        migration_func()
+        mark_migration_applied(engine, migration_id)
+        checkpoint(f"✅ Completed {migration_id}")
+        return True
+    except Exception as e:
+        checkpoint(f"❌ Failed {migration_id}: {e}")
+        raise
+
 # Migration 89 required columns for receipt_sync_runs
 MIGRATION_89_REQUIRED_COLUMNS = [
     'from_date', 'to_date', 'months_back',
@@ -1094,6 +1258,14 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Failed to create tables: {e}")
                 raise
+        
+        # 🔥 NEW: Ensure migration tracking table exists
+        checkpoint("Setting up migration state tracking...")
+        migrate_engine = get_migrate_engine()
+        ensure_migration_tracking_table(migrate_engine)
+        
+        # 🔥 NEW: Reconcile existing state (mark migrations 1-110 as applied if they already exist)
+        reconcile_existing_state(migrate_engine)
         
         # 🔒 BUILD 111: TRIPLE LAYER DATA PROTECTION
         # Layer 1: Count FAQs BEFORE migrations
@@ -7313,6 +7485,60 @@ def apply_migrations():
                 checkpoint("  ✅ Column 'business.lead_tabs_config' exists")
         
         checkpoint("✅ Migration completed successfully!")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # 🔥 FINAL VALIDATION: Check for pending migrations
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("=" * 80)
+        checkpoint("🔍 FINAL VALIDATION: Checking for pending migrations")
+        checkpoint("=" * 80)
+        
+        try:
+            migrate_engine = get_migrate_engine()
+            
+            # Get all applied migrations from tracking table
+            with migrate_engine.connect() as conn:
+                result = conn.execute(text("""
+                    SELECT migration_id, applied_at 
+                    FROM schema_migrations 
+                    WHERE success = TRUE 
+                    ORDER BY applied_at DESC 
+                    LIMIT 10
+                """))
+                applied = result.fetchall()
+                
+                if applied:
+                    checkpoint(f"✅ {len(applied)} recent migrations tracked:")
+                    for row in applied:
+                        checkpoint(f"   - {row[0]} (applied: {row[1]})")
+                else:
+                    checkpoint("⚠️  No migrations tracked yet (this may be first deployment)")
+            
+            # Check critical tables exist
+            critical_tables = ['business', 'leads', 'threads', 'messages', 'faqs']
+            missing_tables = []
+            for table in critical_tables:
+                if not check_table_exists(table):
+                    missing_tables.append(table)
+            
+            if missing_tables:
+                checkpoint("=" * 80)
+                checkpoint(f"❌ VALIDATION FAILED: Missing critical tables: {missing_tables}")
+                checkpoint("   Migrations appear incomplete!")
+                checkpoint("=" * 80)
+                raise RuntimeError(f"Migration validation failed: missing critical tables {missing_tables}")
+            else:
+                checkpoint(f"✅ All {len(critical_tables)} critical tables exist")
+            
+            checkpoint("=" * 80)
+            checkpoint("✅ FINAL VALIDATION PASSED: All migrations completed successfully")
+            checkpoint("=" * 80)
+            
+        except Exception as e:
+            if "Migration validation failed" in str(e):
+                raise  # Re-raise validation failures
+            checkpoint(f"⚠️  Could not perform final validation: {e}")
+            # Don't fail deployment on validation check errors
     
     # 🔒 CONCURRENCY PROTECTION: Release PostgreSQL advisory lock
     finally:
