@@ -120,16 +120,15 @@ def ensure_migration_tracking_table(engine):
     - notes: Additional information about the migration
     """
     try:
-        with engine.begin() as conn:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    migration_id TEXT PRIMARY KEY,
-                    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    success BOOLEAN NOT NULL DEFAULT TRUE,
-                    reconciled BOOLEAN NOT NULL DEFAULT FALSE,
-                    notes TEXT
-                )
-            """))
+        execute_with_retry(engine, """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                migration_id TEXT PRIMARY KEY,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                success BOOLEAN NOT NULL DEFAULT TRUE,
+                reconciled BOOLEAN NOT NULL DEFAULT FALSE,
+                notes TEXT
+            )
+        """)
         log.info("✅ schema_migrations table ready")
     except Exception as e:
         log.error(f"❌ Failed to create schema_migrations table: {e}")
@@ -138,12 +137,13 @@ def ensure_migration_tracking_table(engine):
 def is_migration_applied(engine, migration_id: str) -> bool:
     """Check if a migration has already been applied"""
     try:
-        with engine.connect() as conn:
-            result = conn.execute(
-                text("SELECT 1 FROM schema_migrations WHERE migration_id = :id AND success = TRUE"),
-                {"id": migration_id}
-            )
-            return result.fetchone() is not None
+        result = execute_with_retry(
+            engine,
+            "SELECT 1 FROM schema_migrations WHERE migration_id = :id AND success = TRUE",
+            {"id": migration_id},
+            fetch=True
+        )
+        return len(result) > 0
     except Exception as e:
         # If table doesn't exist or query fails, assume migration not applied
         log.debug(f"Could not check migration status for {migration_id}: {e}")
@@ -160,17 +160,13 @@ def mark_migration_applied(engine, migration_id: str, reconciled: bool = False, 
         notes: Additional information
     """
     try:
-        with engine.begin() as conn:
-            conn.execute(
-                text("""
-                    INSERT INTO schema_migrations (migration_id, applied_at, success, reconciled, notes)
-                    VALUES (:id, NOW(), TRUE, :reconciled, :notes)
-                    ON CONFLICT (migration_id) DO UPDATE
-                    SET applied_at = NOW(), success = TRUE, reconciled = :reconciled, 
-                        notes = COALESCE(:notes, schema_migrations.notes)
-                """),
-                {"id": migration_id, "reconciled": reconciled, "notes": notes}
-            )
+        execute_with_retry(engine, """
+            INSERT INTO schema_migrations (migration_id, applied_at, success, reconciled, notes)
+            VALUES (:id, NOW(), TRUE, :reconciled, :notes)
+            ON CONFLICT (migration_id) DO UPDATE
+            SET applied_at = NOW(), success = TRUE, reconciled = :reconciled, 
+                notes = COALESCE(:notes, schema_migrations.notes)
+        """, {"id": migration_id, "reconciled": reconciled, "notes": notes})
         status = "reconciled" if reconciled else "applied"
         log.info(f"✅ Marked migration {migration_id} as {status}")
     except Exception as e:
@@ -440,6 +436,7 @@ RETRYABLE_ERROR_PATTERNS = (
     "server closed the connection",
     "network is unreachable",
     "could not connect to server",
+    "connection reset by peer",
 )
 
 def _is_retryable(e: Exception) -> bool:
@@ -501,10 +498,10 @@ def exec_sql(engine, sql: str, params=None, *, autocommit=False, retries=4, slee
 
 def fetch_all(engine, sql: str, params=None, retries=4):
     """
-    Execute a query and fetch all results with retry logic.
+    Execute a query and fetch all results with retry logic and engine.dispose().
     
-    Uses short-lived connections and AUTOCOMMIT isolation level to prevent
-    SSL connection failures during metadata queries.
+    Uses short-lived connections to prevent SSL connection failures during 
+    metadata queries. Calls engine.dispose() on SSL errors to refresh connection pool.
     
     Args:
         engine: SQLAlchemy engine instance
@@ -534,6 +531,11 @@ def fetch_all(engine, sql: str, params=None, retries=4):
         except OperationalError as e:
             last_error = e
             if _is_retryable(e) and i < retries - 1:
+                # 🔥 Dispose engine on retryable error
+                try:
+                    engine.dispose()
+                except Exception:
+                    pass
                 sleep_time = 1.0 * (i + 1)
                 log.warning(f"⚠️ Retryable connection error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
@@ -549,12 +551,15 @@ _MIGRATE_ENGINE = None
 
 def get_migrate_engine():
     """
-    Get or create a dedicated engine for migrations with pool_pre_ping and pool_recycle.
+    Get or create a dedicated engine for migrations with POOLER-only connection.
     
-    Automatically chooses the best connection for migrations:
-    1. Tries DIRECT connection first with 5s timeout (preferred for DDL operations)
-    2. Falls back to POOLER if DIRECT is unreachable (with appropriate timeouts)
-    3. Locks to chosen connection for entire migration run (no retrying)
+    🔥 IRON RULE: POOLER ONLY - NO DIRECT CONNECTION SWITCHING
+    
+    This function creates a migration engine that:
+    1. Uses POOLER connection ONLY (locked at start)
+    2. Never switches to DIRECT during run
+    3. Has pool_pre_ping and pool_recycle for connection resilience
+    4. All queries go through execute_with_retry() which handles SSL errors
     
     This prevents stale connections from breaking migrations due to:
     - SSL connection closures
@@ -568,13 +573,8 @@ def get_migrate_engine():
     if _MIGRATE_ENGINE is None:
         from server.database_url import get_database_url
         
-        # 🔥 CRITICAL: Try DIRECT first with timeout, lock to chosen connection
-        # The get_database_url() function with try_direct_first=True will:
-        # 1. Try DIRECT with 5s timeout
-        # 2. If successful, lock to DIRECT for entire run
-        # 3. If failed, lock to POOLER for entire run
-        # 4. Never retry DIRECT during the run
-        database_url = get_database_url(connection_type="direct", try_direct_first=True)
+        # 🔥 IRON RULE: POOLER ONLY - locked at start, never switch to DIRECT
+        database_url = get_database_url(connection_type="pooler")
         
         _MIGRATE_ENGINE = create_engine(
             database_url,
@@ -587,7 +587,12 @@ def get_migrate_engine():
             }
         )
         
-        log.info("✅ Created migration engine (connection locked for entire run)")
+        checkpoint("=" * 80)
+        checkpoint("🔒 USING POOLER (LOCKED)")
+        checkpoint("   Connection type locked for entire migration run")
+        checkpoint("   All queries will use retry logic with engine.dispose() on SSL errors")
+        checkpoint("=" * 80)
+        log.info("✅ Created migration engine with POOLER (locked)")
     return _MIGRATE_ENGINE
 
 def fetch_all_retry(engine, sql, params=None, attempts=3):
@@ -639,56 +644,53 @@ def fetch_all_retry(engine, sql, params=None, attempts=3):
     raise last_error
 
 def check_column_exists(table_name, column_name):
-    """Check if column exists in table using independent connection with retry"""
+    """Check if column exists in table using execute_with_retry"""
     try:
-        # Use migration engine with pool_pre_ping for resilience
         engine = get_migrate_engine()
-        rows = fetch_all(engine, """
+        rows = execute_with_retry(engine, """
             SELECT column_name FROM information_schema.columns 
             WHERE table_schema = 'public' AND table_name = :table_name AND column_name = :column_name
-        """, {"table_name": table_name, "column_name": column_name})
+        """, {"table_name": table_name, "column_name": column_name}, fetch=True)
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if column {column_name} exists in {table_name}: {e}")
         return False
 
 def check_table_exists(table_name):
-    """Check if table exists using independent connection with retry"""
+    """Check if table exists using execute_with_retry"""
     try:
-        # Use migration engine with pool_pre_ping for resilience
         engine = get_migrate_engine()
-        rows = fetch_all(engine, """
+        rows = execute_with_retry(engine, """
             SELECT table_name FROM information_schema.tables 
             WHERE table_schema = 'public' AND table_name = :table_name
-        """, {"table_name": table_name})
+        """, {"table_name": table_name}, fetch=True)
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if table {table_name} exists: {e}")
         return False
 
 def check_index_exists(index_name):
-    """Check if index exists using independent connection with retry"""
+    """Check if index exists using execute_with_retry"""
     try:
-        # Use migration engine with pool_pre_ping for resilience
         engine = get_migrate_engine()
-        rows = fetch_all(engine, """
+        rows = execute_with_retry(engine, """
             SELECT indexname FROM pg_indexes 
             WHERE schemaname = 'public' AND indexname = :index_name
-        """, {"index_name": index_name})
+        """, {"index_name": index_name}, fetch=True)
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if index {index_name} exists: {e}")
         return False
 
 def check_constraint_exists(table_name, constraint_name):
-    """Check if constraint exists using independent connection with retry"""
+    """Check if constraint exists using execute_with_retry"""
     try:
         engine = get_migrate_engine()
-        rows = fetch_all(engine, """
+        rows = execute_with_retry(engine, """
             SELECT conname FROM pg_constraint 
             WHERE conname = :constraint_name 
               AND conrelid = to_regclass(:table_name)::oid
-        """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"})
+        """, {"constraint_name": constraint_name, "table_name": f"public.{table_name}"}, fetch=True)
         return len(rows) > 0
     except Exception as e:
         log.warning(f"Error checking if constraint {constraint_name} exists: {e}")
@@ -1216,6 +1218,98 @@ def exec_ddl_heavy(engine, sql: str, params=None, retries=10):
     # Should never reach here, but handle it anyway
     raise RuntimeError(f"DDL heavy failed due to locks after {retries} retries")
 
+def execute_with_retry(engine, sql: str, params=None, *, max_retries=10, fetch=False):
+    """
+    Execute SQL with robust retry logic and engine.dispose() on SSL errors.
+    
+    🔥 IRON RULE: ALL migration queries MUST go through this function
+    
+    This function provides POOLER-safe execution with:
+    - Detection of SSL/connection errors
+    - engine.dispose() on errors to refresh connection pool
+    - Exponential backoff: 1s, 2s, 4s, 8s...
+    - Max 8-10 retries
+    
+    Args:
+        engine: SQLAlchemy engine instance
+        sql: SQL statement to execute
+        params: Dictionary of query parameters (default: None)
+        max_retries: Maximum number of retry attempts (default: 10)
+        fetch: If True, return query results; if False, execute only
+    
+    Returns:
+        Query results if fetch=True, None otherwise
+    
+    Raises:
+        Exception: If all retry attempts fail
+    
+    Example:
+        # Execute DDL
+        execute_with_retry(engine, "ALTER TABLE leads ADD COLUMN name TEXT")
+        
+        # Fetch results (for SELECT queries or any query that returns results)
+        rows = execute_with_retry(engine, "SELECT * FROM schema_migrations", fetch=True)
+        
+        # Note: This function automatically detects SELECT and returns results
+        rows = execute_with_retry(engine, "SELECT COUNT(*) FROM leads")
+    """
+    last_error = None
+    
+    # Auto-detect if this is a SELECT query
+    is_select = sql.strip().upper().startswith('SELECT')
+    should_fetch = fetch or is_select
+    
+    for attempt in range(max_retries):
+        try:
+            with engine.begin() as conn:
+                result = conn.execute(text(sql), params or {})
+                if should_fetch:
+                    return result.fetchall()
+                return None  # Success for non-fetch
+                
+        except (OperationalError, DBAPIError) as e:
+            last_error = e
+            error_msg = str(e).lower()
+            
+            # Check if this is a retryable connection error
+            is_ssl_error = any(pattern.lower() in error_msg for pattern in [
+                "ssl connection has been closed unexpectedly",
+                "server closed the connection unexpectedly",
+                "connection reset by peer",
+                "could not receive data from server",
+                "connection not open",
+                "connection already closed",
+                "network is unreachable",
+                "could not connect to server"
+            ])
+            
+            if is_ssl_error and attempt < max_retries - 1:
+                # 🔥 CRITICAL: Dispose engine on SSL error to refresh connection pool
+                try:
+                    engine.dispose()
+                    log.info(f"🔄 Disposed engine after SSL/connection error")
+                except Exception as dispose_error:
+                    log.warning(f"⚠️ Error disposing engine: {dispose_error}")
+                
+                # Exponential backoff: 1s, 2s, 4s, 8s (capped at 8s)
+                sleep_time = min(2 ** attempt, 8)
+                log.warning(f"⚠️ SSL/connection error (attempt {attempt + 1}/{max_retries}), "
+                          f"retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            
+            # Non-retryable or last attempt
+            log.error(f"❌ execute_with_retry failed after {attempt + 1} attempts: {e}")
+            raise
+            
+        except Exception as e:
+            # Non-connection error - don't retry
+            log.error(f"❌ Non-retryable error in execute_with_retry: {e}")
+            raise
+    
+    # Should never reach here, but handle it
+    raise last_error
+
 def apply_migrations():
     """
     Apply all pending migrations
@@ -1301,26 +1395,24 @@ def apply_migrations():
     # This ensures only ONE process runs migrations at a time
     LOCK_ID = 1234567890
     LOCK_WAIT_SECONDS = int(os.getenv("MIGRATION_LOCK_WAIT_SECONDS", "30"))
-    # 🔥 PERFORMANCE: Set to '0' (unlimited) for migrations to avoid timeouts on large tables
-    # Can be overridden with MIGRATION_STATEMENT_TIMEOUT env var if needed
-    STATEMENT_TIMEOUT = os.getenv("MIGRATION_STATEMENT_TIMEOUT", "0")
     
     checkpoint("Acquiring PostgreSQL advisory lock for migrations...")
     from sqlalchemy import text
     lock_acquired = False
     
     try:
-        # 🔥 CRITICAL: Set statement_timeout locally for this connection
-        # This prevents the database from killing our lock acquisition attempts
-        conn = db.session.connection()
-        conn.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
-        checkpoint(f"✅ Set statement_timeout to {STATEMENT_TIMEOUT} for migration connection")
-        
-        # 🔥 NEW: Try to acquire lock with retry loop
+        # 🔥 IRON RULE: Use migrate_engine for lock acquisition (not db.session)
+        # Try to acquire lock with retry loop
         start_time = time.time()
         while time.time() - start_time < LOCK_WAIT_SECONDS:
-            result = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": LOCK_ID})
-            lock_acquired = result.scalar()
+            # Use execute_with_retry for lock acquisition
+            result = execute_with_retry(
+                migrate_engine,
+                "SELECT pg_try_advisory_lock(:id)",
+                {"id": LOCK_ID},
+                fetch=True
+            )
+            lock_acquired = result[0][0] if result else False
             
             if lock_acquired:
                 checkpoint("✅ Acquired migration lock")
@@ -1381,74 +1473,66 @@ def apply_migrations():
         lead_count_before = 0
         msg_count_before = 0
         try:
-            from sqlalchemy import text
-            
             # 🔥 CRITICAL FIX: Check table existence BEFORE counting to prevent UndefinedTable exceptions
             if check_table_exists('faqs'):
-                faq_count_before = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar() or 0
+                result = execute_with_retry(migrate_engine, "SELECT COUNT(*) FROM faqs")
+                faq_count_before = result[0][0] if result else 0
                 checkpoint(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs exist")
             else:
                 checkpoint(f"🔒 LAYER 1 (BEFORE): faqs table does not exist yet")
                 
             if check_table_exists('leads'):
-                lead_count_before = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar() or 0
+                result = execute_with_retry(migrate_engine, "SELECT COUNT(*) FROM leads")
+                lead_count_before = result[0][0] if result else 0
                 checkpoint(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads exist")
             else:
                 checkpoint(f"🔒 LAYER 1 (BEFORE): leads table does not exist yet")
                 
             if check_table_exists('messages'):
-                msg_count_before = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
+                result = execute_with_retry(migrate_engine, "SELECT COUNT(*) FROM messages")
+                msg_count_before = result[0][0] if result else 0
                 checkpoint(f"🔒 LAYER 1 (BEFORE): {msg_count_before} messages exist")
             else:
                 checkpoint(f"🔒 LAYER 1 (BEFORE): messages table does not exist yet")
         except Exception as e:
-            # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
-            db.session.rollback()
             log.warning(f"Could not check data counts (database may be new): {e}")
             checkpoint(f"Could not check data counts (database may be new): {e}")
         
         # Migration 0: Create alembic_version table (for compatibility with health checks)
         # This is optional but prevents 503 errors in health endpoint
         if not check_table_exists('alembic_version'):
-            from sqlalchemy import text
             try:
                 checkpoint("Creating alembic_version table for health check compatibility")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE IF NOT EXISTS alembic_version (
                         version_num VARCHAR(32) NOT NULL PRIMARY KEY
                     )
-                """))
+                """)
                 # Insert a marker version to indicate ProSaaS custom migrations
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     INSERT INTO alembic_version(version_num)
                     SELECT :marker
                     WHERE NOT EXISTS (SELECT 1 FROM alembic_version)
-                """), {"marker": PROSAAS_MIGRATION_MARKER})
+                """, {"marker": PROSAAS_MIGRATION_MARKER})
                 migrations_applied.append("create_alembic_version_table")
                 checkpoint("✅ Created alembic_version table with marker")
             except Exception as e:
-                # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
-                db.session.rollback()
                 log.warning(f"Could not create alembic_version table: {e}")
                 checkpoint(f"Could not create alembic_version table: {e}")
         
         # Migration 1: Add transcript column to CallLog
         if check_table_exists('call_log'):
-            from sqlalchemy import text
             try:
                 # 🔒 IDEMPOTENT: Use IF NOT EXISTS to prevent DuplicateColumn errors
-                db.session.execute(text("ALTER TABLE call_log ADD COLUMN IF NOT EXISTS transcript TEXT"))
+                execute_with_retry(migrate_engine, "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS transcript TEXT")
                 migrations_applied.append("add_call_log_transcript")
                 log.info("Applied migration: add_call_log_transcript")
             except Exception as e:
-                # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
-                db.session.rollback()
                 log.warning(f"Could not add transcript column (may already exist): {e}")
         
         # Migration 2: Create CallTurn table
         if not check_table_exists('call_turn'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE call_turn (
                     id SERIAL PRIMARY KEY,
                     call_sid VARCHAR(64) NOT NULL,
@@ -1461,7 +1545,7 @@ def apply_migrations():
                     t_total_ms INTEGER,
                     error_code VARCHAR(50)
                 )
-            """))
+            """)
             migrations_applied.append("create_call_turn_table")
             log.info("Applied migration: create_call_turn_table")
         
@@ -1475,16 +1559,14 @@ def apply_migrations():
         
         for flag in feature_flags:
             if check_table_exists('business') and not check_column_exists('business', flag):
-                from sqlalchemy import text
                 default_value = 'true' if flag.startswith('enable_calls') or flag.startswith('enable_recording') else 'false'
-                db.session.execute(text(f"ALTER TABLE business ADD COLUMN {flag} BOOLEAN DEFAULT {default_value}"))
+                execute_with_retry(migrate_engine, f"ALTER TABLE business ADD COLUMN {flag} BOOLEAN DEFAULT {default_value}")
                 migrations_applied.append(f"add_business_{flag}")
                 log.info(f"Applied migration: add_business_{flag}")
         
         # Migration 4: Create threads table for unified messaging
         if not check_table_exists('threads'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE threads (
                     id SERIAL PRIMARY KEY,
                     business_id INTEGER NOT NULL,
@@ -1495,14 +1577,13 @@ def apply_migrations():
                     last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
             migrations_applied.append("create_threads_table")
             log.info("Applied migration: create_threads_table")
         
         # Migration 5: Create messages table for unified messaging
         if not check_table_exists('messages'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE messages (
                     id SERIAL PRIMARY KEY,
                     thread_id INTEGER NOT NULL REFERENCES threads(id),
@@ -1514,16 +1595,17 @@ def apply_migrations():
                     status VARCHAR(16) DEFAULT 'received',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
             migrations_applied.append("create_messages_table")
             log.info("Applied migration: create_messages_table")
         
         # Migration 6: Add unique index for message deduplication
         if check_table_exists('messages') and not check_index_exists('uniq_msg_provider_id'):
-            from sqlalchemy import text
             try:
-                # First remove any existing duplicates (keep the earliest)
-                db.session.execute(text("""
+                # 🔄 SAFE DML: Required deduplication before creating UNIQUE index
+                # This DELETE is necessary to enforce the UNIQUE constraint.
+                # Keeps the earliest message (MIN(id)) for each provider_msg_id.
+                execute_with_retry(migrate_engine, """
                     DELETE FROM messages 
                     WHERE id NOT IN (
                         SELECT MIN(id) 
@@ -1532,25 +1614,23 @@ def apply_migrations():
                         GROUP BY provider_msg_id
                     )
                     AND provider_msg_id IS NOT NULL AND provider_msg_id != ''
-                """))
+                """)
                 
                 # Create unique index on provider_msg_id (for non-null values)
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE UNIQUE INDEX uniq_msg_provider_id 
                     ON messages(provider_msg_id) 
                     WHERE provider_msg_id IS NOT NULL AND provider_msg_id != ''
-                """))
+                """)
                 migrations_applied.append("add_unique_provider_msg_id")
                 log.info("Applied migration: add_unique_provider_msg_id")
             except Exception as e:
                 # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
-                db.session.rollback()
                 log.warning(f"Could not create unique index (may already exist): {e}")
         
         # Migration 7: Create leads table for CRM system
         if not check_table_exists('leads'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE leads (
                     id SERIAL PRIMARY KEY,
                     tenant_id INTEGER NOT NULL REFERENCES business(id),
@@ -1568,21 +1648,20 @@ def apply_migrations():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_contact_at TIMESTAMP
                 )
-            """))
+            """)
             
             indexes = [
             ]
             
             for index_sql in indexes:
-                db.session.execute(text(index_sql))
+                execute_with_retry(migrate_engine, index_sql)
                 
             migrations_applied.append("create_leads_table")
             log.info("Applied migration: create_leads_table")
         
         # Migration 8: Create lead_reminders table
         if not check_table_exists('lead_reminders'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE lead_reminders (
                     id SERIAL PRIMARY KEY,
                     lead_id INTEGER NOT NULL REFERENCES leads(id),
@@ -1594,15 +1673,14 @@ def apply_migrations():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     created_by INTEGER REFERENCES users(id)
                 )
-            """))
+            """)
             
             migrations_applied.append("create_lead_reminders_table")
             log.info("Applied migration: create_lead_reminders_table")
         
         # Migration 9: Create lead_activities table
         if not check_table_exists('lead_activities'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE lead_activities (
                     id SERIAL PRIMARY KEY,
                     lead_id INTEGER NOT NULL REFERENCES leads(id),
@@ -1611,15 +1689,14 @@ def apply_migrations():
                     at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     created_by INTEGER REFERENCES users(id)
                 )
-            """))
+            """)
             
             migrations_applied.append("create_lead_activities_table")
             log.info("Applied migration: create_lead_activities_table")
         
         # Migration 10: Create lead_merge_candidates table
         if not check_table_exists('lead_merge_candidates'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE lead_merge_candidates (
                     id SERIAL PRIMARY KEY,
                     lead_id INTEGER NOT NULL REFERENCES leads(id),
@@ -1631,17 +1708,16 @@ def apply_migrations():
                     merged_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
             
             migrations_applied.append("create_lead_merge_candidates_table")
             log.info("Applied migration: create_lead_merge_candidates_table")
         
         # Migration 11: Add order_index column to leads table for Kanban support
         if check_table_exists('leads') and not check_column_exists('leads', 'order_index'):
-            from sqlalchemy import text
-            db.session.execute(text("ALTER TABLE leads ADD COLUMN order_index INTEGER DEFAULT 0"))
+            execute_with_retry(migrate_engine, "ALTER TABLE leads ADD COLUMN order_index INTEGER DEFAULT 0")
             # Set default order for existing leads based on their ID
-            db.session.execute(text("UPDATE leads SET order_index = id WHERE order_index = 0"))
+            execute_with_retry(migrate_engine, "UPDATE leads SET order_index = id WHERE order_index = 0")
             migrations_applied.append("add_leads_order_index")
             log.info("Applied migration: add_leads_order_index")
         
@@ -1653,17 +1729,15 @@ def apply_migrations():
         
         for col_name, col_type, default_val in business_columns:
             if check_table_exists('business') and not check_column_exists('business', col_name):
-                from sqlalchemy import text
-                db.session.execute(text(f"ALTER TABLE business ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"))
+                execute_with_retry(migrate_engine, f"ALTER TABLE business ADD COLUMN {col_name} {col_type} DEFAULT {default_val}")
                 migrations_applied.append(f"add_business_{col_name}")
                 log.info(f"Applied migration: add_business_{col_name}")
         
         # Migration 15: Add unique constraint on call_log.call_sid to prevent duplicates
         if check_table_exists('call_log') and not check_index_exists('uniq_call_log_call_sid'):
-            from sqlalchemy import text
             try:
                 # First remove any existing duplicates (keep the earliest)
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     DELETE FROM call_log 
                     WHERE id NOT IN (
                         SELECT MIN(id) 
@@ -1672,25 +1746,23 @@ def apply_migrations():
                         GROUP BY call_sid
                     )
                     AND call_sid IS NOT NULL AND call_sid != ''
-                """))
+                """)
                 
                 # Create unique index on call_sid
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE UNIQUE INDEX uniq_call_log_call_sid 
                     ON call_log(call_sid) 
                     WHERE call_sid IS NOT NULL AND call_sid != ''
-                """))
+                """)
                 migrations_applied.append("add_unique_call_sid")
                 log.info("Applied migration: add_unique_call_sid")
             except Exception as e:
                 # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
-                db.session.rollback()
                 log.warning(f"Could not create unique index on call_sid (may already exist): {e}")
         
         # Migration 13: Create business_settings table for AI prompt management
         if not check_table_exists('business_settings'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE business_settings (
                     tenant_id INTEGER NOT NULL REFERENCES business(id) PRIMARY KEY,
                     ai_prompt TEXT,
@@ -1700,14 +1772,13 @@ def apply_migrations():
                     updated_by VARCHAR(255),
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
             migrations_applied.append("create_business_settings_table")
             log.info("Applied migration: create_business_settings_table")
         
         # Migration 14: Create prompt_revisions table for AI prompt versioning
         if not check_table_exists('prompt_revisions'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE prompt_revisions (
                     id SERIAL PRIMARY KEY,
                     tenant_id INTEGER NOT NULL REFERENCES business(id),
@@ -1716,15 +1787,14 @@ def apply_migrations():
                     changed_by VARCHAR(255),
                     changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
             
             migrations_applied.append("create_prompt_revisions_table")
             log.info("Applied migration: create_prompt_revisions_table")
         
         # Migration 16: Create business_contact_channels table for multi-tenant routing
         if not check_table_exists('business_contact_channels'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE business_contact_channels (
                     id SERIAL PRIMARY KEY,
                     business_id INTEGER NOT NULL REFERENCES business(id),
@@ -1735,18 +1805,18 @@ def apply_migrations():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
             
             
             # Unique constraint: one identifier per channel type
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_channel_identifier 
                 ON business_contact_channels(channel_type, identifier)
-            """))
+            """)
             
             # Seed data: Add contact channels for existing businesses
             # For each business with a phone_number, create twilio_voice + whatsapp channels
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 INSERT INTO business_contact_channels (business_id, channel_type, identifier, is_primary)
                 SELECT 
                     id as business_id,
@@ -1756,10 +1826,10 @@ def apply_migrations():
                 FROM business
                 WHERE phone_number IS NOT NULL AND phone_number != ''
                 ON CONFLICT (channel_type, identifier) DO NOTHING
-            """))
+            """)
             
             # Add WhatsApp channels with business_X format
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 INSERT INTO business_contact_channels (business_id, channel_type, identifier, is_primary)
                 SELECT 
                     id as business_id,
@@ -1768,15 +1838,14 @@ def apply_migrations():
                     true as is_primary
                 FROM business
                 ON CONFLICT (channel_type, identifier) DO NOTHING
-            """))
+            """)
             
             migrations_applied.append("create_business_contact_channels_table")
             log.info("Applied migration: create_business_contact_channels_table with seed data")
         
         # Migration 17: Add signature_data to contract table
         if check_table_exists('contract') and not check_column_exists('contract', 'signature_data'):
-            from sqlalchemy import text
-            db.session.execute(text("ALTER TABLE contract ADD COLUMN signature_data TEXT"))
+            execute_with_retry(migrate_engine, "ALTER TABLE contract ADD COLUMN signature_data TEXT")
             migrations_applied.append("add_contract_signature_data")
             log.info("Applied migration: add_contract_signature_data")
         
@@ -1789,43 +1858,41 @@ def apply_migrations():
         
         for col_name, col_type, default_val in call_log_columns:
             if check_table_exists('call_log') and not check_column_exists('call_log', col_name):
-                from sqlalchemy import text
-                db.session.execute(text(f"ALTER TABLE call_log ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"))
+                execute_with_retry(migrate_engine, f"ALTER TABLE call_log ADD COLUMN {col_name} {col_type} DEFAULT {default_val}")
                 migrations_applied.append(f"add_call_log_{col_name}")
                 log.info(f"Applied migration: add_call_log_{col_name}")
         
         # Migration 18: Fix Deal.customer_id foreign key (leads.id → customer.id)
         if check_table_exists('deal'):
-            from sqlalchemy import text
             try:
                 # Check if the wrong constraint exists
-                constraint_check = db.session.execute(text("""
+                result = execute_with_retry(migrate_engine, """
                     SELECT constraint_name 
                     FROM information_schema.table_constraints 
                     WHERE table_name = 'deal' 
                     AND constraint_type = 'FOREIGN KEY'
                     AND constraint_name LIKE '%customer_id%'
-                """)).fetchone()
+                """)
+                constraint_check = result[0] if result else None
                 
                 if constraint_check:
                     constraint_name = constraint_check[0]
                     # Drop old wrong foreign key (if it points to leads)
-                    db.session.execute(text(f"ALTER TABLE deal DROP CONSTRAINT IF EXISTS {constraint_name}"))
+                    execute_with_retry(migrate_engine, f"ALTER TABLE deal DROP CONSTRAINT IF EXISTS {constraint_name}")
                     log.info(f"Dropped old foreign key constraint: {constraint_name}")
                 
                 # Add correct foreign key pointing to customer.id with CASCADE
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE deal 
                     ADD CONSTRAINT deal_customer_id_fkey 
                     FOREIGN KEY (customer_id) 
                     REFERENCES customer(id) 
                     ON DELETE CASCADE
-                """))
+                """)
                 migrations_applied.append("fix_deal_customer_fkey")
                 log.info("Applied migration: fix_deal_customer_fkey - Now points to customer.id with CASCADE")
             except Exception as e:
                 # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
-                db.session.rollback()
                 log.warning(f"Could not fix deal foreign key (may already be correct): {e}")
         
         # Migration 19: Add Policy Engine fields to business_settings
@@ -1839,22 +1906,19 @@ def apply_migrations():
         
         for col_name, col_type, default_val in policy_fields:
             if check_table_exists('business_settings') and not check_column_exists('business_settings', col_name):
-                from sqlalchemy import text
-                db.session.execute(text(f"ALTER TABLE business_settings ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"))
+                execute_with_retry(migrate_engine, f"ALTER TABLE business_settings ADD COLUMN {col_name} {col_type} DEFAULT {default_val}")
                 migrations_applied.append(f"add_business_settings_{col_name}")
                 log.info(f"✅ Applied migration: add_business_settings_{col_name} - Policy Engine field")
         
         # Migration 20: Add require_phone_before_booking to business_settings
         if check_table_exists('business_settings') and not check_column_exists('business_settings', 'require_phone_before_booking'):
-            from sqlalchemy import text
-            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN require_phone_before_booking BOOLEAN DEFAULT TRUE"))
+            execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN require_phone_before_booking BOOLEAN DEFAULT TRUE")
             migrations_applied.append("add_business_settings_require_phone_before_booking")
             log.info("✅ Applied migration 20: require_phone_before_booking - Phone required guard")
         
         # Migration 21: Create FAQs table for business-specific fast-path responses
         if not check_table_exists('faqs'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE faqs (
                     id SERIAL PRIMARY KEY,
                     business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -1865,7 +1929,7 @@ def apply_migrations():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
             migrations_applied.append("create_faqs_table")
             log.info("✅ Applied migration 21: create_faqs_table - Business-specific FAQs for fast-path")
         
@@ -1880,20 +1944,18 @@ def apply_migrations():
         
         for col_name, col_type, default_val in faq_fastpath_fields:
             if check_table_exists('faqs') and not check_column_exists('faqs', col_name):
-                from sqlalchemy import text
                 if default_val is None:
                     # Nullable column without default
-                    db.session.execute(text(f"ALTER TABLE faqs ADD COLUMN {col_name} {col_type}"))
+                    execute_with_retry(migrate_engine, f"ALTER TABLE faqs ADD COLUMN {col_name} {col_type}")
                 else:
                     # Column with explicit default value
-                    db.session.execute(text(f"ALTER TABLE faqs ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"))
+                    execute_with_retry(migrate_engine, f"ALTER TABLE faqs ADD COLUMN {col_name} {col_type} DEFAULT {default_val}")
                 migrations_applied.append(f"add_faqs_{col_name}")
                 log.info(f"✅ Applied migration 22: add_faqs_{col_name} - FAQ Fast-Path field")
         
         # Migration 23: Create CallSession table for appointment deduplication
         if not check_table_exists('call_session'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE call_session (
                     id SERIAL PRIMARY KEY,
                     call_sid VARCHAR(64) UNIQUE NOT NULL,
@@ -1904,14 +1966,13 @@ def apply_migrations():
                     created_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
                     updated_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
                 )
-            """))
+            """)
             migrations_applied.append("create_call_session_table")
             log.info("✅ Applied migration 23: create_call_session_table - Appointment deduplication")
         
         # Migration 24: Create WhatsAppConversationState table for AI toggle per conversation
         if not check_table_exists('whatsapp_conversation_state'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE whatsapp_conversation_state (
                     id SERIAL PRIMARY KEY,
                     business_id INTEGER NOT NULL,
@@ -1923,21 +1984,19 @@ def apply_migrations():
                     CONSTRAINT fk_updated_by FOREIGN KEY (updated_by) REFERENCES users(id),
                     CONSTRAINT uq_business_phone_state UNIQUE (business_id, phone)
                 )
-            """))
+            """)
             migrations_applied.append("create_whatsapp_conversation_state_table")
             log.info("✅ Applied migration 24: create_whatsapp_conversation_state_table - AI toggle per conversation")
         
         # Migration 25: Add whatsapp_provider column to business table (Meta Cloud API support)
         if check_table_exists('business') and not check_column_exists('business', 'whatsapp_provider'):
-            from sqlalchemy import text
-            db.session.execute(text("ALTER TABLE business ADD COLUMN whatsapp_provider VARCHAR(32) DEFAULT 'baileys'"))
+            execute_with_retry(migrate_engine, "ALTER TABLE business ADD COLUMN whatsapp_provider VARCHAR(32) DEFAULT 'baileys'")
             migrations_applied.append("add_business_whatsapp_provider")
             log.info("✅ Applied migration 25: add_business_whatsapp_provider - Meta Cloud API support")
         
         # Migration 26: Create WhatsAppConversation table for session tracking and auto-summary
         if not check_table_exists('whatsapp_conversation'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE whatsapp_conversation (
                     id SERIAL PRIMARY KEY,
                     business_id INTEGER NOT NULL,
@@ -1955,54 +2014,51 @@ def apply_migrations():
                     CONSTRAINT fk_wa_conv_business FOREIGN KEY (business_id) REFERENCES business(id),
                     CONSTRAINT fk_wa_conv_lead FOREIGN KEY (lead_id) REFERENCES leads(id)
                 )
-            """))
+            """)
             migrations_applied.append("create_whatsapp_conversation_table")
             log.info("✅ Applied migration 26: create_whatsapp_conversation_table - Session tracking + auto-summary")
         
         # Migration 27: Add whatsapp_last_summary fields to leads table
         if check_table_exists('leads') and not check_column_exists('leads', 'whatsapp_last_summary'):
-            from sqlalchemy import text
-            db.session.execute(text("ALTER TABLE leads ADD COLUMN whatsapp_last_summary TEXT"))
-            db.session.execute(text("ALTER TABLE leads ADD COLUMN whatsapp_last_summary_at TIMESTAMP"))
+            execute_with_retry(migrate_engine, "ALTER TABLE leads ADD COLUMN whatsapp_last_summary TEXT")
+            execute_with_retry(migrate_engine, "ALTER TABLE leads ADD COLUMN whatsapp_last_summary_at TIMESTAMP")
             migrations_applied.append("add_leads_whatsapp_summary")
             log.info("✅ Applied migration 27: add_leads_whatsapp_summary - WhatsApp session summary on leads")
         
         # Migration 28: BUILD 163 - Monday.com integration + Auto-hangup + Bot speaks first
         if check_table_exists('business_settings'):
-            from sqlalchemy import text
             
             # Monday.com integration fields
             if not check_column_exists('business_settings', 'monday_webhook_url'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN monday_webhook_url VARCHAR(512)"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN monday_webhook_url VARCHAR(512)")
                 migrations_applied.append("add_monday_webhook_url")
                 log.info("✅ Applied migration 28a: add_monday_webhook_url")
             
             if not check_column_exists('business_settings', 'send_call_transcripts_to_monday'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN send_call_transcripts_to_monday BOOLEAN DEFAULT FALSE"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN send_call_transcripts_to_monday BOOLEAN DEFAULT FALSE")
                 migrations_applied.append("add_send_call_transcripts_to_monday")
                 log.info("✅ Applied migration 28b: add_send_call_transcripts_to_monday")
             
             # Auto hang-up fields
             if not check_column_exists('business_settings', 'auto_end_after_lead_capture'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN auto_end_after_lead_capture BOOLEAN DEFAULT FALSE"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN auto_end_after_lead_capture BOOLEAN DEFAULT FALSE")
                 migrations_applied.append("add_auto_end_after_lead_capture")
                 log.info("✅ Applied migration 28c: add_auto_end_after_lead_capture")
             
             if not check_column_exists('business_settings', 'auto_end_on_goodbye'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN auto_end_on_goodbye BOOLEAN DEFAULT FALSE"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN auto_end_on_goodbye BOOLEAN DEFAULT FALSE")
                 migrations_applied.append("add_auto_end_on_goodbye")
                 log.info("✅ Applied migration 28d: add_auto_end_on_goodbye")
             
             # Bot speaks first field
             if not check_column_exists('business_settings', 'bot_speaks_first'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN bot_speaks_first BOOLEAN DEFAULT FALSE"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN bot_speaks_first BOOLEAN DEFAULT FALSE")
                 migrations_applied.append("add_bot_speaks_first")
                 log.info("✅ Applied migration 28e: add_bot_speaks_first")
         
         # Migration 29: BUILD 182 - Outbound lead lists for bulk import
         if not check_table_exists('outbound_lead_lists'):
-            from sqlalchemy import text
-            db.session.execute(text("""
+            execute_with_retry(migrate_engine, """
                 CREATE TABLE outbound_lead_lists (
                     id SERIAL PRIMARY KEY,
                     tenant_id INTEGER NOT NULL REFERENCES business(id),
@@ -2011,72 +2067,66 @@ def apply_migrations():
                     total_leads INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
             migrations_applied.append("create_outbound_lead_lists_table")
             log.info("✅ Applied migration 29a: create_outbound_lead_lists_table - Bulk import for outbound calls")
         
         # Migration 29b: Add outbound_list_id to leads table
         if check_table_exists('leads') and not check_column_exists('leads', 'outbound_list_id'):
-            from sqlalchemy import text
-            db.session.execute(text("ALTER TABLE leads ADD COLUMN outbound_list_id INTEGER REFERENCES outbound_lead_lists(id)"))
+            execute_with_retry(migrate_engine, "ALTER TABLE leads ADD COLUMN outbound_list_id INTEGER REFERENCES outbound_lead_lists(id)")
             migrations_applied.append("add_leads_outbound_list_id")
             log.info("✅ Applied migration 29b: add_leads_outbound_list_id - Link leads to import lists")
         
         # Migration 30: BUILD 183 - Separate inbound/outbound webhook URLs
         if check_table_exists('business_settings'):
-            from sqlalchemy import text
             
             if not check_column_exists('business_settings', 'inbound_webhook_url'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN inbound_webhook_url VARCHAR(512)"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN inbound_webhook_url VARCHAR(512)")
                 migrations_applied.append("add_inbound_webhook_url")
                 log.info("✅ Applied migration 30a: add_inbound_webhook_url - Separate webhook for inbound calls")
             
             if not check_column_exists('business_settings', 'outbound_webhook_url'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN outbound_webhook_url VARCHAR(512)"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN outbound_webhook_url VARCHAR(512)")
                 migrations_applied.append("add_outbound_webhook_url")
                 log.info("✅ Applied migration 30b: add_outbound_webhook_url - Separate webhook for outbound calls")
         
         # Migration 31: BUILD 186 - Calendar scheduling toggle for inbound calls
         if check_table_exists('business_settings'):
-            from sqlalchemy import text
             
             if not check_column_exists('business_settings', 'enable_calendar_scheduling'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN enable_calendar_scheduling BOOLEAN DEFAULT TRUE"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN enable_calendar_scheduling BOOLEAN DEFAULT TRUE")
                 migrations_applied.append("add_enable_calendar_scheduling")
                 log.info("✅ Applied migration 31: add_enable_calendar_scheduling - Toggle for AI appointment scheduling")
         
         # Migration 32: BUILD 204 - Dynamic STT Vocabulary for per-business transcription quality
         if check_table_exists('business_settings'):
-            from sqlalchemy import text
             
             if not check_column_exists('business_settings', 'stt_vocabulary_json'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN stt_vocabulary_json JSON"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN stt_vocabulary_json JSON")
                 migrations_applied.append("add_stt_vocabulary_json")
                 log.info("✅ Applied migration 32a: add_stt_vocabulary_json - Per-business STT vocabulary")
             
             if not check_column_exists('business_settings', 'business_context'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN business_context VARCHAR(500)"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN business_context VARCHAR(500)")
                 migrations_applied.append("add_business_context")
                 log.info("✅ Applied migration 32b: add_business_context - Business context for STT prompts")
         
         # Migration 33: BUILD 309 - SIMPLE_MODE settings for call flow control
         if check_table_exists('business_settings'):
-            from sqlalchemy import text
             
             if not check_column_exists('business_settings', 'call_goal'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN call_goal VARCHAR(50) DEFAULT 'lead_only'"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN call_goal VARCHAR(50) DEFAULT 'lead_only'")
                 migrations_applied.append("add_call_goal")
                 log.info("✅ Applied migration 33a: add_call_goal - Controls call objective (lead_only vs appointment)")
             
             if not check_column_exists('business_settings', 'confirm_before_hangup'):
-                db.session.execute(text("ALTER TABLE business_settings ADD COLUMN confirm_before_hangup BOOLEAN DEFAULT TRUE"))
+                execute_with_retry(migrate_engine, "ALTER TABLE business_settings ADD COLUMN confirm_before_hangup BOOLEAN DEFAULT TRUE")
                 migrations_applied.append("add_confirm_before_hangup")
                 log.info("✅ Applied migration 33b: add_confirm_before_hangup - Requires confirmation before disconnecting")
         
         # Migration 34: POST-CALL EXTRACTION - Full transcript + extracted fields for CallLog
         # 🔒 IDEMPOTENT: Uses PostgreSQL DO blocks to safely add columns
         if check_table_exists('call_log'):
-            from sqlalchemy import text
             
             try:
                 # Use single DO block for all call_log columns - more efficient
@@ -2127,7 +2177,6 @@ def apply_migrations():
                 log.info("✅ Applied migration 34: add_call_log_extraction_fields - POST-CALL EXTRACTION for CallLog")
             except Exception as e:
                 log.error(f"❌ Migration 34 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 35: POST-CALL EXTRACTION - Service type and city fields for Lead
@@ -2164,7 +2213,6 @@ def apply_migrations():
                 log.info("✅ Applied migration 35: add_leads_extraction_fields - POST-CALL EXTRACTION for Lead")
             except Exception as e:
                 log.error(f"❌ Migration 35 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 36: BUILD 350 - Add last_call_direction to leads for inbound/outbound filtering
@@ -2216,14 +2264,13 @@ def apply_migrations():
                 log.info("✅ Applied migration 36: add_leads_last_call_direction - Schema only (backfill runs separately)")
             except Exception as e:
                 log.error(f"❌ Migration 36 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 37: Lead Attachments - Production-ready file uploads for leads
         if not check_table_exists('lead_attachments'):
             checkpoint("Migration 37: Creating lead_attachments table for secure file storage")
             try:
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE lead_attachments (
                         id SERIAL PRIMARY KEY,
                         tenant_id INTEGER NOT NULL REFERENCES business(id),
@@ -2236,14 +2283,13 @@ def apply_migrations():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         created_by INTEGER REFERENCES users(id)
                     )
-                """))
+                """)
                 
                 
                 migrations_applied.append('create_lead_attachments_table')
                 log.info("✅ Applied migration 37: create_lead_attachments_table - Secure file upload support")
             except Exception as e:
                 log.error(f"❌ Migration 37 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 38: BUILD 342 - Add recording_sid to call_log for Twilio recording tracking
@@ -2251,13 +2297,11 @@ def apply_migrations():
         if check_table_exists('call_log') and not check_column_exists('call_log', 'recording_sid'):
             checkpoint("Migration 38: Adding recording_sid column to call_log table")
             try:
-                from sqlalchemy import text
-                db.session.execute(text("ALTER TABLE call_log ADD COLUMN recording_sid VARCHAR(64)"))
+                execute_with_retry(migrate_engine, "ALTER TABLE call_log ADD COLUMN recording_sid VARCHAR(64)")
                 migrations_applied.append('add_call_log_recording_sid')
                 log.info("✅ Applied migration 38: add_call_log_recording_sid - Fix post-call pipeline crash")
             except Exception as e:
                 log.error(f"❌ Migration 38 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 39: CRITICAL HOTFIX - Add missing columns to call_log for post-call pipeline
@@ -2266,30 +2310,28 @@ def apply_migrations():
         if check_table_exists('call_log'):
             checkpoint("Migration 39: Adding missing audio/transcript columns to call_log table")
             try:
-                from sqlalchemy import text
                 
                 # Add audio_bytes_len column if missing
                 if not check_column_exists('call_log', 'audio_bytes_len'):
-                    db.session.execute(text("ALTER TABLE call_log ADD COLUMN audio_bytes_len BIGINT"))
+                    execute_with_retry(migrate_engine, "ALTER TABLE call_log ADD COLUMN audio_bytes_len BIGINT")
                     migrations_applied.append('add_call_log_audio_bytes_len')
                     log.info("✅ Applied migration 39a: add_call_log_audio_bytes_len")
                 
                 # Add audio_duration_sec column if missing
                 if not check_column_exists('call_log', 'audio_duration_sec'):
-                    db.session.execute(text("ALTER TABLE call_log ADD COLUMN audio_duration_sec DOUBLE PRECISION"))
+                    execute_with_retry(migrate_engine, "ALTER TABLE call_log ADD COLUMN audio_duration_sec DOUBLE PRECISION")
                     migrations_applied.append('add_call_log_audio_duration_sec')
                     log.info("✅ Applied migration 39b: add_call_log_audio_duration_sec")
                 
                 # Add transcript_source column if missing
                 if not check_column_exists('call_log', 'transcript_source'):
-                    db.session.execute(text("ALTER TABLE call_log ADD COLUMN transcript_source VARCHAR(32)"))
+                    execute_with_retry(migrate_engine, "ALTER TABLE call_log ADD COLUMN transcript_source VARCHAR(32)")
                     migrations_applied.append('add_call_log_transcript_source')
                     log.info("✅ Applied migration 39c: add_call_log_transcript_source")
                 
                 checkpoint("✅ Migration 39 completed - all missing columns added")
             except Exception as e:
                 log.error(f"❌ Migration 39 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 40: Outbound Call Management - Bulk calling infrastructure
@@ -2298,8 +2340,7 @@ def apply_migrations():
         if not check_table_exists('outbound_call_runs'):
             checkpoint("Migration 40a: Creating outbound_call_runs table for bulk calling campaigns")
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE outbound_call_runs (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id),
@@ -2316,21 +2357,19 @@ def apply_migrations():
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         completed_at TIMESTAMP
                     )
-                """))
+                """)
                 
                 
                 migrations_applied.append('create_outbound_call_runs_table')
                 log.info("✅ Applied migration 40a: create_outbound_call_runs_table - Bulk calling campaign tracking")
             except Exception as e:
                 log.error(f"❌ Migration 40a failed: {e}")
-                db.session.rollback()
                 raise
         
         if not check_table_exists('outbound_call_jobs'):
             checkpoint("Migration 40b: Creating outbound_call_jobs table for individual call tracking")
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE outbound_call_jobs (
                         id SERIAL PRIMARY KEY,
                         run_id INTEGER NOT NULL REFERENCES outbound_call_runs(id),
@@ -2343,14 +2382,13 @@ def apply_migrations():
                         started_at TIMESTAMP,
                         completed_at TIMESTAMP
                     )
-                """))
+                """)
                 
                 
                 migrations_applied.append('create_outbound_call_jobs_table')
                 log.info("✅ Applied migration 40b: create_outbound_call_jobs_table - Individual call job tracking")
             except Exception as e:
                 log.error(f"❌ Migration 40b failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 41: Add parent_call_sid and twilio_direction to call_log
@@ -2358,35 +2396,31 @@ def apply_migrations():
         if not check_column_exists('call_log', 'parent_call_sid'):
             checkpoint("Migration 41a: Adding parent_call_sid to call_log for tracking parent/child call relationships")
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE call_log 
                     ADD COLUMN parent_call_sid VARCHAR(64)
-                """))
+                """)
                 
                 
                 migrations_applied.append('add_parent_call_sid_to_call_log')
                 log.info("✅ Applied migration 41a: add_parent_call_sid_to_call_log - Track parent/child call legs")
             except Exception as e:
                 log.error(f"❌ Migration 41a failed: {e}")
-                db.session.rollback()
                 raise
         
         if not check_column_exists('call_log', 'twilio_direction'):
             checkpoint("Migration 41b: Adding twilio_direction to call_log for storing original Twilio direction")
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE call_log 
                     ADD COLUMN twilio_direction VARCHAR(32)
-                """))
+                """)
                 
                 
                 migrations_applied.append('add_twilio_direction_to_call_log')
                 log.info("✅ Applied migration 41b: add_twilio_direction_to_call_log - Store original Twilio direction values")
             except Exception as e:
                 log.error(f"❌ Migration 41b failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 42: AI Topic Classification System
@@ -2395,7 +2429,7 @@ def apply_migrations():
             # Create business_topics table
             if not check_table_exists('business_topics'):
                 log.info("Creating business_topics table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE business_topics (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id),
@@ -2406,14 +2440,14 @@ def apply_migrations():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 migrations_applied.append('create_business_topics_table')
                 log.info("✅ Created business_topics table")
             
             # Create business_ai_settings table
             if not check_table_exists('business_ai_settings'):
                 log.info("Creating business_ai_settings table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE business_ai_settings (
                         business_id INTEGER PRIMARY KEY REFERENCES business(id),
                         embedding_enabled BOOLEAN DEFAULT FALSE,
@@ -2425,7 +2459,7 @@ def apply_migrations():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 migrations_applied.append('create_business_ai_settings_table')
                 log.info("✅ Created business_ai_settings table")
             
@@ -2433,12 +2467,12 @@ def apply_migrations():
             if check_table_exists('call_log'):
                 if not check_column_exists('call_log', 'detected_topic_id'):
                     log.info("Adding topic classification fields to call_log...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN detected_topic_id INTEGER REFERENCES business_topics(id),
                         ADD COLUMN detected_topic_confidence FLOAT,
                         ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
-                    """))
+                    """)
                     migrations_applied.append('add_topic_fields_to_call_log')
                     log.info("✅ Added topic classification fields to call_log")
             
@@ -2446,12 +2480,12 @@ def apply_migrations():
             if check_table_exists('leads'):
                 if not check_column_exists('leads', 'detected_topic_id'):
                     log.info("Adding topic classification fields to leads...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE leads 
                         ADD COLUMN detected_topic_id INTEGER REFERENCES business_topics(id),
                         ADD COLUMN detected_topic_confidence FLOAT,
                         ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
-                    """))
+                    """)
                     migrations_applied.append('add_topic_fields_to_leads')
                     log.info("✅ Added topic classification fields to leads")
             
@@ -2459,19 +2493,18 @@ def apply_migrations():
             if check_table_exists('whatsapp_conversation'):
                 if not check_column_exists('whatsapp_conversation', 'detected_topic_id'):
                     log.info("Adding topic classification fields to whatsapp_conversation...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE whatsapp_conversation 
                         ADD COLUMN detected_topic_id INTEGER REFERENCES business_topics(id),
                         ADD COLUMN detected_topic_confidence FLOAT,
                         ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
-                    """))
+                    """)
                     migrations_applied.append('add_topic_fields_to_whatsapp_conversation')
                     log.info("✅ Added topic classification fields to whatsapp_conversation")
             
             log.info("✅ Applied migration 42: AI Topic Classification System")
         except Exception as e:
             log.error(f"❌ Migration 42 failed: {e}")
-            db.session.rollback()
             raise
         
         # Migration 43: Service Canonicalization - Add canonical_service_type to BusinessTopic and service mapping settings
@@ -2481,10 +2514,10 @@ def apply_migrations():
             if check_table_exists('business_topics'):
                 if not check_column_exists('business_topics', 'canonical_service_type'):
                     log.info("Adding canonical_service_type to business_topics...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business_topics 
                         ADD COLUMN canonical_service_type VARCHAR(255)
-                    """))
+                    """)
                     migrations_applied.append('add_canonical_service_type_to_business_topics')
                     log.info("✅ Added canonical_service_type to business_topics")
             
@@ -2492,18 +2525,17 @@ def apply_migrations():
             if check_table_exists('business_ai_settings'):
                 if not check_column_exists('business_ai_settings', 'map_topic_to_service_type'):
                     log.info("Adding service mapping settings to business_ai_settings...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business_ai_settings 
                         ADD COLUMN map_topic_to_service_type BOOLEAN DEFAULT FALSE,
                         ADD COLUMN service_type_min_confidence FLOAT DEFAULT 0.75
-                    """))
+                    """)
                     migrations_applied.append('add_service_mapping_settings_to_business_ai_settings')
                     log.info("✅ Added service mapping settings to business_ai_settings")
             
             log.info("✅ Applied migration 43: Service Canonicalization and Topic-to-Service Mapping")
         except Exception as e:
             log.error(f"❌ Migration 43 failed: {e}")
-            db.session.rollback()
             raise
         
         # Migration 44: WhatsApp Broadcast System - Campaign management tables
@@ -2512,7 +2544,7 @@ def apply_migrations():
             # Create whatsapp_broadcasts table
             if not check_table_exists('whatsapp_broadcasts'):
                 log.info("Creating whatsapp_broadcasts table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE whatsapp_broadcasts (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id),
@@ -2532,14 +2564,14 @@ def apply_migrations():
                         started_at TIMESTAMP,
                         completed_at TIMESTAMP
                     )
-                """))
+                """)
                 migrations_applied.append('create_whatsapp_broadcasts_table')
                 log.info("✅ Created whatsapp_broadcasts table")
             
             # Create whatsapp_broadcast_recipients table
             if not check_table_exists('whatsapp_broadcast_recipients'):
                 log.info("Creating whatsapp_broadcast_recipients table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE whatsapp_broadcast_recipients (
                         id SERIAL PRIMARY KEY,
                         broadcast_id INTEGER NOT NULL REFERENCES whatsapp_broadcasts(id),
@@ -2552,30 +2584,27 @@ def apply_migrations():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         sent_at TIMESTAMP
                     )
-                """))
+                """)
                 migrations_applied.append('create_whatsapp_broadcast_recipients_table')
                 log.info("✅ Created whatsapp_broadcast_recipients table")
             
             log.info("✅ Applied migration 44: WhatsApp Broadcast System")
         except Exception as e:
             log.error(f"❌ Migration 44 failed: {e}")
-            db.session.rollback()
             raise
         
         # Migration 45: Status Webhook - Add status_webhook_url to business_settings for lead status change notifications
         checkpoint("Migration 45: Status Webhook URL for lead status changes")
         if check_table_exists('business_settings') and not check_column_exists('business_settings', 'status_webhook_url'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE business_settings 
                     ADD COLUMN status_webhook_url VARCHAR(512) NULL
-                """))
+                """)
                 migrations_applied.append('add_status_webhook_url')
                 log.info("✅ Added status_webhook_url column to business_settings")
             except Exception as e:
                 log.error(f"❌ Migration 45 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 46: Bulk Call Deduplication - Add idempotency fields to outbound_call_jobs
@@ -2585,62 +2614,54 @@ def apply_migrations():
         # Add twilio_call_sid column for tracking initiated calls
         if check_table_exists('outbound_call_jobs') and not check_column_exists('outbound_call_jobs', 'twilio_call_sid'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE outbound_call_jobs 
                     ADD COLUMN twilio_call_sid VARCHAR(64) NULL
-                """))
+                """)
                 migrations_applied.append('add_twilio_call_sid_to_outbound_jobs')
                 log.info("✅ Added twilio_call_sid column to outbound_call_jobs for deduplication")
             except Exception as e:
                 log.error(f"❌ Migration 46a failed: {e}")
-                db.session.rollback()
                 raise
         
         # Add dial_started_at column for tracking when dial attempt started
         if check_table_exists('outbound_call_jobs') and not check_column_exists('outbound_call_jobs', 'dial_started_at'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE outbound_call_jobs 
                     ADD COLUMN dial_started_at TIMESTAMP NULL
-                """))
+                """)
                 migrations_applied.append('add_dial_started_at_to_outbound_jobs')
                 log.info("✅ Added dial_started_at column to outbound_call_jobs for tracking dial attempts")
             except Exception as e:
                 log.error(f"❌ Migration 46b failed: {e}")
-                db.session.rollback()
                 raise
         
         # Add dial_lock_token column for atomic locking
         if check_table_exists('outbound_call_jobs') and not check_column_exists('outbound_call_jobs', 'dial_lock_token'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE outbound_call_jobs 
                     ADD COLUMN dial_lock_token VARCHAR(64) NULL
-                """))
+                """)
                 migrations_applied.append('add_dial_lock_token_to_outbound_jobs')
                 log.info("✅ Added dial_lock_token column to outbound_call_jobs for atomic locking")
             except Exception as e:
                 log.error(f"❌ Migration 46c failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 46d: Add composite index for cleanup query performance
         if check_table_exists('outbound_call_jobs') and not check_index_exists('idx_outbound_call_jobs_status_twilio_sid'):
             checkpoint("Migration 46d: Adding composite index for cleanup query performance")
             try:
-                from sqlalchemy import text
                 # Composite index on (status, twilio_call_sid) for efficient cleanup queries
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON outbound_call_jobs(status, twilio_call_sid)
-                """))
+                """)
                 migrations_applied.append('add_composite_index_status_twilio_sid')
                 log.info("✅ Added composite index on (status, twilio_call_sid) for cleanup query performance")
             except Exception as e:
                 log.error(f"❌ Migration 46d failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 47: WhatsApp Webhook Secret - Add webhook_secret column to business table
@@ -2648,17 +2669,15 @@ def apply_migrations():
         checkpoint("Migration 47: WhatsApp Webhook Secret for n8n integration")
         if check_table_exists('business') and not check_column_exists('business', 'webhook_secret'):
             try:
-                from sqlalchemy import text
                 # Add webhook_secret column with unique constraint
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE business 
                     ADD COLUMN webhook_secret VARCHAR(128) UNIQUE NULL
-                """))
+                """)
                 migrations_applied.append('add_business_webhook_secret')
                 log.info("✅ Added webhook_secret column to business table for n8n webhook authentication")
             except Exception as e:
                 log.error(f"❌ Migration 47 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 48: Add call_transcript column to appointments table
@@ -2666,17 +2685,15 @@ def apply_migrations():
         checkpoint("Migration 48: Add call_transcript to appointments")
         if check_table_exists('appointments') and not check_column_exists('appointments', 'call_transcript'):
             try:
-                from sqlalchemy import text
                 # Add call_transcript column to store full transcripts
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE appointments 
                     ADD COLUMN call_transcript TEXT
-                """))
+                """)
                 migrations_applied.append('add_appointments_call_transcript')
                 log.info("✅ Added call_transcript column to appointments table for full conversation transcripts")
             except Exception as e:
                 log.error(f"❌ Migration 48 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 49: Add idempotency_key column to whatsapp_broadcasts table
@@ -2684,20 +2701,18 @@ def apply_migrations():
         checkpoint("Migration 49: Add idempotency_key to whatsapp_broadcasts")
         if check_table_exists('whatsapp_broadcasts') and not check_column_exists('whatsapp_broadcasts', 'idempotency_key'):
             try:
-                from sqlalchemy import text
                 # Add idempotency_key column with index for duplicate prevention
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE whatsapp_broadcasts 
                     ADD COLUMN idempotency_key VARCHAR(64)
-                """))
-                db.session.execute(text("""
+                """)
+                execute_with_retry(migrate_engine, """
                     ON whatsapp_broadcasts(idempotency_key)
-                """))
+                """)
                 migrations_applied.append('add_whatsapp_broadcasts_idempotency_key')
                 log.info("✅ Added idempotency_key column to whatsapp_broadcasts table for duplicate prevention")
             except Exception as e:
                 log.error(f"❌ Migration 49 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 50: Add dynamic_summary and lead_id to appointments table
@@ -2706,33 +2721,31 @@ def apply_migrations():
         checkpoint("Migration 50: Adding dynamic_summary and lead_id to appointments")
         if check_table_exists('appointments'):
             try:
-                from sqlalchemy import text
                 
                 # Add lead_id column if missing
                 if not check_column_exists('appointments', 'lead_id'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE appointments 
                         ADD COLUMN lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL
-                    """))
-                    db.session.execute(text("""
+                    """)
+                    execute_with_retry(migrate_engine, """
                         ON appointments(lead_id)
-                    """))
+                    """)
                     migrations_applied.append('add_appointments_lead_id')
                     log.info("✅ Added lead_id column to appointments table")
                 
                 # Add dynamic_summary column if missing
                 if not check_column_exists('appointments', 'dynamic_summary'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE appointments 
                         ADD COLUMN dynamic_summary TEXT
-                    """))
+                    """)
                     migrations_applied.append('add_appointments_dynamic_summary')
                     log.info("✅ Added dynamic_summary column to appointments table")
                 
                 checkpoint("✅ Migration 50 completed - appointments table updated")
             except Exception as e:
                 log.error(f"❌ Migration 50 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 51: Add Twilio Cost Metrics columns to call_log table
@@ -2742,93 +2755,91 @@ def apply_migrations():
         checkpoint("Migration 51: Adding Twilio Cost Metrics columns to call_log")
         if check_table_exists('call_log'):
             try:
-                from sqlalchemy import text
                 
                 # Add recording_mode column if missing
                 if not check_column_exists('call_log', 'recording_mode'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN recording_mode VARCHAR(32)
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_recording_mode')
                     log.info("✅ Added recording_mode column to call_log table")
                 
                 # Add stream_started_at column if missing
                 if not check_column_exists('call_log', 'stream_started_at'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN stream_started_at TIMESTAMP
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_stream_started_at')
                     log.info("✅ Added stream_started_at column to call_log table")
                 
                 # Add stream_ended_at column if missing
                 if not check_column_exists('call_log', 'stream_ended_at'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN stream_ended_at TIMESTAMP
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_stream_ended_at')
                     log.info("✅ Added stream_ended_at column to call_log table")
                 
                 # Add stream_duration_sec column if missing
                 if not check_column_exists('call_log', 'stream_duration_sec'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN stream_duration_sec DOUBLE PRECISION
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_stream_duration_sec')
                     log.info("✅ Added stream_duration_sec column to call_log table")
                 
                 # Add stream_connect_count column if missing
                 if not check_column_exists('call_log', 'stream_connect_count'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN stream_connect_count INTEGER DEFAULT 0
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_stream_connect_count')
                     log.info("✅ Added stream_connect_count column to call_log table")
                 
                 # Add webhook_11205_count column if missing
                 if not check_column_exists('call_log', 'webhook_11205_count'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN webhook_11205_count INTEGER DEFAULT 0
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_webhook_11205_count')
                     log.info("✅ Added webhook_11205_count column to call_log table")
                 
                 # Add webhook_retry_count column if missing
                 if not check_column_exists('call_log', 'webhook_retry_count'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN webhook_retry_count INTEGER DEFAULT 0
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_webhook_retry_count')
                     log.info("✅ Added webhook_retry_count column to call_log table")
                 
                 # Add recording_count column if missing
                 if not check_column_exists('call_log', 'recording_count'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN recording_count INTEGER DEFAULT 0
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_recording_count')
                     log.info("✅ Added recording_count column to call_log table")
                 
                 # Add estimated_cost_bucket column if missing
                 if not check_column_exists('call_log', 'estimated_cost_bucket'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN estimated_cost_bucket VARCHAR(16)
-                    """))
+                    """)
                     migrations_applied.append('add_call_log_estimated_cost_bucket')
                     log.info("✅ Added estimated_cost_bucket column to call_log table")
                 
                 checkpoint("✅ Migration 51 completed - call_log cost metrics columns added")
             except Exception as e:
                 log.error(f"❌ Migration 51 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 52: Add customer_name to call_log and lead_name to outbound_call_jobs
@@ -2840,10 +2851,10 @@ def apply_migrations():
                 # 1. Add customer_name to call_log
                 if not check_column_exists('call_log', 'customer_name'):
                     checkpoint("  → Adding customer_name to call_log...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log 
                         ADD COLUMN customer_name VARCHAR(255)
-                    """))
+                    """)
                     checkpoint("  ✅ call_log.customer_name added")
                 else:
                     checkpoint("  ℹ️ call_log.customer_name already exists")
@@ -2851,10 +2862,10 @@ def apply_migrations():
                 # 2. Add lead_name to outbound_call_jobs
                 if not check_column_exists('outbound_call_jobs', 'lead_name'):
                     checkpoint("  → Adding lead_name to outbound_call_jobs...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE outbound_call_jobs 
                         ADD COLUMN lead_name VARCHAR(255)
-                    """))
+                    """)
                     checkpoint("  ✅ outbound_call_jobs.lead_name added")
                 else:
                     checkpoint("  ℹ️ outbound_call_jobs.lead_name already exists")
@@ -2863,7 +2874,6 @@ def apply_migrations():
                 checkpoint("✅ Migration 52 completed - NAME_ANCHOR SSOT fields added")
             except Exception as e:
                 log.error(f"❌ Migration 52 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 53: Add gender column to leads table
@@ -2873,16 +2883,15 @@ def apply_migrations():
             checkpoint("Migration 53: Adding gender column to leads table")
             try:
                 checkpoint("  → Adding gender to leads...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE leads 
                     ADD COLUMN gender VARCHAR(16)
-                """))
+                """)
                 checkpoint("  ✅ leads.gender added")
                 migrations_applied.append('add_leads_gender_column')
                 checkpoint("✅ Migration 53 completed - leads.gender column added")
             except Exception as e:
                 log.error(f"❌ Migration 53 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 54: Projects for Outbound Calls
@@ -2892,7 +2901,7 @@ def apply_migrations():
             checkpoint("Migration 54: Creating outbound_projects table")
             try:
                 checkpoint("  → Creating outbound_projects table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE outbound_projects (
                         id SERIAL PRIMARY KEY,
                         tenant_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -2905,12 +2914,12 @@ def apply_migrations():
                         completed_at TIMESTAMP,
                         created_by INTEGER REFERENCES users(id)
                     )
-                """))
+                """)
                 checkpoint("  ✅ outbound_projects table created")
                 
                 # Junction table for project-lead relationships
                 checkpoint("  → Creating project_leads junction table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE project_leads (
                         id SERIAL PRIMARY KEY,
                         project_id INTEGER NOT NULL REFERENCES outbound_projects(id) ON DELETE CASCADE,
@@ -2922,14 +2931,13 @@ def apply_migrations():
                         total_call_duration INTEGER DEFAULT 0,
                         UNIQUE(project_id, lead_id)
                     )
-                """))
+                """)
                 checkpoint("  ✅ project_leads junction table created")
                 
                 migrations_applied.append('create_outbound_projects_tables')
                 checkpoint("✅ Migration 54 completed - Projects tables created")
             except Exception as e:
                 log.error(f"❌ Migration 54 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 54b: Add project_id to call_log for project statistics
@@ -2937,13 +2945,12 @@ def apply_migrations():
             checkpoint("Migration 54b: Adding project_id to call_log")
             try:
                 checkpoint("  → Adding project_id to call_log...")
-                db.session.execute(text("ALTER TABLE call_log ADD COLUMN project_id INTEGER REFERENCES outbound_projects(id) ON DELETE SET NULL"))
+                execute_with_retry(migrate_engine, "ALTER TABLE call_log ADD COLUMN project_id INTEGER REFERENCES outbound_projects(id) ON DELETE SET NULL")
                 checkpoint("  ✅ call_log.project_id added")
                 migrations_applied.append('add_call_log_project_id')
                 checkpoint("✅ Migration 54b completed - project tracking in calls")
             except Exception as e:
                 log.error(f"❌ Migration 54b failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 54c: Add project_id to outbound_call_jobs for bulk operations
@@ -2951,13 +2958,12 @@ def apply_migrations():
             checkpoint("Migration 54c: Adding project_id to outbound_call_jobs")
             try:
                 checkpoint("  → Adding project_id to outbound_call_jobs...")
-                db.session.execute(text("ALTER TABLE outbound_call_jobs ADD COLUMN project_id INTEGER REFERENCES outbound_projects(id) ON DELETE SET NULL"))
+                execute_with_retry(migrate_engine, "ALTER TABLE outbound_call_jobs ADD COLUMN project_id INTEGER REFERENCES outbound_projects(id) ON DELETE SET NULL")
                 checkpoint("  ✅ outbound_call_jobs.project_id added")
                 migrations_applied.append('add_outbound_call_jobs_project_id')
                 checkpoint("✅ Migration 54c completed - project tracking in bulk jobs")
             except Exception as e:
                 log.error(f"❌ Migration 54c failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 55: Add delivered_at column to whatsapp_broadcast_recipients
@@ -2967,16 +2973,15 @@ def apply_migrations():
             checkpoint("Migration 55: Adding delivered_at to whatsapp_broadcast_recipients")
             try:
                 checkpoint("  → Adding delivered_at to whatsapp_broadcast_recipients...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE whatsapp_broadcast_recipients 
                     ADD COLUMN delivered_at TIMESTAMP
-                """))
+                """)
                 checkpoint("  ✅ whatsapp_broadcast_recipients.delivered_at added")
                 migrations_applied.append('add_whatsapp_broadcast_recipients_delivered_at')
                 checkpoint("✅ Migration 55 completed - WhatsApp broadcast delivery tracking column added")
             except Exception as e:
                 log.error(f"❌ Migration 55 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 56: Add stopped_by and stopped_at columns to whatsapp_broadcasts
@@ -2988,27 +2993,26 @@ def apply_migrations():
                 # Add stopped_by column if missing
                 if not check_column_exists('whatsapp_broadcasts', 'stopped_by'):
                     checkpoint("  → Adding stopped_by to whatsapp_broadcasts...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE whatsapp_broadcasts 
                         ADD COLUMN stopped_by INTEGER REFERENCES users(id)
-                    """))
+                    """)
                     checkpoint("  ✅ whatsapp_broadcasts.stopped_by added")
                     migrations_applied.append('add_whatsapp_broadcasts_stopped_by')
                 
                 # Add stopped_at column if missing
                 if not check_column_exists('whatsapp_broadcasts', 'stopped_at'):
                     checkpoint("  → Adding stopped_at to whatsapp_broadcasts...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE whatsapp_broadcasts 
                         ADD COLUMN stopped_at TIMESTAMP
-                    """))
+                    """)
                     checkpoint("  ✅ whatsapp_broadcasts.stopped_at added")
                     migrations_applied.append('add_whatsapp_broadcasts_stopped_at')
                 
                 checkpoint("✅ Migration 56 completed - WhatsApp broadcast stop functionality columns added")
             except Exception as e:
                 log.error(f"❌ Migration 56 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 57: Authentication & Session Management System
@@ -3019,7 +3023,7 @@ def apply_migrations():
         if not check_table_exists('refresh_tokens'):
             checkpoint("  → Creating refresh_tokens table...")
             try:
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE refresh_tokens (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -3032,19 +3036,19 @@ def apply_migrations():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
                 # Add indexes for performance
                 
                 # Add last_activity_at column for per-session idle tracking
                 if not check_column_exists('refresh_tokens', 'last_activity_at'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE refresh_tokens 
                         ADD COLUMN last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    """))
-                    db.session.execute(text("""
+                    """)
+                    execute_with_retry(migrate_engine, """
                         ON refresh_tokens(last_activity_at)
-                    """))
+                    """)
                     checkpoint("  ✅ refresh_tokens.last_activity_at added")
                     migrations_applied.append('add_refresh_tokens_last_activity_at')
                 
@@ -3052,7 +3056,6 @@ def apply_migrations():
                 migrations_applied.append('create_refresh_tokens_table')
             except Exception as e:
                 log.error(f"❌ Migration 57a failed: {e}")
-                db.session.rollback()
                 raise
         
         # 57b: Add password reset fields to users table
@@ -3061,44 +3064,43 @@ def apply_migrations():
             try:
                 # Add reset_token_hash column
                 if not check_column_exists('users', 'reset_token_hash'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE users 
                         ADD COLUMN reset_token_hash VARCHAR(255)
-                    """))
+                    """)
                     checkpoint("  ✅ users.reset_token_hash added")
                     migrations_applied.append('add_users_reset_token_hash')
                 
                 # Add reset_token_expiry column
                 if not check_column_exists('users', 'reset_token_expiry'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE users 
                         ADD COLUMN reset_token_expiry TIMESTAMP
-                    """))
+                    """)
                     checkpoint("  ✅ users.reset_token_expiry added")
                     migrations_applied.append('add_users_reset_token_expiry')
                 
                 # Add reset_token_used column
                 if not check_column_exists('users', 'reset_token_used'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE users 
                         ADD COLUMN reset_token_used BOOLEAN DEFAULT FALSE
-                    """))
+                    """)
                     checkpoint("  ✅ users.reset_token_used added")
                     migrations_applied.append('add_users_reset_token_used')
                 
                 # Add last_activity_at column for idle timeout tracking
                 if not check_column_exists('users', 'last_activity_at'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE users 
                         ADD COLUMN last_activity_at TIMESTAMP
-                    """))
+                    """)
                     checkpoint("  ✅ users.last_activity_at added")
                     migrations_applied.append('add_users_last_activity_at')
                 
                 checkpoint("  ✅ Password reset and activity tracking fields added to users")
             except Exception as e:
                 log.error(f"❌ Migration 57b failed: {e}")
-                db.session.rollback()
                 raise
         
         checkpoint("✅ Migration 57 completed - Authentication system enhanced")
@@ -3112,16 +3114,15 @@ def apply_migrations():
                 # Add push_enabled column with default value TRUE
                 # This represents user's preference for push notifications (opt-out model)
                 # Separate from subscription existence (device capability)
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE users 
                     ADD COLUMN push_enabled BOOLEAN NOT NULL DEFAULT TRUE
-                """))
+                """)
                 
                 migrations_applied.append('add_users_push_enabled')
                 checkpoint("✅ Applied migration 57c: add_users_push_enabled - Push notification user preference")
             except Exception as e:
                 log.error(f"❌ Migration 57c failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 58: Add voice_id to business table for per-business voice selection
@@ -3130,19 +3131,17 @@ def apply_migrations():
         if check_table_exists('business') and not check_column_exists('business', 'voice_id'):
             checkpoint("Migration 58: Adding voice_id column to business table")
             try:
-                from sqlalchemy import text
                 # Add voice_id column with default value 'ash'
                 # NOT NULL DEFAULT ensures all existing rows automatically get 'ash' value
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE business 
                     ADD COLUMN voice_id VARCHAR(32) NOT NULL DEFAULT 'ash'
-                """))
+                """)
                 
                 migrations_applied.append('add_business_voice_id')
                 checkpoint("✅ Applied migration 58: add_business_voice_id - Per-business voice selection")
             except Exception as e:
                 log.error(f"❌ Migration 58 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 60: Email System - Add email_settings, email_messages, and email_templates tables
@@ -3152,8 +3151,7 @@ def apply_migrations():
         # Migration 60a: Create email_settings table (per-business email configuration)
         if not check_table_exists('email_settings'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE email_settings (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL UNIQUE REFERENCES business(id) ON DELETE CASCADE,
@@ -3171,25 +3169,23 @@ def apply_migrations():
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE UNIQUE INDEX idx_email_settings_business_id ON email_settings(business_id)
-                """))
+                """)
                 
                 migrations_applied.append('create_email_settings_table')
                 checkpoint("  ✅ email_settings table created with branding fields (logo, color, greeting, footer)")
             except Exception as e:
                 log.error(f"❌ Migration 60a (email_settings) failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 60b: Create email_templates table (per-business email templates)
         # IMPORTANT: Must be created before email_messages (FK dependency)
         if not check_table_exists('email_templates'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE email_templates (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -3203,25 +3199,23 @@ def apply_migrations():
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 
                 migrations_applied.append('create_email_templates_table')
                 checkpoint("  ✅ email_templates table created with indexes on business_id, is_active")
             except Exception as e:
                 log.error(f"❌ Migration 60b (email_templates) failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 60c: Create email_messages table (complete email log)
         if not check_table_exists('email_messages'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE email_messages (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -3247,24 +3241,23 @@ def apply_migrations():
                         sent_at TIMESTAMP,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 
                 migrations_applied.append('create_email_messages_table')
                 checkpoint("  ✅ email_messages table created with indexes on business_id, lead_id, status, created_at, template_id")
             except Exception as e:
                 log.error(f"❌ Migration 60c (email_messages) failed: {e}")
-                db.session.rollback()
                 raise
         
         checkpoint("✅ Migration 60 completed - Email system tables created")
@@ -3277,12 +3270,13 @@ def apply_migrations():
         
         try:
             # Check if voice_id column exists
-            voice_id_exists = db.session.execute(text("""
+            result = execute_with_retry(migrate_engine, """
                 SELECT column_name 
                 FROM information_schema.columns 
                 WHERE table_name = 'businesses' 
                 AND column_name = 'voice_id'
-            """)).fetchone()
+            """)
+            voice_id_exists = result[0] if result else None
             
             if voice_id_exists:
                 # Valid Realtime voices
@@ -3290,25 +3284,25 @@ def apply_migrations():
                 default_voice = 'cedar'
                 
                 # Find businesses with invalid voices
-                invalid_count_result = db.session.execute(text("""
+                invalid_count_result = execute_with_retry(migrate_engine, """
                     SELECT COUNT(*) 
                     FROM businesses 
                     WHERE voice_id IS NULL 
                        OR voice_id NOT IN :valid_voices
-                """), {"valid_voices": tuple(valid_voices)})
+                """, {"valid_voices": tuple(valid_voices)})
                 
-                invalid_count = invalid_count_result.scalar() or 0
+                invalid_count = invalid_count_result[0][0] if invalid_count_result else 0
                 
                 if invalid_count > 0:
                     checkpoint(f"  Found {invalid_count} businesses with invalid voice_id values")
                     
                     # Update invalid voices to default
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         UPDATE businesses 
                         SET voice_id = :default_voice
                         WHERE voice_id IS NULL 
                            OR voice_id NOT IN :valid_voices
-                    """), {
+                    """, {
                         "default_voice": default_voice,
                         "valid_voices": tuple(valid_voices)
                     })
@@ -3322,7 +3316,6 @@ def apply_migrations():
         
         except Exception as e:
             log.error(f"❌ Migration 61 (cleanup_invalid_voices) failed: {e}")
-            db.session.rollback()
             raise
         
         checkpoint("✅ Migration 61 completed - Invalid voices cleaned up")
@@ -3336,7 +3329,7 @@ def apply_migrations():
             # Check if email_templates table exists
             if check_table_exists('email_templates'):
                 # Get all businesses that don't have templates yet
-                businesses_result = db.session.execute(text("""
+                businesses_result = execute_with_retry(migrate_engine, """
                     SELECT b.id, b.name
                     FROM business b
                     WHERE NOT EXISTS (
@@ -3344,9 +3337,9 @@ def apply_migrations():
                         WHERE et.business_id = b.id
                     )
                     AND b.is_active = TRUE
-                """)).fetchall()
+                """)
                 
-                businesses_count = len(businesses_result)
+                businesses_count = len(businesses_result) if businesses_result else 0
                 
                 if businesses_count > 0:
                     checkpoint(f"  Found {businesses_count} businesses without email templates")
@@ -3465,11 +3458,11 @@ def apply_migrations():
                     for business_id, business_name in businesses_result:
                         try:
                             # Template 1
-                            db.session.execute(text("""
+                            execute_with_retry(migrate_engine, """
                                 INSERT INTO email_templates 
                                 (business_id, name, type, subject_template, html_template, text_template, is_active, created_at, updated_at)
                                 VALUES (:business_id, :name, :type, :subject_template, :html_template, :text_template, TRUE, NOW(), NOW())
-                            """), {
+                            """, {
                                 "business_id": business_id,
                                 "name": "ברירת מחדל - ברכה",
                                 "type": "welcome",
@@ -3479,11 +3472,11 @@ def apply_migrations():
                             })
                             
                             # Template 2
-                            db.session.execute(text("""
+                            execute_with_retry(migrate_engine, """
                                 INSERT INTO email_templates 
                                 (business_id, name, type, subject_template, html_template, text_template, is_active, created_at, updated_at)
                                 VALUES (:business_id, :name, :type, :subject_template, :html_template, :text_template, TRUE, NOW(), NOW())
-                            """), {
+                            """, {
                                 "business_id": business_id,
                                 "name": "תזכורת - קביעת שיחה",
                                 "type": "followup",
@@ -3493,11 +3486,11 @@ def apply_migrations():
                             })
                             
                             # Template 3
-                            db.session.execute(text("""
+                            execute_with_retry(migrate_engine, """
                                 INSERT INTO email_templates 
                                 (business_id, name, type, subject_template, html_template, text_template, is_active, created_at, updated_at)
                                 VALUES (:business_id, :name, :type, :subject_template, :html_template, :text_template, TRUE, NOW(), NOW())
-                            """), {
+                            """, {
                                 "business_id": business_id,
                                 "name": "מעקב - הודעה מהירה",
                                 "type": "quick_followup",
@@ -3538,37 +3531,36 @@ def apply_migrations():
                 # Add theme_id column if missing
                 if not check_column_exists('email_settings', 'theme_id'):
                     checkpoint("  → Adding theme_id to email_settings...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE email_settings 
                         ADD COLUMN theme_id VARCHAR(50) DEFAULT 'classic_blue'
-                    """))
+                    """)
                     checkpoint("  ✅ email_settings.theme_id added")
                     migrations_applied.append('add_email_settings_theme_id')
                 
                 # Add cta_default_text column if missing
                 if not check_column_exists('email_settings', 'cta_default_text'):
                     checkpoint("  → Adding cta_default_text to email_settings...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE email_settings 
                         ADD COLUMN cta_default_text VARCHAR(200)
-                    """))
+                    """)
                     checkpoint("  ✅ email_settings.cta_default_text added")
                     migrations_applied.append('add_email_settings_cta_default_text')
                 
                 # Add cta_default_url column if missing
                 if not check_column_exists('email_settings', 'cta_default_url'):
                     checkpoint("  → Adding cta_default_url to email_settings...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE email_settings 
                         ADD COLUMN cta_default_url VARCHAR(500)
-                    """))
+                    """)
                     checkpoint("  ✅ email_settings.cta_default_url added")
                     migrations_applied.append('add_email_settings_cta_default_url')
                 
                 checkpoint("✅ Migration 63 completed - Theme-based email settings fields added")
             except Exception as e:
                 log.error(f"❌ Migration 63 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ email_settings table does not exist - skipping")
@@ -3584,10 +3576,10 @@ def apply_migrations():
                 # Add company_id column if missing
                 if not check_column_exists('business', 'company_id'):
                     checkpoint("  → Adding company_id to business table...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business 
                         ADD COLUMN company_id VARCHAR(50)
-                    """))
+                    """)
                     checkpoint("  ✅ business.company_id added")
                     migrations_applied.append('add_business_company_id')
                 else:
@@ -3596,7 +3588,6 @@ def apply_migrations():
                 checkpoint("✅ Migration 64 completed - company_id field added to Business")
             except Exception as e:
                 log.error(f"❌ Migration 64 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ business table does not exist - skipping")
@@ -3609,8 +3600,7 @@ def apply_migrations():
         if not check_table_exists('push_subscriptions'):
             checkpoint("Migration 65: Creating push_subscriptions table for Web Push notifications")
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE push_subscriptions (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -3624,24 +3614,23 @@ def apply_migrations():
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 # Unique constraint to prevent duplicate subscriptions
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE UNIQUE INDEX idx_push_subscriptions_user_endpoint ON push_subscriptions(user_id, endpoint)
-                """))
+                """)
                 
                 migrations_applied.append('create_push_subscriptions_table')
                 checkpoint("✅ Applied migration 65: create_push_subscriptions_table - Web Push notifications support")
             except Exception as e:
                 log.error(f"❌ Migration 65 failed: {e}")
-                db.session.rollback()
                 raise
         
         # ═══════════════════════════════════════════════════════════════════════
@@ -3652,30 +3641,28 @@ def apply_migrations():
         if not check_table_exists('reminder_push_log'):
             checkpoint("Migration 66: Creating reminder_push_log table for reminder notification deduplication")
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE reminder_push_log (
                         id SERIAL PRIMARY KEY,
                         reminder_id INTEGER NOT NULL REFERENCES lead_reminders(id) ON DELETE CASCADE,
                         offset_minutes INTEGER NOT NULL,
                         sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 # Unique constraint to prevent duplicate notifications
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE UNIQUE INDEX uq_reminder_push_log ON reminder_push_log(reminder_id, offset_minutes)
-                """))
+                """)
                 
                 migrations_applied.append('create_reminder_push_log_table')
                 checkpoint("✅ Applied migration 66: create_reminder_push_log_table - Reminder push notification deduplication")
             except Exception as e:
                 log.error(f"❌ Migration 66 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 67: Email Text Templates - Quick text snippets for email body content
@@ -3683,8 +3670,7 @@ def apply_migrations():
         checkpoint("Migration 67: Creating email_text_templates table for quick text snippets")
         if not check_table_exists('email_text_templates'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE email_text_templates (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -3697,28 +3683,26 @@ def apply_migrations():
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 
                 migrations_applied.append('create_email_text_templates_table')
                 checkpoint("✅ Applied migration 67: create_email_text_templates_table - Email text snippets for quick content")
             except Exception as e:
                 log.error(f"❌ Migration 67 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 68: WhatsApp Manual Templates - Custom text templates for broadcasts
         checkpoint("Migration 68: Creating whatsapp_manual_templates table for custom broadcast templates")
         if not check_table_exists('whatsapp_manual_templates'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE whatsapp_manual_templates (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -3729,18 +3713,17 @@ def apply_migrations():
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 
                 migrations_applied.append('create_whatsapp_manual_templates_table')
                 checkpoint("✅ Applied migration 68: create_whatsapp_manual_templates_table - WhatsApp custom templates")
             except Exception as e:
                 log.error(f"❌ Migration 68 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 69: ISO 27001 Security Events Table - Audit and incident tracking
@@ -3748,8 +3731,7 @@ def apply_migrations():
         checkpoint("Migration 69: Creating security_events table for ISO 27001 compliance")
         if not check_table_exists('security_events'):
             try:
-                from sqlalchemy import text
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE security_events (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER REFERENCES business(id),
@@ -3774,46 +3756,43 @@ def apply_migrations():
                         resolved_at TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 
                 migrations_applied.append('create_security_events_table')
                 checkpoint("✅ Applied migration 69: create_security_events_table - ISO 27001 security audit compliance")
             except Exception as e:
                 log.error(f"❌ Migration 69 failed: {e}")
-                db.session.rollback()
                 raise
         
         # Migration 70: Rename metadata to event_metadata in security_events (SQLAlchemy reserved name fix)
         checkpoint("Migration 70: Checking if security_events.metadata needs to be renamed to event_metadata")
         if check_table_exists('security_events') and check_column_exists('security_events', 'metadata'):
             try:
-                from sqlalchemy import text
                 checkpoint("Migration 70: Renaming security_events.metadata to event_metadata (SQLAlchemy reserved name)")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE security_events RENAME COLUMN metadata TO event_metadata
-                """))
+                """)
                 migrations_applied.append('rename_security_events_metadata_to_event_metadata')
                 checkpoint("✅ Applied migration 70: rename_security_events_metadata_to_event_metadata")
             except Exception as e:
                 log.error(f"❌ Migration 70 failed: {e}")
-                db.session.rollback()
                 raise
         elif check_table_exists('security_events'):
             checkpoint("Migration 70: Column security_events.metadata does not exist (already event_metadata or new table) - skipping")
@@ -3827,16 +3806,15 @@ def apply_migrations():
         checkpoint("Migration 71: Adding enabled_pages column to business table")
         if check_table_exists('business') and not check_column_exists('business', 'enabled_pages'):
             try:
-                from sqlalchemy import text
                 from server.security.page_registry import DEFAULT_ENABLED_PAGES
                 import json
                 
                 checkpoint("  → Adding enabled_pages column...")
                 # Add column with default empty list
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE business 
                     ADD COLUMN enabled_pages JSON NOT NULL DEFAULT '[]'
-                """))
+                """)
                 checkpoint("  ✅ enabled_pages column added")
                 
                 # Set all existing businesses to have all pages enabled (backward compatibility)
@@ -3845,13 +3823,13 @@ def apply_migrations():
                 
                 # Update only rows that don't have pages set yet (NULL or empty array)
                 # 🔥 FIX: Use JSONB cast and proper comparison to avoid "operator does not exist: json = json" error
-                result = db.session.execute(text("""
+                result = execute_with_retry(migrate_engine, """
                     UPDATE business 
                     SET enabled_pages = :pages
                     WHERE enabled_pages IS NULL 
                        OR CAST(enabled_pages AS TEXT) = '[]'
                        OR json_array_length(CAST(enabled_pages AS json)) = 0
-                """), {"pages": default_pages_json})
+                """, {"pages": default_pages_json})
                 
                 updated_count = result.rowcount
                 checkpoint(f"  ✅ Updated {updated_count} existing businesses with all pages enabled")
@@ -3860,7 +3838,6 @@ def apply_migrations():
                 checkpoint("✅ Applied migration 71: add_business_enabled_pages - Page-level permissions system")
             except Exception as e:
                 log.error(f"❌ Migration 71 failed: {e}")
-                db.session.rollback()
                 raise
         elif check_table_exists('business'):
             checkpoint("Migration 71: enabled_pages column already exists - skipping")
@@ -3876,43 +3853,42 @@ def apply_migrations():
                 # Add note_type column if missing
                 if not check_column_exists('lead_notes', 'note_type'):
                     checkpoint("  → Adding note_type to lead_notes...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE lead_notes 
                         ADD COLUMN note_type VARCHAR(32) DEFAULT 'manual'
-                    """))
-                    db.session.execute(text("""
+                    """)
+                    execute_with_retry(migrate_engine, """
                         ON lead_notes(lead_id, note_type)
-                    """))
+                    """)
                     checkpoint("  ✅ lead_notes.note_type added")
                     migrations_applied.append('add_lead_notes_note_type')
                 
                 # Add call_id column if missing
                 if not check_column_exists('lead_notes', 'call_id'):
                     checkpoint("  → Adding call_id to lead_notes...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE lead_notes 
                         ADD COLUMN call_id INTEGER REFERENCES call_log(id)
-                    """))
-                    db.session.execute(text("""
+                    """)
+                    execute_with_retry(migrate_engine, """
                         ON lead_notes(call_id)
-                    """))
+                    """)
                     checkpoint("  ✅ lead_notes.call_id added")
                     migrations_applied.append('add_lead_notes_call_id')
                 
                 # Add structured_data column if missing
                 if not check_column_exists('lead_notes', 'structured_data'):
                     checkpoint("  → Adding structured_data to lead_notes...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE lead_notes 
                         ADD COLUMN structured_data JSON
-                    """))
+                    """)
                     checkpoint("  ✅ lead_notes.structured_data added")
                     migrations_applied.append('add_lead_notes_structured_data')
                 
                 checkpoint("✅ Migration 72 completed - CRM Context-Aware Support fields added to lead_notes")
             except Exception as e:
                 log.error(f"❌ Migration 72 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ lead_notes table does not exist - skipping")
@@ -3927,10 +3903,10 @@ def apply_migrations():
             try:
                 if not check_column_exists('business_settings', 'enable_customer_service'):
                     checkpoint("  → Adding enable_customer_service to business_settings...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business_settings 
                         ADD COLUMN enable_customer_service BOOLEAN DEFAULT FALSE
-                    """))
+                    """)
                     checkpoint("  ✅ business_settings.enable_customer_service added")
                     migrations_applied.append('add_business_settings_enable_customer_service')
                 else:
@@ -3939,7 +3915,6 @@ def apply_migrations():
                 checkpoint("✅ Migration 73 completed - Customer service toggle added")
             except Exception as e:
                 log.error(f"❌ Migration 73 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ business_settings table does not exist - skipping")
@@ -3955,37 +3930,36 @@ def apply_migrations():
                 # Add button_text column if missing
                 if not check_column_exists('email_text_templates', 'button_text'):
                     checkpoint("  → Adding button_text to email_text_templates...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE email_text_templates 
                         ADD COLUMN button_text VARCHAR(255)
-                    """))
+                    """)
                     checkpoint("  ✅ email_text_templates.button_text added")
                     migrations_applied.append('add_email_text_templates_button_text')
                 
                 # Add button_link column if missing
                 if not check_column_exists('email_text_templates', 'button_link'):
                     checkpoint("  → Adding button_link to email_text_templates...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE email_text_templates 
                         ADD COLUMN button_link VARCHAR(512)
-                    """))
+                    """)
                     checkpoint("  ✅ email_text_templates.button_link added")
                     migrations_applied.append('add_email_text_templates_button_link')
                 
                 # Add footer_text column if missing
                 if not check_column_exists('email_text_templates', 'footer_text'):
                     checkpoint("  → Adding footer_text to email_text_templates...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE email_text_templates 
                         ADD COLUMN footer_text TEXT
-                    """))
+                    """)
                     checkpoint("  ✅ email_text_templates.footer_text added")
                     migrations_applied.append('add_email_text_templates_footer_text')
                 
                 checkpoint("✅ Migration 74 completed - Email text template fields added")
             except Exception as e:
                 log.error(f"❌ Migration 74 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ email_text_templates table does not exist - skipping")
@@ -4000,7 +3974,6 @@ def apply_migrations():
         
         if check_table_exists('lead_notes'):
             try:
-                from sqlalchemy import text
                 
                 # Step 1: Update existing manual notes without attachments to be customer_service_ai
                 # These are the notes that were added in the AI Customer Service tab
@@ -4009,12 +3982,13 @@ def apply_migrations():
                 checkpoint("  → Migrating existing AI customer service notes...")
                 
                 # First, check if attachments column exists and what type it is
-                column_type_query = text("""
+                column_type_query = """
                     SELECT data_type, udt_name
                     FROM information_schema.columns
                     WHERE table_name = 'lead_notes' AND column_name = 'attachments'
-                """)
-                column_info = db.session.execute(column_type_query).fetchone()
+                """
+                result = execute_with_retry(migrate_engine, column_type_query)
+                column_info = result[0] if result else None
                 
                 # Build the query based on column type
                 if column_info:
@@ -4039,13 +4013,14 @@ def apply_migrations():
                     attachments_condition = "TRUE"
                 
                 # Count notes that will be migrated
-                count_query = text(f"""
+                count_query = f"""
                     SELECT COUNT(*) FROM lead_notes
                     WHERE note_type = 'manual'
                       AND {attachments_condition}
                       AND created_by IS NULL
-                """)
-                notes_to_migrate = db.session.execute(count_query).scalar() or 0
+                """
+                result = execute_with_retry(migrate_engine, count_query)
+                notes_to_migrate = result[0][0] if result else 0
                 checkpoint(f"  Found {notes_to_migrate} manual notes without attachments and without user (AI/system notes)")
                 
                 if notes_to_migrate > 0:
@@ -4058,7 +4033,7 @@ def apply_migrations():
                           AND {attachments_condition}
                           AND created_by IS NULL
                     """)
-                    db.session.execute(update_query)
+                    execute_with_retry(migrate_engine, update_query)
                     checkpoint(f"  ✅ Migrated {notes_to_migrate} notes to customer_service_ai type")
                 else:
                     checkpoint("  ✅ No notes to migrate")
@@ -4066,9 +4041,9 @@ def apply_migrations():
                 # Step 2: Add index for faster filtering by note_type
                 if not check_index_exists('idx_lead_notes_type_tenant'):
                     checkpoint("  → Creating index on note_type and tenant_id...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ON lead_notes(tenant_id, note_type, created_at DESC)
-                    """))
+                    """)
                     checkpoint("  ✅ Index created for efficient note filtering")
                 
                 migrations_applied.append('separate_customer_service_ai_notes')
@@ -4086,7 +4061,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 75 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ lead_notes table does not exist - skipping")
@@ -4095,10 +4069,9 @@ def apply_migrations():
         if not check_table_exists('attachments'):
             checkpoint("🔧 Running Migration 76: Create attachments table for unified file management")
             try:
-                from sqlalchemy import text
                 
                 # Create attachments table
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE attachments (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -4116,19 +4089,19 @@ def apply_migrations():
                         deleted_at TIMESTAMP,
                         deleted_by INTEGER REFERENCES users(id) ON DELETE SET NULL
                     )
-                """))
+                """)
                 checkpoint("  ✅ attachments table created")
                 
                 # Add indexes for performance
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON attachments(business_id, created_at DESC) 
                     WHERE is_deleted = FALSE
-                """))
+                """)
                 checkpoint("  ✅ Index created: idx_attachments_business")
                 
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON attachments(uploaded_by, created_at DESC)
-                """))
+                """)
                 checkpoint("  ✅ Index created: idx_attachments_uploader")
                 
                 # Create storage directory structure
@@ -4142,7 +4115,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 76 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ attachments table already exists - skipping")
@@ -4158,56 +4130,56 @@ def apply_migrations():
                     
                     # Add lead_id if missing
                     if not check_column_exists('contract', 'lead_id'):
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ALTER TABLE contract 
                             ADD COLUMN lead_id INTEGER REFERENCES leads(id)
-                        """))
+                        """)
                         checkpoint("    ✅ Added lead_id column")
                     
                     # Add title if missing
                     if not check_column_exists('contract', 'title'):
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ALTER TABLE contract 
                             ADD COLUMN title VARCHAR(255)
-                        """))
+                        """)
                         checkpoint("    ✅ Added title column")
                     
                     # Update status column to use new enum values with CHECK constraint
                     if check_column_exists('contract', 'status'):
                         # Drop old constraint if exists and add new one
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ALTER TABLE contract DROP CONSTRAINT IF EXISTS contract_status_check
-                        """))
-                        db.session.execute(text("""
+                        """)
+                        execute_with_retry(migrate_engine, """
                             ALTER TABLE contract 
                             ADD CONSTRAINT contract_status_check 
                             CHECK (status IN ('draft', 'sent', 'signed', 'cancelled'))
-                        """))
+                        """)
                         checkpoint("    ✅ Updated status CHECK constraint")
                     
                     # Add signer fields if missing
                     for col in ['signer_name', 'signer_phone', 'signer_email']:
                         if not check_column_exists('contract', col):
-                            db.session.execute(text(f"""
+                            execute_with_retry(migrate_engine, f"""
                                 ALTER TABLE contract 
                                 ADD COLUMN {col} VARCHAR(255)
-                            """))
+                            """)
                     checkpoint("    ✅ Added signer fields")
                     
                     # Add created_by if missing
                     if not check_column_exists('contract', 'created_by'):
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ALTER TABLE contract 
                             ADD COLUMN created_by INTEGER REFERENCES users(id)
-                        """))
+                        """)
                     checkpoint("    ✅ Added created_by field")
                     
                     # Add updated_at if missing
                     if not check_column_exists('contract', 'updated_at'):
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ALTER TABLE contract 
                             ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        """))
+                        """)
                     checkpoint("    ✅ Added updated_at field")
                     
                     # Ensure indexes
@@ -4215,7 +4187,7 @@ def apply_migrations():
                 
                 # Create contract_files table - links contracts to attachments
                 checkpoint("  → Creating contract_files table (attachment-based)...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE contract_files (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id),
@@ -4226,13 +4198,13 @@ def apply_migrations():
                         created_by INTEGER REFERENCES users(id),
                         deleted_at TIMESTAMP
                     )
-                """))
+                """)
                 
                 checkpoint("    ✅ contract_files table created (attachment-based)")
                 
                 # Create contract_sign_tokens table - DB-based tokens (NOT JWT)
                 checkpoint("  → Creating contract_sign_tokens table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE contract_sign_tokens (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id),
@@ -4244,13 +4216,13 @@ def apply_migrations():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         created_by INTEGER REFERENCES users(id)
                     )
-                """))
+                """)
                 
                 checkpoint("    ✅ contract_sign_tokens table created (secure DB-based tokens)")
                 
                 # Create contract_sign_events table (Audit Trail)
                 checkpoint("  → Creating contract_sign_events table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE contract_sign_events (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id),
@@ -4263,7 +4235,7 @@ def apply_migrations():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         created_by INTEGER REFERENCES users(id)
                     )
-                """))
+                """)
                 
                 checkpoint("    ✅ contract_sign_events table created")
                 
@@ -4276,7 +4248,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 77 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ contract_files table already exists - skipping")
@@ -4287,10 +4258,10 @@ def apply_migrations():
             
             try:
                 # Rename the column from metadata to event_metadata
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE contract_sign_events 
                     RENAME COLUMN metadata TO event_metadata
-                """))
+                """)
                 
                 migrations_applied.append('rename_contract_sign_events_metadata')
                 checkpoint("✅ Migration 78 completed - Renamed metadata to event_metadata in contract_sign_events")
@@ -4298,7 +4269,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 78 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             if check_table_exists('contract_sign_events'):
@@ -4317,10 +4287,10 @@ def apply_migrations():
             
             try:
                 # Add attachments column as JSON array to store attachment IDs
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE email_messages 
                     ADD COLUMN attachments JSON DEFAULT '[]'
-                """))
+                """)
                 
                 migrations_applied.append('add_email_messages_attachments')
                 checkpoint("✅ Migration 79 completed - Added attachments column to email_messages")
@@ -4328,7 +4298,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 79 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             if check_table_exists('email_messages'):
@@ -4347,13 +4316,14 @@ def apply_migrations():
             
             try:
                 # Check if constraint exists by querying check_constraints
-                result = db.session.execute(text("""
+                result = execute_with_retry(migrate_engine, """
                     SELECT constraint_name, check_clause
                     FROM information_schema.check_constraints 
                     WHERE constraint_name LIKE '%event_type%'
                     AND constraint_schema = 'public'
-                """))
-                constraint_row = result.fetchone()
+                """)
+                result = result[0] if result else None
+
                 
                 if constraint_row:
                     constraint_name = constraint_row[0]
@@ -4364,19 +4334,19 @@ def apply_migrations():
                         checkpoint("  ℹ️ 'file_downloaded' already in event_type constraint - skipping")
                     else:
                         # Drop old constraint and add new one with 'file_downloaded'
-                        db.session.execute(text(f"""
+                        execute_with_retry(migrate_engine, f"""
                             ALTER TABLE contract_sign_events 
                             DROP CONSTRAINT IF EXISTS {constraint_name}
-                        """))
+                        """)
                         
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ALTER TABLE contract_sign_events 
                             ADD CONSTRAINT contract_sign_events_event_type_check 
                             CHECK (event_type IN (
                                 'created', 'file_uploaded', 'sent_for_signature', 
                                 'viewed', 'signed_completed', 'cancelled', 'file_downloaded'
                             ))
-                        """))
+                        """)
                         
                         migrations_applied.append('add_file_downloaded_event_type')
                         checkpoint("✅ Migration 80 completed - Added 'file_downloaded' to allowed event types")
@@ -4386,7 +4356,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 80 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
@@ -4400,7 +4369,7 @@ def apply_migrations():
         if not check_table_exists('asset_items'):
             try:
                 checkpoint("  → Creating asset_items table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE asset_items (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -4415,18 +4384,17 @@ def apply_migrations():
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 
                 checkpoint("  ✅ asset_items table created")
                 migrations_applied.append('create_asset_items_table')
             except Exception as e:
                 log.error(f"❌ Migration 81 (asset_items) failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ asset_items table already exists - skipping")
@@ -4434,7 +4402,7 @@ def apply_migrations():
         if not check_table_exists('asset_item_media'):
             try:
                 checkpoint("  → Creating asset_item_media table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE asset_item_media (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -4444,20 +4412,19 @@ def apply_migrations():
                         sort_order INTEGER DEFAULT 0,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
-                db.session.execute(text("""
-                """))
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 
                 checkpoint("  ✅ asset_item_media table created")
                 migrations_applied.append('create_asset_item_media_table')
             except Exception as e:
                 log.error(f"❌ Migration 81 (asset_item_media) failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ asset_item_media table already exists - skipping")
@@ -4470,12 +4437,12 @@ def apply_migrations():
                 
                 # Add 'assets' to enabled_pages for businesses that don't have it yet
                 # Using JSONB || operator for performance
-                result = db.session.execute(text("""
+                result = execute_with_retry(migrate_engine, """
                     UPDATE business
                     SET enabled_pages = enabled_pages::jsonb || '["assets"]'::jsonb
                     WHERE enabled_pages IS NOT NULL
                       AND NOT (enabled_pages::jsonb ? 'assets')
-                """))
+                """)
                 updated_count = result.rowcount
                 
                 if updated_count > 0:
@@ -4484,13 +4451,13 @@ def apply_migrations():
                     checkpoint("  ℹ️ All businesses already have 'assets' page enabled")
                 
                 # For businesses with NULL or empty enabled_pages, set default pages including assets
-                result2 = db.session.execute(text("""
+                result2 = execute_with_retry(migrate_engine, """
                     UPDATE business
                     SET enabled_pages = '["dashboard","crm_leads","crm_customers","calls_inbound","calls_outbound","whatsapp_inbox","whatsapp_broadcast","emails","calendar","statistics","invoices","contracts","assets","settings","users"]'::jsonb
                     WHERE enabled_pages IS NULL
                        OR enabled_pages::text = '[]'
                        OR jsonb_array_length(enabled_pages::jsonb) = 0
-                """))
+                """)
                 updated_count2 = result2.rowcount
                 
                 if updated_count2 > 0:
@@ -4512,7 +4479,7 @@ def apply_migrations():
         if not check_table_exists('gmail_connections'):
             try:
                 checkpoint("  → Creating gmail_connections table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE gmail_connections (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -4528,14 +4495,13 @@ def apply_migrations():
                         CONSTRAINT uq_gmail_connection_business UNIQUE (business_id),
                         CONSTRAINT chk_gmail_connection_status CHECK (status IN ('connected', 'disconnected', 'error'))
                     )
-                """))
-                db.session.execute(text("""
-                """))
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 checkpoint("  ✅ gmail_connections table created")
                 migrations_applied.append('create_gmail_connections_table')
             except Exception as e:
                 log.error(f"❌ Migration 82 (gmail_connections) failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ gmail_connections table already exists - skipping")
@@ -4544,7 +4510,7 @@ def apply_migrations():
         if not check_table_exists('receipts'):
             try:
                 checkpoint("  → Creating receipts table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE receipts (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -4572,20 +4538,19 @@ def apply_migrations():
                         CONSTRAINT chk_receipt_status CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt')),
                         CONSTRAINT chk_receipt_source CHECK (source IN ('gmail', 'manual', 'upload'))
                     )
-                """))
+                """)
                 # Use partial unique index to allow NULL gmail_message_id (for manual uploads)
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE UNIQUE INDEX uq_receipt_business_gmail_message 
                     ON receipts(business_id, gmail_message_id) 
                     WHERE gmail_message_id IS NOT NULL
-                """))
-                db.session.execute(text("""
-                """))
+                """)
+                execute_with_retry(migrate_engine, """
+                """)
                 checkpoint("  ✅ receipts table created")
                 migrations_applied.append('create_receipts_table')
             except Exception as e:
                 log.error(f"❌ Migration 82 (receipts) failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ receipts table already exists - skipping")
@@ -4601,16 +4566,15 @@ def apply_migrations():
         if check_table_exists('business_settings') and not check_column_exists('business_settings', 'assets_use_ai'):
             try:
                 checkpoint("  → Adding assets_use_ai column...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE business_settings
                     ADD COLUMN assets_use_ai BOOLEAN NOT NULL DEFAULT TRUE
-                """))
+                """)
                 checkpoint("  ✅ assets_use_ai column added (default: TRUE)")
                 migrations_applied.append('add_assets_use_ai_column')
                 checkpoint("✅ Applied migration 83: add_assets_use_ai_column - AI tools toggle for assets")
             except Exception as e:
                 log.error(f"❌ Migration 83 (assets_use_ai) failed: {e}")
-                db.session.rollback()
                 raise
         else:
             if not check_table_exists('business_settings'):
@@ -4633,25 +4597,21 @@ def apply_migrations():
         if check_table_exists('attachments'):
             if not check_column_exists('attachments', 'purpose'):
                 checkpoint("Migration 84a: Adding purpose to attachments")
-                from sqlalchemy import text
                 try:
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE attachments 
                         ADD COLUMN purpose VARCHAR(50) NOT NULL DEFAULT 'general_upload'
-                    """))
-                    db.session.commit()  # Commit immediately to persist the column
+                    """)
                     
                     # Add index for efficient filtering
                     if not check_index_exists('idx_attachments_purpose'):
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ON attachments(business_id, purpose, created_at)
-                        """))
-                        db.session.commit()  # Commit index creation
+                        """)
                     
                     migrations_applied.append("add_purpose_to_attachments")
                     checkpoint("✅ Migration 84a complete: purpose added with index")
                 except Exception as e:
-                    db.session.rollback()
                     checkpoint(f"⚠️ Migration 84a failed: {e}")
                     log.error(f"Migration 84a error details: {e}", exc_info=True)
             else:
@@ -4661,25 +4621,21 @@ def apply_migrations():
         if check_table_exists('attachments'):
             if not check_column_exists('attachments', 'origin_module'):
                 checkpoint("Migration 84b: Adding origin_module to attachments")
-                from sqlalchemy import text
                 try:
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE attachments 
                         ADD COLUMN origin_module VARCHAR(50)
-                    """))
-                    db.session.commit()  # Commit immediately to persist the column
+                    """)
                     
                     # Add index for efficient filtering
                     if not check_index_exists('idx_attachments_origin'):
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ON attachments(business_id, origin_module)
-                        """))
-                        db.session.commit()  # Commit index creation
+                        """)
                     
                     migrations_applied.append("add_origin_module_to_attachments")
                     checkpoint("✅ Migration 84b complete: origin_module added with index")
                 except Exception as e:
-                    db.session.rollback()
                     checkpoint(f"⚠️ Migration 84b failed: {e}")
                     log.error(f"Migration 84b error details: {e}", exc_info=True)
             else:
@@ -4688,58 +4644,57 @@ def apply_migrations():
         # 84c: Add email content fields to receipts
         if check_table_exists('receipts'):
             checkpoint("Migration 84c: Adding email content fields to receipts")
-            from sqlalchemy import text
             try:
                 fields_added = []
                 
                 # Add email_subject
                 if not check_column_exists('receipts', 'email_subject'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN email_subject VARCHAR(500)
-                    """))
+                    """)
                     # Copy from existing subject field if available
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         UPDATE receipts 
                         SET email_subject = subject 
                         WHERE subject IS NOT NULL
-                    """))
+                    """)
                     fields_added.append('email_subject')
                 
                 # Add email_from
                 if not check_column_exists('receipts', 'email_from'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN email_from VARCHAR(255)
-                    """))
+                    """)
                     # Copy from existing from_email field
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         UPDATE receipts 
                         SET email_from = from_email 
                         WHERE from_email IS NOT NULL
-                    """))
+                    """)
                     fields_added.append('email_from')
                 
                 # Add email_date
                 if not check_column_exists('receipts', 'email_date'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN email_date TIMESTAMP
-                    """))
+                    """)
                     # Copy from existing received_at field
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         UPDATE receipts 
                         SET email_date = received_at 
                         WHERE received_at IS NOT NULL
-                    """))
+                    """)
                     fields_added.append('email_date')
                 
                 # Add email_html_snippet
                 if not check_column_exists('receipts', 'email_html_snippet'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN email_html_snippet TEXT
-                    """))
+                    """)
                     fields_added.append('email_html_snippet')
                 
                 if fields_added:
@@ -4748,37 +4703,33 @@ def apply_migrations():
                 else:
                     checkpoint("Migration 84c: All email fields already exist")
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"⚠️ Migration 84c failed: {e}")
         
         # 84d: Add preview_attachment_id to receipts
         if check_table_exists('receipts') and not check_column_exists('receipts', 'preview_attachment_id'):
             checkpoint("Migration 84d: Adding preview_attachment_id to receipts")
-            from sqlalchemy import text
             try:
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE receipts 
                     ADD COLUMN preview_attachment_id INTEGER 
                     REFERENCES attachments(id) ON DELETE SET NULL
-                """))
+                """)
                 
                 if not check_index_exists('idx_receipts_preview_attachment'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ON receipts(preview_attachment_id)
-                    """))
+                    """)
                 
                 migrations_applied.append("add_preview_attachment_id_to_receipts")
                 checkpoint("✅ Migration 84d complete: preview_attachment_id added")
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"⚠️ Migration 84d failed: {e}")
         
         # 84e: Create receipt_sync_runs table
         if not check_table_exists('receipt_sync_runs'):
             checkpoint("Migration 84e: Creating receipt_sync_runs table")
-            from sqlalchemy import text
             try:
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE receipt_sync_runs (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -4798,29 +4749,27 @@ def apply_migrations():
                         created_at TIMESTAMP DEFAULT NOW(),
                         updated_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON receipt_sync_runs(business_id, started_at DESC)
-                """))
+                """)
                 
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON receipt_sync_runs(status, started_at DESC)
-                """))
+                """)
                 
                 migrations_applied.append("create_receipt_sync_runs_table")
                 checkpoint("✅ Migration 84e complete: receipt_sync_runs table created")
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"⚠️ Migration 84e failed: {e}")
         
         # 84f: Backfill existing attachments with purpose and origin
         if check_table_exists('attachments') and check_column_exists('attachments', 'purpose'):
             checkpoint("Migration 84f: Backfilling attachments with purpose/origin")
-            from sqlalchemy import text
             try:
                 # Mark receipt attachments
-                result = db.session.execute(text("""
+                result = execute_with_retry(migrate_engine, """
                     UPDATE attachments a
                     SET 
                         purpose = 'receipt_source',
@@ -4829,13 +4778,13 @@ def apply_migrations():
                         SELECT 1 FROM receipts r 
                         WHERE r.attachment_id = a.id
                     ) AND a.purpose = 'general_upload'
-                """))
+                """)
                 receipt_count = result.rowcount
                 
                 # Mark contract attachments (if contract_files table exists)
                 contract_count = 0
                 if check_table_exists('contract_files'):
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE attachments a
                         SET 
                             purpose = CASE 
@@ -4846,20 +4795,19 @@ def apply_migrations():
                         FROM contract_files cf
                         WHERE cf.attachment_id = a.id
                         AND a.purpose = 'general_upload'
-                    """))
+                    """)
                     contract_count = result.rowcount
                 
                 # Set origin_module for remaining general uploads
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     UPDATE attachments
                     SET origin_module = 'uploads'
                     WHERE purpose = 'general_upload' AND origin_module IS NULL
-                """))
+                """)
                 
                 migrations_applied.append("backfill_attachment_purpose_origin")
                 checkpoint(f"✅ Migration 84f complete: Backfilled {receipt_count} receipts, {contract_count} contracts")
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"⚠️ Migration 84f failed: {e}")
         
         checkpoint("✅ Migration 84: Gmail Receipts Enhanced - Complete!")
@@ -4874,31 +4822,30 @@ def apply_migrations():
         checkpoint("Migration 85: Adding missing columns to receipt_sync_runs table")
         
         if check_table_exists('receipt_sync_runs'):
-            from sqlalchemy import text
             try:
                 fields_added = []
                 
                 # Add cancelled_at column if missing (for cancellation tracking)
                 if not check_column_exists('receipt_sync_runs', 'cancelled_at'):
                     checkpoint("  → Adding cancelled_at to receipt_sync_runs...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN cancelled_at TIMESTAMP NULL
-                    """))
+                    """)
                     fields_added.append('cancelled_at')
                     checkpoint("  ✅ cancelled_at added")
                 
                 # Add current_month column if missing (for monthly backfill tracking)
                 if not check_column_exists('receipt_sync_runs', 'current_month'):
                     checkpoint("  → Adding current_month to receipt_sync_runs...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN current_month VARCHAR(10) NULL
-                    """))
+                    """)
                     if not check_index_exists('idx_receipt_sync_runs_current_month'):
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ON receipt_sync_runs(current_month)
-                        """))
+                        """)
                     fields_added.append('current_month')
                     checkpoint("  ✅ current_month added with index")
                 
@@ -4911,7 +4858,6 @@ def apply_migrations():
                     checkpoint("✅ Migration 85: All columns already exist - skipping")
                     
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"❌ Migration 85 failed: {e}")
                 logger.error(f"Migration 85 error details: {e}", exc_info=True)
         else:
@@ -4927,35 +4873,34 @@ def apply_migrations():
         checkpoint("Migration 86: Adding heartbeat to receipt_sync_runs (stale run detection)")
         
         if check_table_exists('receipt_sync_runs'):
-            from sqlalchemy import text
             try:
                 fields_added = []
                 
                 # Add last_heartbeat_at column if missing
                 if not check_column_exists('receipt_sync_runs', 'last_heartbeat_at'):
                     checkpoint("  → Adding last_heartbeat_at to receipt_sync_runs...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP NULL
-                    """))
+                    """)
                     
                     # Create partial index for efficient stale run detection
                     # Only index running syncs since we only check those for staleness
                     if not check_index_exists('idx_receipt_sync_runs_heartbeat'):
                         checkpoint("  → Creating partial index on last_heartbeat_at for running syncs...")
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ON receipt_sync_runs (last_heartbeat_at) 
                             WHERE status = 'running'
-                        """))
+                        """)
                         checkpoint("  ✅ Partial index created for efficient stale detection")
                     
                     # Initialize heartbeat for existing running syncs to prevent false positives
                     checkpoint("  → Initializing heartbeat for existing running syncs...")
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE receipt_sync_runs 
                         SET last_heartbeat_at = COALESCE(updated_at, started_at)
                         WHERE status = 'running' AND last_heartbeat_at IS NULL
-                    """))
+                    """)
                     updated_count = result.rowcount if hasattr(result, 'rowcount') else 0
                     if updated_count > 0:
                         checkpoint(f"  ✅ Initialized heartbeat for {updated_count} existing running sync(s)")
@@ -4966,9 +4911,9 @@ def apply_migrations():
                 # Also add business_id + status composite index if not exists (for stale detection query)
                 if not check_index_exists('idx_receipt_sync_runs_business_status'):
                     checkpoint("  → Creating composite index on (business_id, status)...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ON receipt_sync_runs (business_id, status)
-                    """))
+                    """)
                     fields_added.append('business_status_index')
                     checkpoint("  ✅ Composite index created for efficient sync run lookup")
                 
@@ -4982,7 +4927,6 @@ def apply_migrations():
                     checkpoint("✅ Migration 86: Heartbeat already exists - skipping")
                     
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"❌ Migration 86 failed: {e}")
                 logger.error(f"Migration 86 error details: {e}", exc_info=True)
         else:
@@ -5009,7 +4953,7 @@ def apply_migrations():
                         )
                         AND provider_message_id IS NOT NULL
                     """)
-                    result = db.session.execute(duplicates_query)
+                    result = execute_with_retry(migrate_engine, duplicates_query)
                     rows_deleted = result.rowcount
                     
                     if rows_deleted > 0:
@@ -5020,11 +4964,11 @@ def apply_migrations():
                     # Add unique constraint (partial index - only for non-NULL values)
                     # CRITICAL: (business_id, provider_message_id) not just provider_message_id
                     checkpoint("  → Creating unique index on (business_id, provider_message_id)...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         CREATE UNIQUE INDEX idx_whatsapp_message_provider_id_unique
                         ON whatsapp_message(business_id, provider_message_id)
                         WHERE provider_message_id IS NOT NULL
-                    """))
+                    """)
                     
                     migrations_applied.append("migration_87_whatsapp_unique_constraint")
                     checkpoint("✅ Migration 87 complete: unique constraint added")
@@ -5035,7 +4979,6 @@ def apply_migrations():
                     checkpoint("✅ Migration 87: Unique constraint already exists - skipping")
                     
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"❌ Migration 87 failed: {e}")
                 logger.error(f"Migration 87 error details: {e}", exc_info=True)
         else:
@@ -5046,9 +4989,8 @@ def apply_migrations():
         if not check_table_exists('contract_signature_fields'):
             checkpoint("🔧 Running Migration 88: Create contract_signature_fields table")
             try:
-                from sqlalchemy import text
                 
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE contract_signature_fields (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -5068,20 +5010,19 @@ def apply_migrations():
                         ),
                         CONSTRAINT check_page CHECK (page > 0)
                     )
-                """))
+                """)
                 
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON contract_signature_fields(contract_id)
-                """))
+                """)
                 
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON contract_signature_fields(business_id)
-                """))
+                """)
                 
                 migrations_applied.append("create_contract_signature_fields_table")
                 checkpoint("✅ Migration 88: Created contract_signature_fields table with indexes")
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"❌ Migration 88 failed: {e}")
                 logger.error(f"Migration 88 error details: {e}", exc_info=True)
         else:
@@ -5298,7 +5239,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 90 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
@@ -5327,17 +5267,17 @@ def apply_migrations():
                 # Add preview_status field
                 if not check_column_exists('receipts', 'preview_status'):
                     checkpoint("  → Adding preview_status column")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN preview_status VARCHAR(20) DEFAULT 'pending'
-                    """))
+                    """)
                     
                     # Add CHECK constraint for valid values
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD CONSTRAINT chk_receipt_preview_status 
                         CHECK (preview_status IN ('pending', 'generated', 'failed', 'not_available', 'skipped'))
-                    """))
+                    """)
                     
                     fields_to_add.append('preview_status')
                     checkpoint("    ✅ preview_status added with constraint")
@@ -5345,10 +5285,10 @@ def apply_migrations():
                 # Add preview_failure_reason field
                 if not check_column_exists('receipts', 'preview_failure_reason'):
                     checkpoint("  → Adding preview_failure_reason column")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN preview_failure_reason TEXT
-                    """))
+                    """)
                     
                     fields_to_add.append('preview_failure_reason')
                     checkpoint("    ✅ preview_failure_reason added")
@@ -5358,22 +5298,22 @@ def apply_migrations():
                     checkpoint("  → Backfilling existing receipts with status")
                     
                     # Set 'generated' for receipts that have preview_attachment_id
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE receipts 
                         SET preview_status = 'generated' 
                         WHERE preview_attachment_id IS NOT NULL 
                         AND preview_status = 'pending'
-                    """))
+                    """)
                     generated_count = result.rowcount if hasattr(result, 'rowcount') else 0
                     
                     # Set 'not_available' for old receipts without preview (won't retry automatically)
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE receipts 
                         SET preview_status = 'not_available' 
                         WHERE preview_attachment_id IS NULL 
                         AND preview_status = 'pending'
                         AND created_at < NOW() - INTERVAL '7 days'
-                    """))
+                    """)
                     old_count = result.rowcount if hasattr(result, 'rowcount') else 0
                     
                     checkpoint(f"    ✅ Backfilled: {generated_count} generated, {old_count} not_available")
@@ -5387,7 +5327,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 91 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ receipts table does not exist - skipping")
@@ -5415,27 +5354,27 @@ def apply_migrations():
                 # Add needs_review field
                 if not check_column_exists('receipts', 'needs_review'):
                     checkpoint("  → Adding needs_review column")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN needs_review BOOLEAN DEFAULT FALSE
-                    """))
+                    """)
                     fields_to_add.append('needs_review')
                     checkpoint("    ✅ needs_review added")
                 
                 # Add receipt_type field
                 if not check_column_exists('receipts', 'receipt_type'):
                     checkpoint("  → Adding receipt_type column")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN receipt_type VARCHAR(32)
-                    """))
+                    """)
                     
                     # Add CHECK constraint for valid values
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD CONSTRAINT chk_receipt_type 
                         CHECK (receipt_type IS NULL OR receipt_type IN ('confirmation', 'receipt', 'invoice', 'statement', 'other'))
-                    """))
+                    """)
                     
                     fields_to_add.append('receipt_type')
                     checkpoint("    ✅ receipt_type added with constraint")
@@ -5445,21 +5384,21 @@ def apply_migrations():
                     checkpoint("  → Backfilling existing receipts")
                     
                     # Set needs_review for low-confidence receipts (confidence < 15)
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE receipts 
                         SET needs_review = TRUE 
                         WHERE confidence < 15 
                         AND needs_review = FALSE
-                    """))
+                    """)
                     low_conf_count = result.rowcount if hasattr(result, 'rowcount') else 0
                     
                     # Set needs_review for receipts without amount
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE receipts 
                         SET needs_review = TRUE 
                         WHERE amount IS NULL 
                         AND needs_review = FALSE
-                    """))
+                    """)
                     no_amount_count = result.rowcount if hasattr(result, 'rowcount') else 0
                     
                     checkpoint(f"    ✅ Backfilled: {low_conf_count} low-confidence, {no_amount_count} no-amount")
@@ -5473,7 +5412,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 92 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ receipts table does not exist - skipping")
@@ -5496,10 +5434,10 @@ def apply_migrations():
             try:
                 if not check_column_exists('leads', 'phone_raw'):
                     checkpoint("  → Adding phone_raw column (VARCHAR(64), nullable)")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE leads 
                         ADD COLUMN phone_raw VARCHAR(64) NULL
-                    """))
+                    """)
                     
                     migrations_applied.append('add_leads_phone_raw_column')
                     checkpoint("✅ Migration 93 completed - phone_raw column added to leads")
@@ -5510,7 +5448,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 93 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ leads table does not exist - skipping")
@@ -5534,10 +5471,10 @@ def apply_migrations():
                 # Add whatsapp_jid column
                 if not check_column_exists('leads', 'whatsapp_jid'):
                     checkpoint("  → Adding whatsapp_jid column (VARCHAR(128), nullable)")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE leads 
                         ADD COLUMN whatsapp_jid VARCHAR(128) NULL
-                    """))
+                    """)
                     migrations_applied.append('add_leads_whatsapp_jid_column')
                 else:
                     checkpoint("  ℹ️ whatsapp_jid column already exists - skipping")
@@ -5545,10 +5482,10 @@ def apply_migrations():
                 # Add whatsapp_jid_alt column
                 if not check_column_exists('leads', 'whatsapp_jid_alt'):
                     checkpoint("  → Adding whatsapp_jid_alt column (VARCHAR(128), nullable)")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE leads 
                         ADD COLUMN whatsapp_jid_alt VARCHAR(128) NULL
-                    """))
+                    """)
                     migrations_applied.append('add_leads_whatsapp_jid_alt_column')
                 else:
                     checkpoint("  ℹ️ whatsapp_jid_alt column already exists - skipping")
@@ -5556,10 +5493,10 @@ def apply_migrations():
                 # Add reply_jid column (CRITICAL for Android/LID)
                 if not check_column_exists('leads', 'reply_jid'):
                     checkpoint("  → Adding reply_jid column (VARCHAR(128), nullable)")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE leads 
                         ADD COLUMN reply_jid VARCHAR(128) NULL
-                    """))
+                    """)
                     migrations_applied.append('add_leads_reply_jid_column')
                 else:
                     checkpoint("  ℹ️ reply_jid column already exists - skipping")
@@ -5567,10 +5504,10 @@ def apply_migrations():
                 # Add reply_jid_type column
                 if not check_column_exists('leads', 'reply_jid_type'):
                     checkpoint("  → Adding reply_jid_type column (VARCHAR(32), nullable)")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE leads 
                         ADD COLUMN reply_jid_type VARCHAR(32) NULL
-                    """))
+                    """)
                     migrations_applied.append('add_leads_reply_jid_type_column')
                 else:
                     checkpoint("  ℹ️ reply_jid_type column already exists - skipping")
@@ -5578,8 +5515,8 @@ def apply_migrations():
                 # Add index on whatsapp_jid for fast lookups
                 if not check_index_exists('ix_leads_whatsapp_jid'):
                     checkpoint("  → Creating index on whatsapp_jid")
-                    db.session.execute(text("""
-                    """))
+                    execute_with_retry(migrate_engine, """
+                    """)
                     migrations_applied.append('add_index_leads_whatsapp_jid')
                 else:
                     checkpoint("  ℹ️ Index ix_leads_whatsapp_jid already exists - skipping")
@@ -5587,8 +5524,8 @@ def apply_migrations():
                 # Add index on reply_jid for fast lookups
                 if not check_index_exists('ix_leads_reply_jid'):
                     checkpoint("  → Creating index on reply_jid")
-                    db.session.execute(text("""
-                    """))
+                    execute_with_retry(migrate_engine, """
+                    """)
                     migrations_applied.append('add_index_leads_reply_jid')
                 else:
                     checkpoint("  ℹ️ Index ix_leads_reply_jid already exists - skipping")
@@ -5599,7 +5536,6 @@ def apply_migrations():
                 
             except Exception as e:
                 log.error(f"❌ Migration 94 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ leads table does not exist - skipping")
@@ -5798,18 +5734,20 @@ def apply_migrations():
             
             try:
                 # Check if unique index already exists
-                index_exists = db.session.execute(text("""
+                result = execute_with_retry(migrate_engine, """
                     SELECT COUNT(*) 
                     FROM pg_indexes 
                     WHERE indexname = 'uq_receipts_business_gmail_message'
-                """)).scalar() > 0
+                """)
+                index_exists = result[0][0] if result else 0
+                index_exists = index_exists > 0
                 
                 if not index_exists:
                     checkpoint("  → Creating unique index for Gmail message IDs...")
                     
                     # First, check for existing duplicates and clean them up
                     checkpoint("  → Checking for existing duplicates...")
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         SELECT 
                             business_id,
                             gmail_message_id,
@@ -5819,9 +5757,9 @@ def apply_migrations():
                         AND gmail_message_id IS NOT NULL
                         GROUP BY business_id, gmail_message_id
                         HAVING COUNT(*) > 1
-                    """))
+                    """)
                     
-                    duplicates = result.fetchall()
+                    duplicates = result if result else []
                     if duplicates:
                         checkpoint(f"  ⚠️  Found {len(duplicates)} duplicate Gmail message IDs")
                         checkpoint("  → Marking older duplicates as deleted...")
@@ -5829,7 +5767,7 @@ def apply_migrations():
                         for dup in duplicates:
                             business_id, gmail_message_id, count = dup
                             # Keep the newest one, soft-delete the rest
-                            db.session.execute(text("""
+                            execute_with_retry(migrate_engine, """
                                 UPDATE receipts
                                 SET is_deleted = TRUE, deleted_at = NOW()
                                 WHERE business_id = :business_id
@@ -5843,7 +5781,7 @@ def apply_migrations():
                                     ORDER BY created_at DESC
                                     LIMIT 1
                                 )
-                            """), {
+                            """, {
                                 'business_id': business_id,
                                 'gmail_message_id': gmail_message_id
                             })
@@ -5860,11 +5798,11 @@ def apply_migrations():
                     # 1. Multiple NULL gmail_message_ids (for manual/upload receipts)
                     # 2. Multiple deleted receipts with same gmail_message_id
                     # 3. But prevents duplicate active receipts from same Gmail message
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         CREATE UNIQUE INDEX uq_receipts_business_gmail_message 
                         ON receipts(business_id, gmail_message_id)
                         WHERE is_deleted = FALSE AND gmail_message_id IS NOT NULL
-                    """))
+                    """)
                     
                     checkpoint("  ✅ Created unique constraint for receipts")
                     migrations_applied.append('add_receipts_unique_constraint')
@@ -5875,7 +5813,6 @@ def apply_migrations():
                 
             except Exception as e:
                 checkpoint(f"❌ Migration 97 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️  receipts table does not exist - skipping Migration 97")
@@ -5894,10 +5831,10 @@ def apply_migrations():
                 # Add tts_provider column if missing
                 if not check_column_exists('business', 'tts_provider'):
                     checkpoint("  → Adding tts_provider column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business
                         ADD COLUMN tts_provider VARCHAR(32) DEFAULT 'openai'
-                    """))
+                    """)
                     checkpoint("  ✅ tts_provider column added (default: 'openai')")
                     migrations_applied.append('add_business_tts_provider')
                 else:
@@ -5906,10 +5843,10 @@ def apply_migrations():
                 # Add tts_voice_id column if missing
                 if not check_column_exists('business', 'tts_voice_id'):
                     checkpoint("  → Adding tts_voice_id column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business
                         ADD COLUMN tts_voice_id VARCHAR(64) DEFAULT 'alloy'
-                    """))
+                    """)
                     checkpoint("  ✅ tts_voice_id column added (default: 'alloy')")
                     migrations_applied.append('add_business_tts_voice_id')
                 else:
@@ -5918,10 +5855,10 @@ def apply_migrations():
                 # Add tts_language column if missing
                 if not check_column_exists('business', 'tts_language'):
                     checkpoint("  → Adding tts_language column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business
                         ADD COLUMN tts_language VARCHAR(16) DEFAULT 'he-IL'
-                    """))
+                    """)
                     checkpoint("  ✅ tts_language column added (default: 'he-IL')")
                     migrations_applied.append('add_business_tts_language')
                 else:
@@ -5930,10 +5867,10 @@ def apply_migrations():
                 # Add tts_speed column if missing
                 if not check_column_exists('business', 'tts_speed'):
                     checkpoint("  → Adding tts_speed column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business
                         ADD COLUMN tts_speed FLOAT DEFAULT 1.0
-                    """))
+                    """)
                     checkpoint("  ✅ tts_speed column added (default: 1.0)")
                     migrations_applied.append('add_business_tts_speed')
                 else:
@@ -5943,7 +5880,6 @@ def apply_migrations():
                 
             except Exception as e:
                 checkpoint(f"❌ Migration 98 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️  business table does not exist - skipping Migration 98")
@@ -5962,10 +5898,10 @@ def apply_migrations():
                 # Add recording_mode column if missing
                 if not check_column_exists('call_log', 'recording_mode'):
                     checkpoint("  → Adding recording_mode column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE call_log
                         ADD COLUMN recording_mode TEXT DEFAULT 'realtime'
-                    """))
+                    """)
                     checkpoint("  ✅ recording_mode column added (default: 'realtime', nullable)")
                     migrations_applied.append('add_call_log_recording_mode')
                 else:
@@ -5975,7 +5911,6 @@ def apply_migrations():
                 
             except Exception as e:
                 checkpoint(f"❌ Migration 99 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️  call_log table does not exist - skipping Migration 99")
@@ -5995,7 +5930,7 @@ def apply_migrations():
         if not check_table_exists('background_jobs'):
             try:
                 checkpoint("  → Creating background_jobs table...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE background_jobs (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -6015,7 +5950,7 @@ def apply_migrations():
                         CONSTRAINT chk_job_status CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed', 'cancelled')),
                         CONSTRAINT chk_job_type CHECK (job_type IN ('delete_receipts_all'))
                     )
-                """))
+                """)
                 checkpoint("  ✅ background_jobs table created")
                 migrations_applied.append('create_background_jobs_table')
                 
@@ -6023,31 +5958,30 @@ def apply_migrations():
                 checkpoint("  → Creating indexes...")
                 
                 # Index for finding active jobs per business
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON background_jobs(business_id, job_type, status)
-                """))
+                """)
                 checkpoint("  ✅ idx_background_jobs_business_type_status created")
                 
                 # Index for job history queries
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ON background_jobs(created_at DESC)
-                """))
+                """)
                 checkpoint("  ✅ idx_background_jobs_created_at created")
                 
                 # Add unique constraint to prevent duplicate active jobs
                 checkpoint("  → Creating unique constraint...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE UNIQUE INDEX idx_background_jobs_unique_active 
                     ON background_jobs(business_id, job_type) 
                     WHERE status IN ('queued', 'running', 'paused')
-                """))
+                """)
                 checkpoint("  ✅ idx_background_jobs_unique_active created (prevents concurrent jobs)")
                 
                 checkpoint("✅ Migration 100 completed - background_jobs table ready")
                 
             except Exception as e:
                 checkpoint(f"❌ Migration 100 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️  background_jobs table already exists - skipping Migration 100")
@@ -6067,10 +6001,10 @@ def apply_migrations():
                 # Add preview_image_key column
                 if not check_column_exists('receipts', 'preview_image_key'):
                     checkpoint("  → Adding preview_image_key column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN preview_image_key VARCHAR(512)
-                    """))
+                    """)
                     checkpoint("  ✅ preview_image_key column added")
                     migrations_applied.append('add_preview_image_key')
                 else:
@@ -6079,16 +6013,16 @@ def apply_migrations():
                 # Add preview_source column with enum constraint
                 if not check_column_exists('receipts', 'preview_source'):
                     checkpoint("  → Adding preview_source column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN preview_source VARCHAR(32)
-                    """))
+                    """)
                     checkpoint("  → Adding preview_source constraint...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD CONSTRAINT chk_preview_source 
                         CHECK (preview_source IN ('email_html', 'attachment_pdf', 'attachment_image', 'receipt_url', 'html_fallback'))
-                    """))
+                    """)
                     checkpoint("  ✅ preview_source column added with constraint")
                     migrations_applied.append('add_preview_source')
                 else:
@@ -6097,16 +6031,16 @@ def apply_migrations():
                 # Add extraction_status column with enum constraint
                 if not check_column_exists('receipts', 'extraction_status'):
                     checkpoint("  → Adding extraction_status column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN extraction_status VARCHAR(32) DEFAULT 'pending'
-                    """))
+                    """)
                     checkpoint("  → Adding extraction_status constraint...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD CONSTRAINT chk_extraction_status 
                         CHECK (extraction_status IN ('pending', 'processing', 'success', 'needs_review', 'failed'))
-                    """))
+                    """)
                     checkpoint("  ✅ extraction_status column added with constraint")
                     migrations_applied.append('add_extraction_status')
                 else:
@@ -6115,10 +6049,10 @@ def apply_migrations():
                 # Add extraction_error column
                 if not check_column_exists('receipts', 'extraction_error'):
                     checkpoint("  → Adding extraction_error column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE receipts 
                         ADD COLUMN extraction_error TEXT
-                    """))
+                    """)
                     checkpoint("  ✅ extraction_error column added")
                     migrations_applied.append('add_extraction_error')
                 else:
@@ -6127,9 +6061,9 @@ def apply_migrations():
                 # Add index for extraction_status for filtering queries
                 if not check_index_exists('idx_receipts_extraction_status'):
                     checkpoint("  → Creating idx_receipts_extraction_status index...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ON receipts(extraction_status)
-                    """))
+                    """)
                     checkpoint("  ✅ idx_receipts_extraction_status index created")
                 else:
                     checkpoint("  ℹ️  idx_receipts_extraction_status index already exists")
@@ -6138,7 +6072,6 @@ def apply_migrations():
                 
             except Exception as e:
                 checkpoint(f"❌ Migration 101 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️  receipts table does not exist - skipping Migration 101")
@@ -6152,10 +6085,10 @@ def apply_migrations():
                 # Add ai_provider column - main provider selection (openai | gemini)
                 if not check_column_exists('business', 'ai_provider'):
                     checkpoint("  → Adding ai_provider column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business 
                         ADD COLUMN ai_provider VARCHAR(32) DEFAULT 'openai'
-                    """))
+                    """)
                     checkpoint("  ✅ ai_provider column added")
                 else:
                     checkpoint("  ℹ️ ai_provider column already exists")
@@ -6163,10 +6096,10 @@ def apply_migrations():
                 # Add voice_name column - voice within the selected provider
                 if not check_column_exists('business', 'voice_name'):
                     checkpoint("  → Adding voice_name column...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE business 
                         ADD COLUMN voice_name VARCHAR(64) DEFAULT 'alloy'
-                    """))
+                    """)
                     checkpoint("  ✅ voice_name column added")
                 else:
                     checkpoint("  ℹ️ voice_name column already exists")
@@ -6176,15 +6109,15 @@ def apply_migrations():
                 
                 # Step 1: Set ai_provider to 'openai' as default (don't guess from tts_provider)
                 # This is safe - users can change it in UI if they want Gemini
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     UPDATE business 
                     SET ai_provider = 'openai'
                     WHERE ai_provider IS NULL
-                """))
+                """)
                 
                 # Step 2: Set voice_name based on existing tts_voice_id or voice_id
                 # Validate voice matches OpenAI (since we're defaulting to openai provider)
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     UPDATE business 
                     SET voice_name = CASE
                         -- Check if current voice is a valid OpenAI voice
@@ -6195,16 +6128,16 @@ def apply_migrations():
                         ELSE 'alloy'  -- Default OpenAI voice if invalid
                     END
                     WHERE voice_name IS NULL
-                """))
+                """)
                 
                 checkpoint("  ✅ Existing provider settings migrated to openai defaults")
                 
                 # Create simple index on ai_provider for queries
                 checkpoint("  → Creating index on ai_provider...")
                 try:
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ON business(ai_provider)
-                    """))
+                    """)
                     checkpoint("  ✅ Index created")
                 except Exception as idx_err:
                     pass  # Index might already exist, that's okay
@@ -6214,7 +6147,6 @@ def apply_migrations():
                 
             except Exception as e:
                 checkpoint(f"❌ Migration 102 failed: {e}")
-                db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️  business table does not exist - skipping Migration 102")
@@ -6230,35 +6162,34 @@ def apply_migrations():
         checkpoint("Migration 103: Adding heartbeat to background_jobs (stale job detection)")
         
         if check_table_exists('background_jobs'):
-            from sqlalchemy import text
             try:
                 fields_added = []
                 
                 # Add heartbeat_at column if missing
                 if not check_column_exists('background_jobs', 'heartbeat_at'):
                     checkpoint("  → Adding heartbeat_at to background_jobs...")
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE background_jobs 
                         ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP NULL
-                    """))
+                    """)
                     
                     # Create partial index for efficient stale job detection
                     # Only index running jobs since we only check those for staleness
                     if not check_index_exists('idx_background_jobs_heartbeat'):
                         checkpoint("  → Creating partial index on heartbeat_at for running jobs...")
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             ON background_jobs (heartbeat_at) 
                             WHERE status = 'running'
-                        """))
+                        """)
                         checkpoint("  ✅ Partial index created for efficient stale detection")
                     
                     # Initialize heartbeat for existing running jobs to prevent false positives
                     checkpoint("  → Initializing heartbeat for existing running jobs...")
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE background_jobs 
                         SET heartbeat_at = COALESCE(updated_at, started_at, created_at)
                         WHERE status IN ('running', 'queued') AND heartbeat_at IS NULL
-                    """))
+                    """)
                     updated_count = result.rowcount
                     if updated_count > 0:
                         checkpoint(f"  ✅ Initialized heartbeat for {updated_count} existing job(s)")
@@ -6276,7 +6207,6 @@ def apply_migrations():
                     checkpoint("✅ Migration 103: Heartbeat already exists - skipping")
                     
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"❌ Migration 103 failed: {e}")
                 logger.error(f"Migration 103 error details: {e}", exc_info=True)
         else:
@@ -6296,17 +6226,16 @@ def apply_migrations():
         checkpoint("Migration 104: Updating background_jobs job_type constraint")
         
         if check_table_exists('background_jobs'):
-            from sqlalchemy import text
             try:
                 # Drop old constraint and create new one with all job types
                 checkpoint("  → Dropping old chk_job_type constraint...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE background_jobs 
                     DROP CONSTRAINT IF EXISTS chk_job_type
-                """))
+                """)
                 
                 checkpoint("  → Creating updated chk_job_type constraint with all job types...")
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE background_jobs
                     ADD CONSTRAINT chk_job_type
                     CHECK (job_type IN (
@@ -6317,7 +6246,7 @@ def apply_migrations():
                         'enqueue_outbound_calls',
                         'broadcast'
                     ))
-                """))
+                """)
                 
                 migrations_applied.append("update_background_jobs_job_type_constraint")
                 checkpoint("✅ Migration 104 complete: job_type constraint updated")
@@ -6325,7 +6254,6 @@ def apply_migrations():
                 checkpoint("   ✅ Allowed job types: delete_receipts_all, delete_leads, update_leads, delete_imported_leads, enqueue_outbound_calls, broadcast")
                 
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"❌ Migration 104 failed: {e}")
                 logger.error(f"Migration 104 error details: {e}", exc_info=True)
         else:
@@ -6338,17 +6266,15 @@ def apply_migrations():
         if check_table_exists('outbound_call_runs'):
             try:
                 if not check_column_exists('outbound_call_runs', 'cancel_requested'):
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         ALTER TABLE outbound_call_runs 
                         ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT FALSE
-                    """))
-                    db.session.commit()
+                    """)
                     migrations_applied.append('105_outbound_cancel_requested')
                     checkpoint("✅ Migration 105 complete: cancel_requested column added to outbound_call_runs")
                 else:
                     checkpoint("  ℹ️  cancel_requested column already exists - skipping Migration 105")
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"❌ Migration 105 failed: {e}")
                 logger.error(f"Migration 105 error details: {e}", exc_info=True)
         else:
@@ -6360,7 +6286,7 @@ def apply_migrations():
         checkpoint("Migration 106: Creating recording_runs table for RQ worker-based recording processing")
         if not check_table_exists('recording_runs'):
             try:
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     CREATE TABLE recording_runs (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
@@ -6378,13 +6304,11 @@ def apply_migrations():
                         CONSTRAINT chk_recording_run_status CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled'))
                     );
                     
-                """))
-                db.session.commit()
+                """)
                 migrations_applied.append('106_recording_runs_table')
                 checkpoint("✅ Migration 106 complete: recording_runs table created")
                 checkpoint("   🎯 Enables RQ worker-based recording with progress/cancel support")
             except Exception as e:
-                db.session.rollback()
                 checkpoint(f"❌ Migration 106 failed: {e}")
                 logger.error(f"Migration 106 error details: {e}", exc_info=True)
         else:
@@ -6445,16 +6369,16 @@ def apply_migrations():
                 # Update status constraint to include 'cancelled'
                 checkpoint("  → Updating whatsapp_broadcast_recipients status constraint to include 'cancelled'...")
                 # First drop existing constraint if it exists
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE whatsapp_broadcast_recipients 
                     DROP CONSTRAINT IF EXISTS chk_recipient_status
-                """))
+                """)
                 # Add new constraint with 'cancelled'
-                db.session.execute(text("""
+                execute_with_retry(migrate_engine, """
                     ALTER TABLE whatsapp_broadcast_recipients 
                     ADD CONSTRAINT chk_recipient_status 
                     CHECK (status IN ('queued', 'processing', 'sent', 'delivered', 'failed', 'cancelled'))
-                """))
+                """)
                 checkpoint("  ✅ Status constraint updated for whatsapp_broadcast_recipients")
                 migrations_applied.append('107_recipient_cancelled_status')
             except Exception as e:
@@ -6553,18 +6477,16 @@ def apply_migrations():
                     
                     # Mark existing calls with summaries as completed
                     checkpoint("  → Marking existing calls with summaries as 'completed'...")
-                    from sqlalchemy import text
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE call_log 
                         SET summary_status = 'completed'
                         WHERE summary IS NOT NULL 
                           AND summary != ''
                           AND summary_status IS NULL
-                    """))
+                    """)
                     updated_rows = result.rowcount
                     checkpoint(f"  ✅ Marked {updated_rows} existing calls with summaries as 'completed'")
                     
-                    db.session.commit()
                     migrations_applied.append('110_call_log_summary_status')
                 else:
                     checkpoint("  ℹ️ summary_status already exists on call_log")
@@ -6572,7 +6494,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 110 (summary_status) failed: {e}")
                 logger.error(f"Migration 110 summary_status error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ call_log table does not exist - skipping")
         
@@ -6597,7 +6518,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 111 (composite index) failed: {e}")
                 logger.error(f"Migration 111 index error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ call_log table does not exist - skipping")
         
@@ -6616,9 +6536,7 @@ def apply_migrations():
                     # 🔥 CRITICAL: Increase statement timeout for large business table
                     # Default timeout may be too short for large production tables
                     checkpoint("  → Setting statement timeout to 10 minutes for ALTER TABLE...")
-                    from sqlalchemy import text
-                    db.session.execute(text("SET statement_timeout = '600000'"))  # 10 minutes
-                    db.session.commit()
+                    execute_with_retry(migrate_engine, "SET statement_timeout = '600000'")  # 10 minutes
                     
                     # Step 1: Add column as nullable (fast, no table rewrite)
                     checkpoint("  → Step 1/3: Adding column as nullable...")
@@ -6637,12 +6555,11 @@ def apply_migrations():
                     # Step 3: Update existing rows and add NOT NULL constraint
                     checkpoint("  → Step 3/3: Updating existing rows and adding NOT NULL constraint...")
                     # Update any NULL values to the default (should be no NULL values if column was just added)
-                    db.session.execute(text("""
+                    execute_with_retry(migrate_engine, """
                         UPDATE business 
                         SET lead_tabs_config = '{}'::jsonb 
                         WHERE lead_tabs_config IS NULL
-                    """))
-                    db.session.commit()
+                    """)
                     
                     # Now add NOT NULL constraint (requires scan but no rewrite since all values are non-NULL)
                     exec_ddl(db.engine, """
@@ -6652,8 +6569,7 @@ def apply_migrations():
                     
                     # Reset statement timeout to default
                     checkpoint("  → Resetting statement timeout to default...")
-                    db.session.execute(text("SET statement_timeout = DEFAULT"))
-                    db.session.commit()
+                    execute_with_retry(migrate_engine, "SET statement_timeout = DEFAULT")
                     
                     # Add column comment
                     exec_ddl(db.engine, """
@@ -6670,7 +6586,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 112 failed: {e}")
                 logger.error(f"Migration 112 error: {e}", exc_info=True)
-                db.session.rollback()
                 # Do NOT mark as complete on failure
         else:
             checkpoint("  ℹ️ business table does not exist - skipping Migration 112")
@@ -6754,7 +6669,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 113 (tracking fields) failed: {e}")
                 logger.error(f"Migration 113 tracking fields error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ outbound_call_runs table does not exist - skipping tracking fields")
         
@@ -6768,7 +6682,7 @@ def apply_migrations():
                     # First, remove any existing duplicates (keep oldest)
                     # 🔒 SAFETY: Handle NULL values correctly (NULL != NULL in SQL)
                     checkpoint("  → Removing duplicate jobs (keeping oldest)...")
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         DELETE FROM outbound_call_jobs a
                         USING outbound_call_jobs b
                         WHERE a.id > b.id
@@ -6776,11 +6690,10 @@ def apply_migrations():
                           AND a.lead_id = b.lead_id
                           AND a.run_id IS NOT NULL
                           AND a.lead_id IS NOT NULL
-                    """))
+                    """)
                     deleted_count = result.rowcount
                     if deleted_count > 0:
                         checkpoint(f"  ℹ️ Removed {deleted_count} duplicate jobs")
-                    db.session.commit()
                     
                     # Now add the unique constraint
                     exec_ddl(db.engine, """
@@ -6795,7 +6708,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 113 (unique constraint) failed: {e}")
                 logger.error(f"Migration 113 unique constraint error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ outbound_call_jobs table does not exist - skipping unique constraint")
         
@@ -6815,8 +6727,7 @@ def apply_migrations():
                     # Populate from parent run
                     # 🔒 SAFETY: Only update jobs that have a valid parent run with non-NULL business_id
                     checkpoint("  → Populating business_id from parent runs...")
-                    from sqlalchemy import text
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE outbound_call_jobs 
                         SET business_id = subquery.business_id
                         FROM (
@@ -6826,27 +6737,27 @@ def apply_migrations():
                         ) as subquery
                         WHERE outbound_call_jobs.run_id = subquery.run_id
                           AND outbound_call_jobs.business_id IS NULL
-                    """))
+                    """)
                     updated_count = result.rowcount
                     checkpoint(f"  ℹ️ Updated {updated_count} jobs with business_id")
                     
                     # Check for orphaned jobs without business_id
-                    orphaned_check = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         SELECT COUNT(*) FROM outbound_call_jobs 
                         WHERE business_id IS NULL
-                    """)).scalar()
+                    """)
+                    orphaned_check = result[0][0] if result else None
                     
                     if orphaned_check > 0:
                         checkpoint(f"  ⚠️ WARNING: {orphaned_check} orphaned jobs found without valid parent run")
                         checkpoint(f"     These jobs will need manual cleanup or will fail the NOT NULL constraint")
                         # Delete orphaned jobs to allow migration to proceed
-                        db.session.execute(text("""
+                        execute_with_retry(migrate_engine, """
                             DELETE FROM outbound_call_jobs 
                             WHERE business_id IS NULL
-                        """))
+                        """)
                         checkpoint(f"  ℹ️ Deleted {orphaned_check} orphaned jobs")
                     
-                    db.session.commit()
                     
                     # Make it NOT NULL and add FK
                     checkpoint("  → Adding NOT NULL constraint and foreign key...")
@@ -6876,7 +6787,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 113 (business_id) failed: {e}")
                 logger.error(f"Migration 113 business_id error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ outbound_call_jobs table does not exist - skipping business_id")
         
@@ -6903,15 +6813,13 @@ def apply_migrations():
                     
                     # Initialize heartbeat for running runs from lock_ts
                     checkpoint("  → Initializing heartbeat for running runs...")
-                    from sqlalchemy import text
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         UPDATE outbound_call_runs 
                         SET last_heartbeat_at = COALESCE(lock_ts, updated_at, created_at)
                         WHERE status IN ('running', 'pending')
-                    """))
+                    """)
                     updated_count = result.rowcount
                     checkpoint(f"  ℹ️ Initialized {updated_count} running runs with heartbeat")
-                    db.session.commit()
                     
                     migrations_applied.append('114_outbound_heartbeat')
                 else:
@@ -6924,7 +6832,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 114 failed: {e}")
                 logger.error(f"Migration 114 error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ outbound_call_runs table does not exist - skipping migration 114")
         
@@ -7109,22 +7016,22 @@ def apply_migrations():
         # Step 4: Create default calendars for existing businesses
         if check_table_exists('business') and check_table_exists('business_calendars'):
             try:
-                from sqlalchemy import text
                 
                 # Check if we need to create default calendars
-                businesses_without_calendars = db.session.execute(text("""
+                result = execute_with_retry(migrate_engine, """
                     SELECT COUNT(*) FROM business b
                     WHERE NOT EXISTS (
                         SELECT 1 FROM business_calendars bc 
                         WHERE bc.business_id = b.id
                     )
-                """)).scalar() or 0
+                """)
+                businesses_without_calendars = result[0][0] if result else 0
                 
                 if businesses_without_calendars > 0:
                     checkpoint(f"  → Creating default calendars for {businesses_without_calendars} business(es)...")
                     
                     # Create default calendar for businesses that don't have one
-                    result = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         INSERT INTO business_calendars (
                             business_id, 
                             name, 
@@ -7152,10 +7059,9 @@ def apply_migrations():
                             SELECT 1 FROM business_calendars bc 
                             WHERE bc.business_id = b.id
                         )
-                    """))
+                    """)
                     
                     created_count = result.rowcount
-                    db.session.commit()
                     checkpoint(f"  ✅ Created default calendars for {created_count} business(es)")
                     migrations_applied.append('115_default_calendars')
                 else:
@@ -7164,16 +7070,14 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 115 (default calendars) failed: {e}")
                 logger.error(f"Migration 115 default calendars error: {e}", exc_info=True)
-                db.session.rollback()
         
         # Step 5: Link existing appointments to default calendars
         if check_table_exists('appointments') and check_table_exists('business_calendars'):
             if check_column_exists('appointments', 'calendar_id'):
                 try:
-                    from sqlalchemy import text
                     
                     # Check how many appointments need linking
-                    unlinked_appointments = db.session.execute(text("""
+                    result = execute_with_retry(migrate_engine, """
                         SELECT COUNT(*) FROM appointments a
                         WHERE a.calendar_id IS NULL
                         AND EXISTS (
@@ -7181,22 +7085,22 @@ def apply_migrations():
                             WHERE bc.business_id = a.business_id 
                             AND bc.type_key = 'default'
                         )
-                    """)).scalar() or 0
+                    """)
+                    unlinked_appointments = result[0][0] if result else 0
                     
                     if unlinked_appointments > 0:
                         checkpoint(f"  → Linking {unlinked_appointments} appointment(s) to default calendars...")
                         
-                        result = db.session.execute(text("""
+                        result = execute_with_retry(migrate_engine, """
                             UPDATE appointments a
                             SET calendar_id = bc.id
                             FROM business_calendars bc
                             WHERE a.business_id = bc.business_id
                               AND bc.type_key = 'default'
                               AND a.calendar_id IS NULL
-                        """))
+                        """)
                         
                         linked_count = result.rowcount
-                        db.session.commit()
                         checkpoint(f"  ✅ Linked {linked_count} appointment(s) to default calendars")
                         migrations_applied.append('115_link_appointments')
                     else:
@@ -7205,7 +7109,6 @@ def apply_migrations():
                 except Exception as e:
                     checkpoint(f"❌ Migration 115 (link appointments) failed: {e}")
                     logger.error(f"Migration 115 link appointments error: {e}", exc_info=True)
-                    db.session.rollback()
         
         checkpoint("✅ Migration 115 complete: Business calendars and routing rules system added")
         checkpoint("   🎯 Created business_calendars table for multi-calendar management")
@@ -7244,7 +7147,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 116 (scheduled_message_rules table) failed: {e}")
                 logger.error(f"Migration 116 scheduled_message_rules error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ scheduled_message_rules table already exists - verifying critical columns...")
             # Check columns that were added later
@@ -7298,7 +7200,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 116 (scheduled_rule_statuses table) failed: {e}")
                 logger.error(f"Migration 116 scheduled_rule_statuses error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ scheduled_rule_statuses table already exists")
             # This is a simple junction table - if it exists, it's probably correct
@@ -7350,7 +7251,6 @@ def apply_migrations():
             except Exception as e:
                 checkpoint(f"❌ Migration 116 (scheduled_messages_queue table) failed: {e}")
                 logger.error(f"Migration 116 scheduled_messages_queue error: {e}", exc_info=True)
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ scheduled_messages_queue table already exists - verifying critical columns...")
             # Check columns that were added later
@@ -7459,13 +7359,13 @@ def apply_migrations():
                 # Add 'scheduled_messages' to enabled_pages for businesses that have whatsapp_broadcast
                 # but don't have scheduled_messages yet
                 # Using JSONB || operator and ? operator for performance
-                result = db.session.execute(text("""
+                result = execute_with_retry(migrate_engine, """
                     UPDATE business
                     SET enabled_pages = enabled_pages::jsonb || '["scheduled_messages"]'::jsonb
                     WHERE enabled_pages IS NOT NULL
                       AND enabled_pages::jsonb ? 'whatsapp_broadcast'
                       AND NOT (enabled_pages::jsonb ? 'scheduled_messages')
-                """))
+                """)
                 updated_count = result.rowcount
                 
                 if updated_count > 0:
@@ -7479,13 +7379,11 @@ def apply_migrations():
                 log.error(f"❌ Migration 117 failed to enable scheduled_messages page: {e}")
                 checkpoint(f"⚠️ Migration 117 failed (non-critical): {e}")
                 # Don't fail the entire migration if this fails - it's non-critical
-                db.session.rollback()
         else:
             checkpoint("  ℹ️ Skipping Migration 117: business table or enabled_pages column not found")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:
-            db.session.commit()
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
         else:
             checkpoint("No migrations needed - database is up to date")
@@ -7494,11 +7392,11 @@ def apply_migrations():
         # If FAQs or leads are deleted, ROLLBACK and FAIL the migration
         checkpoint("Starting data protection layer 3 - verifying no data loss")
         try:
-            from sqlalchemy import text
             data_loss_detected = False
             
             if check_table_exists('faqs'):
-                faq_count_after = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar() or 0
+                result = execute_with_retry(migrate_engine, "SELECT COUNT(*) FROM faqs")
+                faq_count_after = result[0][0] if result else 0
                 faq_delta = faq_count_after - faq_count_before
                 if faq_delta < 0:
                     checkpoint(f"❌ DATA LOSS DETECTED: {abs(faq_delta)} FAQs were DELETED during migrations!")
@@ -7507,7 +7405,8 @@ def apply_migrations():
                     checkpoint(f"✅ DATA PROTECTION (AFTER): {faq_count_after} FAQs preserved (delta: +{faq_delta})")
             
             if check_table_exists('leads'):
-                lead_count_after = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar() or 0
+                result = execute_with_retry(migrate_engine, "SELECT COUNT(*) FROM leads")
+                lead_count_after = result[0][0] if result else 0
                 lead_delta = lead_count_after - lead_count_before
                 if lead_delta < 0:
                     checkpoint(f"❌ DATA LOSS DETECTED: {abs(lead_delta)} leads were DELETED during migrations!")
@@ -7517,14 +7416,14 @@ def apply_migrations():
             
             # 🛑 ENFORCE DATA PROTECTION: Rollback and fail if FAQs or leads were deleted
             if data_loss_detected:
-                db.session.rollback()
                 error_msg = "❌ MIGRATION FAILED: Data loss detected. Rolling back changes."
                 checkpoint(error_msg)
                 raise Exception("Data protection violation: FAQs or leads were deleted during migration")
             
             # Messages can decrease (deduplication is expected and documented)
             if check_table_exists('messages'):
-                msg_count_after = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
+                result = execute_with_retry(migrate_engine, "SELECT COUNT(*) FROM messages")
+                msg_count_after = result[0][0] if result else 0
                 msg_delta = msg_count_after - msg_count_before
                 if msg_delta < 0:
                     checkpoint(f"⚠️ Messages decreased by {abs(msg_delta)} (deduplication cleanup - expected)")
@@ -7535,7 +7434,6 @@ def apply_migrations():
                 raise  # Re-raise data protection violations
             
             # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
-            db.session.rollback()
             checkpoint(f"Could not verify data counts after migrations: {e}")
         
         # ═══════════════════════════════════════════════════════════════════════
@@ -7632,7 +7530,7 @@ def apply_migrations():
         if lock_acquired:
             try:
                 # Release lock using the same LOCK_ID (1234567890)
-                db.session.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": 1234567890})
+                execute_with_retry(migrate_engine, "SELECT pg_advisory_unlock(:id)", {"id": 1234567890})
                 checkpoint("✅ Released migration lock")
             except Exception as e:
                 checkpoint(f"⚠️ Failed to release migration lock: {e}")
