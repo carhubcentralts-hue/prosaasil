@@ -167,35 +167,35 @@ INDEX_DEFS_LEADS_CRM = [
     {
         "name": "idx_lead_attachments_tenant_lead",
         "table": "lead_attachments",
-        "sql": "CREATE INDEX CONCURRENTLY idx_lead_attachments_tenant_lead ON lead_attachments(tenant_id, lead_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lead_attachments_tenant_lead ON lead_attachments(tenant_id, lead_id)",
         "critical": False,
         "description": "Index on lead_attachments for lead attachments tenant lead"
     },
     {
         "name": "idx_lead_attachments_lead_id",
         "table": "lead_attachments",
-        "sql": "CREATE INDEX CONCURRENTLY idx_lead_attachments_lead_id ON lead_attachments(lead_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lead_attachments_lead_id ON lead_attachments(lead_id)",
         "critical": False,
         "description": "Index on lead_attachments for lead attachments lead id"
     },
     {
         "name": "idx_lead_attachments_note_id",
         "table": "lead_attachments",
-        "sql": "CREATE INDEX CONCURRENTLY idx_lead_attachments_note_id ON lead_attachments(note_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lead_attachments_note_id ON lead_attachments(note_id)",
         "critical": False,
         "description": "Index on lead_attachments for lead attachments note id"
     },
     {
         "name": "idx_lead_attachments_created_at",
         "table": "lead_attachments",
-        "sql": "CREATE INDEX CONCURRENTLY idx_lead_attachments_created_at ON lead_attachments(created_at)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lead_attachments_created_at ON lead_attachments(created_at)",
         "critical": False,
         "description": "Index on lead_attachments for lead attachments created at"
     },
     {
         "name": "idx_leads_detected_topic",
         "table": "leads",
-        "sql": "CREATE INDEX CONCURRENTLY idx_leads_detected_topic ON leads(detected_topic_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_detected_topic ON leads(detected_topic_id)",
         "critical": False,
         "description": "Index on leads for leads detected topic"
     },
@@ -259,84 +259,84 @@ INDEX_DEFS_CALLS = [
     {
         "name": "idx_outbound_call_runs_business_id",
         "table": "outbound_call_runs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_runs_business_id ON outbound_call_runs(business_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_runs_business_id ON outbound_call_runs(business_id)",
         "critical": False,
         "description": "Index on outbound_call_runs for outbound call runs business id"
     },
     {
         "name": "idx_outbound_call_runs_status",
         "table": "outbound_call_runs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_runs_status ON outbound_call_runs(status)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_runs_status ON outbound_call_runs(status)",
         "critical": False,
         "description": "Index on outbound_call_runs for outbound call runs status"
     },
     {
         "name": "idx_outbound_call_runs_created_at",
         "table": "outbound_call_runs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_runs_created_at ON outbound_call_runs(created_at)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_runs_created_at ON outbound_call_runs(created_at)",
         "critical": False,
         "description": "Index on outbound_call_runs for outbound call runs created at"
     },
     {
         "name": "idx_outbound_call_jobs_run_id",
         "table": "outbound_call_jobs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_jobs_run_id ON outbound_call_jobs(run_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_jobs_run_id ON outbound_call_jobs(run_id)",
         "critical": False,
         "description": "Index on outbound_call_jobs for outbound call jobs run id"
     },
     {
         "name": "idx_outbound_call_jobs_lead_id",
         "table": "outbound_call_jobs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_jobs_lead_id ON outbound_call_jobs(lead_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_jobs_lead_id ON outbound_call_jobs(lead_id)",
         "critical": False,
         "description": "Index on outbound_call_jobs for outbound call jobs lead id"
     },
     {
         "name": "idx_outbound_call_jobs_status",
         "table": "outbound_call_jobs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_jobs_status ON outbound_call_jobs(status)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_jobs_status ON outbound_call_jobs(status)",
         "critical": False,
         "description": "Index on outbound_call_jobs for outbound call jobs status"
     },
     {
         "name": "idx_outbound_call_jobs_call_sid",
         "table": "outbound_call_jobs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_jobs_call_sid ON outbound_call_jobs(call_sid)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_jobs_call_sid ON outbound_call_jobs(call_sid)",
         "critical": False,
         "description": "Index on outbound_call_jobs for outbound call jobs call sid"
     },
     {
         "name": "idx_call_log_parent_call_sid",
         "table": "call_log",
-        "sql": "CREATE INDEX CONCURRENTLY idx_call_log_parent_call_sid ON call_log(parent_call_sid)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_log_parent_call_sid ON call_log(parent_call_sid)",
         "critical": False,
         "description": "Index on call_log for call log parent call sid"
     },
     {
         "name": "idx_call_log_twilio_direction",
         "table": "call_log",
-        "sql": "CREATE INDEX CONCURRENTLY idx_call_log_twilio_direction ON call_log(twilio_direction)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_log_twilio_direction ON call_log(twilio_direction)",
         "critical": False,
         "description": "Index on call_log for call log twilio direction"
     },
     {
         "name": "idx_call_log_detected_topic",
         "table": "call_log",
-        "sql": "CREATE INDEX CONCURRENTLY idx_call_log_detected_topic ON call_log(detected_topic_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_log_detected_topic ON call_log(detected_topic_id)",
         "critical": False,
         "description": "Index on call_log for call log detected topic"
     },
     {
         "name": "idx_outbound_call_jobs_twilio_sid",
         "table": "outbound_call_jobs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_jobs_twilio_sid ON outbound_call_jobs(twilio_call_sid)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_jobs_twilio_sid ON outbound_call_jobs(twilio_call_sid)",
         "critical": False,
         "description": "Index on outbound_call_jobs for outbound call jobs twilio sid"
     },
     {
         "name": "idx_outbound_call_jobs_lock_token",
         "table": "outbound_call_jobs",
-        "sql": "CREATE INDEX CONCURRENTLY idx_outbound_call_jobs_lock_token ON outbound_call_jobs(dial_lock_token)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbound_call_jobs_lock_token ON outbound_call_jobs(dial_lock_token)",
         "critical": False,
         "description": "Index on outbound_call_jobs for outbound call jobs lock token"
     },
@@ -407,7 +407,7 @@ INDEX_DEFS_WHATSAPP = [
     {
         "name": "idx_wa_conv_detected_topic",
         "table": "whatsapp_conversation",
-        "sql": "CREATE INDEX CONCURRENTLY idx_wa_conv_detected_topic ON whatsapp_conversation(detected_topic_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wa_conv_detected_topic ON whatsapp_conversation(detected_topic_id)",
         "critical": False,
         "description": "Index on whatsapp_conversation for wa conv detected topic"
     },
@@ -471,56 +471,56 @@ INDEX_DEFS_CONTRACTS = [
     {
         "name": "idx_contract_files_contract",
         "table": "contract_files",
-        "sql": "CREATE INDEX CONCURRENTLY idx_contract_files_contract ON contract_files(contract_id, created_at DESC)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contract_files_contract ON contract_files(contract_id, created_at DESC)",
         "critical": False,
         "description": "Index on contract_files for contract files contract"
     },
     {
         "name": "idx_contract_files_business",
         "table": "contract_files",
-        "sql": "CREATE INDEX CONCURRENTLY idx_contract_files_business ON contract_files(business_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contract_files_business ON contract_files(business_id)",
         "critical": False,
         "description": "Index on contract_files for contract files business"
     },
     {
         "name": "idx_contract_files_attachment",
         "table": "contract_files",
-        "sql": "CREATE INDEX CONCURRENTLY idx_contract_files_attachment ON contract_files(attachment_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contract_files_attachment ON contract_files(attachment_id)",
         "critical": False,
         "description": "Index on contract_files for contract files attachment"
     },
     {
         "name": "idx_contract_tokens_hash",
         "table": "contract_sign_tokens",
-        "sql": "CREATE INDEX CONCURRENTLY idx_contract_tokens_hash ON contract_sign_tokens(token_hash)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contract_tokens_hash ON contract_sign_tokens(token_hash)",
         "critical": False,
         "description": "Index on contract_sign_tokens for contract tokens hash"
     },
     {
         "name": "idx_contract_tokens_contract",
         "table": "contract_sign_tokens",
-        "sql": "CREATE INDEX CONCURRENTLY idx_contract_tokens_contract ON contract_sign_tokens(contract_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contract_tokens_contract ON contract_sign_tokens(contract_id)",
         "critical": False,
         "description": "Index on contract_sign_tokens for contract tokens contract"
     },
     {
         "name": "idx_contract_tokens_expires",
         "table": "contract_sign_tokens",
-        "sql": "CREATE INDEX CONCURRENTLY idx_contract_tokens_expires ON contract_sign_tokens(expires_at)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contract_tokens_expires ON contract_sign_tokens(expires_at)",
         "critical": False,
         "description": "Index on contract_sign_tokens for contract tokens expires"
     },
     {
         "name": "idx_contract_events_contract",
         "table": "contract_sign_events",
-        "sql": "CREATE INDEX CONCURRENTLY idx_contract_events_contract ON contract_sign_events(contract_id, created_at)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contract_events_contract ON contract_sign_events(contract_id, created_at)",
         "critical": False,
         "description": "Index on contract_sign_events for contract events contract"
     },
     {
         "name": "idx_contract_events_business",
         "table": "contract_sign_events",
-        "sql": "CREATE INDEX CONCURRENTLY idx_contract_events_business ON contract_sign_events(business_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contract_events_business ON contract_sign_events(business_id)",
         "critical": False,
         "description": "Index on contract_sign_events for contract events business"
     },
@@ -535,35 +535,35 @@ INDEX_DEFS_AUTH_SECURITY = [
     {
         "name": "idx_refresh_tokens_user_id",
         "table": "refresh_tokens",
-        "sql": "CREATE INDEX CONCURRENTLY idx_refresh_tokens_user_id ON refresh_tokens(user_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)",
         "critical": False,
         "description": "Index on refresh_tokens for refresh tokens user id"
     },
     {
         "name": "idx_refresh_tokens_tenant_id",
         "table": "refresh_tokens",
-        "sql": "CREATE INDEX CONCURRENTLY idx_refresh_tokens_tenant_id ON refresh_tokens(tenant_id)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_refresh_tokens_tenant_id ON refresh_tokens(tenant_id)",
         "critical": False,
         "description": "Index on refresh_tokens for refresh tokens tenant id"
     },
     {
         "name": "idx_refresh_tokens_token_hash",
         "table": "refresh_tokens",
-        "sql": "CREATE INDEX CONCURRENTLY idx_refresh_tokens_token_hash ON refresh_tokens(token_hash)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash)",
         "critical": False,
         "description": "Index on refresh_tokens for refresh tokens token hash"
     },
     {
         "name": "idx_refresh_tokens_expires_at",
         "table": "refresh_tokens",
-        "sql": "CREATE INDEX CONCURRENTLY idx_refresh_tokens_expires_at ON refresh_tokens(expires_at)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at)",
         "critical": False,
         "description": "Index on refresh_tokens for refresh tokens expires at"
     },
     {
         "name": "idx_refresh_tokens_is_valid",
         "table": "refresh_tokens",
-        "sql": "CREATE INDEX CONCURRENTLY idx_refresh_tokens_is_valid ON refresh_tokens(is_valid)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_refresh_tokens_is_valid ON refresh_tokens(is_valid)",
         "critical": False,
         "description": "Index on refresh_tokens for refresh tokens is valid"
     },
@@ -649,7 +649,7 @@ INDEX_DEFS_MISC = [
     {
         "name": "idx_business_topic_active",
         "table": "business_topics",
-        "sql": "CREATE INDEX CONCURRENTLY idx_business_topic_active ON business_topics(business_id, is_active)",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_business_topic_active ON business_topics(business_id, is_active)",
         "critical": False,
         "description": "Index on business_topics for business topic active"
     },
