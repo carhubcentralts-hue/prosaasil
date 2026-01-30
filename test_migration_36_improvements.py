@@ -38,6 +38,41 @@ def test_exec_dml_exists():
     print("✅ exec_dml handles LockNotAvailable errors")
 
 
+def test_exec_index_exists():
+    """Test that exec_index function exists for CONCURRENT index creation"""
+    
+    # Read the file
+    db_migrate_path = os.path.join(REPO_ROOT, 'server', 'db_migrate.py')
+    with open(db_migrate_path, 'r') as f:
+        content = f.read()
+    
+    # Check exec_index exists
+    assert 'def exec_index(' in content, "exec_index function should exist"
+    print("✅ exec_index function exists")
+    
+    # Check it has correct parameters including best_effort
+    assert 'def exec_index(engine, sql: str, index_name: str = None, retries=10, best_effort=True):' in content, \
+        "exec_index should have correct signature with best_effort parameter"
+    print("✅ exec_index has correct signature")
+    
+    # Check AUTOCOMMIT isolation level (required for CONCURRENTLY)
+    assert 'isolation_level="AUTOCOMMIT"' in content, "exec_index should use AUTOCOMMIT isolation"
+    print("✅ exec_index uses AUTOCOMMIT isolation level")
+    
+    # Check lock timeout settings for index creation
+    exec_index_start = content.find('def exec_index(')
+    apply_migrations_start = content.find('def apply_migrations()')
+    exec_index_section = content[exec_index_start:apply_migrations_start]
+    
+    assert 'SET lock_timeout = \'60s\'' in exec_index_section, "exec_index should set 60s lock_timeout"
+    assert 'SET statement_timeout = \'0\'' in exec_index_section, "exec_index should set unlimited statement_timeout"
+    print("✅ exec_index has correct lock timeout settings")
+    
+    # Check retry and best-effort logic
+    assert 'best_effort' in exec_index_section, "exec_index should support best_effort mode"
+    assert 'retries' in exec_index_section, "exec_index should have retry logic"
+    print("✅ exec_index has retry and best-effort logic")
+
 def test_migration_36_batching():
     """Test that Migration 36 uses batching by business"""
     db_migrate_path = os.path.join(REPO_ROOT, 'server', 'db_migrate.py')
@@ -69,7 +104,7 @@ def test_migration_36_batching():
 
 
 def test_supporting_indexes():
-    """Test that supporting indexes are created before backfill"""
+    """Test that supporting indexes are created with CONCURRENTLY before backfill"""
     db_migrate_path = os.path.join(REPO_ROOT, 'server', 'db_migrate.py')
     with open(db_migrate_path, 'r') as f:
         content = f.read()
@@ -98,6 +133,18 @@ def test_supporting_indexes():
     backfill_pos = migration_36_section.find('Backfilling last_call_direction')
     assert index_pos < backfill_pos, "Indexes should be created before backfill"
     print("✅ Indexes are created BEFORE backfill starts")
+    
+    # 🔥 NEW CHECK: Verify indexes use CONCURRENTLY
+    assert 'CREATE INDEX CONCURRENTLY' in migration_36_section, \
+        "Indexes should use CONCURRENTLY for production safety"
+    assert 'exec_index(' in migration_36_section, \
+        "Should use exec_index() function for CONCURRENT index creation"
+    print("✅ Indexes use CREATE INDEX CONCURRENTLY")
+    
+    # Check that exec_index is called with best_effort=True
+    assert 'best_effort=True' in migration_36_section, \
+        "exec_index should be called with best_effort=True"
+    print("✅ Indexes use best-effort mode (won't fail migration)")
 
 
 def test_imports():
@@ -140,6 +187,9 @@ if __name__ == '__main__':
         print()
         
         test_exec_dml_exists()
+        print()
+        
+        test_exec_index_exists()
         print()
         
         test_migration_36_batching()

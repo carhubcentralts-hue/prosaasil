@@ -2,18 +2,37 @@
 
 ## Problem Fixed
 
-Migration 36 was failing with `LockNotAvailable` errors because it's a heavy data backfill operation that was running with DDL-style lock timeouts (5s). When services are still connected to the database during migration, they hold locks on the `leads` and `call_log` tables, causing the migration to timeout.
+Migration 36 was failing with `LockNotAvailable` errors at the index creation stage because:
+1. `CREATE INDEX` (without CONCURRENTLY) acquires exclusive locks that block writes to the table
+2. When services are running and writing to `call_log`/`leads` tables, the index creation can't acquire locks
+3. With short lock_timeout (5s), the migration fails immediately in a live production environment
 
 ## Solution Implemented
 
-### 1. Separated Lock Policies - DDL vs DML
+### 1. New exec_index() Function - CONCURRENT Index Creation
 
-**exec_ddl()** - For schema changes (CREATE/ALTER/INDEX):
+**exec_index()** - NEW function specifically for production-safe index creation:
+- Uses `CREATE INDEX CONCURRENTLY` which doesn't block writes
+- Runs outside transaction (AUTOCOMMIT isolation level - required for CONCURRENTLY)
+- `lock_timeout = 60s` (longer to handle concurrent table access)
+- `statement_timeout = 0` (unlimited - index creation can be slow on large tables)
+- **Best-effort mode**: Warns on failure but doesn't fail migration (indexes are performance optimizations)
+- Up to 10 retry attempts with exponential backoff for lock errors
+- Lock debug logging on failures
+
+**Why CONCURRENTLY is Critical:**
+- Standard `CREATE INDEX` takes AccessExclusiveLock, blocking ALL writes
+- `CREATE INDEX CONCURRENTLY` takes ShareUpdateExclusiveLock, allowing concurrent writes
+- Essential for zero-downtime deployments on live production systems
+
+### 2. Separated Lock Policies - DDL vs DML vs INDEX
+
+**exec_ddl()** - For schema changes (CREATE/ALTER TABLE):
 - `lock_timeout = 5s` (fail fast)
 - `statement_timeout = 120s`
 - `idle_in_transaction_session_timeout = 60s`
 
-**exec_dml()** - NEW function for data operations (UPDATE/INSERT/DELETE):
+**exec_dml()** - For data operations (UPDATE/INSERT/DELETE):
 - `lock_timeout = 60s` (longer to handle concurrent access)
 - `statement_timeout = 0` (unlimited for large operations)
 - `idle_in_transaction_session_timeout = 60s`
@@ -21,7 +40,14 @@ Migration 36 was failing with `LockNotAvailable` errors because it's a heavy dat
 - Detects and retries on `LockNotAvailable` errors from psycopg2
 - Includes lock debug logging on failures
 
-### 2. Batched Backfill BY BUSINESS (tenant_id)
+**exec_index()** - For index creation (CREATE INDEX CONCURRENTLY):
+- Uses AUTOCOMMIT isolation (required for CONCURRENTLY)
+- `lock_timeout = 60s` (longer to handle busy tables)
+- `statement_timeout = 0` (unlimited - index creation can take time)
+- Best-effort mode with retry logic
+- Won't fail migration if index creation fails
+
+### 3. Batched Backfill BY BUSINESS (tenant_id)
 
 Instead of processing all leads at once, the migration now:
 - **Processes each business separately** to reduce lock contention between tenants
@@ -37,21 +63,24 @@ Instead of processing all leads at once, the migration now:
 - ✅ Progress visibility per business
 - ✅ Safer for large datasets and multi-tenant environments
 
-### 3. Supporting Indexes Added BEFORE Backfill
+### 4. Supporting Indexes with CONCURRENTLY
 
-The migration now creates critical indexes **before** the backfill to prevent full table scans:
+The migration now creates critical indexes **using CONCURRENTLY** before the backfill:
 
 1. **`idx_call_log_lead_created`** - Partial index on `call_log(lead_id, created_at)` for fast lookups
 2. **`idx_leads_backfill_pending`** - Partial index on `leads(tenant_id, id)` WHERE `last_call_direction IS NULL`
+3. **`idx_leads_last_call_direction`** - Index on the new column for filtering
 
 **Benefits:**
 - ✅ Prevents full table scans during backfill
 - ✅ Dramatically reduces lock duration
 - ✅ Uses partial indexes for memory efficiency
+- ✅ **CONCURRENTLY ensures no blocking of concurrent writes**
+- ✅ Best-effort mode means deployment won't fail if indexes can't be created
 
-### 4. Lock Debug Logging
+### 5. Lock Debug Logging
 
-Both `exec_ddl()` and `exec_dml()` now display lock information when operations fail:
+All three execution functions (`exec_ddl()`, `exec_dml()`, and `exec_index()`) now display lock information when operations fail:
 - Shows which process is blocking
 - Shows the blocking query
 - Shows process state (e.g., "idle in transaction")
@@ -232,15 +261,29 @@ This means:
 ## Files Changed
 
 1. **server/db_migrate.py**
-   - Added import for `DBAPIError` (line 18)
-   - Added `exec_dml()` function with LockNotAvailable detection (lines ~456-540)
+   - Added import for `DBAPIError` (line 56)
+   - Added `exec_dml()` function with LockNotAvailable detection (lines ~494-587)
+   - **NEW:** Added `exec_index()` function for CONCURRENT index creation (lines ~588-720)
+     - Uses AUTOCOMMIT isolation level (required for CONCURRENTLY)
+     - 60s lock_timeout, unlimited statement_timeout
+     - Up to 10 retries with exponential backoff
+     - Best-effort mode (warns on failure, doesn't fail migration)
+     - Lock debug logging
    - Updated Migration 36 with:
+     - **Changed index creation from `exec_sql` to `exec_index`**
+     - **All indexes now use CREATE INDEX CONCURRENTLY**
      - Supporting indexes before backfill
      - Batched-by-business approach
      - Better progress logging
 
-2. **MIGRATION_36_DEPLOYMENT_GUIDE.md** (this file)
+2. **test_migration_36_improvements.py**
+   - Added `test_exec_index_exists()` to verify new function
+   - Updated `test_supporting_indexes()` to check for CONCURRENTLY usage
+   - Verifies best-effort mode and retry logic
+
+3. **MIGRATION_36_DEPLOYMENT_GUIDE.md** (this file)
    - Comprehensive deployment documentation
+   - Documentation of exec_index() function and CONCURRENTLY approach
 
 ## Testing
 
@@ -274,11 +317,16 @@ docker compose logs migrate | grep -i "batch\|backfill\|business"
 
 ## Summary of Production-Ready Features
 
-✅ **Separated lock policies** - DDL uses 5s timeout, DML uses 60s timeout
-✅ **LockNotAvailable retry** - Catches and retries on lock errors, not just connection errors
+✅ **NEW: exec_index() function** - Production-safe CONCURRENT index creation
+✅ **CREATE INDEX CONCURRENTLY** - No blocking of concurrent writes
+✅ **AUTOCOMMIT isolation** - Required for CONCURRENTLY, runs outside transaction
+✅ **Best-effort index creation** - Won't fail migration if indexes can't be created
+✅ **Separated lock policies** - DDL uses 5s timeout, DML uses 60s timeout, INDEX uses 60s+AUTOCOMMIT
+✅ **LockNotAvailable retry** - Catches and retries on lock errors with exponential backoff
 ✅ **Batched by business** - Reduces cross-tenant lock contention
 ✅ **Supporting indexes** - Prevents full table scans during backfill
 ✅ **Lock debug logging** - Shows exactly which process is blocking
 ✅ **Progress visibility** - Per-business logging of backfill progress
 ✅ **Idempotent** - Safe to run multiple times
 ✅ **Small delays** - 0.1s between batches to reduce DB pressure
+✅ **Zero-downtime deployment** - Can run with services active (CONCURRENTLY indexes)
