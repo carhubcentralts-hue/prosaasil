@@ -5,8 +5,9 @@
 # ==========================================
 #
 # This script ensures proper deployment order:
-# 1. Run migrations FIRST (and wait for completion)
-# 2. Then start all other services
+# 1. Stop services to release database connections
+# 2. Run migrations (and wait for completion)
+# 3. Then start all other services
 #
 # It also handles:
 # - Proper error handling at each step
@@ -15,9 +16,10 @@
 # - Idempotent operations (safe to run multiple times)
 #
 # Usage:
-#   ./scripts/deploy_production.sh           # Full deploy with build
-#   ./scripts/deploy_production.sh --rebuild # Force rebuild all images
-#   ./scripts/deploy_production.sh --migrate-only  # Only run migrations
+#   ./scripts/deploy_production.sh                # Full deploy with build
+#   ./scripts/deploy_production.sh --rebuild      # Force rebuild all images
+#   ./scripts/deploy_production.sh --migrate-only # Only run migrations
+#   ./scripts/deploy_production.sh --kill-idle-tx # Kill idle transactions before migrations
 #
 # ==========================================
 
@@ -43,6 +45,7 @@ cd "$PROJECT_ROOT"
 # Parse arguments
 REBUILD=false
 MIGRATE_ONLY=false
+KILL_IDLE_TX=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -54,9 +57,13 @@ while [[ $# -gt 0 ]]; do
             MIGRATE_ONLY=true
             shift
             ;;
+        --kill-idle-tx)
+            KILL_IDLE_TX=true
+            shift
+            ;;
         *)
             echo -e "${RED}❌ Unknown option: $1${NC}"
-            echo "Usage: $0 [--rebuild] [--migrate-only]"
+            echo "Usage: $0 [--rebuild] [--migrate-only] [--kill-idle-tx]"
             exit 1
             ;;
     esac
@@ -130,8 +137,34 @@ else
     log_success "Images ready"
 fi
 
-# Step 2: Run migrations
-log_header "Step 2: Running Database Migrations"
+# Step 2: Stop services to avoid locks during migrations
+log_header "Step 2: Stopping Services Before Migration"
+log_info "Stopping API, worker, and scheduler to prevent database locks..."
+
+# Stop services that might hold database connections and block migrations
+# This prevents "idle in transaction" locks that cause DDL to timeout
+docker compose \
+    -f "$BASE_COMPOSE" \
+    -f "$PROD_COMPOSE" \
+    stop prosaas-api worker scheduler 2>/dev/null || true
+
+log_success "Services stopped, database connections released"
+
+# Optional: Kill idle transactions if requested
+if [[ "$KILL_IDLE_TX" == true ]]; then
+    log_info "Killing idle transactions (--kill-idle-tx flag set)..."
+    
+    # Run the kill idle transactions script inside a container with database access
+    docker compose \
+        -f "$BASE_COMPOSE" \
+        -f "$PROD_COMPOSE" \
+        run --rm migrate python scripts/kill_idle_transactions.py || true
+    
+    log_success "Idle transactions cleared"
+fi
+
+# Step 3: Run migrations
+log_header "Step 3: Running Database Migrations"
 log_info "Starting migration service..."
 
 # Stop any existing migrate container
@@ -164,8 +197,8 @@ if [[ "$MIGRATE_ONLY" == true ]]; then
     exit 0
 fi
 
-# Step 3: Start all services
-log_header "Step 3: Starting All Services"
+# Step 4: Start all services
+log_header "Step 4: Starting All Services"
 log_info "Starting services in correct dependency order..."
 
 # Start services (docker compose will handle dependencies)
@@ -177,8 +210,8 @@ docker compose \
 
 log_success "All services started"
 
-# Step 4: Verify services are healthy
-log_header "Step 4: Verifying Service Health"
+# Step 5: Verify services are healthy
+log_header "Step 5: Verifying Service Health"
 log_info "Waiting for services to become healthy..."
 
 # Wait a bit for services to start
@@ -208,7 +241,7 @@ echo "$RUNNING_SERVICES" | while read -r service; do
     log_info "  • $service"
 done
 
-# Step 5: Show next steps
+# Step 6: Show next steps
 log_header "Deployment Complete!"
 log_success "ProSaaS is now running in production mode"
 echo ""
