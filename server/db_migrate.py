@@ -27,17 +27,23 @@ Database migrations - additive only, with strict data protection
    - ALWAYS use batching for large updates (1000 rows per batch)
    - Process by tenant_id/business_id when possible
    
-4️⃣ **Create supporting indexes BEFORE backfills**
-   - Prevents full table scans
-   - Dramatically reduces lock duration
+4️⃣ **Performance indexes belong in server/db_indexes.py ONLY**
+   - DO NOT create CREATE INDEX statements in migrations
+   - Performance indexes are built separately during deployment
+   - Only UNIQUE constraints and critical structural indexes in migrations
+   - See INDEXING_GUIDE.md for details
+   
+5️⃣ **Create supporting indexes BEFORE backfills (if needed in migration)**
+   - Only add if absolutely critical for migration to succeed
+   - Prefer moving to db_indexes.py and running backfill in smaller batches
    - Use partial indexes (WHERE clauses) for efficiency
    
-5️⃣ **All operations MUST be idempotent**
+6️⃣ **All operations MUST be idempotent**
    - Use IF NOT EXISTS for CREATE operations
    - Use IF EXISTS for DROP operations
    - Check column/table existence before ALTER
    
-6️⃣ **Test migrations locally BEFORE production**
+7️⃣ **Test migrations locally BEFORE production**
    - Drop test column/table: ALTER TABLE test_table DROP COLUMN IF EXISTS test_col;
    - Run migration to re-apply it
    - Verify idempotency: run again - should succeed with no changes
@@ -1688,7 +1694,9 @@ def apply_migrations():
                 raise
         
         # Migration 36: BUILD 350 - Add last_call_direction to leads for inbound/outbound filtering
-        # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column + index + backfill
+        # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column + backfill
+        # ⚠️ NOTE: Performance indexes for this migration are in server/db_indexes.py
+        #          and will be built separately during deployment
         if check_table_exists('leads'):
             try:
                 # Use DO block to add column with exec_sql and autocommit
@@ -1708,33 +1716,15 @@ def apply_migrations():
                     $$;
                 """, autocommit=True)
                 
-                # Create index for performance (idempotent)
-                # 🔥 PRODUCTION FIX: Use CONCURRENTLY to avoid blocking writes on leads table
-                exec_index(migrate_engine, """
-                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_last_call_direction 
-                    ON leads(last_call_direction)
-                """, index_name='idx_leads_last_call_direction', best_effort=True)
-                
-                # 🔥 CRITICAL: Add supporting indexes BEFORE backfill to prevent full table scans
-                # These indexes dramatically reduce lock contention during the backfill operation
-                # PRODUCTION FIX: Use CONCURRENTLY to avoid blocking writes
-                checkpoint("Adding supporting indexes for backfill performance...")
-                
-                # Index for call_log lookups by lead_id and created_at (used in DISTINCT ON query)
-                exec_index(migrate_engine, """
-                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_log_lead_created 
-                    ON call_log(lead_id, created_at) 
-                    WHERE lead_id IS NOT NULL
-                """, index_name='idx_call_log_lead_created', best_effort=True)
-                
-                # Partial index for leads that need backfill (faster batch selection)
-                exec_index(migrate_engine, """
-                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_backfill_pending 
-                    ON leads(tenant_id, id) 
-                    WHERE last_call_direction IS NULL
-                """, index_name='idx_leads_backfill_pending', best_effort=True)
-                
-                checkpoint("✅ Supporting indexes created")
+                # 🔥 INDEXES MOVED TO server/db_indexes.py
+                # Previously this migration created these indexes:
+                # - idx_leads_last_call_direction
+                # - idx_call_log_lead_created  
+                # - idx_leads_backfill_pending
+                # 
+                # These are now built separately during deployment via db_build_indexes.py
+                # to prevent migration failures and allow safe retries.
+                checkpoint("✅ Schema changes complete (indexes will be built separately)")
                 
                 # Backfill last_call_direction from call_log table
                 # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
@@ -1743,6 +1733,10 @@ def apply_migrations():
                 # ⚠️ BATCHED APPROACH BY BUSINESS: Process by tenant_id to reduce hot locks
                 # When multiple businesses exist, this prevents lock contention between tenants.
                 # Each batch updates 1000 leads of one business at a time.
+                # 
+                # ⚠️ NOTE: Backfill runs without specialized indexes initially.
+                #          This is safe because we use small batches (1000 rows).
+                #          Indexes will be built afterwards to optimize future queries.
                 checkpoint("Backfilling last_call_direction from call_log (batched by business)...")
                 if check_table_exists('call_log'):
                     # Use exec_dml for DML operations with appropriate timeouts

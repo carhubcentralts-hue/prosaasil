@@ -108,6 +108,45 @@ services:
           memory: 512M
 
   # ===========================================
+  # Index Builder Service - Builds performance indexes
+  # Runs AFTER migrations to create indexes separately
+  # Never fails deployment - exits 0 even on errors
+  # ===========================================
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.light
+    restart: "no"  # Run once and exit
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      FLASK_ENV: production
+      # 🔥 LOGGING - Production mode
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    command: ["python", "server/db_build_indexes.py"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+    networks:
+      - prosaas-net
+
+  # ===========================================
   # Disable local database in production
   # (Use managed DB like Railway, Supabase, Neon, etc.)
   # ===========================================
