@@ -585,6 +585,146 @@ def exec_dml(engine, sql: str, params=None, retries=3):
     if last_error:
         raise last_error
 
+def exec_index(engine, sql: str, index_name: str = None, retries=10, best_effort=True):
+    """
+    Execute CREATE INDEX CONCURRENTLY with production-ready lock policy.
+    
+    CONCURRENTLY indexes MUST run outside a transaction (AUTOCOMMIT mode) and are
+    critical for production deployments where tables have active writes.
+    
+    Key features:
+    - Uses AUTOCOMMIT isolation level (required for CONCURRENTLY)
+    - Longer lock_timeout (60s) to handle busy tables
+    - Unlimited statement_timeout (index creation can take time)
+    - Retry logic for LockNotAvailable errors (up to 10 attempts)
+    - Best-effort mode: warns on failure but doesn't fail migration (indexes are performance optimizations)
+    - Lock debug logging on failures
+    
+    Lock timeouts:
+    - lock_timeout: 60s (longer to handle concurrent table access)
+    - statement_timeout: 0 (unlimited - index creation can be slow)
+    
+    Args:
+        engine: SQLAlchemy engine
+        sql: CREATE INDEX statement (should include CONCURRENTLY and IF NOT EXISTS)
+        index_name: Name of index being created (for logging)
+        retries: Number of retry attempts (default: 10 for production resilience)
+        best_effort: If True, warns on failure instead of raising (default: True)
+        
+    Returns:
+        True if index was created successfully, False if failed (only in best_effort mode)
+        
+    Raises:
+        Exception: If index creation fails and best_effort=False
+        
+    Example:
+        exec_index(engine, '''
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_log_lead_created
+            ON call_log(lead_id, created_at)
+            WHERE lead_id IS NOT NULL
+        ''', index_name='idx_call_log_lead_created')
+    """
+    if index_name is None:
+        # Try to extract index name from SQL
+        import re
+        match = re.search(r'INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(\w+)', sql, re.IGNORECASE)
+        if match:
+            index_name = match.group(1)
+        else:
+            index_name = "unknown_index"
+    
+    last_error = None
+    for i in range(retries):
+        try:
+            # CRITICAL: Use AUTOCOMMIT isolation level - CONCURRENTLY requires no transaction
+            with engine.connect() as conn:
+                conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+                
+                # Set timeouts appropriate for index creation
+                conn.execute(text("SET lock_timeout = '60s'"))  # Longer timeout for busy tables
+                conn.execute(text("SET statement_timeout = '0'"))  # Unlimited - index creation can be slow
+                
+                # Execute the CREATE INDEX CONCURRENTLY
+                conn.execute(text(sql))
+                
+                logger.info(f"✅ Successfully created index: {index_name}")
+                return True  # Success
+                
+        except (OperationalError, DBAPIError) as e:
+            last_error = e
+            
+            # Check if this is a lock-related error
+            is_lock_error = False
+            if hasattr(e, 'orig') and e.orig is not None:
+                error_str = str(e.orig).lower()
+                if 'locknotavailable' in error_str or 'lock_timeout' in error_str or 'could not obtain lock' in error_str or 'canceling statement due to lock timeout' in error_str:
+                    is_lock_error = True
+            else:
+                error_str = str(e).lower()
+                if 'lock' in error_str or 'timeout' in error_str:
+                    is_lock_error = True
+            
+            # Retry on lock errors
+            if is_lock_error and i < retries - 1:
+                sleep_time = 2.0 * (i + 1)  # Exponential backoff: 2s, 4s, 6s...
+                logger.warning(f"⚠️ Index creation lock error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            
+            # Last attempt or non-lock error - log detailed information
+            logger.error(f"Index creation failed for {index_name}: {e}", exc_info=True)
+            
+            # Try to log lock information
+            try:
+                with engine.connect() as debug_conn:
+                    rows = debug_conn.execute(text(LOCK_DEBUG_SQL)).fetchall()
+                    if rows:
+                        logger.error("=" * 80)
+                        logger.error(f"LOCK DEBUG - Processes blocking index creation ({index_name}):")
+                        logger.error("=" * 80)
+                        for row in rows:
+                            logger.error(f"  Blocked PID: {row[0]}, State: {row[1]}")
+                            logger.error(f"    Query: {row[2][:200] if row[2] else 'N/A'}")
+                            logger.error(f"  Blocking PID: {row[3]}, State: {row[4]}")
+                            logger.error(f"    Query: {row[5][:200] if row[5] else 'N/A'}")
+                            logger.error("-" * 80)
+                    else:
+                        logger.error("LOCK DEBUG: No blocking processes found (lock may have cleared)")
+            except Exception as debug_error:
+                logger.error(f"Could not retrieve lock debug info: {debug_error}")
+            
+            # Handle based on best_effort mode
+            if best_effort:
+                logger.warning(f"⚠️ Index creation failed for {index_name} after {retries} attempts - continuing (best-effort mode)")
+                logger.warning(f"   The migration will continue, but performance may be impacted.")
+                logger.warning(f"   You can manually create the index later with: {sql}")
+                return False  # Return False to indicate failure in best-effort mode
+            else:
+                # Not best-effort - re-raise to fail the migration
+                raise
+                
+        except Exception as e:
+            # Non-lock error - log and handle
+            last_error = e
+            logger.error(f"Index creation failed for {index_name}: {e}", exc_info=True)
+            
+            if best_effort:
+                logger.warning(f"⚠️ Index creation failed for {index_name} - continuing (best-effort mode)")
+                logger.warning(f"   You can manually create the index later with: {sql}")
+                return False
+            else:
+                raise
+    
+    # Should never reach here, but handle it anyway
+    if last_error:
+        if best_effort:
+            logger.warning(f"⚠️ Index creation failed for {index_name} after {retries} attempts - continuing (best-effort mode)")
+            return False
+        else:
+            raise last_error
+    
+    return True  # Success
+
 def apply_migrations():
     """
     Apply all pending migrations
@@ -1569,28 +1709,30 @@ def apply_migrations():
                 """, autocommit=True)
                 
                 # Create index for performance (idempotent)
-                exec_sql(migrate_engine, """
-                    CREATE INDEX IF NOT EXISTS idx_leads_last_call_direction 
+                # 🔥 PRODUCTION FIX: Use CONCURRENTLY to avoid blocking writes on leads table
+                exec_index(migrate_engine, """
+                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_last_call_direction 
                     ON leads(last_call_direction)
-                """, autocommit=True)
+                """, index_name='idx_leads_last_call_direction', best_effort=True)
                 
                 # 🔥 CRITICAL: Add supporting indexes BEFORE backfill to prevent full table scans
                 # These indexes dramatically reduce lock contention during the backfill operation
+                # PRODUCTION FIX: Use CONCURRENTLY to avoid blocking writes
                 checkpoint("Adding supporting indexes for backfill performance...")
                 
                 # Index for call_log lookups by lead_id and created_at (used in DISTINCT ON query)
-                exec_sql(migrate_engine, """
-                    CREATE INDEX IF NOT EXISTS idx_call_log_lead_created 
+                exec_index(migrate_engine, """
+                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_log_lead_created 
                     ON call_log(lead_id, created_at) 
                     WHERE lead_id IS NOT NULL
-                """, autocommit=True)
+                """, index_name='idx_call_log_lead_created', best_effort=True)
                 
                 # Partial index for leads that need backfill (faster batch selection)
-                exec_sql(migrate_engine, """
-                    CREATE INDEX IF NOT EXISTS idx_leads_backfill_pending 
+                exec_index(migrate_engine, """
+                    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_backfill_pending 
                     ON leads(tenant_id, id) 
                     WHERE last_call_direction IS NULL
-                """, autocommit=True)
+                """, index_name='idx_leads_backfill_pending', best_effort=True)
                 
                 checkpoint("✅ Supporting indexes created")
                 
