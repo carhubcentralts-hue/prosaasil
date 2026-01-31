@@ -917,17 +917,19 @@ class AIService:
             logger.info(f"[AGENTKIT] Running agent with message: '{message[:50]}...'")
             runner = Runner()
             
-            # 🔥 FIX: runner.run() is async, so we need to await it using asyncio.run()
-            # This runs the async function in a synchronous context
+            # 🔥 FIX: runner.run() is async, so we need to await it properly
+            # Create the coroutine once to avoid duplication
+            agent_coroutine = runner.run(agent, message, context=agent_context)
+            
+            # Check if we're already in an async context
             try:
-                result = asyncio.run(runner.run(agent, message, context=agent_context))
-            except RuntimeError as e:
-                # If we're already in an async context, use get_event_loop
-                if "asyncio.run() cannot be called from a running event loop" in str(e):
-                    loop = asyncio.get_event_loop()
-                    result = loop.run_until_complete(runner.run(agent, message, context=agent_context))
-                else:
-                    raise
+                # Try to get the running event loop
+                loop = asyncio.get_running_loop()
+                # We're in an async context, use the current loop
+                result = loop.run_until_complete(agent_coroutine)
+            except RuntimeError:
+                # No running event loop, safe to use asyncio.run()
+                result = asyncio.run(agent_coroutine)
             
             # Extract response text
             reply_text = ""
