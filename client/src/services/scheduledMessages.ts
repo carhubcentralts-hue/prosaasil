@@ -200,7 +200,8 @@ export async function getStats(ruleId?: number): Promise<StatsResponse> {
 export async function getManualTemplates(): Promise<ManualTemplate[]> {
   try {
     const response = await http.get<any>('/api/whatsapp/manual-templates');
-    const templates = Array.isArray(response?.items) ? response.items : [];
+    // API returns {templates: [...]} not {items: [...]}
+    const templates = Array.isArray(response?.templates) ? response.templates : [];
     return templates;
   } catch (err: any) {
     console.warn('Failed to load templates:', err);
