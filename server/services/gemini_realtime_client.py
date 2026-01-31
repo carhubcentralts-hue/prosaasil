@@ -74,26 +74,43 @@ def _clamp_temperature(requested_temp: Optional[float]) -> float:
     return requested_temp
 
 
-def _fix_base64_padding(data: str) -> str:
+def _fix_base64_padding(data):
     """
     Fix base64 padding by adding missing padding characters.
     Base64 strings must have length divisible by 4.
     
     Args:
-        data: Base64 encoded string (possibly missing padding)
+        data: Base64 encoded string or bytes (possibly missing padding)
     
     Returns:
-        Base64 string with correct padding
+        Base64 string or bytes with correct padding (same type as input)
     """
-    # Remove any whitespace
-    data = data.strip()
+    if data is None:
+        return data
     
-    # Add padding if needed (base64 strings must be divisible by 4)
-    missing_padding = len(data) % 4
-    if missing_padding:
-        data += '=' * (4 - missing_padding)
+    # Handle bytes/bytearray consistently
+    if isinstance(data, (bytes, bytearray)):
+        missing = len(data) % 4
+        if missing:
+            data += b'=' * (4 - missing)  # Use b'=' for bytes
+        return data
     
-    return data
+    # Handle string
+    if isinstance(data, str):
+        # Remove any whitespace
+        data = data.strip()
+        missing = len(data) % 4
+        if missing:
+            data += '=' * (4 - missing)
+        return data
+    
+    # Fallback: convert to string
+    s = str(data)
+    s = s.strip()
+    missing = len(s) % 4
+    if missing:
+        s += '=' * (4 - missing)
+    return s
 
 
 def _sanitize_text_for_realtime(text: str, max_chars: int = 8000) -> str:
