@@ -43,7 +43,7 @@ def test_migration_119_sql_syntax():
     assert "business_id BIGINT NOT NULL" in create_table_sql
     assert "provider TEXT NOT NULL DEFAULT 'gmail'" in create_table_sql
     assert "external_id TEXT NOT NULL" in create_table_sql
-    assert "NUMERIC(12,2)" in create_table_sql  # Proper numeric type for amounts
+    assert "amount NUMERIC(12,2)" in create_table_sql  # Proper numeric type with precision and scale
     assert "JSONB" in create_table_sql  # Proper JSON type for raw_payload
     assert "TIMESTAMPTZ" in create_table_sql  # Proper timestamp with timezone
     

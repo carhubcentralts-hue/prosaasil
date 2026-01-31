@@ -7444,7 +7444,7 @@ def apply_migrations():
             try:
                 checkpoint("  → Creating gmail_receipts table...")
                 exec_ddl(db.engine, """
-                    CREATE TABLE gmail_receipts (
+                    CREATE TABLE IF NOT EXISTS gmail_receipts (
                       id BIGSERIAL PRIMARY KEY,
                       
                       business_id BIGINT NOT NULL,

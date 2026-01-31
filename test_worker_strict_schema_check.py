@@ -73,7 +73,7 @@ def test_schema_check_logic():
     print("✅ Strict mode: exits when tables are missing")
     
     # Test 3: Non-strict mode with no missing tables
-    missing_tables = None
+    missing_tables = []  # Empty list represents no missing tables
     STRICT_SCHEMA_CHECK = False
     should_exit = False
     
