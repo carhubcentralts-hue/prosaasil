@@ -931,15 +931,20 @@ class AIService:
                 # No running event loop, safe to use asyncio.run()
                 result = asyncio.run(agent_coroutine)
             
-            # Extract response text
+            # Extract response text from RunResult
+            # RunResult is a dataclass with a 'final_output' field that contains the actual response
             reply_text = ""
-            if hasattr(result, 'text') and result.text:
+            if hasattr(result, 'final_output') and result.final_output:
+                # 🔥 FIX: Extract only the final_output, not the entire RunResult representation
+                reply_text = str(result.final_output)
+            elif hasattr(result, 'text') and result.text:
                 reply_text = result.text
             elif hasattr(result, 'response') and result.response:
                 reply_text = result.response
             else:
-                # Fallback: try to get any text output
-                reply_text = str(result) if result else ""
+                # Fallback: log warning and return empty
+                logger.warning(f"[AGENTKIT] Unable to extract text from result type: {type(result)}")
+                reply_text = ""
             
             logger.info(f"[AGENTKIT] Agent response: {len(reply_text)} chars")
             logger.info(f"🔙 About to return from generate_response_with_agent()")
