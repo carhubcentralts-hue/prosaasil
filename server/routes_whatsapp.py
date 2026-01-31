@@ -1122,6 +1122,9 @@ def baileys_webhook():
                 from server.services.ai_service import get_ai_service
                 ai_service = get_ai_service()
                 
+                # 🔥 BUILD 200 DEBUG: Log state before AI call
+                log.info(f"[WA-AI-START] About to call AI for jid={remote_jid[:30]}, lead_id={lead.id}")
+                
                 try:
                     ai_response = ai_service.generate_response_with_agent(
                         message=message_text,
@@ -1147,6 +1150,7 @@ def baileys_webhook():
                         response_text = str(ai_response)
                     
                     ai_duration = time.time() - ai_start
+                    log.info(f"[WA-AI-SUCCESS] AI generated response in {ai_duration:.2f}s, length={len(response_text) if response_text else 0}")
                 except Exception as e:
                     logger.error(f"⚠️ Agent failed, trying regular AI response: {e}")
                     import traceback
@@ -1184,6 +1188,9 @@ def baileys_webhook():
                             log.warning(f"⚠️ No fallback response available - skipping send")
                             continue
                 
+                # 🔥 BUILD 200 DEBUG: Log before sending
+                log.info(f"[WA-SEND-DEBUG] reply_jid={reply_jid[:30]}, response_text_length={len(response_text) if response_text else 0}")
+                
                 # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
                 # This ensures Android messages with @lid, @g.us, etc. get proper replies
                 # 🔥 LID FIX: Use reply_jid (which prefers @s.whatsapp.net over @lid)
@@ -1194,6 +1201,9 @@ def baileys_webhook():
                 try:
                     from server.services.jobs import enqueue_job
                     from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
+                    
+                    # 🔥 BUILD 200 DEBUG: Log parameters before enqueue
+                    log.info(f"[WA-ENQUEUE-DEBUG] business_id={business_id}, tenant_id={tenant_id}, reply_jid={reply_jid[:30]}, msg_length={len(response_text)}")
                     
                     job = enqueue_job(
                         queue_name='default',
