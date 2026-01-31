@@ -95,6 +95,74 @@ class TestBase64PaddingFix:
         # Verify it decodes successfully
         decoded = base64.b64decode(result)
         assert len(decoded) == 1  # Should decode to 1 byte
+    
+    def test_fix_padding_bytes_input(self):
+        """Test that bytes input is handled correctly"""
+        # Test with bytes that need padding
+        incomplete_bytes = b"SGVsbG8gV29ybGQ"  # "Hello World" missing padding
+        result = _fix_base64_padding(incomplete_bytes)
+        assert result == b"SGVsbG8gV29ybGQ="
+        assert isinstance(result, bytes)
+        
+        # Verify it decodes successfully
+        decoded = base64.b64decode(result)
+        assert decoded == b"Hello World"
+    
+    def test_fix_padding_bytes_correct(self):
+        """Test that correctly padded bytes are unchanged"""
+        correct_bytes = b"SGVsbG8gV29ybGQ="  # "Hello World" with correct padding
+        result = _fix_base64_padding(correct_bytes)
+        assert result == correct_bytes
+        assert isinstance(result, bytes)
+        
+        # Verify it decodes successfully
+        decoded = base64.b64decode(result)
+        assert decoded == b"Hello World"
+    
+    def test_fix_padding_bytes_missing_two(self):
+        """Test bytes missing 2 padding characters"""
+        incomplete_bytes = b"aGVsbG8"  # "hello" without padding
+        result = _fix_base64_padding(incomplete_bytes)
+        assert result == b"aGVsbG8="
+        assert isinstance(result, bytes)
+        
+        # Verify it decodes successfully
+        decoded = base64.b64decode(result)
+        assert decoded == b"hello"
+    
+    def test_fix_padding_bytearray_input(self):
+        """Test that bytearray input is handled correctly"""
+        incomplete_bytearray = bytearray(b"SGVsbG8gV29ybGQ")
+        result = _fix_base64_padding(incomplete_bytearray)
+        # Result should have padding added
+        assert len(result) % 4 == 0
+        assert isinstance(result, (bytes, bytearray))
+        
+        # Verify it decodes successfully
+        decoded = base64.b64decode(result)
+        assert decoded == b"Hello World"
+    
+    def test_fix_padding_none_input(self):
+        """Test that None input is handled correctly"""
+        result = _fix_base64_padding(None)
+        assert result is None
+    
+    def test_gemini_api_bytes_scenario(self):
+        """Test realistic Gemini API scenario with bytes audio data"""
+        # Simulate Gemini API sending audio data as bytes
+        audio_bytes = b'\x00\x01\x02\x03\x04\x05\x06\x07'
+        correct_b64_bytes = base64.b64encode(audio_bytes)
+        
+        # Remove padding to simulate Gemini API issue  
+        incomplete_b64_bytes = correct_b64_bytes.rstrip(b'=')
+        
+        # Fix and decode
+        fixed_b64 = _fix_base64_padding(incomplete_b64_bytes)
+        assert isinstance(fixed_b64, bytes)
+        decoded = base64.b64decode(fixed_b64)
+        
+        # Verify we get original data back
+        assert decoded == audio_bytes
 
 
 if __name__ == "__main__":
