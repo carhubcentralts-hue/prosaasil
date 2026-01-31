@@ -3,7 +3,7 @@
 Test for WhatsApp webhook UnboundLocalError fix.
 
 This test ensures that:
-1. timestamp_ms, baileys_message_id, and jid are extracted early
+1. timestamp_ms, baileys_message_id are extracted early
 2. No UnboundLocalError occurs when processing messages
 3. The variables are available when needed
 """
@@ -81,12 +81,12 @@ def test_message_processing_mock():
     
     # Extract variables as the code does now
     baileys_message_id = msg.get('key', {}).get('id', '')
-    jid = msg.get('key', {}).get('remoteJid', '')
+    remote_jid = msg.get('key', {}).get('remoteJid', '')
     timestamp_ms = msg.get('messageTimestamp', 0)
     
     # Verify extraction worked
     assert baileys_message_id == '3A29B3545B1057326DB0'
-    assert jid == '972587682228@s.whatsapp.net'
+    assert remote_jid == '972587682228@s.whatsapp.net'
     assert timestamp_ms == '1738344319'
     
     # Test timestamp conversion logic
