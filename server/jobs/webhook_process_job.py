@@ -30,7 +30,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
         from server.whatsapp_provider import get_whatsapp_service
         from server.services.ai_service import get_ai_service
         from server.services.customer_intelligence import CustomerIntelligence
-        from server.models_sql import WhatsAppMessage, Lead
+        from server.models_sql import WhatsAppMessage, Lead, WhatsAppConversation
         from server.db import db
         from server.services.whatsapp_session_service import update_session_activity
         from server.services.n8n_integration import n8n_whatsapp_incoming, n8n_whatsapp_outgoing
@@ -158,7 +158,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         logger.info(f"✅ [LEAD_UPSERT_DONE] trace_id={trace_id} lead_id={lead.id if lead else 'N/A'} action={action} phone={normalized_phone}")
                         logger.info(f"⏱️ customer lookup took: {time.time() - lookup_start:.2f}s")
                         
-                        # Extract previous messages for context
+                        # Extract previous messages for context (keep last 10)
                         previous_messages = []
                         if lead.notes:
                             note_lines = lead.notes.split('\n')
@@ -168,6 +168,20 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                                     sender, content = match.group(1), match.group(2).strip()
                                     previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'עוזר'}: {content}")
                         
+                        # 🔥 NEW: Load conversation summary if exists
+                        conversation_summary = None
+                        try:
+                            conversation = WhatsAppConversation.query.filter_by(
+                                business_id=business_id,
+                                customer_number=phone_number
+                            ).order_by(WhatsAppConversation.last_message_at.desc()).first()
+                            
+                            if conversation and conversation.summary:
+                                conversation_summary = conversation.summary
+                                logger.info(f"📋 Loaded conversation summary for {phone_number}: {len(conversation_summary)} chars")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Could not load conversation summary: {e}")
+                        
                         # Generate AI response
                         ai_start = time.time()
                         logger.info(f"🤖 [AGENTKIT_START] trace_id={trace_id} business_id={business_id} message='{message_text[:50]}...'")
@@ -176,18 +190,29 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         ai_response = None
                         
                         try:
+                            # 🔥 NEW: Build context for new Prompt Stack architecture
+                            context = {
+                                # Basic customer info
+                                'customer_name': customer.name,
+                                'phone_number': phone_number,
+                                # New: Add lead_id for proper context
+                                'lead_id': lead.id if lead else None,
+                                # New: Add conversation summary if exists
+                                'summary': conversation_summary,
+                                # History (formatted for prompt stack)
+                                'history': previous_messages,  # New key name for prompt stack
+                                'previous_messages': previous_messages,  # Keep old key for backwards compatibility
+                                # Channel & trace
+                                'channel': 'whatsapp',
+                                'trace_id': trace_id
+                            }
+                            
                             ai_response = ai_service.generate_response_with_agent(
                                 message=message_text,
                                 business_id=business_id,
                                 customer_phone=phone_number,
                                 customer_name=customer.name,
-                                context={
-                                    'customer_name': customer.name,
-                                    'phone_number': phone_number,
-                                    'previous_messages': previous_messages,
-                                    'channel': 'whatsapp',
-                                    'trace_id': trace_id
-                                },
+                                context=context,
                                 channel='whatsapp',
                                 is_first_turn=(len(previous_messages) == 0)
                             )

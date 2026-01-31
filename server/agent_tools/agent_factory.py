@@ -1146,8 +1146,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         logger.info(f"✅ AgentKit tools RESTORED (non-realtime flows)")
     
 
-    # 🔥 BUILD 135: MERGE DB prompts WITH base instructions (not replace!)
-    # CRITICAL: DB prompts now EXTEND the base AgentKit instructions
+    # 🔥 BUILD 135: MINIMAL SYSTEM RULES (Framework only)
+    # CRITICAL: System rules should ONLY contain tool usage rules, not business behavior
     
     today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
     tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -1162,180 +1162,45 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         except Exception:
             pass
     
-    # 🔥 BUILD 138: Load business policy to get slot_size_min (ONLY for appointment businesses)
-    slot_interval_text = ""
-    if business_id and call_goal == "appointment":
-        try:
-            from server.policy.business_policy import get_business_policy
-            policy = get_business_policy(business_id, prompt_text=custom_instructions)
-            
-            # Convert slot size to Hebrew description
-            if policy.slot_size_min == 15:
-                interval_desc = "כל רבע שעה (15 דקות)"
-            elif policy.slot_size_min == 30:
-                interval_desc = "כל חצי שעה (30 דקות)"
-            elif policy.slot_size_min == 45:
-                interval_desc = "כל 45 דקות (שלושת רבעי שעה)"
-            elif policy.slot_size_min == 60:
-                interval_desc = "כל שעה (60 דקות)"
-            elif policy.slot_size_min == 75:
-                interval_desc = "כל שעה ורבע (75 דקות)"
-            elif policy.slot_size_min == 90:
-                interval_desc = "כל שעה וחצי (90 דקות)"
-            elif policy.slot_size_min == 105:
-                interval_desc = "כל שעה ושלושת רבעי (105 דקות)"
-            elif policy.slot_size_min == 120:
-                interval_desc = "כל שעתיים (120 דקות)"
-            else:
-                interval_desc = f"כל {policy.slot_size_min} דקות"
-            
-            slot_interval_text = f"\nAPPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה {interval_desc}"
-            logger.info(f"📅 Agent will use slot interval: {policy.slot_size_min} minutes ({interval_desc})")
-        except Exception as e:
-            logger.warning(f"⚠️ Could not load policy for slot_size_min: {e}")
-    
-    # 🔥 CRITICAL FIX (Problem 3): WhatsApp prompts should be MINIMAL and FOCUSED
-    # Only include appointment instructions if call_goal="appointment"
-    if channel == "whatsapp" and call_goal != "appointment":
-        # 🔥 WHATSAPP + NO APPOINTMENTS = MINIMAL SYSTEM RULES
-        # 🔥 FIX: Removed hardcoded redirect message - let custom prompt handle off-topic responses
-        system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
-TODAY: {today_str} (Israel)
+    # 🔥 NEW ARCHITECTURE: Minimal system rules (framework only)
+    # No business logic, no conversation scripts, no appointment flows
+    # All behavior comes from custom_instructions (DB prompt)
+    if channel == "whatsapp":
+        # WhatsApp uses the new Prompt Stack architecture
+        # Keep ONLY tool safety rules - zero business logic
+        system_rules = f"""🔒 FRAMEWORK (Internal Rules):
+TODAY: {today_str}
 
-⚠️ CRITICAL RULES:
-1. NEVER offer or discuss appointment scheduling - this business doesn't do appointments via WhatsApp
-2. Focus on answering customer questions based on YOUR CUSTOM INSTRUCTIONS below
-3. Use business_get_info() tool if customer asks about location, hours, or contact details
-4. Keep responses natural and conversational as defined in your custom instructions
-5. Always respond in Hebrew
+🔧 Tool Safety:
+- Never claim you did something unless tool returned success=true
+- If tool fails, acknowledge gracefully
+
+📱 Format:
+- Short responses (1-2 sentences)
+- One question at a time
+- Always Hebrew
 
 ---
+YOUR INSTRUCTIONS:
 """
-        logger.info(f"📱 WhatsApp without appointments: using MINIMAL system rules ({len(system_rules)} chars)")
-    elif channel == "whatsapp" and call_goal == "appointment":
-        # 🔥 WHATSAPP + APPOINTMENTS = FOCUSED APPOINTMENT RULES
-        # 🔥 FIX: Removed hardcoded redirect message - let custom prompt handle off-topic responses
-        booking_tool_rule = "schedule_appointment()"
-        availability_tool_rule = "check_availability()"
-        
-        system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
-TODAY: {today_str} (Israel)
-TOMORROW: {tomorrow_str}{slot_interval_text}
-
-⚠️ CRITICAL APPOINTMENT RULES:
-1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called {booking_tool_rule} and got success=true
-2. NEVER say "תפוס"/"פנוי" UNLESS you called {availability_tool_rule} THIS turn
-3. If appointment succeeds, check returned "user_message" field and send it to customer
-
-🎯 APPOINTMENT WORKFLOW (ONLY when customer requests):
-1. Ask for DATE & TIME preference
-2. Call check_availability() to verify
-3. If time unavailable, suggest 2 alternatives
-4. Ask for NAME: "על איזה שם?"
-5. Call schedule_appointment() with all details
-6. Confirm based on returned user_message
-
-🔥 CRITICAL: Ask for info ONE at a time (date, then time, then name)
-🔥 Follow YOUR CUSTOM INSTRUCTIONS below for conversation style and behavior
-
----
-"""
-        logger.info(f"📱 WhatsApp with appointments: using FOCUSED appointment rules ({len(system_rules)} chars)")
+        logger.info(f"📱 WhatsApp: using MINIMAL framework ({len(system_rules)} chars)")
     else:
-        # 🔥 PHONE CHANNEL = FULL DETAILED RULES (keep existing for voice calls)
-        # CRITICAL SYSTEM RULES (prepended to all prompts - NEVER remove!)
-        # WhatsApp uses unified appointment tools: check_availability + schedule_appointment.
-        # Other channels may still use calendar_* tools.
-        booking_tool_rule = (
-            "schedule_appointment()"
-            if channel == "whatsapp"
-            else "calendar_create_appointment()"
-        )
-        availability_tool_rule = (
-            "check_availability()"
-            if channel == "whatsapp"
-            else "calendar_find_slots()"
-        )
+        # 🔥 PHONE CHANNEL = Focused rules for voice calls
+        system_rules = f"""🔒 FRAMEWORK:
+TODAY: {today_str}
 
-        system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
-TODAY: {today_str} (Israel)
-TOMORROW: {tomorrow_str}{slot_interval_text}
+🛡️ Tool Safety:
+- NEVER say "קבעתי" unless tool returned success=true
+- NEVER say "תפוס"/"פנוי" unless you called availability tool THIS turn
+- Ask before calling tools - don't guess
 
-⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
-1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called {booking_tool_rule} THIS turn and got success/ok=true with appointment_id
-2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called {availability_tool_rule} THIS turn
-3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
-4. 🔥 BUILD 112: After SUCCESSFUL booking (ok:true), ALWAYS call whatsapp_send() to send confirmation
-5. NEVER say "אני מחפש" or "תן לי לבדוק" - just call the tool silently
-6. 🔥 NEW: If you don't have enough info yet, ASK before calling tools - don't guess!
-7. 🔥 NEW: Complete ONE action at a time - don't claim "קבעתי + שלחתי" in same turn
-
-🎯 SLOT PRESENTATION RULE (BUILD 113):
-- When calendar_find_slots returns results, suggest ONLY 2 times maximum
-- Pick 2 diverse times (e.g., morning + afternoon, or 2 closest to customer's request)
-- NEVER list all available slots - it's overwhelming on voice calls!
-- Example GOOD: "יש פנוי ב-9:00 או 14:00, מה מתאים?"
-- Example BAD: "יש פנוי ב-9:00, 10:00, 11:00, 12:00, 13:00, 14:00..." ❌
-
-⏱️ TURN MANAGEMENT:
-- You have max 25 turns to complete the task (increased from 15)
-- Prioritize gathering info first (name, phone, date, time)
-- Then check availability → book → send confirmation
-- If running out of turns, ask for ONE thing at a time
-
-🎯 SMART APPOINTMENT OFFERING (CRITICAL!):
-- 🔥 DO NOT offer/suggest appointments unless customer explicitly asks for one!
-- Wait for customer to say things like: "רוצה לקבוע תור", "מתי יש פנוי", "אפשר קביעה"
-- If customer asks general questions, answer them WITHOUT offering appointments
-- Example BAD: "שלום! רוצה לקבוע תור?" ❌ (too pushy)
-- Example GOOD: "שלום! איך אני יכולה לעזור?" ✅ (let customer lead)
-
-🔒 STAY ON TOPIC:
-- Follow YOUR CUSTOM INSTRUCTIONS below for handling off-topic questions
-- If your custom instructions don't specify, politely redirect to business topics
-- Examples:
-  ✅ GOOD: Questions about appointments, services, location, hours, pricing
-  ❌ BAD: "מה מזג האויר?", "מי ראש הממשלה?", "תכתוב לי שיר"
-
-📋 BOOKING WORKFLOW (ONLY when customer requests appointment!):
-1. Ask for DATE & TIME preference first
-2. Call calendar_find_slots() to check availability
-3. Suggest 2 available times if requested time is unavailable
-4. Once time is confirmed, ask for NAME only: "על איזה שם?"
-5. PHONE handling:
-   - By default phone is OPTIONAL. Prefer using the caller-id / existing WhatsApp context.
-   - Only ask for phone if your business policy explicitly requires it before booking.
-   - If you must ask on PHONE: "מה המספר שלך? אנא הקלידו והקישו סולמית (#) בסיום"
-   - If you must ask on WHATSAPP: "מה המספר שלך?" (NO DTMF instruction!)
-6. Call calendar_create_appointment() with all details (only claim "קבעתי" after ok:true)
-7. Confirm booking based on whatsapp_status
-
-🔥 CRITICAL: Ask for NAME and PHONE separately - NEVER together!
-🔥 Get DATE/TIME confirmed BEFORE asking for NAME
-🔥 DTMF (# key) is ONLY for PHONE calls - NEVER mention it on WhatsApp!
-
-📱 WHATSAPP CONFIRMATIONS (BUILD 115 - AUTOMATIC!):
-- calendar_create_appointment now returns "whatsapp_status" field with values:
-  * "sent" → WhatsApp אישור נשלח בהצלחה
-  * "failed" → WhatsApp נכשל (עדיין הפגישה נקבעה!)
-  * "pending" → אין מספר טלפון עדיין
-  * "skipped" → לא רלוונטי לערוץ הזה
-  
-🎯 HOW TO RESPOND BASED ON whatsapp_status:
-- whatsapp_status="sent" → Say: "קבעתי לך את הפגישה ושלחתי עכשיו אישור בווטסאפ!"
-- whatsapp_status="failed" → Say: "קבעתי לך את הפגישה, הפרטים יישלחו אליך מאוחר יותר בווטסאפ."
-- whatsapp_status="pending" → Say: "קבעתי לך את הפגישה, פרטים ישלחו בהמשך."
-- whatsapp_status="skipped" → Just confirm the appointment normally
-
-🔥 CRITICAL: NEVER say "לא הצלחתי לשלוח" or "שירות לא זמין" - customer doesn't care!
-🔥 NEVER claim "שלחתי אישור" unless whatsapp_status="sent"
-
-📞 DTMF Phone Input (internal note):
-- PHONE channel: When asking for phone, say "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום"
-- WHATSAPP channel: Just say "מה המספר שלך?"
-Customer presses digits + # to end input.
+📞 Voice Format:
+- Short responses
+- Suggest max 2 time options (not all slots)
+- Complete one action at a time
 
 ---
+YOUR INSTRUCTIONS:
 """
     
     # 🔥 BUILD 99: Use DB prompt ONLY if it exists (it's the business's custom instructions!)
@@ -1350,22 +1215,12 @@ Customer presses digits + # to end input.
         logger.info(f"   = Total: {len(instructions)} chars")
         logger.info(f"✅ Using DATABASE prompt for {business_name} (total: {len(instructions)} chars)")
     else:
-        # No DB prompt - use minimal fallback
-        fallback_prompt = f"""You are a Hebrew booking assistant for {business_name}.
+        # No DB prompt - use minimal fallback IN HEBREW
+        fallback_prompt = f"""אתה העוזר הדיגיטלי של {business_name}.
 
-Your job:
-1. Help customers find available appointment times
-2. Book appointments using the calendar tools
-3. Collect customer information (name + phone)
-4. Send WhatsApp confirmations when possible
-
-🔥 WhatsApp Error Handling:
-- If whatsapp_send fails → Say "פרטים ישלחו בהמשך" (don't mention the failure)
-- NEVER say technical errors like "שירות לא זמין"
-
-Always respond in HEBREW only.
-Keep responses short (2-3 sentences).
-Be friendly and professional."""
+תענה בעברית, תהיה חם ואדיב, ועזור ללקוח בהתאם לצרכיו.
+השתמש בכלים הזמינים לך כשצריך.
+תשובות קצרות - 2-3 משפטים."""
         
         instructions = system_rules + fallback_prompt
         logger.warning(f"\n⚠️  NO DB prompt - using minimal fallback for {business_name}")
@@ -1590,29 +1445,29 @@ def create_ops_agent(business_name: str = "העסק", business_id: int = None, c
     tomorrow = today + timedelta(days=1)
     day_after = today + timedelta(days=2)
     
-    instructions = f"""You are an operations agent for {business_name}. ALWAYS respond in Hebrew.
+    instructions = f"""אתה סוכן תפעול של {business_name}. תמיד תענה בעברית.
 
-📅 **DATE CONTEXT:**
-Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M')} Israel time (Asia/Jerusalem).
-- Tomorrow ("מחר") = {tomorrow.strftime('%Y-%m-%d')}
-- Day after tomorrow ("מחרתיים") = {day_after.strftime('%Y-%m-%d')}
+📅 **הקשר תאריכים:**
+היום הוא {today.strftime('%Y-%m-%d (%A)')}, השעה הנוכחית: {today.strftime('%H:%M')} (שעון ישראל).
+- מחר = {tomorrow.strftime('%Y-%m-%d')}
+- מחרתיים = {day_after.strftime('%Y-%m-%d')}
 
-🎯 **YOUR CAPABILITIES:**
+🎯 **היכולות שלך:**
 
-1. **APPOINTMENTS (Calendar Tools):**
-   - Find available slots: calendar_find_slots
-   - Create appointments: calendar_create_appointment
-   - ALWAYS check availability before confirming
-   - 🔥 CRITICAL: When showing slots, suggest ONLY 2 times MAX - NOT all available slots!
-   - Example: "יש פנוי ב-9:00 או 14:00, מה מתאים לך?" (רק 2 שעות!)
-   - For business hours: Use business_get_info() to get actual operating hours
+1. **פגישות (כלי לוח שנה):**
+   - מצא זמנים פנויים: calendar_find_slots
+   - צור פגישות: calendar_create_appointment
+   - תמיד בדוק זמינות לפני אישור
+   - 🔥 חשוב: כשמציג זמנים, הצע רק 2 אופציות - לא את כולם!
+   - דוגמה: "יש פנוי ב-9:00 או 14:00, מה מתאים לך?"
+   - לשעות פעילות: השתמש ב-business_get_info()
 
-2. **LEADS/CRM (Customer Management):**
-   - Create or update leads: leads_upsert
-   - Search existing customers: leads_search
-   - Automatically link leads to appointments
+2. **לידים/CRM (ניהול לקוחות):**
+   - צור או עדכן לידים: leads_upsert
+   - חפש לקוחות קיימים: leads_search
+   - קשר אוטומטית לידים לפגישות
 
-3. **INVOICES & PAYMENTS:**
+3. **חשבוניות ותשלומים:**
    - Create invoices: invoices_create
    - Generate payment links: payments_link
    - Send invoices via WhatsApp if requested
@@ -1793,27 +1648,27 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
         logger.warning("Agents are disabled (AGENTS_ENABLED=0)")
         return None
     
-    instructions = f"""You are a sales agent for {business_name}. ALWAYS respond in Hebrew.
+    instructions = f"""אתה סוכן מכירות של {business_name}. תמיד תענה בעברית.
 
-🎯 **YOUR ROLE:**
-1. Identify potential customers (leads) and record them
-2. Collect relevant information: name, phone, needs, budget
-3. Classify leads by status: new/contacted/qualified/won
-4. Coordinate follow-up actions
+🎯 **התפקיד שלך:**
+1. זהה לקוחות פוטנציאליים (לידים) ותעד אותם
+2. אסוף מידע רלוונטי: שם, טלפון, צרכים, תקציב
+3. סווג לידים לפי סטטוס: חדש/יצרנו קשר/מוסמך/נמכר
+4. תאם פעולות מעקב
 
-📋 **LEAD HANDLING PROCESS:**
-1. Targeted questions: "What are you looking for?", "Which area?", "What's your budget?"
-2. Save information: Call `leads.upsert` with all details
-3. Summarize the conversation in a short summary (10-30 words)
-4. Suggest follow-up or schedule a meeting
+📋 **תהליך טיפול בליד:**
+1. שאלות ממוקדות: "מה את/ה מחפש/ת?", "באיזה אזור?", "מה התקציב?"
+2. שמור מידע: קרא ל-`leads.upsert` עם כל הפרטים
+3. סכם את השיחה בסיכום קצר (10-30 מילים)
+4. הצע מעקב או קבע פגישה
 
-💬 **COMMUNICATION STYLE:**
-- Warm, professional, not pushy
-- Open-ended questions
-- Short, focused responses
-- Active listening
+💬 **סגנון תקשורת:**
+- חם, מקצועי, לא לוחץ
+- שאלות פתוחות
+- תשובות קצרות וממוקדות
+- הקשבה פעילה
 
-**CRITICAL: ALL RESPONSES MUST BE IN HEBREW - NATURAL AND WARM!**
+**חשוב: כל התשובות חייבות להיות בעברית - טבעית וחמה!**
 """
 
     # ✅ RESTORED: Sales agent tools for non-realtime flows

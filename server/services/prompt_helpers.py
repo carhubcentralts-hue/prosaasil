@@ -20,9 +20,9 @@ def get_default_hebrew_prompt_for_calls(business_name: str = "העסק שלנו"
     
     Used by: realtime_prompt_builder fallback chain (last resort)
     """
-    return f"""You are a voice assistant for {business_name}.
-Default language: Hebrew.
-Respond naturally and briefly."""
+    return f"""אתה עוזר קולי של {business_name}.
+שפת ברירת מחדל: עברית.
+תענה בצורה טבעית וקצרה."""
 
 
 def get_default_hebrew_prompt_for_whatsapp(business_name: str = "העסק שלנו") -> str:
@@ -36,5 +36,5 @@ def get_default_hebrew_prompt_for_whatsapp(business_name: str = "העסק שלנ
     
     Used by: ai_service fallback chain (last resort)
     """
-    return f"""You are a messaging assistant for {business_name} on WhatsApp.
-Respond in Hebrew naturally."""
+    return f"""אתה עוזר הודעות של {business_name} ב-WhatsApp.
+תענה בעברית בצורה טבעית."""
