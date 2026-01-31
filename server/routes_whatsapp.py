@@ -1094,7 +1094,8 @@ def baileys_webhook():
                         business = Business.query.get(business_id)
                         if business:
                             # Use whatsapp_greeting first, then greeting_message, then generic message
-                            response_text = business.whatsapp_greeting or business.greeting_message
+                            # 🔥 FIX: Explicit None checks to handle empty strings correctly
+                            response_text = business.whatsapp_greeting if business.whatsapp_greeting is not None else business.greeting_message
                             if not response_text:
                                 response_text = "תודה על הפנייה. נציג יחזור אליך בהקדם."
                         else:
@@ -1239,14 +1240,15 @@ def baileys_webhook():
                 log.info(f"[WA-SEND-DEBUG] reply_jid={reply_jid[:30]}, response_text_length={len(response_text) if response_text else 0}")
                 
                 # 🔥 CRITICAL: Verify response_text is not empty before sending
-                if not response_text or not response_text.strip():
+                if not response_text or response_text.isspace():
                     log.error(f"[WA-ERROR] ❌ AgentKit returned empty response! Cannot send empty message.")
                     # Try to send a fallback message instead of silence
                     try:
                         from server.models_sql import Business
                         business = Business.query.get(business_id)
                         if business:
-                            response_text = business.whatsapp_greeting or business.greeting_message or "תודה על הפנייה."
+                            # 🔥 FIX: Explicit None checks to handle empty strings correctly
+                            response_text = business.whatsapp_greeting if business.whatsapp_greeting is not None else (business.greeting_message if business.greeting_message is not None else "תודה על הפנייה.")
                         else:
                             response_text = "תודה על הפנייה."
                         log.warning(f"[WA-WARN] Using fallback response: {response_text[:50]}...")
