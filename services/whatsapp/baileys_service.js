@@ -214,12 +214,16 @@ const messageDedup = new Map(); // (tenantId:remoteJid:message_id) -> timestamp 
 const MAX_QUEUE_SIZE = 1000;
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [5000, 10000, 30000, 60000, 120000]; // 5s, 10s, 30s, 1m, 2m
-const DEDUP_CLEANUP_MS = 120000; // 🔥 FIX: Reduced to 2 minutes (120 seconds) for LID support
-const DEDUP_CLEANUP_HOUR_MS = 120000; // 🔥 FIX: 2 minutes for dedup entry retention (prevents dropping WhatsApp retries)
+// 🔥 CRITICAL FIX: Dedup cleanup must be LONGER than max retry time
+// Max retry time = 5s + 10s + 30s + 60s + 120s = 225s (3.75 minutes)
+// Set cleanup to 5 minutes to ensure retries can find their dedup entries
+const DEDUP_CLEANUP_MS = 300000; // 5 minutes (300 seconds)
+const DEDUP_CLEANUP_HOUR_MS = 300000; // 5 minutes for dedup entry retention
 const DEDUP_MAX_SIZE = 5000; // Increased from 1000 for high-volume usage
 
 // 🔥 PERFORMANCE FIX: Single cleanup interval with longer period to reduce CPU usage
-// Cleanup dedup entries older than 2 minutes to prevent memory leaks while supporting WhatsApp retries
+// Cleanup dedup entries older than 5 minutes to prevent memory leaks
+// This is longer than max retry time (3.75 min) to ensure retries work correctly
 setInterval(() => {
   const now = Date.now();
   let cleaned = 0;
@@ -348,7 +352,7 @@ setInterval(() => {
 }, 10000); // Check every 10 seconds
 
 async function retryWebhookDelivery(item) {
-  const { tenantId, messageId, payload, attempts } = item;
+  const { tenantId, messageId, remoteJid, payload, attempts } = item;
   
   try {
     console.log(`[${tenantId}] 🔄 Retrying webhook delivery (attempt ${attempts + 1}/${MAX_RETRY_ATTEMPTS})`);
@@ -365,8 +369,9 @@ async function retryWebhookDelivery(item) {
     );
     
     console.log(`[${tenantId}] ✅ Webhook retry succeeded: ${response.status}`);
-    // Remove from dedup map after successful delivery
-    messageDedup.delete(`${tenantId}:${messageId}`);
+    // Remove from dedup map after successful delivery using correct key format
+    const dedupKey = `${tenantId}:${remoteJid}:${messageId}`;
+    messageDedup.delete(dedupKey);
     
     // 🔥 FIX #3: Save queue after successful delivery
     saveQueueToDisk();
@@ -385,7 +390,9 @@ async function retryWebhookDelivery(item) {
       saveQueueToDisk();
     } else {
       console.error(`[${tenantId}] ❌ Max retry attempts reached - dropping message ${messageId}`);
-      messageDedup.delete(`${tenantId}:${messageId}`);
+      // Use correct dedup key format when removing
+      const dedupKey = `${tenantId}:${remoteJid || ''}:${messageId}`;
+      messageDedup.delete(dedupKey);
       
       // 🔥 FIX #3: Save queue after dropping message
       saveQueueToDisk();
@@ -1734,15 +1741,16 @@ async function startSession(tenantId, forceRelink = false) {
         };
         
         // 🔥 FIX #1: Wrap webhook call with fail-safe and queue
+        // 🔥 CRITICAL FIX: Send payload directly, not nested under another payload key
         try {
           const response = await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,
-            { tenantId, payload: filteredPayload },
+            filteredPayload,
             { 
               headers: { 
                 'Content-Type': 'application/json',
                 'X-Internal-Secret': INTERNAL_SECRET 
               },
-              timeout: 15000  // 15 second timeout
+              timeout: 30000  // 30 second timeout - increased for slow Flask processing
             }
           );
           console.log(`[${tenantId}] ✅ Webhook→Flask success:`, response.status);
@@ -1759,9 +1767,11 @@ async function startSession(tenantId, forceRelink = false) {
             console.error(`[${tenantId}] Flask response:`, e.response.status, e.response.data);
           }
           
-          // 🔥 FIX #1: Queue messages for retry if backend is down
+          // 🔥 FIX #1: Queue messages for retry if backend is down or rate limited
+          // Include 429 (rate limit) and 503 (service unavailable) for retry
           if (e?.code === 'EAI_AGAIN' || e?.code === 'ENOTFOUND' || e?.code === 'ECONNREFUSED' || 
-              e?.code === 'ETIMEDOUT' || (e.response && e.response.status >= 500)) {
+              e?.code === 'ETIMEDOUT' || 
+              (e.response && (e.response.status >= 500 || e.response.status === 429))) {
             
             // Add to retry queue
             for (const msg of newMessages) {
@@ -1769,10 +1779,14 @@ async function startSession(tenantId, forceRelink = false) {
               if (!messageId) continue;
               
               if (messageQueue.length < MAX_QUEUE_SIZE) {
+                // Store the remoteJid for proper dedup key reconstruction
+                const msgRemoteJid = msg.key?.remoteJid || '';
+                
                 messageQueue.push({
                   tenantId,
                   messageId,
-                  payload: { tenantId, payload: { ...payload, messages: [msg] } },
+                  remoteJid: msgRemoteJid,  // Store for dedup key reconstruction
+                  payload: { ...payload, messages: [msg] },  // Use filtered payload structure
                   attempts: 0,
                   lastAttempt: Date.now(),
                   createdAt: Date.now()
