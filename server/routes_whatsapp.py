@@ -8,6 +8,8 @@ from server.db import db
 from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
 from server.services.whatsapp_session_service import update_session_activity
 from server.agent_tools.phone_utils import normalize_phone
+from server.services.jobs import enqueue_job
+from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,9 @@ internal_whatsapp_bp = Blueprint('internal_whatsapp', __name__, url_prefix='/api
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 log = logging.getLogger(__name__)
+
+# 🔥 FIX: Default fallback message for when business greeting is not available
+DEFAULT_FALLBACK_MESSAGE = "תודה על הפנייה. נציג יחזור אליך בהקדם."
 
 # BUILD 136: REMOVED hardcoded business_1 - now uses tenant_id_from_ctx() dynamically
 # Helper function to get tenant-specific auth directory
@@ -719,6 +724,12 @@ def baileys_webhook():
                 from_me = msg.get('key', {}).get('fromMe', False)
                 log.info(f"[WA-INCOMING] 🔵 Incoming chat_jid={remote_jid}, message_id={message_id}, from_me={from_me}")
                 
+                # 🔥 CRITICAL FIX: Skip messages from bot itself (fromMe=true)
+                # The bot should ONLY process messages from users, not its own messages
+                if from_me:
+                    log.info(f"[WA-SKIP] Ignoring message from bot itself (fromMe=true)")
+                    continue
+                
                 # 🔥 BUG FIX: Create safe identifier for logging/DB from remoteJid
                 # This prevents NameError when logging unknown message formats
                 from_identifier = remote_jid.replace('@', '_').replace('.', '_') if remote_jid else 'unknown'
@@ -868,6 +879,7 @@ def baileys_webhook():
                 # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!
                 # Sometimes Baileys sends bot's outbound messages back as "incoming"
                 # 🔥 BUILD 180: Check both 'out' and 'outbound' for backwards compatibility
+                # 🔥 FIX: Only check for EXACT match, not substring, to avoid false positives
                 recent_outbound = WhatsAppMessage.query.filter(
                     WhatsAppMessage.business_id == business_id,
                     WhatsAppMessage.to_number == from_number_e164,
@@ -877,18 +889,14 @@ def baileys_webhook():
                 if recent_outbound:
                     from datetime import datetime, timedelta
                     time_diff = datetime.utcnow() - recent_outbound.created_at
-                    # If we sent a similar message in the last 30 seconds, skip
-                    if time_diff < timedelta(seconds=30):
-                        # Check if message content is similar (our response echoing)
-                        if recent_outbound.body and message_text in recent_outbound.body:
-                            logger.info(f"🚫 LOOP PREVENTED: Ignoring echo of our own message to {from_number_e164}")
-                            log.warning(f"🚫 Ignoring bot echo: {message_text[:50]}...")
-                            continue
-                        # Also skip if message looks like AI response (Hebrew AI phrases)
-                        ai_markers = ['אני כאן', 'כדי לעזור', 'תיאום פגישות', 'אשמח לעזור', 'שלום', 'ברוכים הבאים']
-                        if any(marker in message_text for marker in ai_markers) and len(message_text) > 50:
-                            logger.info(f"🚫 LOOP PREVENTED: Ignoring AI-like message: {message_text[:50]}...")
-                            log.warning(f"🚫 Skipping AI-like message (possible echo)")
+                    # If we sent the EXACT SAME message in the last 10 seconds, skip (likely echo)
+                    # 🔥 FIX: Changed from 30s to 10s and from substring to exact match
+                    if time_diff < timedelta(seconds=10):
+                        # Check if message content is EXACTLY the same (exact echo)
+                        # 🔥 FIX: Changed from "message_text in recent_outbound.body" to equality check
+                        if recent_outbound.body and message_text.strip() == recent_outbound.body.strip():
+                            logger.info(f"🚫 LOOP PREVENTED: Ignoring exact echo of our own message to {from_number_e164}")
+                            log.warning(f"🚫 Ignoring bot echo (exact match): {message_text[:50]}...")
                             continue
                 
                 log.info(f"[WA-INCOMING] biz={business_id}, from={from_number_e164}, remoteJid={remote_jid}, text={message_text[:50]}...")
@@ -1080,11 +1088,50 @@ def baileys_webhook():
                     ai_enabled = True  # Explicitly set to True on error
                     log.warning(f"[WA-WARN] Could not check AI state: {e}")
                 
-                # If AI is disabled, skip AI response generation
+                # If AI is disabled, send a basic acknowledgment instead of silence
+                # 🔥 FIX: Bot should ALWAYS respond, even if AI is disabled
                 if not ai_enabled:
-                    log.info(f"[WA-INCOMING] AI disabled for {check_phone if 'check_phone' in locals() else from_number_e164} - skipping AI response")
+                    log.info(f"[WA-INCOMING] AI disabled for {check_phone if 'check_phone' in locals() else from_number_e164} - sending basic acknowledgment")
+                    
+                    # Try to get business greeting as fallback response
+                    try:
+                        business = Business.query.get(business_id)
+                        if business:
+                            # Use whatsapp_greeting first, then greeting_message, then default
+                            response_text = business.whatsapp_greeting or business.greeting_message or DEFAULT_FALLBACK_MESSAGE
+                        else:
+                            response_text = DEFAULT_FALLBACK_MESSAGE
+                    except Exception as e:
+                        log.warning(f"[WA-WARN] Could not fetch business greeting: {e}")
+                        response_text = DEFAULT_FALLBACK_MESSAGE
+                    
+                    # 🔥 FIX: Validate response is not empty or whitespace
+                    if not response_text or response_text.isspace():
+                        response_text = DEFAULT_FALLBACK_MESSAGE
+                    
+                    # Send the basic acknowledgment
+                    log.info(f"[WA-OUTGOING] 📤 Sending basic ack to jid={reply_jid}, text={str(response_text)[:50]}...")
+                    
+                    try:
+                        job = enqueue_job(
+                            queue_name='default',
+                            func=send_whatsapp_message_job,
+                            business_id=business_id,
+                            tenant_id=tenant_id,
+                            remote_jid=reply_jid,
+                            response_text=response_text,
+                            wa_msg_id=wa_msg.id,
+                            timeout=60,
+                            retry=2,
+                            description=f"Send WhatsApp basic ack to {reply_jid[:15]}"
+                        )
+                        log.info(f"[WA-OUTGOING] ✅ Basic ack job enqueued: {job.id[:8]}")
+                        processed_count += 1
+                    except Exception as enqueue_error:
+                        log.error(f"[WA-OUTGOING] ❌ Failed to enqueue basic ack: {enqueue_error}")
+                    
                     msg_duration = time.time() - msg_start
-                    log.info(f"[WA-INCOMING] Message saved (no AI response) in {msg_duration:.2f}s")
+                    log.info(f"[WA-INCOMING] Basic ack sent (AI disabled) in {msg_duration:.2f}s")
                     continue
                 
                 # ✅ FIX: Load conversation history for AI context (12 messages for better context)
@@ -1111,6 +1158,9 @@ def baileys_webhook():
                 # ✅ BUILD 119: Generate AI response with Agent SDK (real actions!)
                 # ✅ BUILD 170.1: Improved error handling - use DB prompt even on fallback!
                 # 🔥 BUILD 170.1: Clear any poisoned DB session before AI call!
+                # 🔥 FIX: Add explicit logging to show AgentKit is about to be invoked
+                log.info(f"[WA-AI-READY] ✅ Message passed all filters, invoking AgentKit now!")
+                log.info(f"[WA-AI-READY] Parameters: business_id={business_id}, lead_id={lead.id}, from={from_number_e164}, jid={remote_jid[:30]}")
                 try:
                     db.session.rollback()
                 except:
@@ -1191,17 +1241,31 @@ def baileys_webhook():
                 # 🔥 BUILD 200 DEBUG: Log before sending
                 log.info(f"[WA-SEND-DEBUG] reply_jid={reply_jid[:30]}, response_text_length={len(response_text) if response_text else 0}")
                 
+                # 🔥 CRITICAL: Verify response_text is not empty before sending
+                if not response_text or response_text.isspace():
+                    log.error(f"[WA-ERROR] ❌ AgentKit returned empty response! Cannot send empty message.")
+                    # Try to send a fallback message instead of silence
+                    try:
+                        business = Business.query.get(business_id)
+                        if business:
+                            response_text = business.whatsapp_greeting or business.greeting_message or DEFAULT_FALLBACK_MESSAGE
+                        else:
+                            response_text = DEFAULT_FALLBACK_MESSAGE
+                        log.warning(f"[WA-WARN] Using fallback response: {response_text[:50]}...")
+                    except Exception as e:
+                        log.error(f"[WA-ERROR] Could not fetch fallback: {e}")
+                        log.error(f"[WA-ERROR] Skipping message - cannot send empty response")
+                        continue
+                
                 # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
                 # This ensures Android messages with @lid, @g.us, etc. get proper replies
                 # 🔥 LID FIX: Use reply_jid (which prefers @s.whatsapp.net over @lid)
-                log.info(f"[WA-OUTGOING] 📤 Sending reply to jid={reply_jid}, text={str(response_text)[:50]}...")
+                log.info(f"[WA-OUTGOING] 📤 Sending AI reply to jid={reply_jid}, text={str(response_text)[:50]}...")
+                log.info(f"[WA-OUTGOING] 🤖 AgentKit successfully generated response, now enqueueing send job")
                 
                 # 🔥 REMOVED THREADING: Use RQ job for WhatsApp sending
                 # This ensures proper retry, error handling, and no thread proliferation
                 try:
-                    from server.services.jobs import enqueue_job
-                    from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
-                    
                     # 🔥 BUILD 200 DEBUG: Log parameters before enqueue
                     log.info(f"[WA-ENQUEUE-DEBUG] business_id={business_id}, tenant_id={tenant_id}, reply_jid={reply_jid[:30]}, msg_length={len(response_text)}")
                     
@@ -1218,6 +1282,7 @@ def baileys_webhook():
                         description=f"Send WhatsApp to {reply_jid[:15]}"
                     )
                     log.info(f"[WA-OUTGOING] ✅ Job enqueued: {job.id[:8]} for message {wa_msg.id}, target={reply_jid[:20]}")
+                    log.info(f"[WA-SUCCESS] ✅✅✅ FULL FLOW COMPLETED: webhook → AgentKit → sendMessage queued ✅✅✅")
                 except Exception as enqueue_error:
                     log.error(f"[WA-OUTGOING] ❌ Failed to enqueue WhatsApp send: {enqueue_error}")
                     # Fall back to synchronous send if enqueue fails
