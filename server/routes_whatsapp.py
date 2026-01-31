@@ -1111,7 +1111,7 @@ def baileys_webhook():
                         else:
                             previous_messages.append(f"עוזר: {msg_hist.body}")  # ✅ כללי - לא hardcoded!
                     
-                     log.info(f"📚 Loaded {len(previous_messages)} previous messages for context")
+                    log.info(f"📚 Loaded {len(previous_messages)} previous messages for context")
                 except Exception as e:
                     log.warning(f"⚠️ Could not load conversation history: {e}")
                 
