@@ -17,8 +17,8 @@ def read_service_file():
         return f.read()
 
 def test_fix_1_webhook_payload_not_nested():
-    """Test that webhook payload is sent directly, not nested"""
-    print("🧪 Test Fix #1: Webhook payload structure (not double-wrapped)\n")
+    """Test that webhook payload includes tenantId at root level"""
+    print("🧪 Test Fix #1: Webhook payload structure (includes tenantId)\n")
     
     content = read_service_file()
     
@@ -30,27 +30,24 @@ def test_fix_1_webhook_payload_not_nested():
         return False
     
     # Find the webhook call after filteredPayload
-    webhook_section = content[filtered_payload_idx:filtered_payload_idx + 1000]
+    webhook_section = content[filtered_payload_idx:filtered_payload_idx + 1500]
     
-    # Check that we're NOT wrapping payload in another object
-    if '{ tenantId, payload: filteredPayload }' in webhook_section:
-        print("❌ FAIL - Payload is still double-wrapped")
-        print("   Found: { tenantId, payload: filteredPayload }")
-        print("   This will cause Flask to receive nested structure")
+    # Check that we ARE wrapping with tenantId (this is what Flask expects!)
+    # Flask expects: { tenantId: 'xxx', payload: { messages: [...] } }
+    if 'const webhookPayload' in webhook_section and 'tenantId' in webhook_section:
+        if 'payload: filteredPayload' in webhook_section:
+            print("✅ PASS - Payload correctly includes tenantId at root level")
+            print("   Structure: { tenantId, payload: filteredPayload }")
+            print("   Flask expects: data.get('tenantId') and data.get('payload', {})")
+            return True
+    
+    # Check for old incorrect behavior (sending filteredPayload directly)
+    if 'axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,\n            filteredPayload,' in webhook_section:
+        print("❌ FAIL - Payload sent directly without tenantId wrapper")
+        print("   Flask will return 400 error: missing_tenant_id")
         return False
     
-    # Check for direct payload send
-    if 'axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,\n            filteredPayload,' in webhook_section:
-        print("✅ PASS - Payload sent directly (not nested)")
-        print("   Flask will receive correct structure")
-        return True
-    
     print("⚠️  WARNING - Could not verify payload structure clearly")
-    # Do a secondary check
-    if 'filteredPayload,' in webhook_section and '{ tenantId, payload:' not in webhook_section:
-        print("✅ PASS - Payload appears to be sent directly")
-        return True
-    
     return False
 
 def test_fix_3_dedup_cleanup_timing():
