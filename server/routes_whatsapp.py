@@ -1086,50 +1086,12 @@ def baileys_webhook():
                     ai_enabled = True  # Explicitly set to True on error
                     log.warning(f"[WA-WARN] Could not check AI state: {e}")
                 
-                # If AI is disabled, send a basic acknowledgment instead of silence
-                # 🔥 FIX: Bot should ALWAYS respond, even if AI is disabled
+                # If AI is disabled, skip sending any response
+                # User requirement: When AI is OFF, don't send ANY message at all
                 if not ai_enabled:
-                    log.info(f"[WA-INCOMING] AI disabled for {check_phone if 'check_phone' in locals() else from_number_e164} - sending basic acknowledgment")
-                    
-                    # Try to get business greeting as fallback response
-                    try:
-                        business = Business.query.get(business_id)
-                        if business:
-                            # Use whatsapp_greeting first, then greeting_message, then default
-                            response_text = business.whatsapp_greeting or business.greeting_message or DEFAULT_FALLBACK_MESSAGE
-                        else:
-                            response_text = DEFAULT_FALLBACK_MESSAGE
-                    except Exception as e:
-                        log.warning(f"[WA-WARN] Could not fetch business greeting: {e}")
-                        response_text = DEFAULT_FALLBACK_MESSAGE
-                    
-                    # 🔥 FIX: Validate response is not empty or whitespace
-                    if not response_text or response_text.isspace():
-                        response_text = DEFAULT_FALLBACK_MESSAGE
-                    
-                    # Send the basic acknowledgment
-                    log.info(f"[WA-OUTGOING] 📤 Sending basic ack to jid={reply_jid}, text={str(response_text)[:50]}...")
-                    
-                    try:
-                        job = enqueue_job(
-                            queue_name='default',
-                            func=send_whatsapp_message_job,
-                            business_id=business_id,
-                            tenant_id=tenant_id,
-                            remote_jid=reply_jid,
-                            response_text=response_text,
-                            wa_msg_id=wa_msg.id,
-                            timeout=60,
-                            retry=2,
-                            description=f"Send WhatsApp basic ack to {reply_jid[:15]}"
-                        )
-                        log.info(f"[WA-OUTGOING] ✅ Basic ack job enqueued: {job.id[:8]}")
-                        processed_count += 1
-                    except Exception as enqueue_error:
-                        log.error(f"[WA-OUTGOING] ❌ Failed to enqueue basic ack: {enqueue_error}")
-                    
+                    log.info(f"[WA-INCOMING] 🚫 AI disabled for {check_phone if 'check_phone' in locals() else from_number_e164} - skipping response (no message sent)")
                     msg_duration = time.time() - msg_start
-                    log.info(f"[WA-INCOMING] Basic ack sent (AI disabled) in {msg_duration:.2f}s")
+                    log.info(f"[WA-INCOMING] Message processed (AI disabled, no response) in {msg_duration:.2f}s")
                     continue
                 
                 # ✅ FIX: Load conversation history for AI context (12 messages for better context)

@@ -8,6 +8,7 @@ import os
 import logging
 import time
 import re
+import asyncio
 from typing import Dict, Any, Optional, List, Literal
 from openai import OpenAI
 from server.models_sql import BusinessSettings, PromptRevisions, Business, AgentTrace
@@ -912,10 +913,23 @@ class AIService:
             if customer_name:
                 agent_context['customer_name'] = customer_name
             
-            # Run agent
+            # Run agent (runner.run is async, so we need to await it)
             logger.info(f"[AGENTKIT] Running agent with message: '{message[:50]}...'")
             runner = Runner()
-            result = runner.run(agent, message, context=agent_context)
+            
+            # 🔥 FIX: runner.run() is async, so we need to await it properly
+            # Create the coroutine once to avoid duplication
+            agent_coroutine = runner.run(agent, message, context=agent_context)
+            
+            # Check if we're already in an async context
+            try:
+                # Try to get the running event loop
+                loop = asyncio.get_running_loop()
+                # We're in an async context, use the current loop
+                result = loop.run_until_complete(agent_coroutine)
+            except RuntimeError:
+                # No running event loop, safe to use asyncio.run()
+                result = asyncio.run(agent_coroutine)
             
             # Extract response text
             reply_text = ""
