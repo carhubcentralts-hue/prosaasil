@@ -144,7 +144,7 @@ logger.info("🔍 Performing quick schema check...")
 logger.info(f"📍 STRICT_SCHEMA_CHECK: {STRICT_SCHEMA_CHECK}")
 
 def quick_schema_check():
-    """Check for missing critical tables. Returns list of missing tables or None."""
+    """Check for missing critical tables. Returns list of missing tables (empty if all present)."""
     try:
         with app.app_context():
             from server.db import db
@@ -162,11 +162,11 @@ def quick_schema_check():
                 if not result.fetchone():
                     missing_tables.append(table)
             
-            return missing_tables if missing_tables else None
+            return missing_tables
             
     except Exception as e:
         logger.warning(f"⚠️ Could not perform schema check: {e}")
-        return None
+        return []  # Return empty list on error to allow worker to continue
 
 missing = quick_schema_check()
 if missing:

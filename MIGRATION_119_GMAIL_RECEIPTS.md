@@ -99,9 +99,9 @@ STRICT_SCHEMA_CHECK=1  # Strict mode (exits on missing tables)
 STRICT_SCHEMA_CHECK = os.getenv("STRICT_SCHEMA_CHECK", "0") == "1"
 
 def quick_schema_check():
-    """Check for missing critical tables. Returns list of missing tables or None."""
+    """Check for missing critical tables. Returns list of missing tables (empty if all present)."""
     # ... checks for critical tables ...
-    return missing_tables if missing_tables else None
+    return missing_tables  # Returns [] if all tables present
 
 missing = quick_schema_check()
 if missing:
