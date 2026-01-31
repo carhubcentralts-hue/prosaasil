@@ -23,7 +23,12 @@ server/data_api.py
 server/database_url.py
 server/database_validation.py
 server/db.py
+server/db_backfill.py
+server/db_backfills.py
+server/db_build_indexes.py
+server/db_indexes.py
 server/db_migrate.py
+server/db_run_backfills.py
 server/deploy_check.py
 server/echo_mode.py
 server/email_api.py
@@ -68,6 +73,7 @@ server/routes_push.py
 server/routes_receipts.py
 server/routes_receipts_contracts.py
 server/routes_recordings.py
+server/routes_scheduled_messages.py
 server/routes_search.py
 server/routes_smart_prompt_generator.py
 server/routes_status_management.py
@@ -117,6 +123,8 @@ server/jobs/push_send_job.py
 server/jobs/recording_job.py
 server/jobs/reminder_notification_job.py
 server/jobs/reminders_tick_job.py
+server/jobs/scheduled_messages_tick_job.py
+server/jobs/send_scheduled_whatsapp_job.py
 server/jobs/send_webhook_job.py
 server/jobs/send_whatsapp_message_job.py
 server/jobs/summarize_call_job.py
@@ -156,6 +164,7 @@ server/services/call_limiter.py
 server/services/call_state_machine.py
 server/services/calls_capacity.py
 server/services/city_normalizer.py
+server/services/contact_identity_service.py
 server/services/cost_metrics.py
 server/services/customer_intelligence.py
 server/services/dtmf_menu.py
@@ -197,6 +206,7 @@ server/services/receipt_amount_extractor.py
 server/services/receipt_preview_service.py
 server/services/recording_semaphore.py
 server/services/recording_service.py
+server/services/scheduled_messages_service.py
 server/services/status_webhook_service.py
 server/services/stt_service.py
 server/services/summary_service.py
