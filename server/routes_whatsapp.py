@@ -719,8 +719,13 @@ def baileys_webhook():
                 # We must reply to the EXACT remoteJid we received
                 remote_jid = msg.get('key', {}).get('remoteJid', '')
                 
+                # 🔥 FIX: Extract message metadata early to avoid UnboundLocalError
+                baileys_message_id = msg.get('key', {}).get('id', '')
+                jid = msg.get('key', {}).get('remoteJid', '')
+                timestamp_ms = msg.get('messageTimestamp', 0)
+                
                 # 🔥 LID FIX: Enhanced logging for incoming message identification
-                message_id = msg.get('key', {}).get('id', '')
+                message_id = baileys_message_id  # Use baileys_message_id for consistency
                 from_me = msg.get('key', {}).get('fromMe', False)
                 log.info(f"[WA-INCOMING] 🔵 Incoming chat_jid={remote_jid}, message_id={message_id}, from_me={from_me}")
                 
@@ -950,12 +955,6 @@ def baileys_webhook():
                     business_id=business_id,
                     phone_e164=lead.phone_e164
                 ).first() if lead.phone_e164 else None
-                
-                # Extract message_id from Baileys message structure
-                # This is critical for deduplication (same message_id = same message)
-                baileys_message_id = msg.get('key', {}).get('id', '')
-                jid = msg.get('key', {}).get('remoteJid', '')
-                timestamp_ms = msg.get('messageTimestamp', 0)
                 
                 # ✅ Check if message already exists (prevent duplicates from webhook retries)
                 # 🔥 ENHANCED: Triple-check deduplication with message_id + jid + timestamp
