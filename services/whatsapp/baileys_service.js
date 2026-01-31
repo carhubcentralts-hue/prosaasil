@@ -215,8 +215,9 @@ const MAX_QUEUE_SIZE = 1000;
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [5000, 10000, 30000, 60000, 120000]; // 5s, 10s, 30s, 1m, 2m
 // 🔥 CRITICAL FIX: Dedup cleanup must be LONGER than max retry time
-// Max retry time = 5s + 10s + 30s + 60s + 120s = 225s (3.75 minutes)
-// Set cleanup to 5 minutes to ensure retries can find their dedup entries
+// Max cumulative backoff time = 5s + 10s + 30s + 60s + 120s = 225s (3.75 minutes)
+// Note: This is just backoff delays, actual elapsed time will be longer
+// Set cleanup to 5 minutes to provide safe margin for retries
 const DEDUP_CLEANUP_MS = 300000; // 5 minutes (300 seconds)
 const DEDUP_CLEANUP_HOUR_MS = 300000; // 5 minutes for dedup entry retention
 const DEDUP_MAX_SIZE = 5000; // Increased from 1000 for high-volume usage
@@ -391,8 +392,13 @@ async function retryWebhookDelivery(item) {
     } else {
       console.error(`[${tenantId}] ❌ Max retry attempts reached - dropping message ${messageId}`);
       // Use correct dedup key format when removing
-      const dedupKey = `${tenantId}:${remoteJid || ''}:${messageId}`;
-      messageDedup.delete(dedupKey);
+      // If remoteJid is missing, log warning but still try to delete
+      if (remoteJid) {
+        const dedupKey = `${tenantId}:${remoteJid}:${messageId}`;
+        messageDedup.delete(dedupKey);
+      } else {
+        console.warn(`[${tenantId}] ⚠️ No remoteJid for message ${messageId} - cannot remove from dedup`);
+      }
       
       // 🔥 FIX #3: Save queue after dropping message
       saveQueueToDisk();
