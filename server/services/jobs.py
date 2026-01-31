@@ -203,12 +203,18 @@ def enqueue(
         log_context += f" run_id={run_id}"
     logger.info(f"{log_context} trace_id={trace_id[:8]}")
     
+    # 🔥 FIX: Pass business_id as kwarg to job function if it was provided
+    # This ensures job functions that require business_id receive it
+    job_func_kwargs = dict(kwargs)
+    if business_id is not None:
+        job_func_kwargs['business_id'] = business_id
+    
     # Enqueue job
     try:
         job = queue.enqueue(
             func,
             *args,
-            **kwargs,
+            **job_func_kwargs,
             **job_kwargs
         )
         return job
