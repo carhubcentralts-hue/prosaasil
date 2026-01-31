@@ -68,7 +68,7 @@ def send_whatsapp_message_job(
             wa_service = get_whatsapp_service(tenant_id)
             
             # Send message (handles retries internally)
-            success = wa_service.send_text(remote_jid, response_text, business_id=business_id)
+            result = wa_service.send_message(to=remote_jid, message=response_text, tenant_id=tenant_id)
             
             # Create outgoing message record
             try:
@@ -89,6 +89,9 @@ def send_whatsapp_message_job(
                 db.session.rollback()
             
             send_duration = time.time() - send_start
+            
+            # Check if send was successful (result is a dict with 'status' key)
+            success = result and (result.get('status') in ['sent', 'queued', 'accepted'])
             
             if success:
                 logger.info(f"[WA-SEND-JOB] ✅ Message sent successfully in {send_duration:.2f}s")

@@ -85,11 +85,14 @@ def send_scheduled_whatsapp_job(message_id: int):
             logger.info(f"[SEND-SCHEDULED-WA] Sending to {message.remote_jid[:20]}... (business {message.business_id})")
             
             try:
-                success = wa_service.send_text(
-                    remote_jid=message.remote_jid,
-                    text=message.message_text,
-                    business_id=message.business_id
+                result = wa_service.send_message(
+                    to=message.remote_jid,
+                    message=message.message_text,
+                    tenant_id=tenant_id
                 )
+                
+                # Check if send was successful (result is a dict with 'status' key)
+                success = result and (result.get('status') in ['sent', 'queued', 'accepted'])
                 
                 if success:
                     # Mark as sent
