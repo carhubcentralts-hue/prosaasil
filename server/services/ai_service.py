@@ -604,97 +604,124 @@ class AIService:
     def generate_response(self, message: str, business_id: int = None, context: Optional[Dict[str, Any]] = None, channel: str = "calls", is_first_turn: bool = False) -> str:
         """יצירת תגובה מפרומפט דינמי + הקשר - לפי ערוץ (calls/whatsapp)"""
         try:
-            # טעינת פרומפט עסק לפי ערוץ
-            prompt_data = self.get_business_prompt(business_id, channel)
-            
-            # ⚡ BUILD 117: First turn - NO SPECIAL LIMIT! Let AI finish complete sentences
-            # User requirement: "אם היא צריכה להסביר דקה שתסביר דקה" - let it speak as long as needed
-            if is_first_turn:
-                # Don't reduce max_tokens for first turn - keep the default 350 for complete sentences
-                logger.info(f"🎯 First turn - using full {prompt_data['max_tokens']} tokens for complete sentences")
-            
-            # בניית הודעות
-            messages: List[Dict[str, str]] = [
-                {"role": "system", "content": prompt_data["system_prompt"]}
-            ]
-            
-            # ✅ הוספת זמינות לוח שנה (רק ל-WhatsApp - לא לטלפון בגלל latency!)
+            # 🔥 NEW: WhatsApp uses the new Prompt Stack architecture
             if channel == "whatsapp":
-                calendar_info = self._get_calendar_availability(business_id)
-                if calendar_info:
-                    messages.append({
-                        "role": "system",
-                        "content": f"📅 לוח שנה:\n{calendar_info}\nכשהלקוח מוכן לפגישה, הצע תאריכים פנויים מהרשימה למעלה."
-                    })
-            
-            # הוספת הקשר אם קיים
-            if context:
-                # 🆕 CUSTOMER MEMORY: Add unified memory context (when available)
-                if context.get("customer_memory"):
-                    memory_text = context["customer_memory"]
-                    messages.append({
-                        "role": "system",
-                        "content": f"🧠 זיכרון לקוח (מכל הערוצים):\n{memory_text}"
-                    })
-                    logger.info(f"[MEMORY] Added customer memory to AI context ({len(memory_text)} chars)")
+                from server.services.whatsapp_prompt_stack import (
+                    build_whatsapp_prompt_stack,
+                    get_db_prompt_for_whatsapp,
+                    validate_prompt_stack_usage
+                )
                 
-                # 🆕 RETURNING CUSTOMER: Ask if they want to continue or start fresh
-                if context.get("ask_continue_or_fresh"):
-                    messages.append({
-                        "role": "system",
-                        "content": """⚠️ לקוח חוזר! אתה צריך לשאול: "שלום! רוצה שנמשיך מאיפה שעצרנו או להתחיל מחדש?"
+                # Load DB prompt (single source of truth)
+                db_prompt = get_db_prompt_for_whatsapp(business_id)
+                
+                # Build prompt stack with clean separation
+                messages = build_whatsapp_prompt_stack(
+                    business_id=business_id,
+                    db_prompt=db_prompt,
+                    context=context
+                )
+                
+                # Add current user message
+                messages.append({"role": "user", "content": message})
+                
+                # Validate stack (logs warnings/errors)
+                validation = validate_prompt_stack_usage(messages)
+                if not validation["valid"]:
+                    logger.error(f"❌ Invalid prompt stack: {validation['errors']}")
+                if validation["warnings"]:
+                    for warning in validation["warnings"]:
+                        logger.warning(f"⚠️ Prompt stack: {warning}")
+                
+                logger.info(f"✅ WhatsApp prompt stack: {validation['stats']}")
+                
+                # Load WhatsApp-specific settings
+                prompt_data = self.get_business_prompt(business_id, channel)
+                
+            else:
+                # Calls channel - use existing logic (unchanged)
+                # טעינת פרומפט עסק לפי ערוץ
+                prompt_data = self.get_business_prompt(business_id, channel)
+                
+                # ⚡ BUILD 117: First turn - NO SPECIAL LIMIT! Let AI finish complete sentences
+                # User requirement: "אם היא צריכה להסביר דקה שתסביר דקה" - let it speak as long as needed
+                if is_first_turn:
+                    # Don't reduce max_tokens for first turn - keep the default 350 for complete sentences
+                    logger.info(f"🎯 First turn - using full {prompt_data['max_tokens']} tokens for complete sentences")
+                
+                # בניית הודעות
+                messages: List[Dict[str, str]] = [
+                    {"role": "system", "content": prompt_data["system_prompt"]}
+                ]
+                
+                # הוספת הקשר אם קיים
+                if context:
+                    # 🆕 CUSTOMER MEMORY: Add unified memory context (when available)
+                    if context.get("customer_memory"):
+                        memory_text = context["customer_memory"]
+                        messages.append({
+                            "role": "system",
+                            "content": f"🧠 זיכרון לקוח (מכל הערוצים):\n{memory_text}"
+                        })
+                        logger.info(f"[MEMORY] Added customer memory to AI context ({len(memory_text)} chars)")
+                    
+                    # 🆕 RETURNING CUSTOMER: Ask if they want to continue or start fresh
+                    if context.get("ask_continue_or_fresh"):
+                        messages.append({
+                            "role": "system",
+                            "content": """⚠️ לקוח חוזר! אתה צריך לשאול: "שלום! רוצה שנמשיך מאיפה שעצרנו או להתחיל מחדש?"
 אם הלקוח אומר "מהתחלה" או "איפוס" - התעלם מהזיכרון הקודם והתחל שיחה חדשה."""
-                    })
-                    logger.info(f"[MEMORY] Instructed AI to ask continue/fresh for returning customer")
+                        })
+                        logger.info(f"[MEMORY] Instructed AI to ask continue/fresh for returning customer")
+                    
+                    # הוספת מידע בסיסי על הלקוח
+                    context_info = []
+                    if context.get("customer_name"):
+                        context_info.append(f"שם הלקוח: {context['customer_name']}")
+                    if context.get("phone_number"):
+                        context_info.append(f"טלפון: {context['phone_number']}")
+                    
+                    if context_info:
+                        messages.append({
+                            "role": "system", 
+                            "content": "מידע על הלקוח:\n" + "\n".join(context_info)
+                        })
+                    
+                    # ✅ FIX: Improved conversation history - 12 messages for better context retention
+                    # Increased from 10 to 12 to prevent context loss after 5th message
+                    if context.get("previous_messages"):
+                        prev_msgs = context["previous_messages"][-12:]  # ✅ 12 הודעות אחרונות לזיכרון משופר!
+                        for msg in prev_msgs:
+                            # ✅ המבנה הוא "לקוח: ..." או "עוזרת: ..." או "עוזר:" (WhatsApp)
+                            if msg.startswith("לקוח:"):
+                                messages.append({
+                                    "role": "user",
+                                    "content": msg.replace("לקוח:", "").strip()
+                                })
+                            elif msg.startswith("עוזרת:"):
+                                # Legacy support for "עוזרת:" prefix
+                                content = msg.replace("עוזרת:", "").strip()
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": content
+                                })
+                            elif msg.startswith("לאה:"):
+                                # Legacy support for specific assistant name
+                                content = msg.replace("לאה:", "").strip()
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": content
+                                })
+                            elif msg.startswith("עוזר:"):
+                                # 🔥 FIX: Support for WhatsApp assistant messages
+                                content = msg.replace("עוזר:", "").strip()
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": content
+                                })
                 
-                # הוספת מידע בסיסי על הלקוח
-                context_info = []
-                if context.get("customer_name"):
-                    context_info.append(f"שם הלקוח: {context['customer_name']}")
-                if context.get("phone_number"):
-                    context_info.append(f"טלפון: {context['phone_number']}")
-                
-                if context_info:
-                    messages.append({
-                        "role": "system", 
-                        "content": "מידע על הלקוח:\n" + "\n".join(context_info)
-                    })
-                
-                # ✅ FIX: Improved conversation history - 12 messages for better context retention
-                # Increased from 10 to 12 to prevent context loss after 5th message
-                if context.get("previous_messages"):
-                    prev_msgs = context["previous_messages"][-12:]  # ✅ 12 הודעות אחרונות לזיכרון משופר!
-                    for msg in prev_msgs:
-                        # ✅ המבנה הוא "לקוח: ..." או "עוזרת: ..." או "עוזר:" (WhatsApp)
-                        if msg.startswith("לקוח:"):
-                            messages.append({
-                                "role": "user",
-                                "content": msg.replace("לקוח:", "").strip()
-                            })
-                        elif msg.startswith("עוזרת:"):
-                            # Legacy support for "עוזרת:" prefix
-                            content = msg.replace("עוזרת:", "").strip()
-                            messages.append({
-                                "role": "assistant",
-                                "content": content
-                            })
-                        elif msg.startswith("לאה:"):
-                            # Legacy support for specific assistant name
-                            content = msg.replace("לאה:", "").strip()
-                            messages.append({
-                                "role": "assistant",
-                                "content": content
-                            })
-                        elif msg.startswith("עוזר:"):
-                            # 🔥 FIX: Support for WhatsApp assistant messages
-                            content = msg.replace("עוזר:", "").strip()
-                            messages.append({
-                                "role": "assistant",
-                                "content": content
-                            })
-            
-            # הוספת הודעת המשתמש הנוכחית
-            messages.append({"role": "user", "content": message})
+                # הוספת הודעת המשתמש הנוכחית
+                messages.append({"role": "user", "content": message})
             
             # 🔥 NEW: Check which AI provider to use
             ai_provider = self._get_ai_provider(business_id) if business_id else 'openai'

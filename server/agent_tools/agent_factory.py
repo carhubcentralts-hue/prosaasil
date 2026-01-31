@@ -1146,8 +1146,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         logger.info(f"✅ AgentKit tools RESTORED (non-realtime flows)")
     
 
-    # 🔥 BUILD 135: MERGE DB prompts WITH base instructions (not replace!)
-    # CRITICAL: DB prompts now EXTEND the base AgentKit instructions
+    # 🔥 BUILD 135: MINIMAL SYSTEM RULES (Framework only)
+    # CRITICAL: System rules should ONLY contain tool usage rules, not business behavior
     
     today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
     tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -1162,85 +1162,32 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         except Exception:
             pass
     
-    # 🔥 BUILD 138: Load business policy to get slot_size_min (ONLY for appointment businesses)
-    slot_interval_text = ""
-    if business_id and call_goal == "appointment":
-        try:
-            from server.policy.business_policy import get_business_policy
-            policy = get_business_policy(business_id, prompt_text=custom_instructions)
-            
-            # Convert slot size to Hebrew description
-            if policy.slot_size_min == 15:
-                interval_desc = "כל רבע שעה (15 דקות)"
-            elif policy.slot_size_min == 30:
-                interval_desc = "כל חצי שעה (30 דקות)"
-            elif policy.slot_size_min == 45:
-                interval_desc = "כל 45 דקות (שלושת רבעי שעה)"
-            elif policy.slot_size_min == 60:
-                interval_desc = "כל שעה (60 דקות)"
-            elif policy.slot_size_min == 75:
-                interval_desc = "כל שעה ורבע (75 דקות)"
-            elif policy.slot_size_min == 90:
-                interval_desc = "כל שעה וחצי (90 דקות)"
-            elif policy.slot_size_min == 105:
-                interval_desc = "כל שעה ושלושת רבעי (105 דקות)"
-            elif policy.slot_size_min == 120:
-                interval_desc = "כל שעתיים (120 דקות)"
-            else:
-                interval_desc = f"כל {policy.slot_size_min} דקות"
-            
-            slot_interval_text = f"\nAPPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה {interval_desc}"
-            logger.info(f"📅 Agent will use slot interval: {policy.slot_size_min} minutes ({interval_desc})")
-        except Exception as e:
-            logger.warning(f"⚠️ Could not load policy for slot_size_min: {e}")
-    
-    # 🔥 CRITICAL FIX (Problem 3): WhatsApp prompts should be MINIMAL and FOCUSED
-    # Only include appointment instructions if call_goal="appointment"
-    if channel == "whatsapp" and call_goal != "appointment":
-        # 🔥 WHATSAPP + NO APPOINTMENTS = MINIMAL SYSTEM RULES
-        # 🔥 FIX: Removed hardcoded redirect message - let custom prompt handle off-topic responses
-        system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+    # 🔥 NEW ARCHITECTURE: Minimal system rules (framework only)
+    # No business logic, no conversation scripts, no appointment flows
+    # All behavior comes from custom_instructions (DB prompt)
+    if channel == "whatsapp":
+        # WhatsApp uses the new Prompt Stack architecture
+        system_rules = f"""🔒 SYSTEM FRAMEWORK:
 TODAY: {today_str} (Israel)
 
-⚠️ CRITICAL RULES:
-1. NEVER offer or discuss appointment scheduling - this business doesn't do appointments via WhatsApp
-2. Focus on answering customer questions based on YOUR CUSTOM INSTRUCTIONS below
-3. Use business_get_info() tool if customer asks about location, hours, or contact details
-4. Keep responses natural and conversational as defined in your custom instructions
-5. Always respond in Hebrew
+🔧 Tool Usage:
+- Use tools when you need information or need to perform actions
+- If customer asks about availability/scheduling and appointments are enabled: use check_availability() and schedule_appointment()
+- Always check tool results before confirming actions to customer
+
+🛡️ Safety:
+- Never invent information - ask customer if you don't know
+- Never claim you did something unless the tool returned success=true
+- If error occurs, acknowledge gracefully and ask to try again
+
+📱 WhatsApp Format:
+- Keep responses short (1-2 sentences per message)
+- One question at a time
+- Always respond in Hebrew
 
 ---
+YOUR BUSINESS INSTRUCTIONS:
 """
-        logger.info(f"📱 WhatsApp without appointments: using MINIMAL system rules ({len(system_rules)} chars)")
-    elif channel == "whatsapp" and call_goal == "appointment":
-        # 🔥 WHATSAPP + APPOINTMENTS = FOCUSED APPOINTMENT RULES
-        # 🔥 FIX: Removed hardcoded redirect message - let custom prompt handle off-topic responses
-        booking_tool_rule = "schedule_appointment()"
-        availability_tool_rule = "check_availability()"
-        
-        system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
-TODAY: {today_str} (Israel)
-TOMORROW: {tomorrow_str}{slot_interval_text}
-
-⚠️ CRITICAL APPOINTMENT RULES:
-1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called {booking_tool_rule} and got success=true
-2. NEVER say "תפוס"/"פנוי" UNLESS you called {availability_tool_rule} THIS turn
-3. If appointment succeeds, check returned "user_message" field and send it to customer
-
-🎯 APPOINTMENT WORKFLOW (ONLY when customer requests):
-1. Ask for DATE & TIME preference
-2. Call check_availability() to verify
-3. If time unavailable, suggest 2 alternatives
-4. Ask for NAME: "על איזה שם?"
-5. Call schedule_appointment() with all details
-6. Confirm based on returned user_message
-
-🔥 CRITICAL: Ask for info ONE at a time (date, then time, then name)
-🔥 Follow YOUR CUSTOM INSTRUCTIONS below for conversation style and behavior
-
----
-"""
-        logger.info(f"📱 WhatsApp with appointments: using FOCUSED appointment rules ({len(system_rules)} chars)")
     else:
         # 🔥 PHONE CHANNEL = FULL DETAILED RULES (keep existing for voice calls)
         # CRITICAL SYSTEM RULES (prepended to all prompts - NEVER remove!)
