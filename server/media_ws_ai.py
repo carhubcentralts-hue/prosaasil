@@ -3917,8 +3917,11 @@ class MediaStreamHandler:
                 logger.warning(f"⚠️ [PROMPT] Pre-built FULL prompt not found in registry - building fresh from DB")
                 logger.debug(f"🔍 [PROMPT_DEBUG] Missing prebuilt for call_direction={call_direction}")
                 # Build fresh from DB
-                from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=True)
+                # 🔥 CRITICAL: Wrap in app_context for DB queries in async context
+                app = _get_flask_app()
+                with app.app_context():
+                    from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                    full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=True)
             else:
                 logger.info(f"🚀 [PROMPT] Using PRE-BUILT FULL prompt from registry (LATENCY-FIRST)")
                 logger.info(f"   └─ FULL: {len(full_prompt)} chars (sent ONCE at start)")
@@ -3931,8 +3934,11 @@ class MediaStreamHandler:
                     _orig_print(f"[PROMPT_MISMATCH] call_sid={self.call_sid[:8]}... expected={call_direction} prebuilt={prebuilt_direction} action=REBUILD", flush=True)
                     
                     # Rebuild with correct direction
-                    from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                    full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=False)
+                    # 🔥 CRITICAL: Wrap in app_context for DB queries in async context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                        full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=False)
                     logger.info(f"   ✅ Rebuilt prompt: {len(full_prompt)} chars")
                 else:
                     logger.info(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
