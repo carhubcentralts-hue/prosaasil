@@ -246,12 +246,12 @@ setInterval(() => {
 function extractText(msgObj) {
   // 🔥 CRITICAL: Filter out non-chat events that shouldn't go to Flask
   // These are system/protocol messages, not actual user messages
+  // Note: messageContextInfo is metadata that can accompany real messages, so it's not filtered
   if (msgObj.pollUpdateMessage || 
       msgObj.protocolMessage || 
       msgObj.historySyncNotification ||
       msgObj.reactionMessage ||
-      msgObj.senderKeyDistributionMessage ||
-      msgObj.messageContextInfo) {
+      msgObj.senderKeyDistributionMessage) {
     return null;  // Ignore silently - these are not chat messages
   }
   
