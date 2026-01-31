@@ -7429,6 +7429,83 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ call_log table does not exist - skipping Migration 118")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 119: Create gmail_receipts table for Gmail receipt tracking
+        # 🎯 PURPOSE: Add dedicated table for Gmail receipts with deduplication
+        # FEATURES:
+        #   - Stores Gmail receipts separately from main receipts table
+        #   - UNIQUE constraint on (business_id, provider, external_id) to prevent duplicates
+        #   - Performance indexes for common queries
+        #   - Supports backfill of existing data
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 119: Creating gmail_receipts table with indexes")
+        
+        if not check_table_exists('gmail_receipts'):
+            try:
+                checkpoint("  → Creating gmail_receipts table...")
+                exec_ddl(db.engine, """
+                    CREATE TABLE IF NOT EXISTS gmail_receipts (
+                      id BIGSERIAL PRIMARY KEY,
+                      
+                      business_id BIGINT NOT NULL,
+                      provider TEXT NOT NULL DEFAULT 'gmail',
+                      
+                      -- Unique identifier from provider (Gmail messageId / internal id)
+                      external_id TEXT NOT NULL,
+                      
+                      -- Receipt useful fields
+                      subject TEXT,
+                      merchant TEXT,
+                      amount NUMERIC(12,2),
+                      currency CHAR(3),
+                      receipt_date TIMESTAMPTZ,
+                      
+                      -- Raw JSON from parsing / source
+                      raw_payload JSONB,
+                      
+                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                """)
+                checkpoint("  ✅ gmail_receipts table created")
+                
+                # Create unique index to prevent duplicates (most important)
+                checkpoint("  → Creating unique index on (business_id, provider, external_id)...")
+                exec_ddl(db.engine, """
+                    CREATE UNIQUE INDEX IF NOT EXISTS ux_gmail_receipts_business_provider_external
+                      ON gmail_receipts (business_id, provider, external_id)
+                """)
+                checkpoint("  ✅ Unique index created")
+                
+                # Create performance indexes for queries
+                checkpoint("  → Creating performance indexes...")
+                exec_ddl(db.engine, """
+                    CREATE INDEX IF NOT EXISTS ix_gmail_receipts_business_created_at
+                      ON gmail_receipts (business_id, created_at DESC)
+                """)
+                checkpoint("  ✅ Index on (business_id, created_at) created")
+                
+                exec_ddl(db.engine, """
+                    CREATE INDEX IF NOT EXISTS ix_gmail_receipts_business_receipt_date
+                      ON gmail_receipts (business_id, receipt_date DESC)
+                """)
+                checkpoint("  ✅ Index on (business_id, receipt_date) created")
+                
+                exec_ddl(db.engine, """
+                    CREATE INDEX IF NOT EXISTS ix_gmail_receipts_merchant
+                      ON gmail_receipts (merchant)
+                """)
+                checkpoint("  ✅ Index on merchant created")
+                
+                migrations_applied.append('119_gmail_receipts_table')
+                checkpoint("✅ Migration 119 complete: gmail_receipts table created with indexes")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 119 (gmail_receipts table) failed: {e}")
+                logger.error(f"Migration 119 gmail_receipts table error: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ gmail_receipts table already exists - skipping Migration 119")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

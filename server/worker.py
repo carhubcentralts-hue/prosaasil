@@ -136,38 +136,53 @@ FLASK_ENV = os.getenv('FLASK_ENV', 'development')
 logger.info(f"📍 FLASK_ENV: {FLASK_ENV}")
 
 # 🔥 QUICK SCHEMA CHECK: Verify critical tables exist
+# STRICT_SCHEMA_CHECK controls whether to exit on schema issues (default: 0 = non-strict)
+# Set STRICT_SCHEMA_CHECK=1 to make worker exit on missing tables
+STRICT_SCHEMA_CHECK = os.getenv("STRICT_SCHEMA_CHECK", "0") == "1"
+
 logger.info("🔍 Performing quick schema check...")
-try:
-    with app.app_context():
-        from server.db import db
-        from sqlalchemy import text
-        
-        # Check a few critical tables that the worker needs
-        critical_tables = ['business', 'leads', 'receipts', 'gmail_receipts']
-        missing_tables = []
-        
-        for table in critical_tables:
-            result = db.session.execute(text("""
-                SELECT table_name FROM information_schema.tables 
-                WHERE table_schema = 'public' AND table_name = :table_name
-            """), {"table_name": table})
-            if not result.fetchone():
-                missing_tables.append(table)
-        
-        if missing_tables:
-            logger.error("=" * 80)
-            logger.error(f"❌ CRITICAL: DB schema appears outdated!")
-            logger.error(f"❌ Missing tables: {missing_tables}")
-            logger.error("❌ Please run migrations first:")
-            logger.error("❌   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate")
-            logger.error("=" * 80)
-            sys.exit(1)
-        else:
-            logger.info("✅ Schema check passed - all critical tables present")
-        
-except Exception as e:
-    logger.warning(f"⚠️ Could not perform schema check: {e}")
-    logger.warning("⚠️ Continuing anyway, but worker may fail if schema is outdated")
+logger.info(f"📍 STRICT_SCHEMA_CHECK: {STRICT_SCHEMA_CHECK}")
+
+def quick_schema_check():
+    """Check for missing critical tables. Returns list of missing tables (empty if all present)."""
+    try:
+        with app.app_context():
+            from server.db import db
+            from sqlalchemy import text
+            
+            # Check a few critical tables that the worker needs
+            critical_tables = ['business', 'leads', 'receipts', 'gmail_receipts']
+            missing_tables = []
+            
+            for table in critical_tables:
+                result = db.session.execute(text("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_schema = 'public' AND table_name = :table_name
+                """), {"table_name": table})
+                if not result.fetchone():
+                    missing_tables.append(table)
+            
+            return missing_tables
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Could not perform schema check: {e}")
+        return []  # Return empty list on error to allow worker to continue
+
+missing = quick_schema_check()
+if missing:
+    logger.error("=" * 80)
+    logger.error("❌ CRITICAL: DB schema appears outdated!")
+    logger.error(f"❌ Missing tables: {missing}")
+    logger.error("❌ Please run migrations first:")
+    logger.error("❌   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate")
+    logger.error("=" * 80)
+    
+    if STRICT_SCHEMA_CHECK:
+        sys.exit(1)
+    
+    logger.warning("⚠️ Continuing worker startup (non-strict mode).")
+else:
+    logger.info("✅ Schema check passed - all critical tables present")
 
 logger.info("=" * 80)
 
