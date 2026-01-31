@@ -844,6 +844,110 @@ class AIService:
             del self._cache[cache_key]
             logger.info(f"Cache invalidated for business {business_id}")
     
+    def generate_response_with_agent(self, message: str, business_id: int = None, 
+                                     context: Optional[Dict[str, Any]] = None, 
+                                     channel: str = "whatsapp",
+                                     customer_phone: str = None,
+                                     customer_name: str = None,
+                                     is_first_turn: bool = False) -> Dict[str, Any]:
+        """
+        🔥 AGENTKIT: Generate AI response with agent support for WhatsApp
+        
+        This method connects to AgentKit for AI responses with action capabilities.
+        Falls back to regular generate_response if AgentKit is unavailable.
+        
+        Args:
+            message: User message
+            business_id: Business ID
+            context: Context dict with customer info, history, etc.
+            channel: Communication channel (whatsapp, calls, etc.)
+            customer_phone: Customer phone number
+            customer_name: Customer name
+            is_first_turn: Whether this is the first turn
+            
+        Returns:
+            Dict with 'text' and optionally 'actions' keys
+        """
+        logger.info(f"[AGENTKIT] generate_response_with_agent called: business_id={business_id}, channel={channel}")
+        
+        try:
+            # 🔥 CRITICAL FIX: Ensure agent modules are loaded
+            if not _ensure_agent_modules_loaded():
+                logger.warning("[AGENTKIT] Agent modules not available, falling back to regular response")
+                response_text = self.generate_response(message, business_id, context, channel, is_first_turn)
+                return {
+                    "text": response_text,
+                    "actions": []
+                }
+            
+            # If agents are available, try to use them
+            if not AGENTS_ENABLED:
+                logger.info("[AGENTKIT] Agents disabled, using regular response")
+                response_text = self.generate_response(message, business_id, context, channel, is_first_turn)
+                return {
+                    "text": response_text,
+                    "actions": []
+                }
+            
+            # Import agent modules (already loaded by _ensure_agent_modules_loaded)
+            from server.agent_tools import get_agent
+            from agents import Runner
+            
+            # Get agent for this business
+            logger.info(f"[AGENTKIT] Getting agent for business {business_id}")
+            agent = get_agent(business_id=business_id, channel=channel)
+            
+            if not agent:
+                logger.warning(f"[AGENTKIT] No agent available for business {business_id}, using regular response")
+                response_text = self.generate_response(message, business_id, context, channel, is_first_turn)
+                return {
+                    "text": response_text,
+                    "actions": []
+                }
+            
+            # Prepare agent context
+            agent_context = context or {}
+            if customer_phone:
+                agent_context['phone'] = customer_phone
+            if customer_name:
+                agent_context['customer_name'] = customer_name
+            
+            # Run agent
+            logger.info(f"[AGENTKIT] Running agent with message: '{message[:50]}...'")
+            runner = Runner(agent)
+            result = runner.run(message, context=agent_context)
+            
+            # Extract response text
+            reply_text = ""
+            if hasattr(result, 'text') and result.text:
+                reply_text = result.text
+            elif hasattr(result, 'response') and result.response:
+                reply_text = result.response
+            else:
+                # Fallback: try to get any text output
+                reply_text = str(result) if result else ""
+            
+            logger.info(f"[AGENTKIT] Agent response: {len(reply_text)} chars")
+            logger.info(f"🔙 About to return from generate_response_with_agent()")
+            
+            # Return structured response
+            return {
+                "text": reply_text.strip() if reply_text else "",
+                "actions": []  # Actions would be extracted from result.new_items if needed
+            }
+            
+        except Exception as e:
+            logger.error(f"[AGENTKIT] Agent error (falling back to regular response): {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Fallback to regular response
+            response_text = self.generate_response(message, business_id, context, channel, is_first_turn)
+            return {
+                "text": response_text,
+                "actions": []
+            }
+    
     def save_conversation_history(self, business_id: int, phone_number: str, 
                                  message: str, response: str, channel: str = "whatsapp"):
         """שמירת היסטוריית שיחה למידע עתידי (אופציונלי)"""
