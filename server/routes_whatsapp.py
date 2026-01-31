@@ -909,21 +909,39 @@ def baileys_webhook():
                     else:
                         log.info(f"[WA-LID] ⚠️ LID message: incoming={remote_jid}, reply_to={reply_jid} (no participant available)")
                 
-                # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
-                # 🔥 CRITICAL FIX: For @lid messages, pass customer_external_id instead of None
-                phone_or_id = from_number_e164 if from_number_e164 else customer_external_id
-                ci_service = CustomerIntelligence(business_id=business_id)
-                customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
-                    phone_number=phone_or_id,
+                # ✅ BUILD 200: Use ContactIdentityService for unified lead management
+                # This prevents duplicates across WhatsApp and Phone channels
+                from server.services.contact_identity_service import ContactIdentityService
+                from datetime import datetime
+                
+                # Prepare timestamp
+                msg_timestamp = None
+                if timestamp_ms:
+                    try:
+                        msg_timestamp = datetime.fromtimestamp(int(timestamp_ms))
+                    except (ValueError, TypeError):
+                        msg_timestamp = datetime.utcnow()
+                else:
+                    msg_timestamp = datetime.utcnow()
+                
+                # Get or create lead using unified contact identity service
+                lead = ContactIdentityService.get_or_create_lead_for_whatsapp(
+                    business_id=business_id,
+                    remote_jid=remote_jid,
+                    push_name=push_name,
                     message_text=message_text,
-                    whatsapp_jid=remote_jid,
-                    whatsapp_jid_alt=remote_jid_alt,
-                    phone_raw=phone_raw,
-                    push_name=push_name  # 🆕 Pass pushName for name saving
+                    wa_message_id=baileys_message_id,
+                    ts=msg_timestamp
                 )
                 
-                action = "created" if was_created else "updated"
-                log.info(f"✅ {action} customer/lead for {phone_or_id}, reply_jid={reply_jid}")
+                log.info(f"✅ Lead resolved: lead_id={lead.id}, phone={lead.phone_e164 or 'N/A'}, jid={remote_jid[:30]}...")
+                
+                # Get customer for backwards compatibility (if exists)
+                from server.models_sql import Customer
+                customer = Customer.query.filter_by(
+                    business_id=business_id,
+                    phone_e164=lead.phone_e164
+                ).first() if lead.phone_e164 else None
                 
                 # Extract message_id from Baileys message structure
                 # This is critical for deduplication (same message_id = same message)
@@ -1104,6 +1122,9 @@ def baileys_webhook():
                 from server.services.ai_service import get_ai_service
                 ai_service = get_ai_service()
                 
+                # 🔥 BUILD 200 DEBUG: Log state before AI call
+                log.info(f"[WA-AI-START] About to call AI for jid={remote_jid[:30]}, lead_id={lead.id}")
+                
                 try:
                     ai_response = ai_service.generate_response_with_agent(
                         message=message_text,
@@ -1129,6 +1150,7 @@ def baileys_webhook():
                         response_text = str(ai_response)
                     
                     ai_duration = time.time() - ai_start
+                    log.info(f"[WA-AI-SUCCESS] AI generated response in {ai_duration:.2f}s, length={len(response_text) if response_text else 0}")
                 except Exception as e:
                     logger.error(f"⚠️ Agent failed, trying regular AI response: {e}")
                     import traceback
@@ -1166,6 +1188,9 @@ def baileys_webhook():
                             log.warning(f"⚠️ No fallback response available - skipping send")
                             continue
                 
+                # 🔥 BUILD 200 DEBUG: Log before sending
+                log.info(f"[WA-SEND-DEBUG] reply_jid={reply_jid[:30]}, response_text_length={len(response_text) if response_text else 0}")
+                
                 # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
                 # This ensures Android messages with @lid, @g.us, etc. get proper replies
                 # 🔥 LID FIX: Use reply_jid (which prefers @s.whatsapp.net over @lid)
@@ -1176,6 +1201,9 @@ def baileys_webhook():
                 try:
                     from server.services.jobs import enqueue_job
                     from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
+                    
+                    # 🔥 BUILD 200 DEBUG: Log parameters before enqueue
+                    log.info(f"[WA-ENQUEUE-DEBUG] business_id={business_id}, tenant_id={tenant_id}, reply_jid={reply_jid[:30]}, msg_length={len(response_text)}")
                     
                     job = enqueue_job(
                         queue_name='default',

@@ -241,25 +241,32 @@ setInterval(() => {
   }
 }, 600000); // Run cleanup every 10 minutes (reduced from duplicate 5-minute intervals)
 
-// 🔥 LID FIX: Extract text from message with comprehensive format support
+// 🔥 BUILD 200: Extract text from message with comprehensive format support
+// Handles all WhatsApp message types and filters non-chat events
 function extractText(msgObj) {
-  // Filter out non-chat events that shouldn't go to Flask
+  // 🔥 CRITICAL: Filter out non-chat events that shouldn't go to Flask
+  // These are system/protocol messages, not actual user messages
   if (msgObj.pollUpdateMessage || 
       msgObj.protocolMessage || 
       msgObj.historySyncNotification ||
-      msgObj.reactionMessage) {
-    return null;
+      msgObj.reactionMessage ||
+      msgObj.senderKeyDistributionMessage ||
+      msgObj.messageContextInfo) {
+    return null;  // Ignore silently - these are not chat messages
   }
   
   // Try all possible text locations (order matters - most common first)
+  // 1. Plain text conversation
   if (msgObj.conversation) {
     return msgObj.conversation;
   }
   
+  // 2. Extended text message (with formatting, links, etc.)
   if (msgObj.extendedTextMessage?.text) {
     return msgObj.extendedTextMessage.text;
   }
   
+  // 3. Media messages with captions
   if (msgObj.imageMessage?.caption) {
     return msgObj.imageMessage.caption;
   }
@@ -268,7 +275,11 @@ function extractText(msgObj) {
     return msgObj.videoMessage.caption;
   }
   
-  // 🔥 LID FIX: Add support for button responses and list responses
+  if (msgObj.documentMessage?.caption) {
+    return msgObj.documentMessage.caption;
+  }
+  
+  // 4. Interactive messages (buttons, lists, templates)
   if (msgObj.buttonsResponseMessage?.selectedDisplayText) {
     return msgObj.buttonsResponseMessage.selectedDisplayText;
   }
@@ -281,12 +292,29 @@ function extractText(msgObj) {
     return msgObj.listResponseMessage.description;
   }
   
-  // Audio and document messages are valid but have no text content
+  if (msgObj.templateButtonReplyMessage?.selectedDisplayText) {
+    return msgObj.templateButtonReplyMessage.selectedDisplayText;
+  }
+  
+  // 5. Audio and document messages are valid but may have no text content
+  // Note: Documents WITH captions are handled above (line 278)
+  // This section handles audio messages and documents WITHOUT captions
+  // Still send to Flask so it can handle media appropriately
   if (msgObj.audioMessage || msgObj.documentMessage) {
     return '[media]';  // Return indicator that this is valid content
   }
   
-  return null;  // No extractable text
+  // 6. Location messages
+  if (msgObj.locationMessage) {
+    return '[location]';  // Return indicator for location sharing
+  }
+  
+  // 7. Contact messages
+  if (msgObj.contactMessage || msgObj.contactsArrayMessage) {
+    return '[contact]';  // Return indicator for contact sharing
+  }
+  
+  return null;  // No extractable text - likely a system message
 }
 
 // Helper function to check if a message has actual content

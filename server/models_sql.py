@@ -99,6 +99,54 @@ class BusinessContactChannel(db.Model):
         db.UniqueConstraint('channel_type', 'identifier', name='uq_channel_identifier'),
     )
 
+class ContactIdentity(db.Model):
+    """
+    🎯 BUILD 200: Unified Contact Identity Mapping Layer
+    
+    Prevents duplicate leads across WhatsApp and Phone channels by creating
+    a consistent mapping between external identifiers and lead_id.
+    
+    Key Concepts:
+    - WhatsApp: external_id = normalized remoteJid (e.g., "972525951893@s.whatsapp.net")
+    - Phone: external_id = normalized E.164 (e.g., "+972525951893")
+    - Same person contacting via both channels = ONE lead with TWO contact_identities
+    
+    This enables:
+    - No duplicate leads when same person contacts via multiple channels
+    - Proper message routing (always reply to correct JID/phone)
+    - Cross-channel lead linking based on phone number
+    """
+    __tablename__ = "contact_identities"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Channel type: 'whatsapp' or 'phone'
+    channel = db.Column(db.String(32), nullable=False, index=True)
+    
+    # External identifier:
+    # - For WhatsApp: normalized remoteJid (e.g., "972525951893@s.whatsapp.net")
+    # - For Phone: normalized E.164 (e.g., "+972525951893")
+    external_id = db.Column(db.String(255), nullable=False)
+    
+    # Lead this contact identity maps to
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    lead = db.relationship("Lead", backref=db.backref("contact_identities", lazy="dynamic"))
+    business = db.relationship("Business", backref=db.backref("contact_identities", lazy="dynamic"))
+    
+    # Indexes (defined via migration 120, listed here for documentation)
+    # UNIQUE INDEX: idx_contact_identities_unique_mapping ON (business_id, channel, external_id)
+    # INDEX: idx_contact_identities_lead ON (business_id, lead_id)
+    # INDEX: idx_contact_identities_channel ON (channel)
+    
+    def __repr__(self):
+        return f"<ContactIdentity {self.channel}:{self.external_id[:20]}... → lead_id={self.lead_id}>"
+
 class Customer(db.Model):
     __tablename__ = "customer"
     id = db.Column(db.Integer, primary_key=True)

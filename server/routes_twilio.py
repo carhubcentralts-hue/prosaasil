@@ -336,19 +336,34 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
             customer = None
             lead = None
             try:
-                from server.services.customer_intelligence import CustomerIntelligence
-                ci_service = CustomerIntelligence(business_id=business_id)
-                customer, lead, was_created = ci_service.find_or_create_customer_from_call(
-                    phone_number=customer_phone,
+                # ✅ BUILD 200: Use ContactIdentityService for unified lead management
+                from server.services.contact_identity_service import ContactIdentityService
+                from datetime import datetime
+                
+                # Get or create lead using unified contact identity service
+                lead = ContactIdentityService.get_or_create_lead_for_call(
+                    business_id=business_id,
+                    from_e164=customer_phone,
+                    caller_name=None,  # We don't have caller name at this stage
                     call_sid=call_sid,
-                    transcription="",
-                    conversation_data={}
+                    ts=datetime.utcnow()
                 )
-                logger.info(f"✅ CustomerIntelligence SUCCESS: customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}, was_created={was_created}")
-                logger.info(f"✅ LEAD_CREATED: business_id={business_id}, lead_id={lead.id if lead else None}, phone={customer_phone}, direction={direction}")
+                
+                logger.info(f"✅ ContactIdentityService SUCCESS: lead_id={lead.id}, phone={customer_phone}")
+                
+                # Get customer for backwards compatibility (if exists)
+                from server.models_sql import Customer
+                customer = Customer.query.filter_by(
+                    business_id=business_id,
+                    phone_e164=lead.phone_e164
+                ).first() if lead.phone_e164 else None
+                
+                if customer:
+                    logger.info(f"✅ Found matching customer: customer_id={customer.id}")
+                
             except Exception as e:
-                logger.error(f"⚠️ CustomerIntelligence failed (non-critical): {e}")
-                logger.warning(f"CustomerIntelligence failed for call {call_sid}: {e}")
+                logger.error(f"⚠️ ContactIdentityService failed (non-critical): {e}")
+                logger.warning(f"ContactIdentityService failed for call {call_sid}: {e}")
             
             # ✅ שלב 3: עדכן call_log עם customer_id + lead_id (אם נוצר)
             if call_log:

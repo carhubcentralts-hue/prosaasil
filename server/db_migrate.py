@@ -7506,6 +7506,77 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ gmail_receipts table already exists - skipping Migration 119")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 120: Create contact_identities table for unified contact mapping
+        # 🎯 PURPOSE: Prevent duplicate leads across WhatsApp and Phone channels
+        # Creates a mapping layer between external IDs (JID/phone) and lead_id
+        # Enables cross-channel lead linking when same person contacts via multiple channels
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 120: Creating contact_identities table for unified contact mapping")
+        
+        if not check_table_exists('contact_identities'):
+            try:
+                checkpoint("  → Creating contact_identities table...")
+                exec_ddl(db.engine, """
+                    CREATE TABLE contact_identities (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        channel VARCHAR(32) NOT NULL,
+                        external_id VARCHAR(255) NOT NULL,
+                        lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                checkpoint("  ✅ contact_identities table created")
+                migrations_applied.append('120_contact_identities_table')
+            except Exception as e:
+                checkpoint(f"❌ Migration 120 (contact_identities table) failed: {e}")
+                logger.error(f"Migration 120 contact_identities table error: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ contact_identities table already exists")
+        
+        # Create unique index on (business_id, channel, external_id) for deduplication
+        if not check_index_exists('idx_contact_identities_unique_mapping'):
+            try:
+                checkpoint("  → Creating unique index on (business_id, channel, external_id)...")
+                exec_ddl(db.engine, """
+                    CREATE UNIQUE INDEX idx_contact_identities_unique_mapping 
+                    ON contact_identities(business_id, channel, external_id)
+                """)
+                checkpoint("  ✅ Unique index idx_contact_identities_unique_mapping created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create unique index: {e}")
+        
+        # Create index on (business_id, lead_id) for reverse lookups
+        if not check_index_exists('idx_contact_identities_lead'):
+            try:
+                checkpoint("  → Creating index on (business_id, lead_id)...")
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_contact_identities_lead 
+                    ON contact_identities(business_id, lead_id)
+                """)
+                checkpoint("  ✅ Index idx_contact_identities_lead created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create lead index: {e}")
+        
+        # Create index on channel for filtering by channel type
+        if not check_index_exists('idx_contact_identities_channel'):
+            try:
+                checkpoint("  → Creating index on channel...")
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_contact_identities_channel 
+                    ON contact_identities(channel)
+                """)
+                checkpoint("  ✅ Index idx_contact_identities_channel created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create channel index: {e}")
+        
+        checkpoint("✅ Migration 120 complete: contact_identities table created")
+        checkpoint("   🎯 Unified contact identity mapping layer ready")
+        checkpoint("   🎯 Prevents duplicate leads across WhatsApp and Phone channels")
+        checkpoint("   🎯 Enables cross-channel lead linking based on phone number")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
