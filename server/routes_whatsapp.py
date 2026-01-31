@@ -1111,9 +1111,53 @@ def baileys_webhook():
                         else:
                             previous_messages.append(f"עוזר: {msg_hist.body}")  # ✅ כללי - לא hardcoded!
                     
-                    log.info(f"📚 Loaded {len(previous_messages)} previous messages for context")
+                     log.info(f"📚 Loaded {len(previous_messages)} previous messages for context")
                 except Exception as e:
                     log.warning(f"⚠️ Could not load conversation history: {e}")
+                
+                # 🆕 CUSTOMER MEMORY: Load unified memory for AI context (when enabled)
+                customer_memory = {}
+                customer_memory_text = ""
+                ask_continue_or_fresh = False
+                
+                try:
+                    from server.services.customer_memory_service import (
+                        is_customer_service_enabled,
+                        get_customer_memory,
+                        format_memory_for_ai,
+                        should_ask_continue_or_fresh,
+                        update_interaction_timestamp
+                    )
+                    
+                    # Only load memory if customer service is enabled
+                    if is_customer_service_enabled(business_id):
+                        log.info(f"[CUSTOMER-MEMORY] Customer service enabled - loading memory for lead {lead.id}")
+                        
+                        # Load full customer memory (profile + summary + last 5 notes)
+                        customer_memory = get_customer_memory(lead.id, business_id, max_notes=5)
+                        
+                        # Format for AI
+                        customer_memory_text = format_memory_for_ai(customer_memory)
+                        
+                        # Check if this is a returning customer (should we ask continue/fresh?)
+                        ask_continue_or_fresh = should_ask_continue_or_fresh(lead.id, business_id)
+                        
+                        # Update interaction timestamp
+                        update_interaction_timestamp(lead.id, business_id, 'whatsapp')
+                        
+                        log.info(f"[CUSTOMER-MEMORY] Memory loaded: "
+                                f"has_profile={bool(customer_memory.get('customer_profile'))}, "
+                                f"has_summary={bool(customer_memory.get('last_summary'))}, "
+                                f"notes_count={len(customer_memory.get('recent_notes', []))}, "
+                                f"ask_continue={ask_continue_or_fresh}")
+                    else:
+                        log.info(f"[CUSTOMER-MEMORY] Customer service disabled for business {business_id}")
+                        
+                except Exception as e:
+                    log.warning(f"⚠️ Could not load customer memory: {e}")
+                    customer_memory = {}
+                    customer_memory_text = ""
+                    ask_continue_or_fresh = False
                 
                 # ✅ BUILD 119: Generate AI response with Agent SDK (real actions!)
                 # ✅ BUILD 170.1: Improved error handling - use DB prompt even on fallback!
@@ -1136,17 +1180,22 @@ def baileys_webhook():
                 log.info(f"[WA-AI-START] About to call AI for jid={remote_jid[:30]}, lead_id={lead.id}")
                 
                 try:
+                    # Build AI context with customer memory
+                    ai_context = {
+                        'phone': from_number_e164,  # E.164 for CRM
+                        'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
+                        'customer_name': customer.name if customer else None,
+                        'lead_status': lead.status if lead else None,
+                        'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 12 הודעות!
+                        'appointment_created': appointment_created,  # ✅ BUILD 93: הפגישה נקבעה!
+                        'customer_memory': customer_memory_text,  # 🆕 Unified customer memory
+                        'ask_continue_or_fresh': ask_continue_or_fresh  # 🆕 Should ask returning customer?
+                    }
+                    
                     ai_response = ai_service.generate_response_with_agent(
                         message=message_text,
                         business_id=business_id,
-                        context={
-                            'phone': from_number_e164,  # E.164 for CRM
-                            'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
-                            'customer_name': customer.name if customer else None,
-                            'lead_status': lead.status if lead else None,
-                            'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 10 הודעות!
-                            'appointment_created': appointment_created  # ✅ BUILD 93: הפגישה נקבעה!
-                        },
+                        context=ai_context,
                         channel='whatsapp',
                         customer_phone=from_number_e164,
                         customer_name=customer.name if customer else None

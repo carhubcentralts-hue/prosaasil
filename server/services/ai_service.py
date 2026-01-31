@@ -629,6 +629,24 @@ class AIService:
             
             # הוספת הקשר אם קיים
             if context:
+                # 🆕 CUSTOMER MEMORY: Add unified memory context (when available)
+                if context.get("customer_memory"):
+                    memory_text = context["customer_memory"]
+                    messages.append({
+                        "role": "system",
+                        "content": f"🧠 זיכרון לקוח (מכל הערוצים):\n{memory_text}"
+                    })
+                    logger.info(f"[MEMORY] Added customer memory to AI context ({len(memory_text)} chars)")
+                
+                # 🆕 RETURNING CUSTOMER: Ask if they want to continue or start fresh
+                if context.get("ask_continue_or_fresh"):
+                    messages.append({
+                        "role": "system",
+                        "content": """⚠️ לקוח חוזר! אתה צריך לשאול: "שלום! רוצה שנמשיך מאיפה שעצרנו או להתחיל מחדש?"
+אם הלקוח אומר "מהתחלה" או "איפוס" - התעלם מהזיכרון הקודם והתחל שיחה חדשה."""
+                    })
+                    logger.info(f"[MEMORY] Instructed AI to ask continue/fresh for returning customer")
+                
                 # הוספת מידע בסיסי על הלקוח
                 context_info = []
                 if context.get("customer_name"):

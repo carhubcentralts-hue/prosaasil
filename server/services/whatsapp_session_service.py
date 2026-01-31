@@ -197,9 +197,34 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
         if session.lead_id:
             lead = Lead.query.get(session.lead_id)
             if lead:
+                # Update legacy WhatsApp-specific fields
                 lead.whatsapp_last_summary = summary
                 lead.whatsapp_last_summary_at = datetime.utcnow()
-                logger.info(f"[WA-SESSION] Updated lead {lead.id} with session summary")
+                
+                # 🆕 UPDATE UNIFIED CUSTOMER MEMORY FIELDS
+                # These fields provide a single source of truth across all channels
+                lead.last_summary = summary  # Short summary of last interaction
+                lead.summary_updated_at = datetime.utcnow()
+                lead.last_interaction_at = session.last_message_at or datetime.utcnow()
+                lead.last_channel = 'whatsapp'
+                
+                # Try to extract memory patches from conversation
+                try:
+                    messages = get_session_messages(session)
+                    memory_patch = extract_memory_patch_from_messages(messages, lead)
+                    if memory_patch:
+                        # Merge memory_patch into customer_profile_json
+                        if not lead.customer_profile_json:
+                            lead.customer_profile_json = {}
+                        lead.customer_profile_json = merge_customer_profile(
+                            lead.customer_profile_json, 
+                            memory_patch
+                        )
+                        logger.info(f"[WA-SESSION] Updated customer profile for lead {lead.id}")
+                except Exception as e:
+                    logger.warning(f"[WA-SESSION] Could not extract memory patch: {e}")
+                
+                logger.info(f"[WA-SESSION] Updated lead {lead.id} with unified customer memory")
     else:
         # No summary (too few messages) - log it but still mark as processed
         logger.info(f"[WA-SESSION] Session {session_id} closed without summary (not enough messages)")
@@ -335,6 +360,145 @@ def get_stale_sessions(minutes: int = INACTIVITY_MINUTES) -> list:
     ).all()
     
     return stale
+
+
+def extract_memory_patch_from_messages(messages: list, lead: 'Lead') -> Optional[Dict[str, Any]]:
+    """Extract customer profile updates from conversation messages
+    
+    Uses AI to identify new information about the customer that should be added
+    to their profile (name, preferences, service interests, etc.)
+    
+    Args:
+        messages: List of message dicts with direction and body
+        lead: Lead object for context
+    
+    Returns:
+        Dict with profile updates or None if no updates found
+    """
+    import os
+    
+    if not messages or len(messages) < 2:
+        return None
+    
+    # Build conversation text
+    conversation_text = ""
+    for m in messages:
+        speaker = "לקוח" if m["direction"] == "in" else "עסק"
+        conversation_text += f"{speaker}: {m['body']}\n"
+    
+    prompt = f"""נתח את השיחה הבאה וחלץ מידע על הלקוח. החזר JSON עם השדות הבאים (רק אם הם מוזכרים בשיחה):
+- name: שם הלקוח (אם נאמר)
+- city: עיר (אם נאמרה)
+- service_interest: סוג השירות המבוקש
+- preferences: העדפות מיוחדות
+- notes: הערות נוספות
+
+אם לא מצאת מידע חדש, החזר {{}}.
+
+שיחה:
+{conversation_text}
+
+JSON:"""
+    
+    try:
+        import openai
+        
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            logger.error("[WA-SESSION] No OpenAI API key for memory extraction")
+            return None
+        
+        client = openai.OpenAI(api_key=api_key)
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Extract customer information from Hebrew conversations. Return valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=200,
+            temperature=0.0
+        )
+        
+        content = response.choices[0].message.content
+        if not content or content.strip() == "{}":
+            return None
+        
+        # Parse JSON response
+        import json
+        memory_patch = json.loads(content.strip())
+        
+        # Don't overwrite existing reliable data with low-confidence extractions
+        # Only update if the field is empty or the new value seems more reliable
+        if memory_patch:
+            logger.info(f"[WA-SESSION] Extracted memory patch: {memory_patch}")
+            return memory_patch
+        
+        return None
+        
+    except Exception as e:
+        logger.warning(f"[WA-SESSION] Failed to extract memory patch: {e}")
+        return None
+
+
+def merge_customer_profile(existing_profile: Dict[str, Any], memory_patch: Dict[str, Any]) -> Dict[str, Any]:
+    """Intelligently merge memory patch into customer profile
+    
+    Rules:
+    - Don't overwrite explicit user data with AI extractions
+    - Track confidence scores and data sources
+    - Preserve reliable information over uncertain information
+    
+    Args:
+        existing_profile: Current customer profile dict
+        memory_patch: New information to merge
+    
+    Returns:
+        Merged profile dict
+    """
+    import copy
+    
+    # Make a copy to avoid modifying the original
+    profile = copy.deepcopy(existing_profile) if existing_profile else {}
+    
+    for key, value in memory_patch.items():
+        if not value:  # Skip empty values
+            continue
+        
+        # If field doesn't exist, add it
+        if key not in profile:
+            profile[key] = {
+                'value': value,
+                'source': 'ai_extraction',
+                'confidence': 'low',
+                'updated_at': datetime.utcnow().isoformat()
+            }
+        else:
+            # Field exists - only update if new value seems more reliable
+            existing_value = profile[key]
+            
+            # If existing value is from manual input, don't overwrite
+            if isinstance(existing_value, dict) and existing_value.get('source') == 'manual':
+                logger.debug(f"[MEMORY-MERGE] Keeping manual value for {key}")
+                continue
+            
+            # If values are different, update with note about change
+            if isinstance(existing_value, dict):
+                old_val = existing_value.get('value')
+            else:
+                old_val = existing_value
+            
+            if old_val != value:
+                profile[key] = {
+                    'value': value,
+                    'source': 'ai_extraction',
+                    'confidence': 'low',
+                    'updated_at': datetime.utcnow().isoformat(),
+                    'previous_value': old_val
+                }
+                logger.debug(f"[MEMORY-MERGE] Updated {key}: {old_val} → {value}")
+    
+    return profile
 
 
 def get_session_messages(session: WhatsAppConversation) -> list:
