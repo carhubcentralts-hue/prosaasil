@@ -6,52 +6,43 @@ Tests:
 2. Lead linking during call creation
 3. Recording system basic checks
 """
+import sys
+
+
+def infer_direction(to_number, from_number, business_phone):
+    """Helper function to infer call direction - matches production logic."""
+    if to_number == business_phone:
+        return "inbound"
+    elif from_number == business_phone:
+        return "outbound"
+    else:
+        return "inbound"  # default
+
 
 def test_direction_inference():
     """Test that direction is inferred correctly when not provided by Twilio."""
     print("Testing direction inference...")
     
-    # Test case 1: to_number matches business phone = inbound
     business_phone = "+972501234567"
+    
+    # Test case 1: to_number matches business phone = inbound
     to_number = "+972501234567"
     from_number = "+972509876543"
-    
-    # Simulate the inference logic
-    if to_number == business_phone:
-        inferred_direction = "inbound"
-    elif from_number == business_phone:
-        inferred_direction = "outbound"
-    else:
-        inferred_direction = "inbound"  # default
-    
+    inferred_direction = infer_direction(to_number, from_number, business_phone)
     assert inferred_direction == "inbound", f"Expected inbound, got {inferred_direction}"
     print("✓ Test 1: to_number matches business phone → inbound")
     
     # Test case 2: from_number matches business phone = outbound
     to_number = "+972509876543"
     from_number = "+972501234567"
-    
-    if to_number == business_phone:
-        inferred_direction = "inbound"
-    elif from_number == business_phone:
-        inferred_direction = "outbound"
-    else:
-        inferred_direction = "inbound"
-    
+    inferred_direction = infer_direction(to_number, from_number, business_phone)
     assert inferred_direction == "outbound", f"Expected outbound, got {inferred_direction}"
     print("✓ Test 2: from_number matches business phone → outbound")
     
     # Test case 3: neither matches = default to inbound
     to_number = "+972501111111"
     from_number = "+972502222222"
-    
-    if to_number == business_phone:
-        inferred_direction = "inbound"
-    elif from_number == business_phone:
-        inferred_direction = "outbound"
-    else:
-        inferred_direction = "inbound"
-    
+    inferred_direction = infer_direction(to_number, from_number, business_phone)
     assert inferred_direction == "inbound", f"Expected inbound (default), got {inferred_direction}"
     print("✓ Test 3: neither matches → inbound (default)")
     
@@ -180,11 +171,9 @@ if __name__ == "__main__":
         
     except AssertionError as e:
         print(f"❌ TEST FAILED: {e}")
-        import sys
         sys.exit(1)
     except Exception as e:
         print(f"❌ ERROR: {e}")
         import traceback
         traceback.print_exc()
-        import sys
         sys.exit(1)
