@@ -95,6 +95,42 @@ def abs_url(path: str) -> str:
     return f"{base}{path}"
 
 
+def _determine_customer_phone(direction: str, from_number: str, to_number: str) -> str:
+    """
+    Helper function to determine customer phone based on call direction.
+    
+    Args:
+        direction: Call direction ('inbound' or 'outbound')
+        from_number: Caller phone number
+        to_number: Recipient phone number
+        
+    Returns:
+        Customer phone number
+    """
+    return from_number if direction == "inbound" else to_number
+
+
+def _infer_call_direction(to_number: str, from_number: str, business_phone: str) -> str:
+    """
+    Helper function to infer call direction when Twilio doesn't provide it.
+    
+    Args:
+        to_number: Recipient phone number
+        from_number: Caller phone number
+        business_phone: Business phone number
+        
+    Returns:
+        Inferred direction ('inbound' or 'outbound')
+    """
+    if to_number and business_phone and to_number == business_phone:
+        return "inbound"
+    elif from_number and business_phone and from_number == business_phone:
+        return "outbound"
+    else:
+        # Default to inbound if we can't determine (safer default for new calls)
+        return "inbound"
+
+
 
 def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
     """
@@ -633,11 +669,31 @@ def incoming_call():
                 # ✅ BUILD 152: Dynamic to_number fallback (no hardcoded phone!)
                 fallback_to = to_number or (business.phone_e164 if business else None) or "unknown"
                 
-                # 🔥 CRITICAL: Only normalize if we have a direction, otherwise use "unknown"
+                # 🔥 CRITICAL: Only normalize if we have a direction, otherwise infer it
                 if twilio_direction:
                     normalized_direction = normalize_call_direction(twilio_direction)
                 else:
-                    normalized_direction = "unknown"
+                    # 🔥 FIX: Infer direction when Twilio doesn't provide it
+                    business_phone = business.phone_e164 if business else None
+                    normalized_direction = _infer_call_direction(to_number, from_number, business_phone)
+                    logger.info(f"🔍 Inferred direction={normalized_direction}")
+                
+                # 🔥 FIX: Determine customer phone BEFORE creating CallLog for immediate lead linking
+                customer_phone = _determine_customer_phone(normalized_direction, from_number, fallback_to)
+                
+                # 🔥 FIX: Try to find existing lead SYNCHRONOUSLY before creating CallLog
+                # This ensures calls appear with leads immediately on incoming/outgoing pages
+                existing_lead_id = None
+                try:
+                    existing_lead = Lead.query.filter_by(
+                        tenant_id=business_id,
+                        phone_e164=customer_phone
+                    ).first()
+                    if existing_lead:
+                        existing_lead_id = existing_lead.id
+                        logger.info(f"🔗 Found existing lead_id={existing_lead_id} for phone={customer_phone}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Lead lookup failed (non-critical): {e}")
                 
                 call_log = CallLog(
                     call_sid=call_sid,
@@ -645,6 +701,7 @@ def incoming_call():
                     from_number=from_number,
                     to_number=fallback_to,  # ✅ BUILD 152: Dynamic, not hardcoded
                     business_id=business_id,
+                    lead_id=existing_lead_id,  # 🔥 FIX: Link existing lead immediately
                     direction=normalized_direction,  # 🔥 NEW: Normalized direction or "unknown"
                     twilio_direction=twilio_direction if twilio_direction else None,  # 🔥 FIX: Explicit None if missing
                     call_status="initiated",  # ✅ BUILD 90: Legacy field
@@ -653,7 +710,7 @@ def incoming_call():
                 )
                 db.session.add(call_log)
                 db.session.commit()
-                logger.info(f"✅ Created CallLog: {call_sid}, direction={normalized_direction}, twilio_direction={twilio_direction}, parent={parent_call_sid}")
+                logger.info(f"✅ Created CallLog: {call_sid}, direction={normalized_direction}, lead_id={existing_lead_id}, twilio_direction={twilio_direction}, parent={parent_call_sid}")
             else:
                 # UPDATE: Call log exists (retry scenario) - update ONLY if we have values
                 # 🔥 CRITICAL: Smart update - allow upgrading from "unknown" to real value
@@ -664,8 +721,36 @@ def incoming_call():
                     if not existing.twilio_direction or existing.direction == "unknown":
                         existing.twilio_direction = twilio_direction
                         existing.direction = normalize_call_direction(twilio_direction)
+                elif existing.direction == "unknown":
+                    # 🔥 FIX: Infer direction if still unknown and no twilio_direction provided
+                    business_phone = business.phone_e164 if business else None
+                    existing.direction = _infer_call_direction(to_number, existing.from_number, business_phone)
+                    logger.info(f"🔍 Inferred direction={existing.direction} for existing call {call_sid}")
+                
+                # 🔥 FIX: Link existing lead if not already linked
+                if not existing.lead_id:
+                    try:
+                        # Determine customer phone based on current direction
+                        current_direction = existing.direction
+                        if current_direction == "unknown":
+                            # If still unknown after inference attempts, default to inbound
+                            current_direction = "inbound"
+                            logger.warning(f"⚠️ Direction still unknown for {call_sid}, defaulting to inbound for lead lookup")
+                        
+                        customer_phone = _determine_customer_phone(current_direction, existing.from_number, existing.to_number)
+                        
+                        existing_lead = Lead.query.filter_by(
+                            tenant_id=business_id,
+                            phone_e164=customer_phone
+                        ).first()
+                        if existing_lead:
+                            existing.lead_id = existing_lead.id
+                            logger.info(f"🔗 Linked existing lead_id={existing_lead.id} to CallLog {call_sid}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Lead linking failed (non-critical): {e}")
+                
                 db.session.commit()
-                logger.info(f"✅ Updated existing CallLog: {call_sid}")
+                logger.info(f"✅ Updated existing CallLog: {call_sid}, lead_id={existing.lead_id}")
         except Exception as e:
             logger.error(f"Failed to create/update call_log: {e}")
             db.session.rollback()

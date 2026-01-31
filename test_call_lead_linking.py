@@ -31,16 +31,16 @@ def test_call_lead_linking_logic():
             print("  ❌ FAIL: tasks_recording.py does NOT set call_log.lead_id")
             return False
     
-    # Test 2: Verify media_ws_ai.py has lead_id linking
-    print("\n✓ Test 2: Checking media_ws_ai.py for CallLog lead_id linking")
-    with open('server/media_ws_ai.py', 'r') as f:
+    # Test 2: Verify routes_twilio.py has synchronous lead linking
+    print("\n✓ Test 2: Checking routes_twilio.py for synchronous lead_id linking")
+    with open('server/routes_twilio.py', 'r') as f:
         content = f.read()
         
-        # Check if we link CallLog to lead_id after crm_context creation
-        if 'call_log.lead_id = lead_id' in content:
-            print("  ✅ PASS: media_ws_ai.py links CallLog to lead_id")
+        # Check if we link CallLog to lead_id synchronously during creation
+        if 'lead_id=existing_lead_id' in content and 'existing_lead = Lead.query.filter_by' in content:
+            print("  ✅ PASS: routes_twilio.py links CallLog to lead_id synchronously")
         else:
-            print("  ❌ FAIL: media_ws_ai.py does NOT link CallLog to lead_id")
+            print("  ❌ FAIL: routes_twilio.py does NOT link CallLog to lead_id synchronously")
             return False
     
     # Test 3: Verify API filters by lead_id
