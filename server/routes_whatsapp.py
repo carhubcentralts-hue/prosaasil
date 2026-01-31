@@ -8,6 +8,8 @@ from server.db import db
 from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
 from server.services.whatsapp_session_service import update_session_activity
 from server.agent_tools.phone_utils import normalize_phone
+from server.services.jobs import enqueue_job
+from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1093,7 +1095,6 @@ def baileys_webhook():
                     
                     # Try to get business greeting as fallback response
                     try:
-                        from server.models_sql import Business
                         business = Business.query.get(business_id)
                         if business:
                             # Use whatsapp_greeting first, then greeting_message, then default
@@ -1112,9 +1113,6 @@ def baileys_webhook():
                     log.info(f"[WA-OUTGOING] 📤 Sending basic ack to jid={reply_jid}, text={str(response_text)[:50]}...")
                     
                     try:
-                        from server.services.jobs import enqueue_job
-                        from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
-                        
                         job = enqueue_job(
                             queue_name='default',
                             func=send_whatsapp_message_job,
@@ -1248,7 +1246,6 @@ def baileys_webhook():
                     log.error(f"[WA-ERROR] ❌ AgentKit returned empty response! Cannot send empty message.")
                     # Try to send a fallback message instead of silence
                     try:
-                        from server.models_sql import Business
                         business = Business.query.get(business_id)
                         if business:
                             response_text = business.whatsapp_greeting or business.greeting_message or DEFAULT_FALLBACK_MESSAGE
@@ -1269,9 +1266,6 @@ def baileys_webhook():
                 # 🔥 REMOVED THREADING: Use RQ job for WhatsApp sending
                 # This ensures proper retry, error handling, and no thread proliferation
                 try:
-                    from server.services.jobs import enqueue_job
-                    from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
-                    
                     # 🔥 BUILD 200 DEBUG: Log parameters before enqueue
                     log.info(f"[WA-ENQUEUE-DEBUG] business_id={business_id}, tenant_id={tenant_id}, reply_jid={reply_jid[:30]}, msg_length={len(response_text)}")
                     
