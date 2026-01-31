@@ -297,6 +297,8 @@ function extractText(msgObj) {
   }
   
   // 5. Audio and document messages are valid but may have no text content
+  // Note: Documents WITH captions are handled above (line 278)
+  // This section handles audio messages and documents WITHOUT captions
   // Still send to Flask so it can handle media appropriately
   if (msgObj.audioMessage || msgObj.documentMessage) {
     return '[media]';  // Return indicator that this is valid content
