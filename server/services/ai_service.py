@@ -43,7 +43,17 @@ def _ensure_agent_modules_loaded():
         
         AGENT_MODULES_LOADED = True
         AGENTS_ENABLED = agents_flag
-        logger.info("✅ Agent modules loaded successfully (lazy load)")
+        logger.info(f"✅ Agent modules loaded successfully (lazy load) - AGENTS_ENABLED={agents_flag}")
+        
+        # Log the actual env var value for debugging
+        import os
+        env_value = os.getenv("AGENTS_ENABLED", "1")
+        logger.info(f"✅ AGENTS_ENABLED environment variable: '{env_value}' (type: {type(env_value)})")
+        
+        if not agents_flag:
+            logger.warning("⚠️ Agent modules loaded but AGENTS_ENABLED=False")
+            logger.warning("⚠️ Check AGENTS_ENABLED environment variable or agent_factory.py logic")
+        
         return True
         
     except Exception as e:
@@ -51,6 +61,9 @@ def _ensure_agent_modules_loaded():
         AGENTS_ENABLED = False
         _agent_load_error = str(e)
         logger.error(f"❌ Agent modules failed to load: {e}")
+        logger.error(f"❌ Error details: {type(e).__name__}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         logger.warning("⚠️ WhatsApp will continue to work, but without agent tools")
         return False
 
@@ -882,7 +895,8 @@ class AIService:
             
             # If agents are available, try to use them
             if not AGENTS_ENABLED:
-                logger.info("[AGENTKIT] Agents disabled, using regular response")
+                logger.warning("[AGENTKIT] ⚠️ AGENTS_ENABLED=False - agents are DISABLED, using regular response")
+                logger.warning("[AGENTKIT] ⚠️ To enable agents, set AGENTS_ENABLED=1 in environment or check agent loading errors")
                 response_text = self.generate_response(message, business_id, context, channel, is_first_turn)
                 return {
                     "text": response_text,
@@ -894,11 +908,13 @@ class AIService:
             from agents import Runner
             
             # Get agent for this business
-            logger.info(f"[AGENTKIT] Getting agent for business {business_id}")
+            logger.info(f"[AGENTKIT] Getting agent for business {business_id}, channel={channel}")
             agent = get_agent(business_id=business_id, channel=channel)
             
             if not agent:
-                logger.warning(f"[AGENTKIT] No agent available for business {business_id}, using regular response")
+                logger.error(f"[AGENTKIT] ❌ No agent available for business {business_id}, channel={channel}")
+                logger.error(f"[AGENTKIT] ❌ This means get_agent() returned None - agent factory failed to create agent")
+                logger.error(f"[AGENTKIT] ❌ Falling back to regular response WITHOUT agent tools")
                 response_text = self.generate_response(message, business_id, context, channel, is_first_turn)
                 return {
                     "text": response_text,
@@ -927,12 +943,27 @@ class AIService:
                 # Fallback: try to get any text output
                 reply_text = str(result) if result else ""
             
-            logger.info(f"[AGENTKIT] Agent response: {len(reply_text)} chars")
+            # 🔥 CRITICAL FIX: Validate agent returned non-empty response
+            reply_text_clean = reply_text.strip() if reply_text else ""
+            
+            if not reply_text_clean:
+                logger.error(f"[AGENTKIT] ❌ Agent returned EMPTY response! Falling back to regular AI")
+                logger.error(f"[AGENTKIT] Result type: {type(result)}, has text: {hasattr(result, 'text')}, has response: {hasattr(result, 'response')}")
+                logger.error(f"[AGENTKIT] Result repr: {repr(result)[:200]}")
+                
+                # Fallback to regular generate_response when agent returns empty
+                fallback_text = self.generate_response(message, business_id, context, channel, is_first_turn)
+                return {
+                    "text": fallback_text if fallback_text else "",
+                    "actions": []
+                }
+            
+            logger.info(f"[AGENTKIT] Agent response: {len(reply_text_clean)} chars")
             logger.info(f"🔙 About to return from generate_response_with_agent()")
             
             # Return structured response
             return {
-                "text": reply_text.strip() if reply_text else "",
+                "text": reply_text_clean,
                 "actions": []  # Actions would be extracted from result.new_items if needed
             }
             

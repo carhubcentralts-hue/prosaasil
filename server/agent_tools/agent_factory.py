@@ -213,8 +213,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     Returns:
         Configured Agent ready to handle booking requests
     """
+    logger.info(f"[CREATE-AGENT] create_booking_agent called: business_id={business_id}, channel={channel}, AGENTS_ENABLED={AGENTS_ENABLED}")
+    
     if not AGENTS_ENABLED:
-        logger.warning("Agents are disabled (AGENTS_ENABLED=0)")
+        logger.warning("[CREATE-AGENT] ❌ Agents are disabled (AGENTS_ENABLED=0)")
+        return None
+    
+    if not business_id:
+        logger.error("[CREATE-AGENT] ❌ business_id is required but None provided")
         return None
     
     # 🎯 Create tools with business_id pre-injected
@@ -1544,16 +1550,25 @@ Be friendly and professional."""
         
         # ✅ RESTORED: AgentKit with tools for non-realtime flows
         # IMPORTANT: Realtime phone calls use media_ws_ai.py (not AgentKit)
-        agent = Agent(
-            name=f"booking_agent_{business_name}",  # Required: Agent name
-            model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
-            instructions=instructions,
-            tools=tools_to_use,  # ✅ RESTORED: Full tools for AgentKit / non-realtime
-            model_settings=model_settings  # ⚡ Channel-specific settings
-        )
+        logger.info(f"[CREATE-AGENT] Creating Agent object with {len(tools_to_use)} tools...")
         
-        logger.info(f"✅ Created booking agent for '{business_name}' with 5 tools")
-        return agent
+        try:
+            agent = Agent(
+                name=f"booking_agent_{business_name}",  # Required: Agent name
+                model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
+                instructions=instructions,
+                tools=tools_to_use,  # ✅ RESTORED: Full tools for AgentKit / non-realtime
+                model_settings=model_settings  # ⚡ Channel-specific settings
+            )
+            
+            logger.info(f"[CREATE-AGENT] ✅ Agent object created successfully")
+            logger.info(f"[CREATE-AGENT] ✅ Created booking agent for '{business_name}' with {len(tools_to_use)} tools")
+            return agent
+        except Exception as agent_err:
+            logger.error(f"[CREATE-AGENT] ❌ Failed to create Agent object: {agent_err}")
+            import traceback
+            traceback.print_exc()
+            raise
         
     except Exception as e:
         logger.error(f"Failed to create agent: {e}")
@@ -1955,9 +1970,20 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
     Returns:
         Agent instance (cached unless custom_instructions provided)
     """
+    logger.info(f"[AGENT-FACTORY] get_agent called: type={agent_type}, business_id={business_id}, channel={channel}, AGENTS_ENABLED={AGENTS_ENABLED}")
+    
+    # 🔥 CRITICAL CHECK: Return None if agents are disabled
+    if not AGENTS_ENABLED:
+        logger.warning(f"[AGENT-FACTORY] ❌ AGENTS_ENABLED=False - cannot create agent")
+        return None
+    
+    if not business_id:
+        logger.error(f"[AGENT-FACTORY] ❌ business_id is required but not provided")
+        return None
+    
     # 🎯 If custom instructions provided, always create fresh agent (don't cache)
     if custom_instructions and isinstance(custom_instructions, str) and custom_instructions.strip():
-        logger.info(f"Creating fresh agent with custom instructions ({len(custom_instructions)} chars)")
+        logger.info(f"[AGENT-FACTORY] Creating fresh agent with custom instructions ({len(custom_instructions)} chars)")
         if agent_type == "booking":
             return create_booking_agent(business_name, custom_instructions, business_id, channel)
         elif agent_type == "sales":
@@ -1969,8 +1995,10 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
     
     # Otherwise use cached agent (include channel in cache key!)
     cache_key = f"{agent_type}:{business_name}:{business_id}:{channel}"
+    logger.info(f"[AGENT-FACTORY] Checking cache for key: {cache_key}")
     
     if cache_key not in _agent_cache:
+        logger.info(f"[AGENT-FACTORY] Cache miss - creating new agent for business_id={business_id}")
         if agent_type == "booking":
             # 🔥 CRITICAL: Load DB prompt if not provided
             actual_instructions = custom_instructions
@@ -1994,16 +2022,34 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
                         except json.JSONDecodeError:
                             # Legacy single prompt
                             actual_instructions = settings.ai_prompt
+                        
+                        logger.info(f"[AGENT-FACTORY] Loaded DB prompt for business_id={business_id}: {len(actual_instructions) if actual_instructions else 0} chars")
+                    else:
+                        logger.warning(f"[AGENT-FACTORY] ⚠️ No settings or ai_prompt found for business_id={business_id}")
                 except Exception as e:
-                    logger.warning(f"⚠️ Could not load DB prompt in get_agent for business={business_id}: {e}")
+                    logger.error(f"[AGENT-FACTORY] ❌ Could not load DB prompt for business_id={business_id}: {e}")
+                    import traceback
+                    traceback.print_exc()
                     actual_instructions = None
             
-            _agent_cache[cache_key] = create_booking_agent(business_name, actual_instructions, business_id, channel)
+            created_agent = create_booking_agent(business_name, actual_instructions, business_id, channel)
+            if created_agent:
+                _agent_cache[cache_key] = created_agent
+                logger.info(f"[AGENT-FACTORY] ✅ Agent created and cached successfully")
+            else:
+                logger.error(f"[AGENT-FACTORY] ❌ create_booking_agent returned None!")
+                return None
         elif agent_type == "sales":
             _agent_cache[cache_key] = create_sales_agent(business_name)
         elif agent_type == "ops":
             _agent_cache[cache_key] = create_ops_agent(business_name, business_id, channel)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
+    else:
+        logger.info(f"[AGENT-FACTORY] Cache hit - returning cached agent")
     
-    return _agent_cache[cache_key]
+    agent = _agent_cache.get(cache_key)
+    if not agent:
+        logger.error(f"[AGENT-FACTORY] ❌ Agent is None after cache retrieval!")
+    
+    return agent
