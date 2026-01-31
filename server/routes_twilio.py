@@ -633,11 +633,23 @@ def incoming_call():
                 # ✅ BUILD 152: Dynamic to_number fallback (no hardcoded phone!)
                 fallback_to = to_number or (business.phone_e164 if business else None) or "unknown"
                 
-                # 🔥 CRITICAL: Only normalize if we have a direction, otherwise use "unknown"
+                # 🔥 CRITICAL: Only normalize if we have a direction, otherwise infer it
                 if twilio_direction:
                     normalized_direction = normalize_call_direction(twilio_direction)
                 else:
-                    normalized_direction = "unknown"
+                    # 🔥 FIX: Infer direction when Twilio doesn't provide it
+                    # If to_number matches our business phone, it's inbound (someone calling us)
+                    # Otherwise, it's likely outbound (we're calling someone)
+                    if to_number and business and to_number == business.phone_e164:
+                        normalized_direction = "inbound"
+                        logger.info(f"🔍 Inferred direction=inbound (to_number matches business phone)")
+                    elif from_number and business and from_number == business.phone_e164:
+                        normalized_direction = "outbound"
+                        logger.info(f"🔍 Inferred direction=outbound (from_number matches business phone)")
+                    else:
+                        # Default to inbound if we can't determine (safer default for new calls)
+                        normalized_direction = "inbound"
+                        logger.warning(f"⚠️ Could not determine direction, defaulting to inbound")
                 
                 # 🔥 FIX: Determine customer phone BEFORE creating CallLog for immediate lead linking
                 customer_phone = from_number if normalized_direction == "inbound" else fallback_to
@@ -683,13 +695,26 @@ def incoming_call():
                     if not existing.twilio_direction or existing.direction == "unknown":
                         existing.twilio_direction = twilio_direction
                         existing.direction = normalize_call_direction(twilio_direction)
+                elif existing.direction == "unknown":
+                    # 🔥 FIX: Infer direction if still unknown and no twilio_direction provided
+                    if to_number and business and to_number == business.phone_e164:
+                        existing.direction = "inbound"
+                        logger.info(f"🔍 Inferred direction=inbound for existing call {call_sid}")
+                    elif existing.from_number and business and existing.from_number == business.phone_e164:
+                        existing.direction = "outbound"
+                        logger.info(f"🔍 Inferred direction=outbound for existing call {call_sid}")
                 
                 # 🔥 FIX: Link existing lead if not already linked
                 if not existing.lead_id:
                     try:
                         from server.models_sql import Lead
                         # Determine customer phone based on current direction
-                        current_direction = existing.direction if existing.direction != "unknown" else normalize_call_direction(twilio_direction) if twilio_direction else "inbound"
+                        current_direction = existing.direction
+                        if current_direction == "unknown":
+                            # If still unknown after inference attempts, default to inbound
+                            current_direction = "inbound"
+                            logger.warning(f"⚠️ Direction still unknown for {call_sid}, defaulting to inbound for lead lookup")
+                        
                         customer_phone = existing.from_number if current_direction == "inbound" else existing.to_number
                         
                         existing_lead = Lead.query.filter_by(
