@@ -909,21 +909,39 @@ def baileys_webhook():
                     else:
                         log.info(f"[WA-LID] ⚠️ LID message: incoming={remote_jid}, reply_to={reply_jid} (no participant available)")
                 
-                # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
-                # 🔥 CRITICAL FIX: For @lid messages, pass customer_external_id instead of None
-                phone_or_id = from_number_e164 if from_number_e164 else customer_external_id
-                ci_service = CustomerIntelligence(business_id=business_id)
-                customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
-                    phone_number=phone_or_id,
+                # ✅ BUILD 200: Use ContactIdentityService for unified lead management
+                # This prevents duplicates across WhatsApp and Phone channels
+                from server.services.contact_identity_service import ContactIdentityService
+                from datetime import datetime
+                
+                # Prepare timestamp
+                msg_timestamp = None
+                if timestamp_ms:
+                    try:
+                        msg_timestamp = datetime.fromtimestamp(int(timestamp_ms))
+                    except (ValueError, TypeError):
+                        msg_timestamp = datetime.utcnow()
+                else:
+                    msg_timestamp = datetime.utcnow()
+                
+                # Get or create lead using unified contact identity service
+                lead = ContactIdentityService.get_or_create_lead_for_whatsapp(
+                    business_id=business_id,
+                    remote_jid=remote_jid,
+                    push_name=push_name,
                     message_text=message_text,
-                    whatsapp_jid=remote_jid,
-                    whatsapp_jid_alt=remote_jid_alt,
-                    phone_raw=phone_raw,
-                    push_name=push_name  # 🆕 Pass pushName for name saving
+                    wa_message_id=baileys_message_id,
+                    ts=msg_timestamp
                 )
                 
-                action = "created" if was_created else "updated"
-                log.info(f"✅ {action} customer/lead for {phone_or_id}, reply_jid={reply_jid}")
+                log.info(f"✅ Lead resolved: lead_id={lead.id}, phone={lead.phone_e164 or 'N/A'}, jid={remote_jid[:30]}...")
+                
+                # Get customer for backwards compatibility (if exists)
+                from server.models_sql import Customer
+                customer = Customer.query.filter_by(
+                    business_id=business_id,
+                    phone_e164=lead.phone_e164
+                ).first() if lead.phone_e164 else None
                 
                 # Extract message_id from Baileys message structure
                 # This is critical for deduplication (same message_id = same message)
