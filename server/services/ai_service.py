@@ -709,7 +709,7 @@ class AIService:
                     # Call Gemini
                     gemini_client = self._get_gemini_client()
                     response = gemini_client.models.generate_content(
-                        model="gemini-2.0-flash-exp",
+                        model="gemini-2.0-flash",
                         contents=full_prompt
                     )
                     
@@ -914,8 +914,8 @@ class AIService:
             
             # Run agent
             logger.info(f"[AGENTKIT] Running agent with message: '{message[:50]}...'")
-            runner = Runner(agent)
-            result = runner.run(message, context=agent_context)
+            runner = Runner()
+            result = runner.run(agent, message, context=agent_context)
             
             # Extract response text
             reply_text = ""

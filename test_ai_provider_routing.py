@@ -116,7 +116,7 @@ def test_aiservice_gemini_support():
         return False
     
     # Test 6: Check for Gemini model call
-    if 'gemini-2.0-flash-exp' in content:
+    if 'gemini-2.0-flash' in content:
         print("✓ Gemini model is called correctly")
     else:
         print("❌ Gemini model not found")

@@ -216,7 +216,7 @@ def get_gemini_llm_client():
             gemini_api_key = get_gemini_api_key()
             api_key_exists = bool(gemini_api_key)
             env_var_used = "GEMINI_API_KEY"
-            llm_model = os.getenv('GEMINI_LLM_MODEL', 'gemini-2.0-flash-exp')
+            llm_model = os.getenv('GEMINI_LLM_MODEL', 'gemini-2.0-flash')
             
             # Check if ADC/Service Account is accidentally being used
             google_app_creds = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
