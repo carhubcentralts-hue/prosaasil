@@ -719,8 +719,12 @@ def baileys_webhook():
                 # We must reply to the EXACT remoteJid we received
                 remote_jid = msg.get('key', {}).get('remoteJid', '')
                 
+                # 🔥 FIX: Extract message metadata early to avoid UnboundLocalError
+                baileys_message_id = msg.get('key', {}).get('id', '')
+                timestamp_ms = msg.get('messageTimestamp', 0)
+                
                 # 🔥 LID FIX: Enhanced logging for incoming message identification
-                message_id = msg.get('key', {}).get('id', '')
+                message_id = baileys_message_id  # Use baileys_message_id for consistency
                 from_me = msg.get('key', {}).get('fromMe', False)
                 log.info(f"[WA-INCOMING] 🔵 Incoming chat_jid={remote_jid}, message_id={message_id}, from_me={from_me}")
                 
@@ -951,17 +955,11 @@ def baileys_webhook():
                     phone_e164=lead.phone_e164
                 ).first() if lead.phone_e164 else None
                 
-                # Extract message_id from Baileys message structure
-                # This is critical for deduplication (same message_id = same message)
-                baileys_message_id = msg.get('key', {}).get('id', '')
-                jid = msg.get('key', {}).get('remoteJid', '')
-                timestamp_ms = msg.get('messageTimestamp', 0)
-                
                 # ✅ Check if message already exists (prevent duplicates from webhook retries)
-                # 🔥 ENHANCED: Triple-check deduplication with message_id + jid + timestamp
+                # 🔥 ENHANCED: Triple-check deduplication with message_id + remote_jid + timestamp
                 # This prevents:
                 # 1. Webhook retries (same message_id)
-                # 2. Multiple delivery attempts (same jid + timestamp)
+                # 2. Multiple delivery attempts (same remote_jid + timestamp)
                 # 3. Content duplication (same body + phone within 10s)
                 existing_msg = None
                 
@@ -976,8 +974,8 @@ def baileys_webhook():
                         log.info(f"⚠️ Duplicate by message_id: {baileys_message_id}")
                         continue
                 
-                # Second check: jid + timestamp (for messages without message_id)
-                if not existing_msg and jid and timestamp_ms:
+                # Second check: remote_jid + timestamp (for messages without message_id)
+                if not existing_msg and remote_jid and timestamp_ms:
                     # Allow 1-second tolerance for timestamp matching
                     timestamp_dt = datetime.utcfromtimestamp(timestamp_ms)
                     time_tolerance = timedelta(seconds=1)
@@ -991,7 +989,7 @@ def baileys_webhook():
                     ).first()
                     
                     if existing_msg:
-                        log.info(f"⚠️ Duplicate by jid+timestamp: {jid} @ {timestamp_ms}")
+                        log.info(f"⚠️ Duplicate by remote_jid+timestamp: {remote_jid} @ {timestamp_ms}")
                         continue
                 
                 # Third check: body content + phone within 10 seconds (fallback)
