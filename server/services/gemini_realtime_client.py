@@ -90,6 +90,9 @@ def _fix_base64_padding(data):
     
     # Handle bytes/bytearray consistently
     if isinstance(data, (bytes, bytearray)):
+        # Convert to bytes for consistent handling
+        if isinstance(data, bytearray):
+            data = bytes(data)
         missing = len(data) % 4
         if missing:
             data += b'=' * (4 - missing)  # Use b'=' for bytes

@@ -134,9 +134,9 @@ class TestBase64PaddingFix:
         """Test that bytearray input is handled correctly"""
         incomplete_bytearray = bytearray(b"SGVsbG8gV29ybGQ")
         result = _fix_base64_padding(incomplete_bytearray)
-        # Result should have padding added
-        assert len(result) % 4 == 0
-        assert isinstance(result, (bytes, bytearray))
+        # Result should be converted to bytes and have padding added
+        assert result == b"SGVsbG8gV29ybGQ="
+        assert isinstance(result, bytes)  # Should be bytes, not bytearray
         
         # Verify it decodes successfully
         decoded = base64.b64decode(result)
