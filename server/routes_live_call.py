@@ -216,7 +216,7 @@ def live_call_chat():
                 
                 # Generate content using Gemini
                 response = client.models.generate_content(
-                    model="gemini-2.0-flash-exp",
+                    model="gemini-2.0-flash",
                     contents=full_prompt
                 )
                 
