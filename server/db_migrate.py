@@ -7577,6 +7577,81 @@ def apply_migrations():
         checkpoint("   🎯 Prevents duplicate leads across WhatsApp and Phone channels")
         checkpoint("   🎯 Enables cross-channel lead linking based on phone number")
         
+        # ============================================================================
+        # Migration 121: Add unified customer memory fields to leads table
+        # ============================================================================
+        # Purpose: Unified customer memory system for calls + WhatsApp
+        # - Stores customer profile, conversation summaries, and interaction history
+        # - Enables AI to maintain context across channels and conversations
+        # - Used when BusinessSettings.enable_customer_service is True
+        checkpoint("Migration 121: Adding unified customer memory fields to leads")
+        
+        if check_table_exists('leads'):
+            try:
+                fields_added = []
+                
+                # Add customer_profile_json for storing structured customer data
+                if not check_column_exists('leads', 'customer_profile_json'):
+                    checkpoint("  → Adding customer_profile_json to leads...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN IF NOT EXISTS customer_profile_json JSONB NULL
+                    """)
+                    fields_added.append('customer_profile_json')
+                    checkpoint("  ✅ customer_profile_json added")
+                
+                # Add last_summary for conversation summaries (5-10 lines)
+                if not check_column_exists('leads', 'last_summary'):
+                    checkpoint("  → Adding last_summary to leads...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN IF NOT EXISTS last_summary TEXT NULL
+                    """)
+                    fields_added.append('last_summary')
+                    checkpoint("  ✅ last_summary added")
+                
+                # Add summary_updated_at timestamp
+                if not check_column_exists('leads', 'summary_updated_at'):
+                    checkpoint("  → Adding summary_updated_at to leads...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMP NULL
+                    """)
+                    fields_added.append('summary_updated_at')
+                    checkpoint("  ✅ summary_updated_at added")
+                
+                # Add last_interaction_at for tracking last message timestamp
+                if not check_column_exists('leads', 'last_interaction_at'):
+                    checkpoint("  → Adding last_interaction_at to leads...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN IF NOT EXISTS last_interaction_at TIMESTAMP NULL
+                    """)
+                    fields_added.append('last_interaction_at')
+                    checkpoint("  ✅ last_interaction_at added")
+                
+                # Add last_channel for tracking which channel was used last
+                if not check_column_exists('leads', 'last_channel'):
+                    checkpoint("  → Adding last_channel to leads...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN IF NOT EXISTS last_channel VARCHAR(16) NULL
+                    """)
+                    fields_added.append('last_channel')
+                    checkpoint("  ✅ last_channel added")
+                
+                if fields_added:
+                    migrations_applied.append('migration_121_customer_memory')
+                    checkpoint(f"✅ Migration 121 completed - Added {len(fields_added)} customer memory fields")
+                else:
+                    checkpoint("  ℹ️  All customer memory fields already exist")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 121 failed: {e}")
+                raise
+        else:
+            checkpoint("  ℹ️  leads table does not exist - skipping Migration 121")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

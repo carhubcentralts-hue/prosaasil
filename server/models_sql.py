@@ -538,6 +538,14 @@ class Lead(db.Model):
     whatsapp_last_summary = db.Column(db.Text)  # Latest WhatsApp conversation summary
     whatsapp_last_summary_at = db.Column(db.DateTime)  # When summary was created
     
+    # 🆕 UNIFIED CUSTOMER MEMORY: Shared memory for calls + WhatsApp
+    # Single source of truth for customer context across all channels
+    customer_profile_json = db.Column(db.JSON, nullable=True)  # Customer profile (name, city, services, preferences)
+    last_summary = db.Column(db.Text, nullable=True)  # Short summary of last interaction (5-10 lines)
+    summary_updated_at = db.Column(db.DateTime, nullable=True)  # When last_summary was updated
+    last_interaction_at = db.Column(db.DateTime, nullable=True, index=True)  # Last message timestamp (any channel)
+    last_channel = db.Column(db.String(16), nullable=True)  # 'whatsapp' | 'call' - last interaction channel
+    
     # Call direction tracking for filtering (inbound/outbound)
     # 🔒 IMPORTANT: Set ONCE on first interaction, never overridden by subsequent calls
     last_call_direction = db.Column(db.String(16), nullable=True, index=True)  # inbound|outbound - set on first call only
