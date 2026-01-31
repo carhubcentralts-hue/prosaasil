@@ -1,5 +1,9 @@
 """
 Test that send_whatsapp_message_job receives all required arguments
+
+This is a verification script that uses string-based testing to validate
+the fix without requiring all dependencies to be installed. For production
+testing, consider using proper unit tests with mocks.
 """
 import sys
 import os
@@ -27,7 +31,7 @@ def test_send_whatsapp_message_job_signature():
 
 
 def test_enqueue_fix():
-    """Test that enqueue() fix correctly passes business_id"""
+    """Test that enqueue() fix correctly passes business_id and run_id"""
     
     # Read the enqueue function to verify the fix
     file_path = os.path.join(os.path.dirname(__file__), 'server', 'services', 'jobs.py')
@@ -38,9 +42,11 @@ def test_enqueue_fix():
     assert "job_func_kwargs = dict(kwargs)" in content, "Fix should create job_func_kwargs"
     assert "if business_id is not None:" in content, "Fix should check business_id"
     assert "job_func_kwargs['business_id'] = business_id" in content, "Fix should add business_id to kwargs"
+    assert "if run_id is not None:" in content, "Fix should check run_id"
+    assert "job_func_kwargs['run_id'] = run_id" in content, "Fix should add run_id to kwargs"
     assert "**job_func_kwargs," in content, "Fix should pass job_func_kwargs to queue.enqueue"
     
-    print("✅ Test passed: enqueue() fix is correctly implemented")
+    print("✅ Test passed: enqueue() fix correctly passes business_id and run_id to job functions")
 
 
 def test_routes_whatsapp_usage():
