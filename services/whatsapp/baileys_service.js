@@ -1746,11 +1746,16 @@ async function startSession(tenantId, forceRelink = false) {
           messages: newMessages
         };
         
+        // 🔥 FIX: Include tenantId in the payload structure expected by Flask
+        const webhookPayload = {
+          tenantId,
+          payload: filteredPayload
+        };
+        
         // 🔥 FIX #1: Wrap webhook call with fail-safe and queue
-        // 🔥 CRITICAL FIX: Send payload directly, not nested under another payload key
         try {
           const response = await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,
-            filteredPayload,
+            webhookPayload,
             { 
               headers: { 
                 'Content-Type': 'application/json',
@@ -1792,7 +1797,10 @@ async function startSession(tenantId, forceRelink = false) {
                   tenantId,
                   messageId,
                   remoteJid: msgRemoteJid,  // Store for dedup key reconstruction
-                  payload: { ...payload, messages: [msg] },  // Use filtered payload structure
+                  payload: {
+                    tenantId,
+                    payload: { ...payload, messages: [msg] }  // Use correct webhook structure
+                  },
                   attempts: 0,
                   lastAttempt: Date.now(),
                   createdAt: Date.now()
