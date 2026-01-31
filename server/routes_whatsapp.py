@@ -19,6 +19,9 @@ BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 log = logging.getLogger(__name__)
 
+# 🔥 FIX: Default fallback message for when business greeting is not available
+DEFAULT_FALLBACK_MESSAGE = "תודה על הפנייה. נציג יחזור אליך בהקדם."
+
 # BUILD 136: REMOVED hardcoded business_1 - now uses tenant_id_from_ctx() dynamically
 # Helper function to get tenant-specific auth directory
 def get_auth_dir(tenant_id: str) -> tuple:
@@ -1093,16 +1096,17 @@ def baileys_webhook():
                         from server.models_sql import Business
                         business = Business.query.get(business_id)
                         if business:
-                            # Use whatsapp_greeting first, then greeting_message, then generic message
-                            # 🔥 FIX: Explicit None checks to handle empty strings correctly
-                            response_text = business.whatsapp_greeting if business.whatsapp_greeting is not None else business.greeting_message
-                            if not response_text:
-                                response_text = "תודה על הפנייה. נציג יחזור אליך בהקדם."
+                            # Use whatsapp_greeting first, then greeting_message, then default
+                            response_text = business.whatsapp_greeting or business.greeting_message or DEFAULT_FALLBACK_MESSAGE
                         else:
-                            response_text = "תודה על הפנייה. נציג יחזור אליך בהקדם."
+                            response_text = DEFAULT_FALLBACK_MESSAGE
                     except Exception as e:
                         log.warning(f"[WA-WARN] Could not fetch business greeting: {e}")
-                        response_text = "תודה על הפנייה. נציג יחזור אליך בהקדם."
+                        response_text = DEFAULT_FALLBACK_MESSAGE
+                    
+                    # 🔥 FIX: Validate response is not empty or whitespace
+                    if not response_text or response_text.isspace():
+                        response_text = DEFAULT_FALLBACK_MESSAGE
                     
                     # Send the basic acknowledgment
                     log.info(f"[WA-OUTGOING] 📤 Sending basic ack to jid={reply_jid}, text={str(response_text)[:50]}...")
@@ -1247,13 +1251,13 @@ def baileys_webhook():
                         from server.models_sql import Business
                         business = Business.query.get(business_id)
                         if business:
-                            # 🔥 FIX: Explicit None checks to handle empty strings correctly
-                            response_text = business.whatsapp_greeting if business.whatsapp_greeting is not None else (business.greeting_message if business.greeting_message is not None else "תודה על הפנייה.")
+                            response_text = business.whatsapp_greeting or business.greeting_message or DEFAULT_FALLBACK_MESSAGE
                         else:
-                            response_text = "תודה על הפנייה."
+                            response_text = DEFAULT_FALLBACK_MESSAGE
                         log.warning(f"[WA-WARN] Using fallback response: {response_text[:50]}...")
-                    except:
-                        log.error(f"[WA-ERROR] Could not even send fallback - skipping message")
+                    except Exception as e:
+                        log.error(f"[WA-ERROR] Could not fetch fallback: {e}")
+                        log.error(f"[WA-ERROR] Skipping message - cannot send empty response")
                         continue
                 
                 # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
