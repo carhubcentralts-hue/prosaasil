@@ -4,7 +4,6 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/features/auth/hooks';
-import { LeadTabsSettings } from './LeadTabsSettings';
 import { 
   isPushSupported, 
   getPermissionStatus, 
@@ -133,8 +132,8 @@ export function SettingsPage() {
   const { user } = useAuth();
   // ✅ URL-based tab navigation for search and refresh persistence
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab') as 'business' | 'integrations' | 'security' | 'notifications' | 'lead_tabs' | null;
-  const [activeTab, setActiveTab] = useState<'business' | 'integrations' | 'security' | 'notifications' | 'lead_tabs'>(tabFromUrl || 'business');
+  const tabFromUrl = searchParams.get('tab') as 'business' | 'integrations' | 'security' | 'notifications' | null;
+  const [activeTab, setActiveTab] = useState<'business' | 'integrations' | 'security' | 'notifications'>(tabFromUrl || 'business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   
   // ✅ Sync activeTab with URL
@@ -145,7 +144,7 @@ export function SettingsPage() {
   }, [tabFromUrl]);
   
   // ✅ Update URL when tab changes
-  const handleTabChange = (tab: 'business' | 'integrations' | 'security' | 'notifications' | 'lead_tabs') => {
+  const handleTabChange = (tab: 'business' | 'integrations' | 'security' | 'notifications') => {
     setActiveTab(tab);
     setSearchParams({ tab });
   };
@@ -615,17 +614,6 @@ export function SettingsPage() {
           >
             <Globe className="w-4 h-4 mr-2" />
             הגדרות עסק
-          </button>
-          <button
-            onClick={() => handleTabChange('lead_tabs')}
-            className={`${
-              activeTab === 'lead_tabs'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-          >
-            <Settings className="w-4 h-4 mr-2" />
-            טאבים בדף ליד
           </button>
           <button
             onClick={() => handleTabChange('integrations')}
@@ -1364,12 +1352,6 @@ export function SettingsPage() {
                 </ul>
               </div>
             </Card>
-          </div>
-        )}
-
-        {activeTab === 'lead_tabs' && (
-          <div className="max-w-7xl">
-            <LeadTabsSettings />
           </div>
         )}
 

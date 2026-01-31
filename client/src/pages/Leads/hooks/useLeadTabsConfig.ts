@@ -45,10 +45,13 @@ export function useLeadTabsConfig() {
 
   const updateTabsConfig = async (newConfig: LeadTabConfig | null) => {
     try {
+      // Save to backend
       await http.put('/api/business/current/settings', {
         lead_tabs_config: newConfig
       });
-      setTabsConfig(newConfig);
+      
+      // ✅ Don't update state optimistically - let the caller refresh
+      // This ensures we always show what's actually in the DB
       return true;
     } catch (err) {
       console.error('Failed to update tabs configuration:', err);
