@@ -91,7 +91,7 @@ def send_whatsapp_message_job(
             send_duration = time.time() - send_start
             
             # Check if send was successful (result is a dict with 'status' key)
-            success = result and result.get('status') in ['sent', 'queued', 'accepted']
+            success = result and (result.get('status') in ['sent', 'queued', 'accepted'])
             
             if success:
                 logger.info(f"[WA-SEND-JOB] ✅ Message sent successfully in {send_duration:.2f}s")

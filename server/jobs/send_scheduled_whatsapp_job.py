@@ -92,7 +92,7 @@ def send_scheduled_whatsapp_job(message_id: int):
                 )
                 
                 # Check if send was successful (result is a dict with 'status' key)
-                success = result and result.get('status') in ['sent', 'queued', 'accepted']
+                success = result and (result.get('status') in ['sent', 'queued', 'accepted'])
                 
                 if success:
                     # Mark as sent
