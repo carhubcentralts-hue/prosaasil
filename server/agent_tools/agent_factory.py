@@ -34,7 +34,77 @@ AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 # 🔥 SINGLETON CACHE: Store agents by (business_id, channel) key
 _AGENT_CACHE: Dict[Tuple[int, str], Tuple[Agent, datetime]] = {}
 _AGENT_LOCK = threading.Lock()
-_CACHE_TTL_MINUTES = 5  # 🔥 REDUCED to 5 minutes so prompt changes take effect quickly!
+_CACHE_TTL_MINUTES = 30  # 🔥 FIX: Increased to 30 minutes to maintain conversation context across messages
+
+# 🔥 NEW: Track conversation statistics for debugging
+_CONVERSATION_STATS: Dict[str, Dict] = {}
+_STATS_LOCK = threading.Lock()
+
+def get_conversation_stats(conversation_id: str = None) -> Dict:
+    """
+    🔥 NEW: Get conversation statistics for debugging
+    
+    Returns:
+        Dict with conversation statistics or all stats if conversation_id is None
+    """
+    with _STATS_LOCK:
+        if conversation_id:
+            return _CONVERSATION_STATS.get(conversation_id, {})
+        return _CONVERSATION_STATS.copy()
+
+def track_conversation_turn(conversation_id: str, message: str, response: str):
+    """
+    🔥 NEW: Track conversation turns for debugging
+    
+    This helps identify when conversations lose context or start repeating
+    """
+    with _STATS_LOCK:
+        if conversation_id not in _CONVERSATION_STATS:
+            _CONVERSATION_STATS[conversation_id] = {
+                'turn_count': 0,
+                'last_updated': datetime.now(tz=pytz.UTC),
+                'created_at': datetime.now(tz=pytz.UTC),
+                'last_message_preview': '',
+                'last_response_preview': ''
+            }
+        
+        stats = _CONVERSATION_STATS[conversation_id]
+        stats['turn_count'] += 1
+        stats['last_updated'] = datetime.now(tz=pytz.UTC)
+        stats['last_message_preview'] = message[:50] if message else ''
+        stats['last_response_preview'] = response[:50] if response else ''
+        
+        # Log warning if same response is repeated
+        if stats['turn_count'] > 3 and response:
+            # Check if this response is very similar to recent ones
+            if 'recent_responses' not in stats:
+                stats['recent_responses'] = []
+            
+            stats['recent_responses'].append(response[:100])
+            if len(stats['recent_responses']) > 5:
+                stats['recent_responses'] = stats['recent_responses'][-5:]
+            
+            # Check for repeated responses
+            if len(set(stats['recent_responses'])) <= 2:  # Only 1-2 unique responses in last 5
+                logger.warning(f"⚠️ [CONVERSATION] Possible repetitive responses detected: "
+                             f"conversation_id={conversation_id}, turn_count={stats['turn_count']}, "
+                             f"unique_responses={len(set(stats['recent_responses']))}")
+
+def clear_conversation_stats(conversation_id: str = None):
+    """
+    🔥 NEW: Clear conversation statistics
+    
+    Args:
+        conversation_id: Specific conversation to clear, or None to clear all
+    """
+    with _STATS_LOCK:
+        if conversation_id:
+            if conversation_id in _CONVERSATION_STATS:
+                del _CONVERSATION_STATS[conversation_id]
+                logger.info(f"♻️  Cleared stats for conversation: {conversation_id}")
+        else:
+            _CONVERSATION_STATS.clear()
+            logger.info(f"♻️  Cleared all conversation stats")
 
 def invalidate_agent_cache(business_id: int):
     """
@@ -65,8 +135,8 @@ _openai_client = OpenAIClient(
 AGENT_MODEL_SETTINGS = ModelSettings(
     # 🔥 NOTE: ModelSettings is a dataclass - only accepts declared fields!
     # We'll pass the OpenAI client to Runner.run() instead
-    temperature=0.0,       # 🔥 FIX: Temperature 0.0 for deterministic tool usage
-    max_tokens=60,         # 🔥 CRITICAL: 60 tokens = ~15 words in Hebrew - prevents long responses & queue overflow!
+    temperature=0.3,       # 🔥 FIX: Temperature 0.3 for varied responses while maintaining consistency
+    max_tokens=150,        # 🔥 FIX: Increased to 150 tokens (~40 words in Hebrew) to prevent truncated/repetitive responses
     tool_choice="auto",    # 🔥 FIX: Let AI decide when to use tools (was "required" - caused spam!)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )

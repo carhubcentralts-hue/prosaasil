@@ -1000,7 +1000,10 @@ class AIService:
             # Generate conversation_id from customer phone or JID
             conversation_id = self._generate_conversation_id(business_id, context, customer_phone)
             
-            logger.info(f"[AGENTKIT] conversation_id={conversation_id}, message='{message[:50]}...'")
+            logger.info(f"[AGENTKIT] 🔑 conversation_id={conversation_id}, message_preview='{message[:50]}...'")
+            logger.info(f"[AGENTKIT] 📊 Context: business_id={business_id}, channel={channel}, "
+                       f"has_previous_messages={bool(context and context.get('previous_messages'))}, "
+                       f"previous_msg_count={len(context.get('previous_messages', []))}")
             runner = Runner()
             
             # 🔥 FIX: Pass conversation_id to Runner.run() so OpenAI manages the history
@@ -1037,7 +1040,16 @@ class AIService:
                 logger.warning(f"[AGENTKIT] Unable to extract text from result type: {type(result)}")
                 reply_text = ""
             
-            logger.info(f"[AGENTKIT] Agent response: {len(reply_text)} chars")
+            logger.info(f"[AGENTKIT] ✅ Agent response generated: {len(reply_text)} chars")
+            logger.info(f"[AGENTKIT] 📝 Response preview: {reply_text[:100] if reply_text else '(empty)'}...")
+            
+            # 🔥 NEW: Track conversation turn for debugging repetitive responses
+            try:
+                from server.agent_tools.agent_factory import track_conversation_turn
+                track_conversation_turn(conversation_id, message, reply_text)
+            except Exception as track_err:
+                logger.debug(f"Could not track conversation turn: {track_err}")
+            
             logger.info(f"🔙 About to return from generate_response_with_agent()")
             
             # Return structured response
