@@ -324,6 +324,20 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
                         )
                     except Exception as wa_err:
                         logger.warning(f"⚠️ WhatsAppConversation update skipped: {wa_err}")
+                    
+                    # Delete ContactIdentity records (BUILD 200: prevent NOT NULL constraint violation)
+                    try:
+                        from server.models_sql import ContactIdentity
+                        ContactIdentity.query.filter(
+                            ContactIdentity.lead_id.in_(actual_lead_ids)
+                        ).delete(synchronize_session=False)
+                        logger.info(f"  ✓ Deleted ContactIdentity records for {len(actual_lead_ids)} leads")
+                    except Exception as ci_err:
+                        err_str = str(ci_err).lower()
+                        if 'undefinedtable' in err_str or 'does not exist' in err_str or 'contact_identities' in err_str:
+                            logger.warning(f"⚠️ ContactIdentity delete skipped (table does not exist)")
+                        else:
+                            raise
                         
                     # Delete the leads themselves
                     for lead in leads:
