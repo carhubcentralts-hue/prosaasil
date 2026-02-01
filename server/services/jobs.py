@@ -31,6 +31,7 @@ import os
 import logging
 import uuid
 import hashlib
+import inspect
 from datetime import datetime
 from typing import Callable, Any, Optional, Dict
 from redis import Redis
@@ -205,7 +206,6 @@ def enqueue(
     
     # Pass business_id and run_id to job function if it accepts them
     # They are also stored in job.meta for logging/tracking
-    import inspect
     job_func_kwargs = dict(kwargs)
     
     # Check if job function accepts business_id parameter
