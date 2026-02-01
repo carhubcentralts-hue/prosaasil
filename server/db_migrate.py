@@ -7652,6 +7652,94 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️  leads table does not exist - skipping Migration 121")
         
+        # Migration 122: Add provider and delay_seconds fields to scheduled messages tables
+        # 🔥 Event-driven immediate triggering for scheduled WhatsApp messages
+        # Adds provider selection (baileys/meta) and precise delay_seconds timing
+        checkpoint("Migration 122: Adding provider and delay_seconds to scheduled messages")
+        
+        if check_table_exists('scheduled_message_rules'):
+            try:
+                fields_added = []
+                
+                # Add delay_seconds column to scheduled_message_rules
+                if not check_column_exists('scheduled_message_rules', 'delay_seconds'):
+                    checkpoint("  → Adding delay_seconds to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN delay_seconds INTEGER NOT NULL DEFAULT 0
+                    """)
+                    fields_added.append('delay_seconds')
+                    checkpoint("  ✅ delay_seconds added to scheduled_message_rules")
+                
+                # Add provider column to scheduled_message_rules
+                if not check_column_exists('scheduled_message_rules', 'provider'):
+                    checkpoint("  → Adding provider to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN provider VARCHAR(32) NOT NULL DEFAULT 'baileys'
+                    """)
+                    fields_added.append('provider')
+                    checkpoint("  ✅ provider added to scheduled_message_rules")
+                
+                if fields_added:
+                    migrations_applied.append('migration_122_scheduled_rules_fields')
+                    checkpoint(f"✅ Migration 122a completed - Added {len(fields_added)} fields to scheduled_message_rules")
+                else:
+                    checkpoint("  ℹ️  All fields already exist in scheduled_message_rules")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 122a (scheduled_message_rules) failed: {e}")
+                raise
+        else:
+            checkpoint("  ℹ️  scheduled_message_rules table does not exist - skipping Migration 122a")
+        
+        # Migration 122b: Add fields to scheduled_messages_queue
+        if check_table_exists('scheduled_messages_queue'):
+            try:
+                fields_added = []
+                
+                # Add channel column
+                if not check_column_exists('scheduled_messages_queue', 'channel'):
+                    checkpoint("  → Adding channel to scheduled_messages_queue...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_messages_queue 
+                        ADD COLUMN channel VARCHAR(32) NOT NULL DEFAULT 'whatsapp'
+                    """)
+                    fields_added.append('channel')
+                    checkpoint("  ✅ channel added to scheduled_messages_queue")
+                
+                # Add provider column
+                if not check_column_exists('scheduled_messages_queue', 'provider'):
+                    checkpoint("  → Adding provider to scheduled_messages_queue...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_messages_queue 
+                        ADD COLUMN provider VARCHAR(32) NOT NULL DEFAULT 'baileys'
+                    """)
+                    fields_added.append('provider')
+                    checkpoint("  ✅ provider added to scheduled_messages_queue")
+                
+                # Add attempts column
+                if not check_column_exists('scheduled_messages_queue', 'attempts'):
+                    checkpoint("  → Adding attempts to scheduled_messages_queue...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_messages_queue 
+                        ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0
+                    """)
+                    fields_added.append('attempts')
+                    checkpoint("  ✅ attempts added to scheduled_messages_queue")
+                
+                if fields_added:
+                    migrations_applied.append('migration_122_scheduled_queue_fields')
+                    checkpoint(f"✅ Migration 122b completed - Added {len(fields_added)} fields to scheduled_messages_queue")
+                else:
+                    checkpoint("  ℹ️  All fields already exist in scheduled_messages_queue")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 122b (scheduled_messages_queue) failed: {e}")
+                raise
+        else:
+            checkpoint("  ℹ️  scheduled_messages_queue table does not exist - skipping Migration 122b")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

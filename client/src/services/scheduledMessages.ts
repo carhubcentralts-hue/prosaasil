@@ -10,6 +10,8 @@ export interface ScheduledRule {
   is_active: boolean;
   message_text: string;
   delay_minutes: number;
+  delay_seconds?: number;  // NEW: Delay in seconds (preferred over delay_minutes)
+  provider?: string;  // NEW: "baileys" | "meta" | "auto" - WhatsApp provider choice
   template_name?: string;
   send_window_start?: string;
   send_window_end?: string;
@@ -57,7 +59,9 @@ export interface CreateRuleRequest {
   name: string;
   message_text: string;
   status_ids: number[];
-  delay_minutes: number;
+  delay_minutes?: number;  // Optional for backward compatibility
+  delay_seconds?: number;  // NEW: Preferred over delay_minutes
+  provider?: string;  // NEW: "baileys" | "meta" | "auto" - defaults to "baileys"
   template_name?: string;
   send_window_start?: string;
   send_window_end?: string;
@@ -69,6 +73,8 @@ export interface UpdateRuleRequest {
   message_text?: string;
   status_ids?: number[];
   delay_minutes?: number;
+  delay_seconds?: number;  // NEW: Preferred over delay_minutes
+  provider?: string;  // NEW: "baileys" | "meta" | "auto"
   template_name?: string;
   send_window_start?: string;
   send_window_end?: string;
