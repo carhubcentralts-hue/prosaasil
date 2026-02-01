@@ -156,12 +156,12 @@ def send_scheduled_whatsapp_job(message_id: int, *args, business_id=None, trace_
                         
                         outgoing_msg = WhatsAppMessage(
                             business_id=message.business_id,
-                            sender='bot',
-                            recipient=recipient_phone,
-                            message_text=message.message_text,
-                            timestamp=datetime.utcnow(),
+                            to_number=recipient_phone,
+                            body=message.message_text,
                             direction='outbound',
-                            lead_id=message.lead_id
+                            provider=provider,
+                            status='sent',
+                            message_type='text'
                         )
                         db.session.add(outgoing_msg)
                         db.session.commit()
