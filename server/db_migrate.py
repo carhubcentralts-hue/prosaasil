@@ -7750,6 +7750,153 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️  scheduled_messages_queue table does not exist - skipping Migration 122b")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 123: Add multi-step scheduled messages support
+        # 🎯 PURPOSE: Enable sending sequences of messages at different delays
+        # Creates rule_steps table for step definitions
+        # Adds send_immediately_on_enter and apply_mode to rules
+        # Adds step_id to queue for tracking which step a message belongs to
+        # Adds status_sequence_token to leads for deduplication
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 123: Adding multi-step scheduled messages support")
+        
+        # Step 1: Create rule_steps table
+        if not check_table_exists('scheduled_message_rule_steps'):
+            try:
+                checkpoint("  → Creating scheduled_message_rule_steps table...")
+                exec_ddl(db.engine, """
+                    CREATE TABLE scheduled_message_rule_steps (
+                        id SERIAL PRIMARY KEY,
+                        rule_id INTEGER NOT NULL REFERENCES scheduled_message_rules(id) ON DELETE CASCADE,
+                        step_index INTEGER NOT NULL,
+                        message_template TEXT NOT NULL,
+                        delay_seconds INTEGER NOT NULL DEFAULT 0,
+                        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(rule_id, step_index)
+                    )
+                """)
+                checkpoint("  ✅ scheduled_message_rule_steps table created")
+                migrations_applied.append('123_scheduled_message_rule_steps_table')
+            except Exception as e:
+                checkpoint(f"❌ Migration 123 (scheduled_message_rule_steps table) failed: {e}")
+                logger.error(f"Migration 123 scheduled_message_rule_steps error: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ scheduled_message_rule_steps table already exists")
+        
+        # Create index on (rule_id, step_index)
+        if not check_index_exists('idx_rule_steps_rule_step'):
+            try:
+                checkpoint("  → Creating index on (rule_id, step_index)...")
+                exec_ddl(db.engine, """
+                    CREATE INDEX idx_rule_steps_rule_step 
+                    ON scheduled_message_rule_steps(rule_id, step_index)
+                """)
+                checkpoint("  ✅ Index idx_rule_steps_rule_step created")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Could not create index: {e}")
+        
+        # Step 2: Add new fields to scheduled_message_rules
+        if check_table_exists('scheduled_message_rules'):
+            try:
+                fields_added = []
+                
+                # Add send_immediately_on_enter
+                if not check_column_exists('scheduled_message_rules', 'send_immediately_on_enter'):
+                    checkpoint("  → Adding send_immediately_on_enter to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN send_immediately_on_enter BOOLEAN NOT NULL DEFAULT FALSE
+                    """)
+                    fields_added.append('send_immediately_on_enter')
+                    checkpoint("  ✅ send_immediately_on_enter added")
+                
+                # Add apply_mode
+                if not check_column_exists('scheduled_message_rules', 'apply_mode'):
+                    checkpoint("  → Adding apply_mode to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN apply_mode VARCHAR(32) NOT NULL DEFAULT 'ON_ENTER_ONLY'
+                    """)
+                    fields_added.append('apply_mode')
+                    checkpoint("  ✅ apply_mode added")
+                
+                if fields_added:
+                    migrations_applied.append('migration_123_rule_fields')
+                    checkpoint(f"✅ Migration 123a completed - Added {len(fields_added)} fields to scheduled_message_rules")
+                else:
+                    checkpoint("  ℹ️  All fields already exist in scheduled_message_rules")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 123a (scheduled_message_rules) failed: {e}")
+                raise
+        
+        # Step 3: Add step_id to scheduled_messages_queue
+        if check_table_exists('scheduled_messages_queue'):
+            try:
+                fields_added = []
+                
+                # Add step_id column (nullable since existing messages don't have steps)
+                if not check_column_exists('scheduled_messages_queue', 'step_id'):
+                    checkpoint("  → Adding step_id to scheduled_messages_queue...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_messages_queue 
+                        ADD COLUMN step_id INTEGER REFERENCES scheduled_message_rule_steps(id) ON DELETE SET NULL
+                    """)
+                    fields_added.append('step_id')
+                    checkpoint("  ✅ step_id added to scheduled_messages_queue")
+                
+                if fields_added:
+                    migrations_applied.append('migration_123_queue_fields')
+                    checkpoint(f"✅ Migration 123b completed - Added {len(fields_added)} fields to scheduled_messages_queue")
+                else:
+                    checkpoint("  ℹ️  All fields already exist in scheduled_messages_queue")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 123b (scheduled_messages_queue) failed: {e}")
+                raise
+        
+        # Step 4: Add status_sequence_token to leads for deduplication
+        if check_table_exists('leads'):
+            try:
+                fields_added = []
+                
+                # Add status_sequence_token for tracking status entry
+                if not check_column_exists('leads', 'status_sequence_token'):
+                    checkpoint("  → Adding status_sequence_token to leads...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN status_sequence_token INTEGER NOT NULL DEFAULT 0
+                    """)
+                    fields_added.append('status_sequence_token')
+                    checkpoint("  ✅ status_sequence_token added to leads")
+                
+                # Add status_entered_at for tracking when lead entered current status
+                if not check_column_exists('leads', 'status_entered_at'):
+                    checkpoint("  → Adding status_entered_at to leads...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN status_entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    """)
+                    fields_added.append('status_entered_at')
+                    checkpoint("  ✅ status_entered_at added to leads")
+                
+                if fields_added:
+                    migrations_applied.append('migration_123_leads_fields')
+                    checkpoint(f"✅ Migration 123c completed - Added {len(fields_added)} fields to leads")
+                else:
+                    checkpoint("  ℹ️  All fields already exist in leads")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 123c (leads) failed: {e}")
+                raise
+        
+        checkpoint("✅ Migration 123 complete: Multi-step scheduled messages system ready")
+        checkpoint("   🎯 Rule steps table created for message sequences")
+        checkpoint("   🎯 Send immediately on enter option available")
+        checkpoint("   🎯 Deduplication support with status_sequence_token")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
