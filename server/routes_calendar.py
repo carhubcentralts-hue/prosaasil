@@ -381,6 +381,7 @@ def create_appointment():
         appointment.created_by = user_data.get('id') if user_data else None
         appointment.auto_generated = data.get('auto_generated', False)
         appointment.source = data.get('source', 'manual')
+        appointment.calendar_id = data.get('calendar_id')  # 🔥 FIX: Accept calendar_id from request
         
         db.session.add(appointment)
         db.session.commit()
@@ -544,7 +545,7 @@ def update_appointment(appointment_id):
         updatable_fields = [
             'title', 'description', 'location', 'status', 'appointment_type', 
             'priority', 'contact_name', 'contact_phone', 'contact_email', 
-            'notes', 'outcome', 'follow_up_needed', 'lead_id'  # 🔥 FIX: Allow updating lead_id
+            'notes', 'outcome', 'follow_up_needed', 'lead_id', 'calendar_id'  # 🔥 FIX: Allow updating lead_id and calendar_id
         ]
         
         for field in updatable_fields:
