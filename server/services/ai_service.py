@@ -889,6 +889,44 @@ class AIService:
             del self._cache[cache_key]
             logger.info(f"Cache invalidated for business {business_id}")
     
+    def _generate_conversation_id(self, business_id: int, context: Optional[Dict[str, Any]], customer_phone: Optional[str]) -> str:
+        """
+        Generate a unique conversation_id for OpenAI Agents SDK.
+        
+        The conversation_id is used by OpenAI to manage conversation history on their servers.
+        It must be unique per customer/conversation but consistent across messages.
+        
+        Args:
+            business_id: Business ID
+            context: Context dict (may contain remote_jid)
+            customer_phone: Customer phone number
+            
+        Returns:
+            Sanitized conversation_id string (alphanumeric + underscores only)
+        """
+        import re
+        
+        conversation_id = None
+        
+        if context:
+            # Try to get remote_jid first (most unique for WhatsApp)
+            remote_jid = context.get('remote_jid')
+            if remote_jid:
+                # Sanitize JID to remove all special characters
+                sanitized_jid = re.sub(r'[^a-zA-Z0-9_]', '_', remote_jid)
+                conversation_id = f"wa_{business_id}_{sanitized_jid}"
+            elif customer_phone:
+                # Fallback to phone number - sanitize to remove all special characters
+                sanitized_phone = re.sub(r'[^a-zA-Z0-9]', '', customer_phone)
+                conversation_id = f"wa_{business_id}_{sanitized_phone}"
+        
+        if not conversation_id and business_id:
+            # Last resort: use business_id only (not ideal but better than nothing)
+            conversation_id = f"wa_{business_id}_default"
+            logger.warning(f"[AGENTKIT] No remote_jid or phone found, using default conversation_id")
+        
+        return conversation_id
+    
     def generate_response_with_agent(self, message: str, business_id: int = None, 
                                      context: Optional[Dict[str, Any]] = None, 
                                      channel: str = "whatsapp",
@@ -962,21 +1000,7 @@ class AIService:
             # This allows the AI to remember the conversation across multiple messages.
             
             # Generate conversation_id from customer phone or JID
-            conversation_id = None
-            if context:
-                # Try to get remote_jid first (most unique for WhatsApp)
-                remote_jid = context.get('remote_jid')
-                if remote_jid:
-                    # Use JID as conversation_id (e.g., "972549750505@s.whatsapp.net")
-                    conversation_id = f"wa_{business_id}_{remote_jid}".replace('@', '_').replace('.', '_')
-                elif customer_phone:
-                    # Fallback to phone number
-                    conversation_id = f"wa_{business_id}_{customer_phone}".replace('+', '')
-            
-            if not conversation_id and business_id:
-                # Last resort: use business_id only (not ideal but better than nothing)
-                conversation_id = f"wa_{business_id}_default"
-                logger.warning(f"[AGENTKIT] No remote_jid or phone found, using default conversation_id")
+            conversation_id = self._generate_conversation_id(business_id, context, customer_phone)
             
             logger.info(f"[AGENTKIT] conversation_id={conversation_id}, message='{message[:50]}...'")
             runner = Runner()
