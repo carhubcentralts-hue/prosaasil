@@ -733,7 +733,8 @@ def get_business_calendars():
         from server.models_sql import BusinessCalendar
         
         calendars = BusinessCalendar.query.filter(
-            BusinessCalendar.business_id == business_id
+            BusinessCalendar.business_id == business_id,
+            BusinessCalendar.is_active == True
         ).order_by(BusinessCalendar.priority.desc(), BusinessCalendar.name).all()
         
         result = [{
@@ -1269,3 +1270,166 @@ def delete_routing_rule(rule_id):
         logger.error(f"Error deleting routing rule: {e}")
         db.session.rollback()
         return jsonify({'error': 'שגיאה במחיקת חוק ניתוב'}), 500
+# ================================================================================
+# APPOINTMENT TYPES & STATUSES CONFIGURATION
+# ================================================================================
+
+# Default appointment types if not configured
+DEFAULT_APPOINTMENT_TYPES = [
+    {"key": "viewing", "label": "צפייה", "color": "blue"},
+    {"key": "meeting", "label": "פגישה", "color": "green"},
+    {"key": "signing", "label": "חתימה", "color": "purple"},
+    {"key": "call_followup", "label": "מעקב שיחה", "color": "orange"},
+    {"key": "phone_call", "label": "שיחה טלפונית", "color": "pink"}
+]
+
+# Default appointment statuses if not configured
+DEFAULT_APPOINTMENT_STATUSES = [
+    {"key": "scheduled", "label": "מתוכנן", "color": "yellow"},
+    {"key": "confirmed", "label": "מאושר", "color": "green"},
+    {"key": "paid", "label": "שולם", "color": "blue"},
+    {"key": "unpaid", "label": "לא שולם", "color": "red"},
+    {"key": "cancelled", "label": "בוטל", "color": "gray"}
+]
+
+@calendar_bp.route('/config/appointment-types', methods=['GET'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
+def get_appointment_types():
+    """Get appointment types for the current business (with defaults)"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import BusinessSettings
+        
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        
+        # Return custom types if configured, otherwise defaults
+        types = settings.appointment_types_json if settings and settings.appointment_types_json else DEFAULT_APPOINTMENT_TYPES
+        
+        return jsonify({'appointment_types': types})
+        
+    except Exception as e:
+        logger.error(f"Error fetching appointment types: {e}")
+        return jsonify({'error': 'שגיאה בטעינת סוגי פגישות'}), 500
+
+@calendar_bp.route('/config/appointment-types', methods=['PUT'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def update_appointment_types():
+    """Update appointment types for the current business"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        data = request.get_json()
+        if not data or 'appointment_types' not in data:
+            return jsonify({'error': 'appointment_types required in request body'}), 400
+        
+        types = data['appointment_types']
+        
+        # Validate format
+        if not isinstance(types, list):
+            return jsonify({'error': 'appointment_types must be an array'}), 400
+        
+        for t in types:
+            if not isinstance(t, dict):
+                return jsonify({'error': 'Each type must be an object'}), 400
+            if 'key' not in t or 'label' not in t:
+                return jsonify({'error': 'Each type must have key and label'}), 400
+        
+        from server.models_sql import BusinessSettings
+        
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        if not settings:
+            settings = BusinessSettings(tenant_id=business_id)
+            db.session.add(settings)
+        
+        settings.appointment_types_json = types
+        db.session.commit()
+        
+        logger.info(f"✅ Updated appointment types for business_id={business_id}")
+        
+        return jsonify({
+            'success': True,
+            'appointment_types': types
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating appointment types: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה בעדכון סוגי פגישות'}), 500
+
+@calendar_bp.route('/config/appointment-statuses', methods=['GET'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
+def get_appointment_statuses():
+    """Get appointment statuses for the current business (with defaults)"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import BusinessSettings
+        
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        
+        # Return custom statuses if configured, otherwise defaults
+        statuses = settings.appointment_statuses_json if settings and settings.appointment_statuses_json else DEFAULT_APPOINTMENT_STATUSES
+        
+        return jsonify({'appointment_statuses': statuses})
+        
+    except Exception as e:
+        logger.error(f"Error fetching appointment statuses: {e}")
+        return jsonify({'error': 'שגיאה בטעינת סטטוסי פגישות'}), 500
+
+@calendar_bp.route('/config/appointment-statuses', methods=['PUT'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def update_appointment_statuses():
+    """Update appointment statuses for the current business"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        data = request.get_json()
+        if not data or 'appointment_statuses' not in data:
+            return jsonify({'error': 'appointment_statuses required in request body'}), 400
+        
+        statuses = data['appointment_statuses']
+        
+        # Validate format
+        if not isinstance(statuses, list):
+            return jsonify({'error': 'appointment_statuses must be an array'}), 400
+        
+        for s in statuses:
+            if not isinstance(s, dict):
+                return jsonify({'error': 'Each status must be an object'}), 400
+            if 'key' not in s or 'label' not in s:
+                return jsonify({'error': 'Each status must have key and label'}), 400
+        
+        from server.models_sql import BusinessSettings
+        
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        if not settings:
+            settings = BusinessSettings(tenant_id=business_id)
+            db.session.add(settings)
+        
+        settings.appointment_statuses_json = statuses
+        db.session.commit()
+        
+        logger.info(f"✅ Updated appointment statuses for business_id={business_id}")
+        
+        return jsonify({
+            'success': True,
+            'appointment_statuses': statuses
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating appointment statuses: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה בעדכון סטטוסי פגישות'}), 500
