@@ -546,6 +546,18 @@ def serve_recording_file(call_sid):
     - 403 if call doesn't belong to user's tenant
     """
     try:
+        # 🔥 FIX: Handle OPTIONS preflight requests
+        if request.method == 'OPTIONS':
+            response = Response(status=200)
+            origin = request.headers.get('Origin')
+            if origin:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.headers['Access-Control-Max-Age'] = '3600'
+            return response
+        
         # 🔥 FIX: Handle HEAD requests for file existence checks
         is_head_request = request.method == 'HEAD'
         
