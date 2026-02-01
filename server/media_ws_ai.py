@@ -4482,17 +4482,19 @@ class MediaStreamHandler:
                     # Timeout reached - check if audio ever arrived
                     if not self._greeting_audio_received and self.is_playing_greeting:
                         elapsed_ms = int((time.time() - watchdog_start) * 1000)
-                        _orig_print(f"⚠️ [GREETING] NO_AUDIO_FROM_OPENAI ({elapsed_ms}ms) - canceling greeting", flush=True)
-                        logger.warning(f"[GREETING] No audio from OpenAI after {elapsed_ms}ms - canceling greeting")
+                        ai_provider = getattr(self, '_ai_provider', 'openai')
+                        _orig_print(f"⚠️ [GREETING] NO_AUDIO_FROM_PROVIDER ({ai_provider}, {elapsed_ms}ms) - canceling greeting", flush=True)
+                        logger.warning(f"[GREETING] No audio from {ai_provider} after {elapsed_ms}ms - canceling greeting")
 
                         # Cancel the greeting - let call continue without it
                         self.is_playing_greeting = False
                         self.greeting_sent = True  # Mark as done so we don't retry
                         self.barge_in_enabled_after_greeting = True  # Allow barge-in
 
-                        # Don't set realtime_failed - the call can still proceed.
-                        # Just skip the greeting and let user audio through.
-                        _orig_print("⚠️ [GREETING] GREETING_SKIPPED - continuing call without greeting", flush=True)
+                        # 🔥 CRITICAL: Don't set realtime_failed - the call can still proceed.
+                        # 🔥 CRITICAL: Don't stop recv_events loop or TX audio loop
+                        # Just skip the greeting and let user audio through - system continues normally
+                        _orig_print(f"⚠️ [GREETING] GREETING_SKIPPED ({ai_provider}) - continuing call without greeting", flush=True)
 
                 # Start the watchdog
                 asyncio.create_task(_greeting_audio_timeout_watchdog())
@@ -4800,6 +4802,15 @@ class MediaStreamHandler:
                     buffer_len = len(self._gemini_input_buffer)
                     chunk_size = self._gemini_input_chunk_size  # 640 bytes
                     
+                    # 🔥 BUFFER OVERFLOW PROTECTION: Warn if buffer grows too large
+                    # Normal buffer should be < 2 chunks (1280 bytes). If much larger, something's wrong
+                    # 6400 bytes = 10 chunks = ~125ms of audio at 16kHz PCM16
+                    if buffer_len > 6400:  # MAX_BUFFER_SIZE = chunk_size * 10
+                        logger.warning(f"⚠️ [GEMINI_BUFFER] Buffer overflow: {buffer_len} bytes (max: 6400) - may indicate send loop stall")
+                        # Trim to max size to prevent unbounded growth
+                        self._gemini_input_buffer = self._gemini_input_buffer[:6400]
+                        buffer_len = len(self._gemini_input_buffer)
+                    
                     # Send all complete chunks we have
                     while buffer_len >= chunk_size:
                         # Extract exactly chunk_size bytes
@@ -4823,6 +4834,15 @@ class MediaStreamHandler:
                         # Log first few chunks
                         if self._gemini_audio_bytes_sent <= chunk_size * 3:
                             logger.info(f"🎤 [GEMINI_SEND] Sent chunk: {len(chunk_to_send)} bytes (total: {self._gemini_audio_bytes_sent} bytes)")
+                        
+                        # 🔥 CONTINUITY CHECK: Log every 100 chunks to verify continuous streaming
+                        if not hasattr(self, '_gemini_chunks_sent_count'):
+                            self._gemini_chunks_sent_count = 0
+                        self._gemini_chunks_sent_count += 1
+                        
+                        if self._gemini_chunks_sent_count % 100 == 0:
+                            elapsed = time.time() - _call_start_time
+                            logger.info(f"📊 [GEMINI_CONTINUITY] Sent {self._gemini_chunks_sent_count} chunks, {self._gemini_audio_bytes_sent} bytes in {elapsed:.1f}s - TX loop active")
                     
                     # Log buffer state if accumulating
                     if buffer_len > 0:
@@ -9776,6 +9796,13 @@ class MediaStreamHandler:
                 # 🔥 PART C: Log first frame and stream_sid state
                 if not _first_frame_logged:
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
+                    
+                    # 🔥 LARGE CHUNK WARNING: Flag if first chunk is abnormally large
+                    # Normal Gemini chunks should be ~1000-5000 bytes. >20000 suggests buffering issue
+                    if len(chunk_bytes) > 20000:
+                        logger.warning(f"⚠️ [AUDIO_OUT_LOOP] LARGE FIRST CHUNK: {len(chunk_bytes)} bytes - may indicate buffering/pacing issue")
+                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Abnormally large first chunk ({len(chunk_bytes)} bytes) - will slice to 20ms frames", flush=True)
+                    
                     _first_frame_logged = True
                 
                 # 🔥 RECORDING TRIGGER: Start recording when first audio sent (from TX loop flag)
@@ -15774,6 +15801,9 @@ class MediaStreamHandler:
         # 🔥 FIX 4: Mark function_call as pending to prevent watchdog disconnect
         self._pending_function_call = True
         
+        # 🔥 TIMEOUT PROTECTION: Track start time to ensure <500ms response
+        function_call_start = time.time()
+        
         try:
             # Extract Gemini-specific data
             gemini_function_calls = event.get('_gemini_function_calls', [])
@@ -15793,10 +15823,29 @@ class MediaStreamHandler:
                     except Exception as extract_error:
                         logger.warning(f"[GEMINI] Failed to extract from raw: {extract_error}")
                 
-                # If still empty, skip
+                # 🔥 CRITICAL FIX: If still empty, send NOOP response to avoid Gemini getting stuck
+                # Per problem statement: "If no response is returned to function_call - many providers simply 
+                # wait and don't continue talking" (אם לא מחזירים תגובה ל־function_call — הרבה ספקים פשוט מחכים ולא ממשיכים לדבר)
                 if not gemini_function_calls:
-                    logger.debug(f"[GEMINI] No extractable function_calls, skipping tool_response")
-                    return
+                    logger.warning(f"[GEMINI] No extractable function_calls - sending NOOP response to prevent hang")
+                    try:
+                        # Generate a noop response to keep conversation flowing
+                        noop_response = types.FunctionResponse(
+                            id='noop_' + str(int(time.time())),
+                            name='noop',
+                            response={
+                                "ok": True,
+                                "skipped": True,
+                                "reason": "no_tools_enabled",
+                                "message": "המשך השיחה ללא כלים"  # Hebrew: "Continue conversation without tools"
+                            }
+                        )
+                        await client.send_tool_response([noop_response])
+                        logger.info(f"✅ [GEMINI] Sent NOOP tool response to prevent hang")
+                        return
+                    except Exception as noop_error:
+                        logger.error(f"❌ [GEMINI] Failed to send NOOP response: {noop_error}")
+                        return
             
             logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
             
@@ -15955,7 +16004,12 @@ class MediaStreamHandler:
             # 🔥 CRITICAL: Send tool_response within 500ms
             try:
                 await client.send_tool_response(function_responses)
-                logger.info(f"✅ [GEMINI] Sent {len(function_responses)} tool response(s)")
+                elapsed_ms = int((time.time() - function_call_start) * 1000)
+                logger.info(f"✅ [GEMINI] Sent {len(function_responses)} tool response(s) in {elapsed_ms}ms")
+                
+                # Warn if exceeding recommended 500ms threshold
+                if elapsed_ms > 500:
+                    logger.warning(f"⚠️ [GEMINI] Function call took {elapsed_ms}ms (>500ms threshold)")
                 
             except Exception as e:
                 logger.error(f"❌ [GEMINI] Failed to send tool_response: {e}")
