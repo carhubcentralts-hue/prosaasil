@@ -64,6 +64,9 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                     phone_number = from_jid.split('@')[0] if '@' in from_jid else from_jid
                     push_name = msg.get('pushName', None)  # Extract WhatsApp display name
                     
+                    # 🔥 DEBUG: Log phone extraction
+                    logger.info(f"📞 [PHONE_EXTRACT] from_jid={from_jid} -> phone_number={phone_number} push_name={push_name}")
+                    
                     # Generate trace ID
                     trace_id = generate_trace_id(business_id, from_jid, message_id)
                     

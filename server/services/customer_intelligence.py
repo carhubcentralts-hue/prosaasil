@@ -158,7 +158,7 @@ class CustomerIntelligence:
                 db.session.add(customer)
                 db.session.flush()
                 was_created = True
-                log.info(f"🆕 Created new customer: {customer.name} ({phone_e164})")
+                log.info(f"🆕 Created new customer: name={customer.name} phone_e164={phone_e164}")
             
             if not existing_lead:
                 lead = self._create_lead_from_whatsapp(
@@ -169,7 +169,7 @@ class CustomerIntelligence:
                     reply_jid_type=reply_jid_type,
                     phone_raw=phone_raw
                 )
-                log.info(f"🆕 Created new lead for {phone_e164} with reply_jid={reply_jid} (type={reply_jid_type})")
+                log.info(f"🆕 Created new lead: id={lead.id} phone_e164={phone_e164} reply_jid={reply_jid} (type={reply_jid_type})")
             else:
                 lead = existing_lead
                 # 🔥 FIX #3 & #4: ALWAYS update reply_jid and type to last seen (critical for Android/LID)
@@ -177,6 +177,11 @@ class CustomerIntelligence:
                 lead.reply_jid = reply_jid
                 lead.reply_jid_type = reply_jid_type
                 log.info(f"♻️ Updated reply_jid to latest: {reply_jid} (type={reply_jid_type})")
+                
+                # 🔥 FIX: ALWAYS update phone_e164 if it's missing or empty
+                if not lead.phone_e164 and phone_e164:
+                    lead.phone_e164 = phone_e164
+                    log.info(f"✅ Updated missing phone_e164: {phone_e164}")
                 
                 # 🔥 FIX #6: Update WhatsApp JID fields if they've changed
                 if whatsapp_jid and not lead.whatsapp_jid:
@@ -775,6 +780,10 @@ class CustomerIntelligence:
         # lead.customer_id = customer.id  # Use phone_e164 matching instead
         lead.source = "whatsapp"
         lead.status = "new"
+        
+        # 🔥 DEBUG: Verify phone number is set
+        log.info(f"🔍 _create_lead_from_whatsapp: customer.phone_e164={customer.phone_e164} lead.phone_e164={lead.phone_e164}")
+        
         # Store extracted info in tags since fields don't exist in model
         lead_tags = {
             'area': extracted_info.get('area'),

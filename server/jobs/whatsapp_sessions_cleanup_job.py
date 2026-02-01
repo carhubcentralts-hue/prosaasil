@@ -29,7 +29,7 @@ def whatsapp_sessions_cleanup_job():
         
         # Try to import required models - gracefully handle missing models
         try:
-            from server.models_sql import Lead, WhatsAppSession
+            from server.models_sql import Lead, WhatsAppConversation
         except ImportError as import_err:
             logger.info(f"⚠️ [WA_SESSIONS_CLEANUP] Model import failed: {import_err}, skipping")
             return {'status': 'skipped', 'reason': 'model_not_found', 'error': str(import_err)}
@@ -37,17 +37,17 @@ def whatsapp_sessions_cleanup_job():
         with current_app.app_context():
             # Check if table exists
             inspector = inspect(db.engine)
-            if 'whatsapp_session' not in inspector.get_table_names():
+            if 'whatsapp_conversation' not in inspector.get_table_names():
                 logger.info("⚠️ [WA_SESSIONS_CLEANUP] Table does not exist yet, skipping")
                 return {'status': 'skipped', 'reason': 'table_not_exists'}
             
-            # Find stale sessions (last activity > 30 minutes ago, not yet summarized)
+            # Find stale conversations (last activity > 30 minutes ago, not yet summarized)
             cutoff_time = datetime.utcnow() - timedelta(minutes=30)
             
-            stale_sessions = WhatsAppSession.query.filter(
-                WhatsAppSession.last_activity_at < cutoff_time,
-                WhatsAppSession.summary == None,  # Not yet summarized
-                WhatsAppSession.message_count > 0  # Has messages
+            stale_sessions = WhatsAppConversation.query.filter(
+                WhatsAppConversation.last_message_at < cutoff_time,
+                WhatsAppConversation.summary == None,  # Not yet summarized
+                WhatsAppConversation.is_open == True  # Only open conversations
             ).limit(50).all()  # Process in batches to avoid long-running jobs
             
             if not stale_sessions:
@@ -64,12 +64,14 @@ def whatsapp_sessions_cleanup_job():
                     # Get lead for context
                     lead = Lead.query.filter_by(
                         tenant_id=session.business_id,
-                        phone_e164=session.customer_wa_id
+                        phone_e164=session.customer_number
                     ).first()
                     
                     if not lead or not lead.notes:
                         logger.info(f"⚠️ No lead or notes for session {session.id}")
                         session.summary = "No conversation data available"
+                        session.summary_created = True
+                        session.is_open = False
                         processed += 1
                         continue
                     
@@ -90,16 +92,22 @@ def whatsapp_sessions_cleanup_job():
                         )
                         
                         session.summary = summary or "Unable to generate summary"
+                        session.summary_created = True  # Mark as summarized
+                        session.is_open = False  # Close the conversation
                         logger.info(f"✅ Generated summary for session {session.id}")
                     except Exception as ai_error:
                         logger.warning(f"⚠️ AI summary failed for session {session.id}: {ai_error}")
                         session.summary = "Summary generation failed"
+                        session.summary_created = True  # Mark as attempted
+                        session.is_open = False  # Close anyway
                     
                     processed += 1
                     
                 except Exception as session_error:
                     logger.error(f"❌ Failed to process session {session.id}: {session_error}")
                     session.summary = "Processing error"
+                    session.summary_created = True
+                    session.is_open = False
                     continue
             
             # Commit all updates
