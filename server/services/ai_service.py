@@ -40,7 +40,7 @@ def _ensure_agent_modules_loaded():
     try:
         # Try to import agent modules
         from server.agent_tools import get_agent, AGENTS_ENABLED as agents_flag
-        from agents import Runner
+        # Note: Runner is no longer needed - we use agent.run() directly
         
         AGENT_MODULES_LOADED = True
         AGENTS_ENABLED = agents_flag
@@ -985,7 +985,7 @@ class AIService:
             
             # Import agent modules (already loaded by _ensure_agent_modules_loaded)
             from server.agent_tools import get_agent
-            from agents import Runner
+            # Note: Runner is no longer needed - we use agent.run() directly
             
             # Get agent for this business
             logger.info(f"[AGENTKIT] Getting agent for business {business_id}")
@@ -1006,10 +1006,10 @@ class AIService:
             if customer_name:
                 agent_context['customer_name'] = customer_name
             
-            # 🔥 DB Prompt Only: Pass ONLY the user message to the agent
-            # NO enriched messages, NO system rules injected here
-            # All behavior comes from the agent's custom_instructions (DB prompt)
-            # Context is handled by the agent's system prompt
+            # 🔥 FIX: Pass conversation history to agent for context retention
+            # The agent needs full message history to maintain conversation context
+            # and avoid repeating introductions or losing track of what was discussed
+            # Context metadata is handled by agent_context parameter
             
             # Generate conversation_id for monitoring/tracking purposes only
             conversation_id = self._generate_conversation_id(business_id, context, customer_phone)
@@ -1032,30 +1032,39 @@ class AIService:
             
             logger.info(f"[AGENTKIT] 🔑 tracking_id={conversation_id}, message='{message[:50]}...'")
             logger.info(f"[AGENTKIT] 📊 Context: business_id={business_id}, channel={channel}")
-            runner = Runner()
             
-            # Pass ONLY the user message to the agent - no enrichment
-            agent_coroutine = runner.run(
-                agent, 
-                message,  # Pass plain message - agent prompt has all context
-                context=agent_context
-            )
+            # 🔥 FIX: Convert previous_messages to OpenAI message format for conversation history
+            # Previous_messages comes as strings like "לקוח: text" or "עוזר: text"
+            messages = []
+            if context and context.get('previous_messages'):
+                previous_messages = context['previous_messages']
+                # Keep last 12 messages for context (avoid token limits)
+                for msg_str in previous_messages[-12:]:
+                    if msg_str.startswith("לקוח:"):
+                        # Customer message
+                        content = msg_str.replace("לקוח:", "", 1).strip()
+                        messages.append({"role": "user", "content": content})
+                    elif msg_str.startswith("עוזר:"):
+                        # Assistant message
+                        content = msg_str.replace("עוזר:", "", 1).strip()
+                        messages.append({"role": "assistant", "content": content})
+                    # Ignore messages that don't match format
+                
+                logger.info(f"[AGENTKIT] 📚 Converted {len(messages)} previous messages to conversation history")
             
-            # Check if we're already in an async context
-            try:
-                # Try to get the running event loop
-                loop = asyncio.get_running_loop()
-                # We're in an async context, use the current loop
-                result = loop.run_until_complete(agent_coroutine)
-            except RuntimeError:
-                # No running event loop, safe to use asyncio.run()
-                result = asyncio.run(agent_coroutine)
+            # Add current message
+            messages.append({"role": "user", "content": message})
             
-            # Extract response text from RunResult
-            # RunResult is a dataclass with a 'final_output' field that contains the actual response
+            # 🔥 FIX: Use agent.run() instead of Runner.run() to support conversation history
+            # agent.run() accepts messages parameter for full conversation context
+            result = agent.run(messages=messages, context=agent_context)
+            
+            # Extract response text from result
+            # Different result types depending on agent configuration
             reply_text = ""
-            if hasattr(result, 'final_output') and result.final_output:
-                # 🔥 FIX: Extract only the final_output, not the entire RunResult representation
+            if hasattr(result, 'output_text') and result.output_text:
+                reply_text = str(result.output_text)
+            elif hasattr(result, 'final_output') and result.final_output:
                 reply_text = str(result.final_output)
             elif hasattr(result, 'text') and result.text:
                 reply_text = result.text
