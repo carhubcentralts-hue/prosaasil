@@ -8,7 +8,10 @@ import './index.css'
 (function () {
   const KEY = "chunk_reload_once";
   window.addEventListener("error", (e) => {
-    const msg = String(e?.message || "");
+    // Only process ErrorEvent with a message
+    if (!(e instanceof ErrorEvent) || !e.message) return;
+    
+    const msg = e.message;
     if (msg.includes("Failed to fetch dynamically imported module") ||
         msg.includes("Loading chunk") ||
         msg.includes("ChunkLoadError")) {
