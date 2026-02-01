@@ -184,9 +184,9 @@ def create_rule():
         
         # message_text is optional if steps are provided or if send_immediately_on_enter with immediate_message
         # But at least one message source must be provided
-        has_message_text = data.get('message_text') and data.get('message_text').strip()
+        has_message_text = bool(data.get('message_text', '').strip())
         has_steps = data.get('steps') and isinstance(data.get('steps'), list) and len(data.get('steps')) > 0
-        has_immediate = data.get('send_immediately_on_enter') and data.get('immediate_message') and data.get('immediate_message').strip()
+        has_immediate = data.get('send_immediately_on_enter') and bool(data.get('immediate_message', '').strip())
         
         if not has_message_text and not has_steps and not has_immediate:
             return jsonify({'error': 'At least one message must be provided (message_text, steps, or immediate_message)'}), 400
