@@ -20,7 +20,8 @@ from typing import Optional, Dict, Any, List, Tuple
 from server.db import db
 from server.models_sql import (
     Lead, LeadNote, Appointment, CallLog, WhatsAppMessage, 
-    Customer, Business, BusinessSettings
+    Customer, Business, BusinessSettings, Deal, CRMTask,
+    Invoice, Payment, Contract, BusinessCalendar, User
 )
 from server.agent_tools.phone_utils import normalize_il_phone
 from pydantic import BaseModel, Field
@@ -81,6 +82,28 @@ class UnifiedLeadContextPayload(BaseModel):
     # Sales context (if applicable)
     deal_status: Optional[str] = None
     deal_value: Optional[float] = None
+    deal_amount: Optional[float] = None  # Same as deal_value for compatibility
+    loss_reason: Optional[str] = None  # Why deal was lost
+    quote_sent: Optional[str] = None  # Quote/proposal status
+    
+    # Owner/Agent info
+    owner_name: Optional[str] = None
+    owner_user_id: Optional[int] = None
+    
+    # Tasks
+    open_tasks: List[Dict[str, Any]] = []  # Open tasks for this lead
+    
+    # Documents and payments
+    invoices: List[Dict[str, Any]] = []  # Recent invoices
+    payments: List[Dict[str, Any]] = []  # Recent payments
+    contracts: List[Dict[str, Any]] = []  # Contracts
+    
+    # Communication history
+    recent_calls: List[Dict[str, Any]] = []  # Recent call logs with details
+    recent_whatsapp_messages: List[Dict[str, Any]] = []  # Last 20 WhatsApp messages
+    
+    # Calendars available for scheduling
+    available_calendars: List[Dict[str, Any]] = []  # All calendars with Hebrew names
 
 
 # ================================================================================
@@ -323,13 +346,48 @@ class UnifiedLeadContextService:
             # Load customer memory (unified across channels)
             payload.customer_memory = self._load_customer_memory(lead)
             
-            # Status history (last 5 changes)
-            # TODO: Implement status history if LeadStatusHistory table exists
+            # Load owner/agent information
+            if lead.owner_user_id:
+                owner = User.query.get(lead.owner_user_id)
+                if owner:
+                    payload.owner_user_id = owner.id
+                    payload.owner_name = owner.name or owner.email
+            
+            # Load open tasks
+            payload.open_tasks = self._load_open_tasks(lead)
+            
+            # Load deal information (read-only)
+            payload = self._load_deal_info(lead, payload)
+            
+            # Load invoices and payments (read-only)
+            payload.invoices = self._load_invoices(lead)
+            payload.payments = self._load_payments(lead)
+            
+            # Load contracts
+            payload.contracts = self._load_contracts(lead)
+            
+            # Load recent call logs with details
+            payload.recent_calls = self._load_recent_calls(lead)
+            
+            # Load recent WhatsApp messages (last 20)
+            payload.recent_whatsapp_messages = self._load_recent_whatsapp(lead)
+            
+            # Load WhatsApp summary from lead field
+            if hasattr(lead, 'whatsapp_last_summary') and lead.whatsapp_last_summary:
+                payload.last_whatsapp_summary = lead.whatsapp_last_summary[:500]
+            
+            # Load available calendars for scheduling
+            payload.available_calendars = self._load_available_calendars()
+            
+            # Load status history
+            payload.status_history = self._load_status_history(lead)
             
             logger.info(f"[UnifiedContext] Built context for lead #{lead.id}: "
                        f"{len(payload.recent_notes)} notes, "
                        f"{len(payload.past_appointments)} past appointments, "
-                       f"next_apt={'Yes' if payload.next_appointment else 'No'}")
+                       f"next_apt={'Yes' if payload.next_appointment else 'No'}, "
+                       f"{len(payload.open_tasks)} open tasks, "
+                       f"{len(payload.available_calendars)} calendars")
             
             return payload
             
@@ -379,6 +437,348 @@ class UnifiedLeadContextService:
             logger.error(f"[UnifiedContext] Error loading customer memory: {e}")
             return None
     
+    def _load_open_tasks(self, lead: Lead) -> List[Dict[str, Any]]:
+        """
+        Load open tasks for this lead
+        
+        Args:
+            lead: Lead object
+            
+        Returns:
+            List of open task dictionaries
+        """
+        try:
+            tasks = CRMTask.query.filter(
+                CRMTask.lead_id == lead.id,
+                CRMTask.tenant_id == self.business_id,
+                CRMTask.status.in_(['open', 'pending', 'in_progress'])
+            ).order_by(CRMTask.due_date.asc()).limit(10).all()
+            
+            task_list = []
+            for task in tasks:
+                task_list.append({
+                    'id': task.id,
+                    'title': task.title or task.description[:50],
+                    'description': task.description[:200] if task.description else None,
+                    'status': task.status,
+                    'priority': getattr(task, 'priority', 'medium'),
+                    'due_date': task.due_date.isoformat() if task.due_date else None,
+                    'assigned_to': getattr(task, 'assigned_to', None)
+                })
+            
+            return task_list
+            
+        except Exception as e:
+            logger.error(f"[UnifiedContext] Error loading tasks: {e}")
+            return []
+    
+    def _load_deal_info(self, lead: Lead, payload: UnifiedLeadContextPayload) -> UnifiedLeadContextPayload:
+        """
+        Load deal/sales information (read-only)
+        
+        Args:
+            lead: Lead object
+            payload: Current payload to update
+            
+        Returns:
+            Updated payload with deal info
+        """
+        try:
+            # Find customer associated with this lead
+            customer = None
+            if lead.phone_e164:
+                customer = Customer.query.filter_by(
+                    business_id=self.business_id,
+                    phone=lead.phone_e164
+                ).first()
+            
+            if customer:
+                # Find most recent deal for this customer
+                deal = Deal.query.filter_by(
+                    customer_id=customer.id
+                ).order_by(Deal.created_at.desc()).first()
+                
+                if deal:
+                    payload.deal_status = deal.stage
+                    payload.deal_value = float(deal.amount) if deal.amount else None
+                    payload.deal_amount = payload.deal_value
+                    
+                    # Check for loss reason in deal (if field exists)
+                    if hasattr(deal, 'loss_reason') and deal.loss_reason:
+                        payload.loss_reason = deal.loss_reason
+            
+            return payload
+            
+        except Exception as e:
+            logger.error(f"[UnifiedContext] Error loading deal info: {e}")
+            return payload
+    
+    def _load_invoices(self, lead: Lead) -> List[Dict[str, Any]]:
+        """
+        Load recent invoices (read-only)
+        
+        Args:
+            lead: Lead object
+            
+        Returns:
+            List of invoice dictionaries
+        """
+        try:
+            invoices = Invoice.query.filter(
+                Invoice.business_id == self.business_id,
+                Invoice.customer_phone == lead.phone_e164
+            ).order_by(Invoice.created_at.desc()).limit(5).all()
+            
+            invoice_list = []
+            for inv in invoices:
+                invoice_list.append({
+                    'id': inv.id,
+                    'invoice_number': inv.invoice_number,
+                    'total': float(inv.total) if inv.total else 0,
+                    'status': inv.status,
+                    'issued_at': inv.issued_at.isoformat() if inv.issued_at else None
+                })
+            
+            return invoice_list
+            
+        except Exception as e:
+            logger.error(f"[UnifiedContext] Error loading invoices: {e}")
+            return []
+    
+    def _load_payments(self, lead: Lead) -> List[Dict[str, Any]]:
+        """
+        Load recent payments (read-only)
+        
+        Args:
+            lead: Lead object
+            
+        Returns:
+            List of payment dictionaries
+        """
+        try:
+            # Find customer to get payments
+            customer = None
+            if lead.phone_e164:
+                customer = Customer.query.filter_by(
+                    business_id=self.business_id,
+                    phone=lead.phone_e164
+                ).first()
+            
+            if not customer:
+                return []
+            
+            # Find deals for this customer
+            deals = Deal.query.filter_by(customer_id=customer.id).all()
+            deal_ids = [d.id for d in deals]
+            
+            if not deal_ids:
+                return []
+            
+            payments = Payment.query.filter(
+                Payment.business_id == self.business_id,
+                Payment.deal_id.in_(deal_ids)
+            ).order_by(Payment.created_at.desc()).limit(5).all()
+            
+            payment_list = []
+            for payment in payments:
+                payment_list.append({
+                    'id': payment.id,
+                    'amount': payment.amount / 100 if payment.amount else 0,  # Convert from agorot
+                    'currency': payment.currency or 'ILS',
+                    'status': payment.status,
+                    'paid_at': payment.paid_at.isoformat() if payment.paid_at else None
+                })
+            
+            return payment_list
+            
+        except Exception as e:
+            logger.error(f"[UnifiedContext] Error loading payments: {e}")
+            return []
+    
+    def _load_contracts(self, lead: Lead) -> List[Dict[str, Any]]:
+        """
+        Load contracts for this lead
+        
+        Args:
+            lead: Lead object
+            
+        Returns:
+            List of contract dictionaries
+        """
+        try:
+            contracts = Contract.query.filter(
+                Contract.business_id == self.business_id,
+                Contract.lead_id == lead.id
+            ).order_by(Contract.created_at.desc()).limit(5).all()
+            
+            contract_list = []
+            for contract in contracts:
+                contract_list.append({
+                    'id': contract.id,
+                    'title': contract.title,
+                    'status': contract.status,
+                    'signer_name': contract.signer_name,
+                    'created_at': contract.created_at.isoformat() if contract.created_at else None
+                })
+            
+            return contract_list
+            
+        except Exception as e:
+            logger.error(f"[UnifiedContext] Error loading contracts: {e}")
+            return []
+    
+    def _load_recent_calls(self, lead: Lead) -> List[Dict[str, Any]]:
+        """
+        Load recent call logs with details
+        
+        Args:
+            lead: Lead object
+            
+        Returns:
+            List of call log dictionaries
+        """
+        try:
+            calls = CallLog.query.filter(
+                CallLog.lead_id == lead.id,
+                CallLog.business_id == self.business_id
+            ).order_by(CallLog.created_at.desc()).limit(10).all()
+            
+            call_list = []
+            for call in calls:
+                call_dict = {
+                    'id': call.id,
+                    'direction': call.direction,
+                    'duration': call.duration_sec if hasattr(call, 'duration_sec') else None,
+                    'status': call.status if hasattr(call, 'status') else None,
+                    'created_at': call.created_at.isoformat() if call.created_at else None
+                }
+                
+                # Add summary if exists (already limited in earlier query)
+                if call.summary:
+                    call_dict['summary'] = call.summary[:200]
+                
+                call_list.append(call_dict)
+            
+            return call_list
+            
+        except Exception as e:
+            logger.error(f"[UnifiedContext] Error loading recent calls: {e}")
+            return []
+    
+    def _load_recent_whatsapp(self, lead: Lead) -> List[Dict[str, Any]]:
+        """
+        Load recent WhatsApp messages (last 20)
+        
+        Args:
+            lead: Lead object
+            
+        Returns:
+            List of WhatsApp message dictionaries
+        """
+        try:
+            messages = WhatsAppMessage.query.filter(
+                WhatsAppMessage.lead_id == lead.id,
+                WhatsAppMessage.business_id == self.business_id
+            ).order_by(WhatsAppMessage.timestamp.desc()).limit(20).all()
+            
+            message_list = []
+            for msg in messages:
+                message_list.append({
+                    'id': msg.id,
+                    'direction': msg.direction if hasattr(msg, 'direction') else 'unknown',
+                    'message_text': msg.message_text[:200] if msg.message_text else None,
+                    'timestamp': msg.timestamp.isoformat() if msg.timestamp else None,
+                    'is_from_customer': msg.direction == 'in' if hasattr(msg, 'direction') else True
+                })
+            
+            return message_list
+            
+        except Exception as e:
+            logger.error(f"[UnifiedContext] Error loading WhatsApp messages: {e}")
+            return []
+    
+    def _load_available_calendars(self) -> List[Dict[str, Any]]:
+        """
+        Load all available calendars for this business
+        
+        Returns:
+            List of calendar dictionaries with Hebrew names
+        """
+        try:
+            calendars = BusinessCalendar.query.filter(
+                BusinessCalendar.business_id == self.business_id,
+                BusinessCalendar.is_active.is_(True)
+            ).order_by(BusinessCalendar.priority.desc()).all()
+            
+            calendar_list = []
+            for cal in calendars:
+                calendar_list.append({
+                    'id': cal.id,
+                    'name': cal.name,  # Hebrew name
+                    'type_key': cal.type_key,
+                    'priority': cal.priority,
+                    'default_duration_minutes': cal.default_duration_minutes,
+                    'allowed_tags': cal.allowed_tags or []
+                })
+            
+            return calendar_list
+            
+        except Exception as e:
+            logger.error(f"[UnifiedContext] Error loading calendars: {e}")
+            return []
+    
+    def _load_status_history(self, lead: Lead) -> List[Dict[str, Any]]:
+        """
+        Load status change history
+        
+        Args:
+            lead: Lead object
+            
+        Returns:
+            List of status history dictionaries
+        """
+        try:
+            # Try to find LeadStatusAudit or similar table
+            # If it doesn't exist, return empty list
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            tables = inspector.get_table_names()
+            
+            # Check for status audit table
+            if 'lead_status_audit' in tables:
+                # Import dynamically to avoid errors if table doesn't exist
+                from server.models_sql import db
+                
+                # Query status history
+                history_query = db.session.execute(
+                    db.text("""
+                        SELECT old_status, new_status, change_reason, changed_at, channel
+                        FROM lead_status_audit
+                        WHERE lead_id = :lead_id AND tenant_id = :tenant_id
+                        ORDER BY changed_at DESC
+                        LIMIT 10
+                    """),
+                    {'lead_id': lead.id, 'tenant_id': self.business_id}
+                )
+                
+                history_list = []
+                for row in history_query:
+                    history_list.append({
+                        'old_status': row[0],
+                        'new_status': row[1],
+                        'reason': row[2],
+                        'changed_at': row[3].isoformat() if row[3] else None,
+                        'channel': row[4]
+                    })
+                
+                return history_list
+            
+            return []
+            
+        except Exception as e:
+            logger.debug(f"[UnifiedContext] Status history not available or error: {e}")
+            return []
+    
     def format_context_for_prompt(self, context: UnifiedLeadContextPayload) -> str:
         """
         Format lead context as text for AI prompt injection
@@ -399,6 +799,10 @@ class UnifiedLeadContextService:
         if context.lead_email:
             parts.append(f"📧 אימייל: {context.lead_email}")
         
+        # Owner/Agent
+        if context.owner_name:
+            parts.append(f"👤 מטפל: {context.owner_name}")
+        
         # Status
         if context.current_status:
             parts.append(f"📊 סטטוס: {context.current_status}")
@@ -413,14 +817,74 @@ class UnifiedLeadContextService:
         if context.tags:
             parts.append(f"🏷️ תגיות: {', '.join(context.tags)}")
         
+        # Available calendars (CRITICAL for multi-calendar scheduling)
+        if context.available_calendars:
+            parts.append(f"\n📆 לוחות שנה זמינים לתיאום ({len(context.available_calendars)}):")
+            for cal in context.available_calendars:
+                cal_info = f"  - {cal['name']}"
+                if cal.get('allowed_tags'):
+                    cal_info += f" (מתאים ל: {', '.join(cal['allowed_tags'])})"
+                parts.append(cal_info)
+            if len(context.available_calendars) > 1:
+                parts.append("  ⚠️ יש מספר לוחות שנה - ודא בחירת הלוח הנכון לפי סוג הפגישה!")
+        
         # Next appointment
         if context.next_appointment:
             apt = context.next_appointment
-            parts.append(f"📅 פגישה הבאה: {apt['title']} ב-{apt['start']}")
+            parts.append(f"\n📅 פגישה הבאה: {apt['title']} ב-{apt['start']}")
+            if apt.get('status') and apt['status'] != 'scheduled':
+                parts.append(f"  סטטוס: {apt['status']}")
+        
+        # Past appointments
+        if context.past_appointments:
+            parts.append(f"\n📅 פגישות קודמות ({len(context.past_appointments)}):")
+            for apt in context.past_appointments[:3]:
+                apt_date = apt['start'][:10] if apt.get('start') else ''
+                parts.append(f"  - [{apt_date}] {apt['title']} - {apt.get('status', 'completed')}")
+        
+        # Open tasks
+        if context.open_tasks:
+            parts.append(f"\n✅ משימות פתוחות ({len(context.open_tasks)}):")
+            for task in context.open_tasks[:3]:
+                task_info = f"  - {task['title']}"
+                if task.get('due_date'):
+                    task_info += f" (יעד: {task['due_date'][:10]})"
+                parts.append(task_info)
+        
+        # Deal information (read-only)
+        if context.deal_status or context.deal_value:
+            deal_parts = []
+            if context.deal_status:
+                deal_parts.append(f"סטטוס: {context.deal_status}")
+            if context.deal_value:
+                deal_parts.append(f"סכום: ₪{context.deal_value:,.0f}")
+            if context.loss_reason:
+                deal_parts.append(f"סיבת הפסד: {context.loss_reason}")
+            parts.append(f"\n💰 עסקה: {' | '.join(deal_parts)}")
+        
+        # Invoices and payments (read-only)
+        if context.invoices:
+            parts.append(f"\n🧾 חשבוניות אחרונות ({len(context.invoices)}):")
+            for inv in context.invoices[:3]:
+                inv_info = f"  - {inv['invoice_number']}: ₪{inv['total']:,.0f} ({inv['status']})"
+                parts.append(inv_info)
+        
+        if context.payments:
+            parts.append(f"\n💳 תשלומים אחרונים ({len(context.payments)}):")
+            for payment in context.payments[:3]:
+                payment_info = f"  - ₪{payment['amount']:,.0f} ({payment['status']})"
+                parts.append(payment_info)
+        
+        # Contracts
+        if context.contracts:
+            parts.append(f"\n📄 חוזים ({len(context.contracts)}):")
+            for contract in context.contracts[:3]:
+                contract_info = f"  - {contract['title']}: {contract['status']}"
+                parts.append(contract_info)
         
         # Memory
         if context.customer_memory:
-            parts.append(f"🧠 זיכרון לקוח: {context.customer_memory}")
+            parts.append(f"\n🧠 זיכרון לקוח: {context.customer_memory}")
         
         # Recent notes (most recent first)
         if context.recent_notes:
@@ -436,6 +900,22 @@ class UnifiedLeadContextService:
         # Summary
         if context.summary:
             parts.append(f"\n💬 סיכום: {context.summary}")
+        
+        # Status history
+        if context.status_history:
+            parts.append(f"\n📊 היסטוריית סטטוסים ({len(context.status_history)}):")
+            for hist in context.status_history[:3]:
+                hist_date = hist['changed_at'][:10] if hist.get('changed_at') else ''
+                parts.append(f"  - [{hist_date}] {hist['old_status']} → {hist['new_status']}")
+        
+        # Communication summary
+        if context.recent_calls or context.recent_whatsapp_messages:
+            comm_parts = []
+            if context.recent_calls:
+                comm_parts.append(f"{len(context.recent_calls)} שיחות")
+            if context.recent_whatsapp_messages:
+                comm_parts.append(f"{len(context.recent_whatsapp_messages)} הודעות WhatsApp")
+            parts.append(f"\n💬 תקשורת אחרונה: {', '.join(comm_parts)}")
         
         return "\n".join(parts)
 
