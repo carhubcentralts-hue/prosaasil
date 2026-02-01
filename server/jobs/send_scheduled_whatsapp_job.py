@@ -11,7 +11,7 @@ from server.db import db
 logger = logging.getLogger(__name__)
 
 
-def send_scheduled_whatsapp_job(message_id: int, *args, business_id=None, trace_id=None, **kwargs):
+def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
     """
     Send a scheduled WhatsApp message
     
@@ -21,18 +21,13 @@ def send_scheduled_whatsapp_job(message_id: int, *args, business_id=None, trace_
     Args:
         message_id: ID of the ScheduledMessagesQueue entry to send
         *args: Variable positional arguments (for RQ compatibility)
-        business_id: Business ID (passed by RQ enqueue system for metadata)
-        trace_id: Trace ID (passed by RQ enqueue system for tracing)
         **kwargs: Additional keyword arguments (for RQ compatibility)
     
     Returns:
         Dict with send result
     
     Note:
-        The business_id and trace_id parameters are automatically passed by the
-        job enqueue system (server/services/jobs.py) for job metadata tracking.
-        They are not used in the function logic but must be accepted to prevent
-        TypeError when the job is executed by RQ worker.
+        Job metadata (business_id, trace_id) is stored in job.meta, not passed as parameters.
     """
     from flask import current_app
     
@@ -156,12 +151,12 @@ def send_scheduled_whatsapp_job(message_id: int, *args, business_id=None, trace_
                         
                         outgoing_msg = WhatsAppMessage(
                             business_id=message.business_id,
-                            sender='bot',
-                            recipient=recipient_phone,
-                            message_text=message.message_text,
-                            timestamp=datetime.utcnow(),
+                            to_number=recipient_phone,
+                            body=message.message_text,
                             direction='outbound',
-                            lead_id=message.lead_id
+                            provider=provider,
+                            status='sent',
+                            message_type='text'
                         )
                         db.session.add(outgoing_msg)
                         db.session.commit()

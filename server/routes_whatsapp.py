@@ -2376,22 +2376,171 @@ def meta_webhook():
 
 
 def _process_meta_ai_response(business, from_number: str, user_message: str):
-    """Generate and send AI response for Meta WhatsApp message"""
+    """
+    Generate and send AI response for Meta WhatsApp message using AgentKit Only
+    
+    This now uses the same AgentKit pipeline as Baileys for consistent behavior:
+    - Loads conversation history (20 messages)
+    - Loads customer memory and state
+    - Uses generate_response_with_agent() for tool access
+    - Updates WhatsAppConversationState after response
+    """
     try:
-        from server.services.ai_service import get_ai_response
+        from server.services.ai_service import get_ai_service
         from server.services.whatsapp_gateway import send_whatsapp_message
+        from server.models_sql import WhatsAppMessage, WhatsAppConversationState, Lead, Customer
+        from server.utils.whatsapp_utils import normalize_conversation_key
+        from server.agent_tools.phone_utils import normalize_phone
+        from datetime import datetime
         
-        response_text = get_ai_response(
-            business_id=business.id,
-            user_message=user_message,
-            channel='whatsapp'
+        business_id = business.id
+        
+        # Normalize phone for consistent tracking
+        from_number_e164 = normalize_phone(from_number)
+        conversation_key = normalize_conversation_key(
+            remote_jid=None,
+            from_number_e164=from_number_e164,
+            phone_for_ai_check=from_number
         )
         
-        if response_text:
+        log.info(f"[META-WA-AI] 🔵 AgentKit processing for {conversation_key[:30]}")
+        
+        # Get or create lead
+        from server.services.contact_identity_service import ContactIdentityService
+        lead = ContactIdentityService.get_or_create_lead_for_whatsapp(
+            business_id=business_id,
+            remote_jid=from_number,  # For Meta, remote_jid is just the phone
+            push_name=None,
+            message_text=user_message,
+            wa_message_id=None,
+            ts=datetime.utcnow()
+        )
+        
+        # Get customer for backwards compatibility
+        customer = Customer.query.filter_by(
+            business_id=business_id,
+            phone_e164=from_number_e164
+        ).first() if from_number_e164 else None
+        
+        # Load conversation history (20 messages)
+        previous_messages = []
+        try:
+            recent_msgs = WhatsAppMessage.query.filter_by(
+                business_id=business_id,
+                to_number=conversation_key
+            ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
+            
+            for msg_hist in reversed(recent_msgs):
+                if msg_hist.direction in ['in', 'inbound']:
+                    previous_messages.append(f"לקוח: {msg_hist.body}")
+                else:
+                    previous_messages.append(f"עוזר: {msg_hist.body}")
+            
+            log.info(f"[META-WA-AI] 📚 Loaded {len(previous_messages)} previous messages")
+        except Exception as e:
+            log.warning(f"[META-WA-AI] ⚠️ Could not load history: {e}")
+        
+        # Load customer memory
+        customer_memory_text = ""
+        ask_continue_or_fresh = False
+        try:
+            from server.services.customer_memory_service import (
+                is_customer_service_enabled,
+                get_customer_memory,
+                format_memory_for_ai,
+                should_ask_continue_or_fresh,
+                update_interaction_timestamp
+            )
+            
+            if is_customer_service_enabled(business_id):
+                customer_memory = get_customer_memory(lead.id, business_id, max_notes=5)
+                customer_memory_text = format_memory_for_ai(customer_memory)
+                ask_continue_or_fresh = should_ask_continue_or_fresh(lead.id, business_id)
+                update_interaction_timestamp(lead.id, business_id, 'whatsapp')
+                log.info(f"[META-WA-AI] Memory loaded for lead {lead.id}")
+        except Exception as e:
+            log.warning(f"[META-WA-AI] ⚠️ Could not load memory: {e}")
+        
+        # Load conversation state
+        conv_state = None
+        try:
+            conv_state = WhatsAppConversationState.query.filter_by(
+                business_id=business_id,
+                phone=conversation_key
+            ).first()
+        except Exception as e:
+            log.warning(f"[META-WA-AI] ⚠️ Could not load state: {e}")
+        
+        # Build AI context
+        ai_context = {
+            'phone': from_number_e164,
+            'remote_jid': from_number,
+            'customer_name': customer.name if customer else None,
+            'lead_status': lead.status if lead else None,
+            'lead_id': lead.id if lead else None,
+            'previous_messages': previous_messages,
+            'customer_memory': customer_memory_text,
+            'ask_continue_or_fresh': ask_continue_or_fresh,
+            'last_user_message': conv_state.last_user_message if conv_state else None,
+            'last_agent_message': conv_state.last_agent_message if conv_state else None,
+            'conversation_stage': conv_state.conversation_stage if conv_state else None,
+            'conversation_has_history': len(previous_messages) >= 2
+        }
+        
+        # Generate response using AgentKit
+        ai_service = get_ai_service()
+        log.info(f"[META-WA-AI] 🤖 Calling AgentKit for lead {lead.id}")
+        
+        ai_response = ai_service.generate_response_with_agent(
+            message=user_message,
+            business_id=business_id,
+            context=ai_context,
+            channel='whatsapp',
+            customer_phone=conversation_key,
+            customer_name=customer.name if customer else None
+        )
+        
+        # Handle dict response vs plain string
+        if isinstance(ai_response, dict):
+            response_text = ai_response.get('text', '')
+        else:
+            response_text = str(ai_response)
+        
+        log.info(f"[META-WA-AI] ✅ AgentKit generated response, length={len(response_text) if response_text else 0}")
+        
+        # Update conversation state
+        try:
+            if not conv_state:
+                conv_state = WhatsAppConversationState()
+                conv_state.business_id = business_id
+                conv_state.phone = conversation_key
+                conv_state.ai_active = True
+                db.session.add(conv_state)
+            
+            conv_state.last_user_message = user_message
+            conv_state.last_agent_message = response_text[:500] if response_text else None
+            conv_state.updated_at = datetime.utcnow()
+            
+            db.session.commit()
+            log.info(f"[META-WA-AI] ✅ Updated conversation state")
+        except Exception as state_err:
+            log.warning(f"[META-WA-AI] ⚠️ Could not update state: {state_err}")
+            try:
+                db.session.rollback()
+            except:
+                pass
+        
+        # Send response
+        if response_text and not response_text.isspace():
             send_whatsapp_message(business, from_number, response_text)
-            log.info(f"[META-WA-WEBHOOK] AI response sent to {from_number[:8]}...")
+            log.info(f"[META-WA-AI] ✅ Response sent to {from_number[:8]}...")
+        else:
+            log.warning(f"[META-WA-AI] ⚠️ Empty response, skipping send")
+            
     except Exception as e:
-        log.error(f"[META-WA-WEBHOOK] AI response failed: {e}")
+        log.error(f"[META-WA-AI] ❌ AgentKit processing failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # ============================================================================
@@ -2623,9 +2772,9 @@ def get_templates():
         if not business:
             return jsonify({'templates': []}), 200
         
-        # Check if Meta Cloud API is configured
-        meta_phone_id = os.getenv('META_PHONE_NUMBER_ID')
-        meta_token = os.getenv('META_ACCESS_TOKEN')
+        # Check if Meta Cloud API is configured (using unified META_WA_* variables)
+        meta_phone_id = os.getenv('META_WA_PHONE_NUMBER_ID')
+        meta_token = os.getenv('META_WA_ACCESS_TOKEN')
         
         if not meta_phone_id or not meta_token:
             log.warning("Meta Cloud API not configured - no templates available")
@@ -2633,7 +2782,7 @@ def get_templates():
         
         # Fetch templates from Meta API
         # GET /v18.0/{WABA_ID}/message_templates
-        waba_id = os.getenv('META_WABA_ID')
+        waba_id = os.getenv('META_WA_WABA_ID')
         if not waba_id:
             return jsonify({'templates': []}), 200
         

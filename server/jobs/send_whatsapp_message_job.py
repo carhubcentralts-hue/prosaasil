@@ -74,12 +74,12 @@ def send_whatsapp_message_job(
             try:
                 outgoing_msg = WhatsAppMessage(
                     business_id=business_id,
-                    sender='bot',
-                    recipient=remote_jid.split('@')[0],  # Extract phone number
-                    message_text=response_text,
-                    timestamp=datetime.utcnow(),
+                    to_number=remote_jid.split('@')[0],  # Extract phone number
+                    body=response_text,
                     direction='outbound',
-                    in_reply_to_id=wa_msg_id
+                    provider='baileys',  # Default provider for this job
+                    status='sent',
+                    message_type='text'
                 )
                 db.session.add(outgoing_msg)
                 db.session.commit()
