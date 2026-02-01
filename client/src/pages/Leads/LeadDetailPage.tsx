@@ -474,43 +474,22 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                   התקשר
                 </Button>
                 <Button 
-                  size="sm" 
-                  variant="secondary"
-                  className="min-h-[44px]"
-                  onClick={() => { setEditingReminder(null); setReminderModalOpen(true); }}
-                  data-testid="button-new-task"
+                  size="sm"
+                  className="min-h-[44px] bg-green-600 hover:bg-green-700"
+                  onClick={() => {
+                    if (lead.phone_e164 || lead.phone) {
+                      const cleanPhone = (lead.phone_e164 || lead.phone || '').replace(/[^0-9]/g, '');
+                      window.open(`https://wa.me/${cleanPhone}`, '_blank');
+                    } else {
+                      setWhatsappChatOpen(true);
+                    }
+                  }}
+                  data-testid="button-whatsapp"
                 >
-                  <Clock className="w-4 h-4 ml-2" />
-                  משימה
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="secondary"
-                  className="min-h-[44px]"
-                  onClick={() => setActiveTab('notes')}
-                  data-testid="button-new-note"
-                >
-                  <FileText className="w-4 h-4 ml-2" />
-                  תיעוד
+                  <MessageSquare className="w-4 h-4 ml-2" />
+                  וואטסאפ
                 </Button>
               </div>
-              
-              <Button 
-                size="sm"
-                className="min-h-[44px] bg-green-600 hover:bg-green-700"
-                onClick={() => {
-                  if (lead.phone_e164 || lead.phone) {
-                    const cleanPhone = (lead.phone_e164 || lead.phone || '').replace(/[^0-9]/g, '');
-                    window.open(`https://wa.me/${cleanPhone}`, '_blank');
-                  } else {
-                    setWhatsappChatOpen(true);
-                  }
-                }}
-                data-testid="button-whatsapp"
-              >
-                <MessageSquare className="w-4 h-4 ml-2" />
-                וואטסאפ
-              </Button>
             </div>
           </div>
           
@@ -982,24 +961,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           >
             <Phone className="w-5 h-5 mb-1" />
             <span className="text-xs font-medium">התקשר</span>
-          </button>
-          
-          <button
-            onClick={() => { setEditingReminder(null); setReminderModalOpen(true); }}
-            className="flex flex-col items-center justify-center py-2 px-3 min-h-[56px] min-w-[56px] rounded-lg text-purple-600 hover:bg-purple-50 active:bg-purple-100 transition-colors"
-            data-testid="mobile-action-task"
-          >
-            <Clock className="w-5 h-5 mb-1" />
-            <span className="text-xs font-medium">משימה</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('notes')}
-            className="flex flex-col items-center justify-center py-2 px-3 min-h-[56px] min-w-[56px] rounded-lg text-gray-600 hover:bg-gray-50 active:bg-gray-100 transition-colors"
-            data-testid="mobile-action-note"
-          >
-            <FileText className="w-5 h-5 mb-1" />
-            <span className="text-xs font-medium">תיעוד</span>
           </button>
         </div>
       </div>
