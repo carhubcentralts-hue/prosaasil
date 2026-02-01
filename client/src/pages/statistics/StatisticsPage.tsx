@@ -12,10 +12,14 @@ import {
   TrendingUp,
   FileText,
   RefreshCw,
-  Mail
+  Mail,
+  Filter,
+  X
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { formatDate, formatDateOnly } from '../../shared/utils/format';
+import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
+import { LeadStatusConfig } from '../../shared/types/status';
 
 // Local UI Components
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
@@ -153,16 +157,53 @@ export function StatisticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  
+  // Filter state
+  const [statuses, setStatuses] = useState<LeadStatusConfig[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    loadStatuses();
+  }, []);
 
   useEffect(() => {
     loadStats();
-  }, []);
+  }, [selectedStatuses, dateFrom, dateTo]);
+
+  const loadStatuses = async () => {
+    try {
+      const response = await http.get<{ items: LeadStatusConfig[] }>('/api/lead-statuses');
+      setStatuses(response.items || []);
+    } catch (err) {
+      console.error('Error loading statuses:', err);
+    }
+  };
 
   const loadStats = async () => {
     setLoading(true);
     setError(null);
     
     try {
+      // Build query parameters for filtering
+      const params = new URLSearchParams();
+      if (selectedStatuses.length > 0) {
+        selectedStatuses.forEach(status => {
+          params.append('statuses[]', status);
+        });
+      }
+      if (dateFrom) {
+        params.append('from', new Date(dateFrom).toISOString());
+      }
+      if (dateTo) {
+        // Set to end of day
+        const endOfDay = new Date(dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        params.append('to', endOfDay.toISOString());
+      }
+      
       // Try to fetch stats from various endpoints
       const [
         callsData,
@@ -172,7 +213,7 @@ export function StatisticsPage() {
         emailsData
       ] = await Promise.allSettled([
         http.get<CallCountsResponse>('/api/outbound_calls/counts'),
-        http.get<LeadsResponse>('/api/leads?pageSize=1'),
+        http.get<LeadsResponse>(`/api/leads?pageSize=1&${params.toString()}`),
         http.get<RemindersResponse>('/api/reminders'),
         http.get<AppointmentsResponse>('/api/calendar/appointments'),
         http.get<EmailsResponse>('/api/email/messages?limit=1')
@@ -253,6 +294,14 @@ export function StatisticsPage() {
     return `${minutes} דקות`;
   };
 
+  const clearFilters = () => {
+    setSelectedStatuses([]);
+    setDateFrom('');
+    setDateTo('');
+  };
+
+  const hasActiveFilters = selectedStatuses.length > 0 || dateFrom || dateTo;
+
   if (loading && !stats) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -283,6 +332,22 @@ export function StatisticsPage() {
             עודכן: {formatDate(lastRefresh.toISOString())}
           </span>
           <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${
+              hasActiveFilters 
+                ? 'bg-blue-50 border-blue-300 text-blue-700' 
+                : 'bg-white border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <Filter className="w-4 h-4" />
+            <span>סינון</span>
+            {hasActiveFilters && (
+              <span className="bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {(selectedStatuses.length > 0 ? 1 : 0) + (dateFrom || dateTo ? 1 : 0)}
+              </span>
+            )}
+          </button>
+          <button
             onClick={loadStats}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
@@ -292,6 +357,93 @@ export function StatisticsPage() {
           </button>
         </div>
       </div>
+
+      {/* Filter Panel */}
+      {showFilters && (
+        <Card className="p-4 bg-gray-50">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Filter className="w-4 h-4" />
+                סינון סטטיסטיקות
+              </h3>
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                >
+                  <X className="w-3 h-3" />
+                  נקה סינונים
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Status Filter */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">סטטוס</label>
+                <MultiStatusSelect
+                  statuses={statuses}
+                  selectedStatuses={selectedStatuses}
+                  onChange={setSelectedStatuses}
+                  placeholder="כל הסטטוסים"
+                  className="w-full"
+                />
+              </div>
+
+              {/* Date Range Filter */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">טווח תאריכים</label>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="מתאריך"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="עד תאריך"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Active Filters Summary */}
+            {hasActiveFilters && (
+              <div className="pt-3 border-t border-gray-200">
+                <div className="flex flex-wrap gap-2">
+                  {selectedStatuses.length > 0 && (
+                    <Badge variant="info">
+                      {selectedStatuses.length === 1
+                        ? statuses.find(s => s.name === selectedStatuses[0])?.label
+                        : `${selectedStatuses.length} סטטוסים`}
+                    </Badge>
+                  )}
+                  {dateFrom && (
+                    <Badge variant="info">
+                      מ-{new Date(dateFrom).toLocaleDateString('he-IL')}
+                    </Badge>
+                  )}
+                  {dateTo && (
+                    <Badge variant="info">
+                      עד-{new Date(dateTo).toLocaleDateString('he-IL')}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Error State */}
       {error && (
