@@ -60,13 +60,18 @@ logger = logging.getLogger(__name__)
 # Global AI service instance for cache sharing
 _global_ai_service = None
 
-# 🚀 Phase 2K: Intent Router Configuration
-# ✅ ENABLED: FAQ fast-path with improved context and token limits
-AGENTKIT_BOOKING_ONLY = os.getenv("AGENTKIT_BOOKING_ONLY", "1") == "1"  # Default ON
-FAST_PATH_ENABLED = os.getenv("FAST_PATH_ENABLED", "1") == "1"  # Default ON
+# 🚨 OBSOLETE: The following flags are no longer used after AgentKit Only implementation
+# All messages now use AgentKit regardless of intent
+# Left here for backward compatibility in case of rollback
+AGENTKIT_BOOKING_ONLY = os.getenv("AGENTKIT_BOOKING_ONLY", "1") == "1"  # OBSOLETE
+FAST_PATH_ENABLED = os.getenv("FAST_PATH_ENABLED", "1") == "1"  # OBSOLETE
 
 def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "info", "whatsapp", "human", "other"]:
     """
+    🚨 OBSOLETE: Intent detection is no longer used after AgentKit Only implementation
+    All messages now go to AgentKit regardless of detected intent
+    Left here for backward compatibility in case of rollback
+    
     🚀 Fast Hebrew intent detection - NO LLM!
     Returns intent category for routing decisions.
     Target: <10ms for classification
