@@ -203,16 +203,11 @@ def enqueue(
         log_context += f" run_id={run_id}"
     logger.info(f"{log_context} trace_id={trace_id[:8]}")
     
-    # 🔥 FIX: Pass metadata parameters as kwargs to job function if they were provided
-    # Some job functions need these parameters (e.g., business_id, run_id, job_id)
-    # while we also use them for job metadata. This ensures both uses are satisfied.
+    # 🔥 FIXED: Do NOT auto-inject business_id/run_id into job function kwargs
+    # This was causing "invalid keyword argument" errors for jobs that don't expect them.
+    # If a job needs business_id or run_id, pass them explicitly when calling enqueue().
+    # All metadata (business_id, run_id, trace_id) is stored in job.meta for logging/tracking.
     job_func_kwargs = dict(kwargs)
-    if business_id is not None:
-        job_func_kwargs['business_id'] = business_id
-    if run_id is not None:
-        job_func_kwargs['run_id'] = run_id
-    # Note: job_id and trace_id are typically not needed by job functions
-    # (they're RQ internal IDs), but include them if a job explicitly needs them
     
     # Enqueue job
     try:
