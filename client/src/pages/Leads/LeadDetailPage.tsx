@@ -177,11 +177,23 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [loadingCalls, setLoadingCalls] = useState(false);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
 
+  // Configurable appointment types, statuses, and calendars
+  const [appointmentTypes, setAppointmentTypes] = useState<{key: string; label: string; color: string}[]>([]);
+  const [appointmentStatuses, setAppointmentStatuses] = useState<{key: string; label: string; color: string}[]>([]);
+  const [calendars, setCalendars] = useState<{id: number; name: string; is_active: boolean}[]>([]);
+
   useEffect(() => {
     if (id) {
       fetchLead();
     }
   }, [id]);
+
+  // Fetch appointment configuration on mount
+  useEffect(() => {
+    fetchAppointmentTypes();
+    fetchAppointmentStatuses();
+    fetchCalendars();
+  }, []);
 
   const fetchLead = async () => {
     try {
@@ -260,6 +272,52 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       setAppointments([]);
     } finally {
       setLoadingAppointments(false);
+    }
+  };
+
+  // Fetch configurable appointment types
+  const fetchAppointmentTypes = async () => {
+    try {
+      const data = await http.get<{appointment_types: {key: string; label: string; color: string}[]}>('/api/calendar/config/appointment-types');
+      setAppointmentTypes(data.appointment_types || []);
+    } catch (error) {
+      console.error('שגיאה בטעינת סוגי פגישות:', error);
+      // Fallback to defaults if API fails
+      setAppointmentTypes([
+        {key: "viewing", label: "צפייה", color: "blue"},
+        {key: "meeting", label: "פגישה", color: "green"},
+        {key: "signing", label: "חתימה", color: "purple"},
+        {key: "call_followup", label: "מעקב שיחה", color: "orange"},
+        {key: "phone_call", label: "שיחה טלפונית", color: "pink"}
+      ]);
+    }
+  };
+
+  // Fetch configurable appointment statuses
+  const fetchAppointmentStatuses = async () => {
+    try {
+      const data = await http.get<{appointment_statuses: {key: string; label: string; color: string}[]}>('/api/calendar/config/appointment-statuses');
+      setAppointmentStatuses(data.appointment_statuses || []);
+    } catch (error) {
+      console.error('שגיאה בטעינת סטטוסי פגישות:', error);
+      // Fallback to defaults if API fails
+      setAppointmentStatuses([
+        {key: "scheduled", label: "מתוכנן", color: "yellow"},
+        {key: "confirmed", label: "מאושר", color: "green"},
+        {key: "paid", label: "שולם", color: "blue"},
+        {key: "unpaid", label: "לא שולם", color: "red"},
+        {key: "cancelled", label: "בוטל", color: "gray"}
+      ]);
+    }
+  };
+
+  // Fetch calendars
+  const fetchCalendars = async () => {
+    try {
+      const data = await http.get<{calendars: {id: number; name: string; is_active: boolean}[]}>('/api/calendar/calendars');
+      setCalendars(data.calendars || []);
+    } catch (error) {
+      console.error('שגיאה בטעינת לוחות שנה:', error);
     }
   };
 
@@ -884,7 +942,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
             {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} leadId={parseInt(id!)} onRefresh={fetchLead} />}
             {activeTab === 'email' && <EmailTab lead={lead} />}
             {activeTab === 'contracts' && <ContractsTab lead={lead} />}
-            {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
+            {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} appointmentTypes={appointmentTypes} appointmentStatuses={appointmentStatuses} calendars={calendars} fetchCalendars={fetchCalendars} />}
             {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} leadId={parseInt(id!)} onRefresh={fetchLead} />}
             {activeTab === 'ai_notes' && <AINotesTab lead={lead} onUpdate={fetchLead} />}
             {activeTab === 'notes' && <NotesTab lead={lead} onUpdate={fetchLead} />}
@@ -1943,22 +2001,6 @@ function NotesSection({ lead }: { lead: Lead }) {
   );
 }
 
-const APPOINTMENT_TYPES = {
-  viewing: { label: 'צפייה', color: 'bg-blue-100 text-blue-800' },
-  meeting: { label: 'פגישה', color: 'bg-green-100 text-green-800' },
-  signing: { label: 'חתימה', color: 'bg-purple-100 text-purple-800' },
-  call_followup: { label: 'מעקב שיחה', color: 'bg-orange-100 text-orange-800' },
-  phone_call: { label: 'שיחה טלפונית', color: 'bg-cyan-100 text-cyan-800' }
-};
-
-const STATUS_TYPES = {
-  scheduled: { label: 'מתוכנן', color: 'bg-gray-100 text-gray-800' },
-  confirmed: { label: 'מאושר', color: 'bg-blue-100 text-blue-800' },
-  paid: { label: 'שילם', color: 'bg-green-100 text-green-800' },
-  unpaid: { label: 'לא שילם', color: 'bg-yellow-100 text-yellow-800' },
-  cancelled: { label: 'בוטל', color: 'bg-red-100 text-red-800' }
-};
-
 interface AppointmentFormData {
   title: string;
   appointment_type: string;
@@ -1968,9 +2010,28 @@ interface AppointmentFormData {
   location: string;
   contact_name: string;
   contact_phone: string;
+  calendar_id?: number;
 }
 
-function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointments: LeadAppointment[]; loading?: boolean; lead?: Lead; onRefresh?: () => void }) {
+function AppointmentsTab({ 
+  appointments, 
+  loading, 
+  lead, 
+  onRefresh, 
+  appointmentTypes, 
+  appointmentStatuses, 
+  calendars, 
+  fetchCalendars 
+}: { 
+  appointments: LeadAppointment[]; 
+  loading?: boolean; 
+  lead?: Lead; 
+  onRefresh?: () => void;
+  appointmentTypes: {key: string; label: string; color: string}[];
+  appointmentStatuses: {key: string; label: string; color: string}[];
+  calendars: {id: number; name: string; is_active: boolean}[];
+  fetchCalendars: () => void;
+}) {
   const [showModal, setShowModal] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<LeadAppointment | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1983,7 +2044,8 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
     status: 'scheduled',
     location: '',
     contact_name: '',
-    contact_phone: ''
+    contact_phone: '',
+    calendar_id: undefined
   });
 
   const formatDateTime = (dateStr: string) => {
@@ -2073,7 +2135,8 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
         contact_phone: formData.contact_phone || lead?.phone_e164 || '',
         priority: 'medium',
         // 🔥 FIX: Include lead_id when creating from lead page
-        lead_id: lead?.id
+        lead_id: lead?.id,
+        calendar_id: formData.calendar_id
       };
 
       console.log('Saving appointment:', dataToSend);
@@ -2134,8 +2197,11 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
       status: 'scheduled',
       location: '',
       contact_name: lead ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim() : '',
-      contact_phone: lead?.phone_e164 || ''
+      contact_phone: lead?.phone_e164 || '',
+      calendar_id: undefined
     });
+    // Always fetch calendars to ensure up-to-date list
+    fetchCalendars();
     setShowModal(true);
   };
 
@@ -2149,8 +2215,11 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
       status: appointment.status,
       location: (appointment as any).location || '',
       contact_name: appointment.contact_name || '',
-      contact_phone: (appointment as any).contact_phone || ''
+      contact_phone: (appointment as any).contact_phone || '',
+      calendar_id: (appointment as any).calendar_id
     });
+    // Always fetch calendars to ensure up-to-date list
+    fetchCalendars();
     setShowModal(true);
   };
 
@@ -2165,7 +2234,8 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
       status: 'scheduled',
       location: '',
       contact_name: '',
-      contact_phone: ''
+      contact_phone: '',
+      calendar_id: undefined
     });
   };
 
@@ -2237,8 +2307,8 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
                       onChange={(e) => setFormData({ ...formData, appointment_type: e.target.value })}
                       data-testid="select-appointment-type"
                     >
-                      {Object.entries(APPOINTMENT_TYPES).map(([key, { label }]) => (
-                        <option key={key} value={key}>{label}</option>
+                      {appointmentTypes.map(type => (
+                        <option key={type.key} value={type.key}>{type.label}</option>
                       ))}
                     </select>
                   </div>
@@ -2250,11 +2320,26 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
                       onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                       data-testid="select-appointment-status"
                     >
-                      {Object.entries(STATUS_TYPES).map(([key, { label }]) => (
-                        <option key={key} value={key}>{label}</option>
+                      {appointmentStatuses.map(status => (
+                        <option key={status.key} value={status.key}>{status.label}</option>
                       ))}
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">לוח שנה</label>
+                  <select
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                    value={formData.calendar_id || ''}
+                    onChange={(e) => setFormData({...formData, calendar_id: e.target.value ? parseInt(e.target.value) : undefined})}
+                    data-testid="select-calendar"
+                  >
+                    <option value="">ללא לוח שנה</option>
+                    {calendars.filter(cal => cal.is_active).map(cal => (
+                      <option key={cal.id} value={cal.id}>{cal.name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
