@@ -41,20 +41,25 @@ git checkout copilot/optimize-whatsapp-webhook
 git pull origin copilot/optimize-whatsapp-webhook
 ```
 
-### Step 2: Run Database Migration
+### Step 2: Run Database Migration ⭐ UPDATED
+
+**Option 1: Automatic - DB_MIGRATE (Recommended)**
 ```bash
-# Run the migration to add immediate_message column
+# Run ALL migrations including Migration 124
+python server/db_migrate.py
+```
+
+**Option 2: Standalone (Optional)**
+```bash
+# Run only the immediate_message migration
 python migration_add_immediate_message.py
 ```
 
-Expected output:
+Expected output (both options will show similar results):
 ```
-🔧 Running immediate_message migration...
-✅ Migration completed successfully
-
-ℹ️  immediate_message column added to scheduled_message_rules table
-   This allows separate messages for immediate send vs delayed steps
-   If not set, message_text will be used for backward compatibility
+Migration 124: Adding immediate_message to scheduled_message_rules
+✅ immediate_message column added
+💡 Allows separate message for immediate send vs delayed steps
 ```
 
 ### Step 3: Restart Backend Services

@@ -7897,6 +7897,39 @@ def apply_migrations():
         checkpoint("   🎯 Send immediately on enter option available")
         checkpoint("   🎯 Deduplication support with status_sequence_token")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 124: Add immediate_message to scheduled_message_rules
+        # 🎯 PURPOSE: Support separate message for immediate send vs delayed steps
+        # Adds immediate_message column to store different text for immediate sends
+        # Falls back to message_text if immediate_message is NULL (backward compatible)
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 124: Adding immediate_message to scheduled_message_rules")
+        
+        if check_table_exists('scheduled_message_rules'):
+            try:
+                # Add immediate_message column
+                if not check_column_exists('scheduled_message_rules', 'immediate_message'):
+                    checkpoint("  → Adding immediate_message to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN immediate_message TEXT NULL
+                    """)
+                    migrations_applied.append('migration_124_immediate_message')
+                    checkpoint("  ✅ immediate_message column added")
+                    checkpoint("     💡 Allows separate message for immediate send vs delayed steps")
+                    checkpoint("     💡 Falls back to message_text if NULL (backward compatible)")
+                else:
+                    checkpoint("  ℹ️  immediate_message column already exists")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 124 failed: {e}")
+                logger.error(f"Migration 124 error: {e}", exc_info=True)
+                raise
+        else:
+            checkpoint("  ℹ️  scheduled_message_rules table does not exist - skipping Migration 124")
+        
+        checkpoint("✅ Migration 124 complete: immediate_message support ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

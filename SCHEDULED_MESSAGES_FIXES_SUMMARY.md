@@ -86,8 +86,16 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
 
 ## Deployment
 
-### Migration Required
-Run this migration before deploying:
+### Migration Required ⭐ UPDATED
+**Option 1: Automatic (Recommended)**
+The migration is now part of DB_MIGRATE system (Migration 124):
+```bash
+python server/db_migrate.py
+```
+This will run ALL migrations including Migration 124.
+
+**Option 2: Standalone (Optional)**
+You can still run the standalone migration if needed:
 ```bash
 python migration_add_immediate_message.py
 ```

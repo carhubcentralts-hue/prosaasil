@@ -72,6 +72,11 @@
    - Code changes explained
    - Backward compatibility
 
+4. **[MIGRATION_124_IMMEDIATE_MESSAGE.md](MIGRATION_124_IMMEDIATE_MESSAGE.md)** ⭐ NEW
+   - Migration 124 documentation
+   - Integration with DB_MIGRATE system
+   - Testing and verification
+
 ### For immediate_message Fix (Earlier Commits)
 4. **[README_IMMEDIATE_MESSAGE_FIX.md](README_IMMEDIATE_MESSAGE_FIX.md)**
    - Documentation index for fix #1
@@ -137,10 +142,14 @@
 3. **server/routes_scheduled_messages.py** (+4 lines)
    - API routes updated for `immediate_message`
 
+4. **server/db_migrate.py** (+34 lines) ⭐ NEW
+   - Migration 124 added to DB_MIGRATE system
+   - Automatic migration on deployment
+
 ### New Files
-4. **migration_add_immediate_message.py**
-   - Database migration script
-   - Idempotent (safe to run multiple times)
+5. **migration_add_immediate_message.py** (standalone - optional)
+   - Standalone migration script (for manual use)
+   - Now integrated into db_migrate.py as Migration 124
 
 ---
 
