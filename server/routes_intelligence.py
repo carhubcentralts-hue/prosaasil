@@ -59,7 +59,7 @@ def get_intelligent_customers():
         result = []
         for customer in customers:
             # ספירת פעילויות (מותאם למבנה המודל הקיים)
-            leads_count = Lead.query.filter_by(business_id=business_id).filter(
+            leads_count = Lead.query.filter_by(tenant_id=business_id).filter(
                 Lead.phone_e164 == customer.phone_e164
             ).count() if hasattr(Lead, 'phone_e164') else 0
             
@@ -68,7 +68,7 @@ def get_intelligent_customers():
             ).count() if hasattr(CallLog, 'from_number') else 0
             
             # ליד אחרון
-            latest_lead = Lead.query.filter_by(business_id=business_id).filter(
+            latest_lead = Lead.query.filter_by(tenant_id=business_id).filter(
                 Lead.phone_e164 == customer.phone_e164
             ).order_by(desc(Lead.created_at)).first() if hasattr(Lead, 'phone_e164') else None
             
@@ -152,8 +152,8 @@ def get_intelligence_stats():
         new_customers_today = Customer.query.filter_by(business_id=business_id)\
             .filter(func.date(Customer.created_at) == today).count()
         
-        total_leads = Lead.query.filter_by(business_id=business_id).count()
-        new_leads_today = Lead.query.filter_by(business_id=business_id)\
+        total_leads = Lead.query.filter_by(tenant_id=business_id).count()
+        new_leads_today = Lead.query.filter_by(tenant_id=business_id)\
             .filter(func.date(Lead.created_at) == today).count()
         
         # חישוב שיעורי המרה
@@ -164,7 +164,7 @@ def get_intelligence_stats():
         whatsapp_conversion_rate = 75  # TODO: חשב בפועל כשתהיה מידע
         
         # לידים מוכנים לפגישה
-        meeting_ready_leads = Lead.query.filter_by(business_id=business_id)\
+        meeting_ready_leads = Lead.query.filter_by(tenant_id=business_id)\
             .filter(Lead.status.in_(['מוכשר', 'מוכן לפגישה'])).count()
         
         # אינטראקציות שעובדו על ידי AI

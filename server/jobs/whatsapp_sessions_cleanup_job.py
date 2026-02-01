@@ -63,7 +63,7 @@ def whatsapp_sessions_cleanup_job():
                 try:
                     # Get lead for context
                     lead = Lead.query.filter_by(
-                        business_id=session.business_id,
+                        tenant_id=session.business_id,
                         phone_e164=session.customer_wa_id
                     ).first()
                     
