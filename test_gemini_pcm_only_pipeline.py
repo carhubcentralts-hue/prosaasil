@@ -121,13 +121,23 @@ class TestGeminiInlineToPcmBytes:
     def test_fallback_invalid_base64_as_raw(self):
         """Test that invalid base64 ASCII bytes fall back to raw bytes"""
         # Create bytes that look like ASCII but aren't valid base64
+        # Must have >10% non-base64 chars to be treated as raw
         invalid_b64 = b"!!!invalid!!!"
         result = gemini_inline_to_pcm_bytes(invalid_b64)
         
         # Should fallback to treating it as raw bytes
         assert isinstance(result, bytes)
-        # The function will try to decode and fallback
-        assert len(result) > 0
+        # Verify it falls back correctly by returning the original bytes
+        assert result == invalid_b64
+    
+    def test_unsupported_type_raises_error(self):
+        """Test that unsupported types raise TypeError"""
+        # Test with an unsupported type (e.g., int)
+        with pytest.raises(TypeError) as exc_info:
+            gemini_inline_to_pcm_bytes(123)
+        
+        assert "Unsupported audio_data type" in str(exc_info.value)
+        assert "int" in str(exc_info.value)
     
     def test_always_returns_bytes(self):
         """Test that function ALWAYS returns bytes, never str"""

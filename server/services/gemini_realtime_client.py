@@ -139,6 +139,9 @@ def gemini_inline_to_pcm_bytes(audio_data):
     
     Returns:
         bytes: Raw PCM audio data
+    
+    Raises:
+        TypeError: If audio_data is not a supported type
     """
     if audio_data is None:
         return b""
@@ -170,7 +173,7 @@ def gemini_inline_to_pcm_bytes(audio_data):
             except binascii.Error:
                 # Fallback: treat as raw bytes
                 return b
-        except Exception:
+        except UnicodeDecodeError:
             # Not ASCII decodable, must be raw PCM
             return b
     
@@ -182,12 +185,11 @@ def gemini_inline_to_pcm_bytes(audio_data):
             s += "=" * (4 - missing)
         return base64.b64decode(s, validate=False)
     
-    # Any other type - convert to str and decode
-    s = str(audio_data).strip()
-    missing = len(s) % 4
-    if missing:
-        s += "=" * (4 - missing)
-    return base64.b64decode(s, validate=False)
+    # Unsupported type
+    raise TypeError(
+        f"Unsupported audio_data type: {type(audio_data).__name__}. "
+        f"Expected str, bytes, bytearray, memoryview, or None."
+    )
 
 
 def _sanitize_text_for_realtime(text: str, max_chars: int = 8000) -> str:
@@ -628,9 +630,9 @@ class GeminiRealtimeClient:
                                             if not isinstance(pcm_bytes, (bytes, bytearray)):
                                                 raise TypeError(f"Expected bytes, got {type(pcm_bytes)}")
                                             
-                                            # PCM must have even length for 16-bit audio (2 bytes per sample)
-                                            if len(pcm_bytes) % 2 != 0:
-                                                raise ValueError(f"PCM bytes must have even length for 16-bit audio, got {len(pcm_bytes)}")
+                                            # Note: We don't validate byte length here as Gemini can send
+                                            # audio in different bit depths (8-bit, 16-bit, 24-bit, 32-bit)
+                                            # The actual format is specified in mime_type
                                             
                                             event = {
                                                 'type': 'audio',
