@@ -7,6 +7,7 @@ from server.security.permissions import require_page_access
 from server.db import db
 from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
 from server.services.whatsapp_session_service import update_session_activity
+from server.utils.whatsapp_utils import normalize_conversation_key
 from server.agent_tools.phone_utils import normalize_phone
 from server.services.jobs import enqueue_job
 from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
@@ -21,9 +22,6 @@ internal_whatsapp_bp = Blueprint('internal_whatsapp', __name__, url_prefix='/api
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 log = logging.getLogger(__name__)
-
-# 🔥 FIX: Default fallback message for when business greeting is not available
-DEFAULT_FALLBACK_MESSAGE = "תודה על הפנייה. נציג יחזור אליך בהקדם."
 
 # BUILD 136: REMOVED hardcoded business_1 - now uses tenant_id_from_ctx() dynamically
 # Helper function to get tenant-specific auth directory
@@ -826,7 +824,11 @@ def baileys_webhook():
                 
                 # 🔥 FIX #3: Create unified conversation_key for consistent history tracking
                 # This prevents context loss in LID/Android conversations where from_number_e164 can be None
-                conversation_key = phone_for_ai_check or from_number_e164 or remote_jid
+                conversation_key = normalize_conversation_key(
+                    remote_jid=remote_jid,
+                    from_number_e164=from_number_e164,
+                    phone_for_ai_check=phone_for_ai_check
+                )
                 log.info(f"[WA-CONTEXT] Using conversation_key={conversation_key[:30]} for history/state tracking")
                 
                 # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
@@ -1208,9 +1210,59 @@ def baileys_webhook():
                 # 🔥 BUILD 200 DEBUG: Log state before AI call
                 log.info(f"[WA-AI-START] About to call AI for jid={remote_jid[:30]}, lead_id={lead.id}, use_agent={use_agent}")
                 
+                # 🔥 COMPREHENSIVE LOGGING: Track all context for debugging bot repetition
+                try:
+                    from server.models_sql import Business
+                    business_obj = Business.query.get(business_id)
+                    prompt_source = "whatsapp_system_prompt" if (business_obj and business_obj.whatsapp_system_prompt) else "fallback"
+                    
+                    # Load conversation state to check if it exists
+                    state_found = False
+                    try:
+                        conv_state = WhatsAppConversationState.query.filter_by(
+                            business_id=business_id,
+                            phone=conversation_key
+                        ).first()
+                        state_found = bool(conv_state)
+                    except Exception as e:
+                        log.warning(f"[WA-AI-CONTEXT] Could not check conv state: {e}")
+                    
+                    log.info(f"[WA-AI-CONTEXT] 🔍 FULL CONTEXT:")
+                    log.info(f"  ├─ business_id={business_id}")
+                    log.info(f"  ├─ remote_jid={remote_jid[:30]}...")
+                    log.info(f"  ├─ conversation_key={conversation_key[:30]}...")
+                    log.info(f"  ├─ lead_id={lead.id if lead else None}")
+                    log.info(f"  ├─ history_count={len(previous_messages)}")
+                    log.info(f"  ├─ state_found={state_found}")
+                    log.info(f"  ├─ prompt_source={prompt_source}")
+                    log.info(f"  └─ intent={intent}")
+                    
+                    # Log last few messages from history for debugging
+                    if previous_messages:
+                        log.info(f"[WA-AI-CONTEXT] 📚 Last 3 messages:")
+                        for i, msg in enumerate(previous_messages[-3:]):
+                            log.info(f"    [{i+1}] {msg[:80]}...")
+                    else:
+                        log.info(f"[WA-AI-CONTEXT] 📚 No previous messages (new conversation)")
+                        
+                except Exception as e:
+                    log.error(f"[WA-AI-CONTEXT] Error logging context: {e}")
+                
                 try:
                     # Build AI context with customer memory
                     # 🔥 FIX #5: Include lead_id for tools
+                    # 🔥 FIX: Include conversation state for better context awareness
+                    
+                    # Load conversation state
+                    conv_state = None
+                    try:
+                        conv_state = WhatsAppConversationState.query.filter_by(
+                            business_id=business_id,
+                            phone=conversation_key
+                        ).first()
+                    except Exception as e:
+                        log.warning(f"[WA-CONTEXT] Could not load conv state: {e}")
+                    
                     ai_context = {
                         'phone': from_number_e164,  # E.164 for CRM
                         'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
@@ -1220,7 +1272,11 @@ def baileys_webhook():
                         'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 12 הודעות!
                         'appointment_created': appointment_created,  # ✅ BUILD 93: הפגישה נקבעה!
                         'customer_memory': customer_memory_text,  # 🆕 Unified customer memory
-                        'ask_continue_or_fresh': ask_continue_or_fresh  # 🆕 Should ask returning customer?
+                        'ask_continue_or_fresh': ask_continue_or_fresh,  # 🆕 Should ask returning customer?
+                        # 🔥 FIX: Add conversation state for context awareness
+                        'last_user_message': conv_state.last_user_message if conv_state else None,
+                        'last_agent_message': conv_state.last_agent_message if conv_state else None,
+                        'conversation_has_history': len(previous_messages) >= 2  # Flag to indicate this is not first message
                     }
                     
                     # 🔥 FIX #2: Route to appropriate AI method based on intent
@@ -1252,6 +1308,48 @@ def baileys_webhook():
                     
                     ai_duration = time.time() - ai_start
                     log.info(f"[WA-AI-SUCCESS] AI generated response in {ai_duration:.2f}s, length={len(response_text) if response_text else 0}")
+                    
+                    # 🔥 ANTI-STUCK GUARD: Prevent bot from repeating the same greeting/response
+                    # If we have history (not first message) and the new response starts with
+                    # the same pattern as a recent bot message, it's likely stuck in a loop
+                    if len(previous_messages) >= 2 and response_text:
+                        # Get last bot message from history
+                        last_bot_message = None
+                        for msg in reversed(previous_messages):
+                            if msg.startswith("עוזר:") or msg.startswith("עוזרת:"):
+                                last_bot_message = msg.split(":", 1)[1].strip() if ":" in msg else msg
+                                break
+                        
+                        if last_bot_message:
+                            # Check if the new response starts with the same pattern (first 30 chars)
+                            # This catches cases like "היי זה רמי מ..." repeating
+                            response_start = response_text[:30].strip()
+                            last_start = last_bot_message[:30].strip()
+                            
+                            if response_start and last_start and response_start == last_start:
+                                log.warning(f"[WA-ANTI-STUCK] ⚠️ Bot repeating same greeting! Last: '{last_start}...', New: '{response_start}...'")
+                                log.info(f"[WA-ANTI-STUCK] Customer said: '{message_text}' - re-prompting AI to continue conversation")
+                                
+                                # Re-prompt the AI with explicit instruction to continue, not restart
+                                try:
+                                    enhanced_context = dict(ai_context)
+                                    enhanced_context['anti_repeat_instruction'] = (
+                                        f"הלקוח ענה: '{message_text}'. "
+                                        f"זו לא השיחה הראשונה! כבר שאלת את השאלה הראשונה. "
+                                        f"עכשיו המשך לשאלה הבאה בתהליך. אל תחזור על הברכה או השאלה הקודמת."
+                                    )
+                                    
+                                    response_text = ai_service.generate_response(
+                                        message=message_text,
+                                        business_id=business_id,
+                                        context=enhanced_context,
+                                        channel='whatsapp'
+                                    )
+                                    log.info(f"[WA-ANTI-STUCK] ✅ Re-generated response: {response_text[:50]}...")
+                                except Exception as retry_err:
+                                    log.error(f"[WA-ANTI-STUCK] ❌ Re-generation failed: {retry_err}")
+                                    # Keep original response if retry fails
+                    
                 except Exception as e:
                     logger.error(f"⚠️ AI call failed: {e}")
                     import traceback
@@ -1272,41 +1370,20 @@ def baileys_webhook():
                         )
                     except Exception as e2:
                         logger.error(f"⚠️ Regular AI also failed: {e2}")
-                        # ✅ Last resort - use business whatsapp_greeting or greeting_message
-                        try:
-                            from server.models_sql import Business
-                            business = Business.query.get(business_id)
-                            if business:
-                                # Use whatsapp_greeting first, then greeting_message, then name
-                                response_text = business.whatsapp_greeting or business.greeting_message or f"{business.name}" if business.name else ""
-                            else:
-                                response_text = None  # Don't send if no business
-                        except:
-                            response_text = None  # Don't send on error
-                        
-                        # 🔥 Guard: Don't send empty messages
-                        if not response_text or not response_text.strip():
-                            log.warning(f"⚠️ No fallback response available - skipping send")
-                            continue
+                        # 🔥 NO FALLBACK: If AI fails completely, don't send anything
+                        # The bot should ONLY respond based on the DB prompt, never hardcoded text
+                        log.error(f"[WA-ERROR] ❌ All AI methods failed - skipping message to avoid hardcoded response")
+                        log.error(f"[WA-ERROR] This preserves bot behavior according to DB prompt only")
+                        continue
                 
                 # 🔥 BUILD 200 DEBUG: Log before sending
                 log.info(f"[WA-SEND-DEBUG] reply_jid={reply_jid[:30]}, response_text_length={len(response_text) if response_text else 0}")
                 
                 # 🔥 CRITICAL: Verify response_text is not empty before sending
+                # If AI returned empty, skip sending (don't use fallback - only DB prompt matters)
                 if not response_text or response_text.isspace():
-                    log.error(f"[WA-ERROR] ❌ AgentKit returned empty response! Cannot send empty message.")
-                    # Try to send a fallback message instead of silence
-                    try:
-                        business = Business.query.get(business_id)
-                        if business:
-                            response_text = business.whatsapp_greeting or business.greeting_message or DEFAULT_FALLBACK_MESSAGE
-                        else:
-                            response_text = DEFAULT_FALLBACK_MESSAGE
-                        log.warning(f"[WA-WARN] Using fallback response: {response_text[:50]}...")
-                    except Exception as e:
-                        log.error(f"[WA-ERROR] Could not fetch fallback: {e}")
-                        log.error(f"[WA-ERROR] Skipping message - cannot send empty response")
-                        continue
+                    log.error(f"[WA-ERROR] ❌ AI returned empty response! Skipping send to preserve DB prompt behavior.")
+                    continue
                 
                 # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
                 # This ensures Android messages with @lid, @g.us, etc. get proper replies
@@ -1334,6 +1411,33 @@ def baileys_webhook():
                     )
                     log.info(f"[WA-OUTGOING] ✅ Job enqueued: {job.id[:8]} for message {wa_msg.id}, target={reply_jid[:20]}")
                     log.info(f"[WA-SUCCESS] ✅✅✅ FULL FLOW COMPLETED: webhook → AgentKit → sendMessage queued ✅✅✅")
+                    
+                    # 🔥 UPDATE CONVERSATION STATE: Update state after response is generated
+                    # This ensures the bot remembers context and doesn't repeat itself
+                    try:
+                        conv_state = WhatsAppConversationState.query.filter_by(
+                            business_id=business_id,
+                            phone=conversation_key
+                        ).first()
+                        
+                        if not conv_state:
+                            conv_state = WhatsAppConversationState()
+                            conv_state.business_id = business_id
+                            conv_state.phone = conversation_key
+                            conv_state.ai_active = True
+                            db.session.add(conv_state)
+                        
+                        # Update state with latest message exchange
+                        conv_state.last_user_message = message_text
+                        conv_state.last_agent_message = response_text[:500] if response_text else None  # Store first 500 chars
+                        conv_state.updated_at = datetime.utcnow()
+                        
+                        db.session.commit()
+                        log.info(f"[WA-STATE] ✅ Updated conversation state for {conversation_key[:30]}")
+                    except Exception as state_err:
+                        log.error(f"[WA-STATE] ❌ Failed to update conversation state: {state_err}")
+                        db.session.rollback()
+                    
                 except Exception as enqueue_error:
                     log.error(f"[WA-OUTGOING] ❌ Failed to enqueue WhatsApp send: {enqueue_error}")
                     # Fall back to synchronous send if enqueue fails

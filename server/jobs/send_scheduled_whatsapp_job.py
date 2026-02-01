@@ -11,7 +11,7 @@ from server.db import db
 logger = logging.getLogger(__name__)
 
 
-def send_scheduled_whatsapp_job(message_id: int):
+def send_scheduled_whatsapp_job(message_id: int, *args, business_id=None, trace_id=None, **kwargs):
     """
     Send a scheduled WhatsApp message
     
@@ -20,9 +20,19 @@ def send_scheduled_whatsapp_job(message_id: int):
     
     Args:
         message_id: ID of the ScheduledMessagesQueue entry to send
+        *args: Variable positional arguments (for RQ compatibility)
+        business_id: Business ID (passed by RQ enqueue system for metadata)
+        trace_id: Trace ID (passed by RQ enqueue system for tracing)
+        **kwargs: Additional keyword arguments (for RQ compatibility)
     
     Returns:
         Dict with send result
+    
+    Note:
+        The business_id and trace_id parameters are automatically passed by the
+        job enqueue system (server/services/jobs.py) for job metadata tracking.
+        They are not used in the function logic but must be accepted to prevent
+        TypeError when the job is executed by RQ worker.
     """
     from flask import current_app
     

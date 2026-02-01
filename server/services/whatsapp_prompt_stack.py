@@ -43,12 +43,19 @@ FRAMEWORK_SYSTEM_PROMPT = """אתה עוזר דיגיטלי ב-WhatsApp.
 - אם יש summary/last_state: אל תתנהג כאילו זו שיחה חדשה.
 - שאל את הלקוח: "ראיתי שעצרנו ב-X. להמשיך משם או להתחיל מחדש?"
 - השתמש בהיסטוריה כדי להבין את ההקשר, אל תחזור על מה שכבר נשאל.
+- אם הלקוח כבר ענה על שאלה - אל תשאל אותה שוב! המשך לשאלה הבאה.
 
 📱 כללי פורמט ב-WhatsApp:
 - תענה קצר - הודעה אחת בכל פעם.
 - שאלה אחת בכל תגובה.
 - אל תשלח יותר מ-2-3 שורות.
 - תהיה ישיר ולעניין.
+
+🔄 כללי התקדמות בשיחה:
+- אם יש history_count >= 2 - זו לא שיחה חדשה! אל תברך שוב.
+- אם הלקוח ענה על השאלה שלך - המשך לשאלה הבאה, אל תחזור על הברכה.
+- בדוק את ההיסטוריה לראות מה כבר נשאל ומה כבר נענה.
+- כל תגובה שלך צריכה להתקדם בתהליך, לא לחזור על מה שכבר נאמר.
 
 🛡️ כללי בטיחות ויציבות:
 - אם חסר לך מידע - שאל את הלקוח במקום להמציא.
@@ -84,7 +91,11 @@ def build_whatsapp_prompt_stack(
             - summary: Conversation summary (if exists)
             - last_state: Last conversation state (if exists)
             - last_intent: Last detected intent (if exists)
-            - history: List of last N messages (if exists)
+            - previous_messages: List of last N messages (formatted as "לקוח: ..." or "עוזר: ...")
+            - last_user_message: Last user message (if exists)
+            - last_agent_message: Last agent message (if exists)
+            - conversation_has_history: Boolean flag indicating if this is not first message
+            - anti_repeat_instruction: Special instruction to prevent repetition (if needed)
     
     Returns:
         List of message dicts ready for LLM
@@ -103,8 +114,12 @@ def build_whatsapp_prompt_stack(
     # LAYER 2: DB BUSINESS PROMPT (Single source of truth for behavior)
     # ============================================================================
     if not db_prompt or not db_prompt.strip():
-        logger.error(f"❌ NO DB PROMPT for business {business_id}! Using emergency fallback.")
-        db_prompt = "אתה עוזר דיגיטלי. תענה בעברית ותהיה חם ואדיב."
+        logger.error(f"❌ NO DB PROMPT for business {business_id}! Cannot build prompt stack.")
+        # Return minimal stack with error - AI will fail and skip sending
+        return [{
+            "role": "system",
+            "content": "❌ ERROR: No business prompt configured. Cannot respond."
+        }]
     
     messages.append({
         "role": "system",
@@ -129,6 +144,10 @@ def build_whatsapp_prompt_stack(
         if context.get('customer_name'):
             context_parts.append(f"שם לקוח: {context['customer_name']}")
         
+        # 🔥 FIX: Add conversation history indicator
+        if context.get('conversation_has_history'):
+            context_parts.append(f"⚠️ זו לא שיחה חדשה! כבר יש היסטוריה של הודעות.")
+        
         # Conversation state (if exists)
         if context.get('summary'):
             context_parts.append(f"סיכום שיחה קודמת: {context['summary']}")
@@ -139,24 +158,67 @@ def build_whatsapp_prompt_stack(
         if context.get('last_intent'):
             context_parts.append(f"כוונה אחרונה: {context['last_intent']}")
         
+        # 🔥 FIX: Add last exchange information
+        if context.get('last_user_message'):
+            msg = context['last_user_message']
+            # Only add '...' if message is actually truncated
+            display = msg[:100] + ('...' if len(msg) > 100 else '')
+            context_parts.append(f"הודעה אחרונה מהלקוח: {display}")
+        
+        if context.get('last_agent_message'):
+            msg = context['last_agent_message']
+            # Only add '...' if message is actually truncated
+            display = msg[:100] + ('...' if len(msg) > 100 else '')
+            context_parts.append(f"התשובה האחרונה שלך: {display}")
+        
         if context_parts:
             messages.append({
                 "role": "system",
                 "content": "🔍 הקשר נוכחי:\n" + "\n".join(context_parts)
             })
         
-        # History (keep minimal - last 5-10 messages only)
-        if context.get('history'):
-            history = context['history']
-            # Limit to last 10 messages maximum
+        # 🔥 CRITICAL FIX: Convert history to actual user/assistant messages
+        # Instead of system message with text, we need proper conversation history
+        # This allows the AI to understand context properly!
+        if context.get('previous_messages'):
+            history = context['previous_messages']
+            # Limit to last 10 messages maximum for token efficiency
             history = history[-10:] if len(history) > 10 else history
             
             if history:
-                messages.append({
-                    "role": "system",
-                    "content": f"📜 היסטוריה אחרונה ({len(history)} הודעות):\n" + "\n".join(history)
-                })
-                logger.info(f"📜 Added {len(history)} history messages to stack")
+                logger.info(f"📜 Converting {len(history)} history messages to user/assistant format")
+                
+                # Convert each message to proper role format
+                for msg in history:
+                    # Format is "לקוח: text" or "עוזר: text"
+                    if msg.startswith("לקוח:"):
+                        messages.append({
+                            "role": "user",
+                            "content": msg.replace("לקוח:", "").strip()
+                        })
+                    elif msg.startswith("עוזר:") or msg.startswith("עוזרת:"):
+                        # Remove prefix and add as assistant
+                        content = msg.replace("עוזר:", "").replace("עוזרת:", "").strip()
+                        messages.append({
+                            "role": "assistant",
+                            "content": content
+                        })
+                    else:
+                        # If no prefix, assume it's user message
+                        logger.warning(f"[HISTORY] Message without prefix: {msg[:50]}...")
+                        messages.append({
+                            "role": "user",
+                            "content": msg
+                        })
+                
+                logger.info(f"✅ Added {len(history)} history messages as user/assistant (NOT system text)")
+        
+        # 🔥 FIX: Add anti-repetition instruction if there's a history
+        if context.get('anti_repeat_instruction'):
+            messages.append({
+                "role": "system",
+                "content": f"⚠️ הוראה חשובה:\n{context['anti_repeat_instruction']}"
+            })
     
     return messages
 
@@ -203,10 +265,9 @@ def get_db_prompt_for_whatsapp(business_id: int) -> str:
             except json.JSONDecodeError:
                 pass
         
-        # Priority 3: Emergency fallback
-        logger.error(f"❌ NO WhatsApp prompt found for business {business_id}! Using emergency fallback.")
-        business_name = business.name if business else "העסק"
-        return f"אתה העוזר הדיגיטלי של {business_name}. תענה בעברית, תהיה חם ואדיב, ועזור ללקוח בהתאם לצרכיו."
+        # Priority 3: Emergency minimal fallback (ONLY if nothing exists)
+        logger.error(f"❌ NO WhatsApp prompt found for business {business_id}! Cannot respond without DB prompt.")
+        return ""  # Return empty - this will prevent bot from responding
         
     except Exception as e:
         logger.error(f"❌ Error loading WhatsApp prompt for business {business_id}: {e}")

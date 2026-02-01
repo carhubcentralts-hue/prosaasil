@@ -329,7 +329,7 @@ class AIService:
             timeout=2.5  # 🔥 REDUCED: 2.5s timeout for faster real-time conversations (was 3.5s)
         )
         self._cache = {}  # קאש פרומפטים לביצועים
-        self._cache_timeout = 300  # ⚡ 5 דקות - מספיק ארוך לשיחה שלמה
+        self._cache_timeout = 30  # ⚡ 30 שניות - מתעדכן מהר כשמשנים פרומפט ב-DB
         self.business_id = business_id  # 🔥 NEW: Store business context for live calls
         
         # 🔥 NEW: Gemini client (lazy loaded when needed)
@@ -444,10 +444,11 @@ class AIService:
                     system_prompt = business.system_prompt
                     logger.info(f"⚠️ Using fallback business.system_prompt for WhatsApp (business {business_id})")
                 
-                # Priority 4: Use default minimal fallback
+                # Priority 4: NO DEFAULT FALLBACK - If no prompt configured, ERROR
                 else:
-                    system_prompt = self._get_default_hebrew_prompt(business_name, "whatsapp")
-                    logger.error(f"❌ ERROR: No WhatsApp prompt configured for business {business_id} - using minimal fallback")
+                    logger.error(f"❌ CRITICAL: No WhatsApp prompt configured for business {business_id} - CANNOT RESPOND")
+                    # Return empty prompt - this will cause AI to fail and skip sending
+                    system_prompt = ""
             
             else:
                 # Calls channel - use existing logic
@@ -633,6 +634,13 @@ class AIService:
                         logger.warning(f"⚠️ Prompt stack: {warning}")
                 
                 logger.info(f"✅ WhatsApp prompt stack: {validation['stats']}")
+                
+                # 🔥 DEBUG: Log full prompt stack structure for debugging
+                logger.info(f"[PROMPT-STACK] Total messages in stack: {len(messages)}")
+                for idx, msg in enumerate(messages):
+                    role = msg.get('role', 'unknown')
+                    content_preview = msg.get('content', '')[:100]
+                    logger.info(f"[PROMPT-STACK] [{idx}] role={role} content={content_preview}...")
                 
                 # Load WhatsApp-specific settings
                 prompt_data = self.get_business_prompt(business_id, channel)
