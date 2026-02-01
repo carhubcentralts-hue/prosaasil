@@ -69,14 +69,23 @@ def send_scheduled_whatsapp_job(message_id: int):
                 scheduled_messages_service.mark_failed(message_id, error_msg)
                 return {'status': 'error', 'error': 'non_private_chat'}
             
-            # Get WhatsApp service
+            # Get WhatsApp service with provider selection
             from server.whatsapp_provider import get_whatsapp_service
             tenant_id = f"business_{message.business_id}"
             
+            # 🔥 NEW: Use provider from queue entry (baileys or meta)
+            provider = getattr(message, 'provider', 'baileys')  # Default to baileys for existing entries
+            
+            # Map 'meta' to 'twilio' for compatibility (Meta uses Twilio Cloud API)
+            if provider == 'meta':
+                provider = 'twilio'
+            
+            logger.info(f"[SEND-SCHEDULED-WA] Using provider: {provider}")
+            
             try:
-                wa_service = get_whatsapp_service(tenant_id)
+                wa_service = get_whatsapp_service(provider=provider, tenant_id=tenant_id)
             except Exception as e:
-                error_msg = f"Failed to get WhatsApp service: {str(e)}"
+                error_msg = f"Failed to get WhatsApp service ({provider}): {str(e)}"
                 logger.error(f"[SEND-SCHEDULED-WA] {error_msg}")
                 scheduled_messages_service.mark_failed(message_id, error_msg)
                 return {'status': 'error', 'error': 'service_unavailable'}

@@ -491,14 +491,15 @@ def mark_sent(message_id: int):
 
 
 def mark_failed(message_id: int, error_message: str):
-    """Mark a message as failed with error details"""
+    """Mark a message as failed with error details and increment attempts"""
     message = ScheduledMessagesQueue.query.get(message_id)
     if message:
         message.status = 'failed'
         message.error_message = error_message[:500]  # Limit error message length
+        message.attempts = getattr(message, 'attempts', 0) + 1  # Increment attempts counter
         message.updated_at = datetime.utcnow()
         db.session.commit()
-        logger.error(f"[SCHEDULED-MSG] Marked message {message_id} as failed: {error_message}")
+        logger.error(f"[SCHEDULED-MSG] Marked message {message_id} as failed (attempt {message.attempts}): {error_message}")
 
 
 def cancel_message(message_id: int, business_id: int) -> bool:
