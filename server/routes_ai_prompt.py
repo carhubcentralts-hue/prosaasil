@@ -49,6 +49,24 @@ def save_prompt(tenant):
     
     return {"ok": True, "id": settings.tenant_id}
 
+def _get_whatsapp_prompt_with_priority(business, default_prompt):
+    """
+    Get WhatsApp prompt with priority: Business.whatsapp_system_prompt > default_prompt.
+    
+    Args:
+        business: Business object
+        default_prompt: Fallback prompt if whatsapp_system_prompt is not set
+    
+    Returns:
+        WhatsApp prompt string
+    """
+    # Priority: Business.whatsapp_system_prompt (matches WhatsApp runtime behavior)
+    # hasattr() is defensive coding for schema migrations where column might not exist yet
+    if business and hasattr(business, 'whatsapp_system_prompt') and business.whatsapp_system_prompt:
+        return business.whatsapp_system_prompt
+    return default_prompt
+
+
 def _get_business_prompt_internal(business_id):
     """
     Internal function to get AI prompts for business.
@@ -89,6 +107,9 @@ def _get_business_prompt_internal(business_id):
                 calls_prompt = prompt_data
                 whatsapp_prompt = prompt_data
             
+            # 🔥 FIX: Priority read from Business.whatsapp_system_prompt (matches WhatsApp usage priority)
+            whatsapp_prompt = _get_whatsapp_prompt_with_priority(business, whatsapp_prompt)
+            
             return jsonify({
                 "calls_prompt": calls_prompt,
                 "outbound_calls_prompt": getattr(settings, 'outbound_ai_prompt', "") or "",
@@ -102,10 +123,14 @@ def _get_business_prompt_internal(business_id):
             })
         else:
             default_prompt = business.system_prompt or "אתה נציג שירות מקצועי ואדיב. עזור ללקוחות במה שהם צריכים."
+            
+            # 🔥 FIX: Priority read from Business.whatsapp_system_prompt (matches WhatsApp usage priority)
+            whatsapp_prompt = _get_whatsapp_prompt_with_priority(business, default_prompt)
+            
             return jsonify({
                 "calls_prompt": default_prompt,
                 "outbound_calls_prompt": "",
-                "whatsapp_prompt": default_prompt,
+                "whatsapp_prompt": whatsapp_prompt,
                 "greeting_message": business.greeting_message or "",
                 "whatsapp_greeting": business.whatsapp_greeting or "",
                 "version": 1,
@@ -176,6 +201,10 @@ def update_business_prompt(business_id):
             business.greeting_message = greeting_message
         if whatsapp_greeting is not None:
             business.whatsapp_greeting = whatsapp_greeting
+        
+        # 🔥 FIX: Save WhatsApp prompt to Business.whatsapp_system_prompt (priority field for WhatsApp)
+        if whatsapp_prompt is not None:
+            business.whatsapp_system_prompt = whatsapp_prompt
         
         current_user = session.get('user', {})
         user_id = current_user.get('email', 'unknown')
