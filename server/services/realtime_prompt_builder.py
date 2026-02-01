@@ -1283,7 +1283,7 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
 # All code should use build_full_business_prompt() or build_realtime_system_prompt().
 
 
-def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound", use_cache: bool = True) -> str:
+def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound", use_cache: bool = True, caller_phone: str = None) -> str:
     """
     🔥 ROUTER: Routes to correct prompt builder based on call direction
     
@@ -1301,6 +1301,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         db_session: Optional SQLAlchemy session (for transaction safety)
         call_direction: "inbound" or "outbound" - determines which prompt to use
         use_cache: Whether to use prompt cache (default: True)
+        caller_phone: Optional caller phone for lead context lookup - 🔥 NEW
     
     Returns:
         Complete system prompt for the AI assistant
@@ -1377,7 +1378,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             final_prompt = build_inbound_system_prompt(
                 business_settings=business_settings_dict,
                 call_control_settings=call_control_settings_dict,
-                db_session=db_session
+                db_session=db_session,
+                caller_phone=caller_phone  # 🔥 NEW: Pass caller phone for lead context
             )
         
         # 🔥 BUSINESS ISOLATION VERIFICATION: Ensure prompt contains correct business context
@@ -1512,7 +1514,8 @@ Be brief, natural, and helpful."""
 def build_inbound_system_prompt(
     business_settings: Dict[str, Any],
     call_control_settings: Dict[str, Any],
-    db_session=None
+    db_session=None,
+    caller_phone: str = None  # 🔥 NEW: Caller phone for lead context lookup
 ) -> str:
     """
     🔥 REFACTORED: Perfect Separation - System + Business Prompts
@@ -1521,6 +1524,7 @@ def build_inbound_system_prompt(
     1. Universal System Prompt (behavior only)
     2. Appointment Instructions (if enabled)
     3. Business Prompt (all content and flow)
+    4. Lead Context (if customer service enabled) - 🔥 NEW
     
     ✅ NO hardcoded flow
     ✅ NO hardcoded greetings
@@ -1530,6 +1534,7 @@ def build_inbound_system_prompt(
         business_settings: Dict with business info (id, name, ai_prompt)
         call_control_settings: Dict with call control (enable_calendar_scheduling, call_goal)
         db_session: Optional SQLAlchemy session
+        caller_phone: Optional caller phone number for lead context lookup - 🔥 NEW
     
     Returns:
         Complete system prompt for inbound calls (2000-3500 chars)
@@ -1605,12 +1610,42 @@ def build_inbound_system_prompt(
             logger.warning(f"[PROMPT FALLBACK] Using minimal generic prompt for business_id={business_id}")
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 4: LEAD CONTEXT (if customer service enabled) - 🔥 NEW
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        lead_context_section = ""
+        if caller_phone:
+            try:
+                from server.services.unified_lead_context_service import get_unified_context_for_phone, UnifiedLeadContextService
+                
+                service = UnifiedLeadContextService(business_id)
+                if service.is_customer_service_enabled():
+                    lead_context = get_unified_context_for_phone(business_id, caller_phone, channel="call")
+                    
+                    if lead_context and lead_context.found:
+                        context_text = service.format_context_for_prompt(lead_context)
+                        if context_text:
+                            lead_context_section = (
+                                f"\n\nLEAD CONTEXT (מידע פנימי על הלקוח - אל תחזור על כל המידע הזה ללקוח):\n"
+                                f"{context_text}\n"
+                                "הערה: השתמש במידע הזה לשיפור השירות, אבל אל תחזור על כל הפרטים ללקוח אלא אם הוא שואל."
+                            )
+                            logger.info(f"🎧 [LEAD_CONTEXT] Injected context for lead #{lead_context.lead_id} ({len(context_text)} chars)")
+                    else:
+                        logger.info(f"🎧 [LEAD_CONTEXT] No context found for phone {caller_phone}")
+                else:
+                    logger.info(f"🎧 [LEAD_CONTEXT] Customer service disabled for business {business_id}")
+            except Exception as ctx_err:
+                logger.warning(f"🎧 [LEAD_CONTEXT] Failed to load context: {ctx_err}")
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 COMBINE ALL LAYERS
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         full_prompt = (
             f"{system_rules}{appointment_instructions}\n\n"
             f"BUSINESS PROMPT (Business ID: {business_id}):\n{business_prompt}\n\n"
+            f"{lead_context_section}"  # 🔥 NEW: Inject lead context (includes own newlines)
             "CALL TYPE: INBOUND. The customer called the business. Follow the business prompt for greeting and flow."
         )
         
