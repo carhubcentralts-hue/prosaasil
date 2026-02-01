@@ -119,7 +119,7 @@ class ContactIdentityService:
         
         Examples:
         - "972525951893@s.whatsapp.net" → "+972525951893"
-        - "82399031480511@lid" → None (LID format, no phone)
+        - "82399031480511@lid" → "+82399031480511" (try to normalize @lid prefix)
         - "status@broadcast" → None (special format)
         
         Args:
@@ -131,8 +131,8 @@ class ContactIdentityService:
         if not jid:
             return None
         
-        # Skip special JID formats
-        if '@lid' in jid or '@broadcast' in jid or '@g.us' in jid or '@newsletter' in jid:
+        # Skip special JID formats (but NOT @lid - we want to try that!)
+        if '@broadcast' in jid or '@g.us' in jid or '@newsletter' in jid:
             return None
         
         # Extract phone part (before @)
@@ -144,8 +144,13 @@ class ContactIdentityService:
                 phone_part = phone_part.split(':')[0]
             
             # Validate it looks like a phone number (all digits, reasonable length)
+            # 🔥 NEW: Also try to normalize @lid prefixes - they might be phone numbers!
             if phone_part.isdigit() and 8 <= len(phone_part) <= 15:
-                return ContactIdentityService.normalize_phone(phone_part)
+                normalized = ContactIdentityService.normalize_phone(phone_part)
+                if normalized:
+                    if '@lid' in jid:
+                        logger.info(f"[ContactIdentity] ✅ Extracted phone from @lid JID: {jid[:30]} -> {normalized}")
+                    return normalized
         
         return None
     

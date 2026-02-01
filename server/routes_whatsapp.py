@@ -789,24 +789,36 @@ def baileys_webhook():
                         phone_for_ai_check = remote_jid
                         
                 elif remote_jid.endswith('@lid'):
-                    # 🔥 FIX #3: LID JID - DO NOT extract phone from LID!
-                    # LID is NOT a phone number - it's an internal WhatsApp identifier
+                    # 🔥 FIX: LID JID - try to extract phone from multiple sources
                     push_name = msg.get('pushName', 'Unknown')
                     log.info(f"[WA-INCOMING] @lid JID detected: {remote_jid}, pushName={push_name}")
                     
                     # Store LID as external ID for this conversation
                     customer_external_id = remote_jid
                     
-                    # 🔥 FIX #3: Try to extract phone from participant/sender_pn if available
+                    # 🔥 FIX: Try to extract phone from participant/sender_pn if available (PRIORITY 1)
                     if remote_jid_alt:
                         phone_raw = remote_jid_alt.replace('@s.whatsapp.net', '')
                         from_number_e164 = normalize_phone(phone_raw)
                         if from_number_e164:
-                            log.info(f"[WA-LID] Extracted phone from participant: {from_number_e164}")
+                            log.info(f"[WA-LID] ✅ Extracted phone from participant: {from_number_e164}")
                         else:
                             log.warning(f"[WA-LID] Could not normalize phone from participant: {remote_jid_alt}")
-                    else:
-                        log.info(f"[WA-LID] No participant field - using @lid as external_id only")
+                    
+                    # 🔥 NEW FIX: If no participant or failed normalization, try to extract from @lid prefix (PRIORITY 2)
+                    if not from_number_e164:
+                        # Extract the part before @lid - this might be a phone number
+                        lid_prefix = remote_jid.split('@')[0] if '@' in remote_jid else remote_jid
+                        log.info(f"[WA-LID] Attempting to normalize @lid prefix: {lid_prefix}")
+                        
+                        # Try to normalize the prefix as a phone number
+                        phone_raw = lid_prefix
+                        from_number_e164 = normalize_phone(phone_raw)
+                        
+                        if from_number_e164:
+                            log.info(f"[WA-LID] ✅ Extracted phone from @lid prefix: {phone_raw} -> {from_number_e164}")
+                        else:
+                            log.info(f"[WA-LID] ⚠️ Could not normalize @lid prefix '{phone_raw}' - using @lid as external_id only")
                     
                     phone_for_ai_check = customer_external_id  # Use LID for AI state
                     

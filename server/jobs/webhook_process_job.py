@@ -62,6 +62,10 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                     from_jid = msg.get('key', {}).get('remoteJid', '')
                     message_id = msg.get('key', {}).get('id', '')
                     phone_number = from_jid.split('@')[0] if '@' in from_jid else from_jid
+                    push_name = msg.get('pushName')  # Extract WhatsApp display name
+                    
+                    # 🔥 DEBUG: Log phone extraction
+                    logger.info(f"📞 [PHONE_EXTRACT] from_jid={from_jid} -> phone_number={phone_number} push_name={push_name}")
                     
                     # Generate trace ID
                     trace_id = generate_trace_id(business_id, from_jid, message_id)
@@ -151,8 +155,12 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         
                         # Customer lookup
                         lookup_start = time.time()
-                        logger.info(f"🔍 [LEAD_UPSERT_START] trace_id={trace_id} phone={phone_number}")
-                        customer, lead, was_created = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
+                        logger.info(f"🔍 [LEAD_UPSERT_START] trace_id={trace_id} phone={phone_number} push_name={push_name}")
+                        customer, lead, was_created = ci.find_or_create_customer_from_whatsapp(
+                            phone_number, 
+                            message_text,
+                            push_name=push_name
+                        )
                         action = "created" if was_created else "updated"
                         normalized_phone = lead.phone_e164 if lead else phone_number
                         logger.info(f"✅ [LEAD_UPSERT_DONE] trace_id={trace_id} lead_id={lead.id if lead else 'N/A'} action={action} phone={normalized_phone}")
