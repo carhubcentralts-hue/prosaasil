@@ -62,7 +62,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                     from_jid = msg.get('key', {}).get('remoteJid', '')
                     message_id = msg.get('key', {}).get('id', '')
                     phone_number = from_jid.split('@')[0] if '@' in from_jid else from_jid
-                    push_name = msg.get('pushName', None)  # Extract WhatsApp display name
+                    push_name = msg.get('pushName')  # Extract WhatsApp display name
                     
                     # 🔥 DEBUG: Log phone extraction
                     logger.info(f"📞 [PHONE_EXTRACT] from_jid={from_jid} -> phone_number={phone_number} push_name={push_name}")

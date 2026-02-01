@@ -46,8 +46,8 @@ def whatsapp_sessions_cleanup_job():
             
             stale_sessions = WhatsAppConversation.query.filter(
                 WhatsAppConversation.last_message_at < cutoff_time,
-                WhatsAppConversation.summary == None,  # Not yet summarized
-                WhatsAppConversation.is_open == True  # Only open conversations
+                WhatsAppConversation.summary.is_(None),  # Not yet summarized
+                WhatsAppConversation.is_open  # Only open conversations
             ).limit(50).all()  # Process in batches to avoid long-running jobs
             
             if not stale_sessions:
