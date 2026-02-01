@@ -56,7 +56,7 @@ def send_scheduled_whatsapp_job(message_id: int, *args, business_id=None, trace_
             # Load lead
             lead = Lead.query.filter_by(
                 id=message.lead_id,
-                business_id=message.business_id
+                tenant_id=message.business_id
             ).first()
             
             if not lead:

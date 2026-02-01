@@ -11,7 +11,6 @@ from server.utils.whatsapp_utils import normalize_conversation_key
 from server.agent_tools.phone_utils import normalize_phone
 from server.services.jobs import enqueue_job
 from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
-from server.services.ai_service import route_intent_hebrew  # 🔥 FIX #2: Import at top level
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1177,24 +1176,10 @@ def baileys_webhook():
                     ask_continue_or_fresh = False
                 
                 # ✅ BUILD 119: Generate AI response with Agent SDK (real actions!)
-                # 🔥 FIX #2: Add intent routing - only use AgentKit for booking/rescheduling/canceling
-                # ✅ BUILD 170.1: Improved error handling - use DB prompt even on fallback!
-                # 🔥 BUILD 170.1: Clear any poisoned DB session before AI call!
-                # 🔥 FIX: Add explicit logging to show AgentKit is about to be invoked
-                log.info(f"[WA-AI-READY] ✅ Message passed all filters, determining routing...")
+                # 🔥 AgentKit Only: ALWAYS use AgentKit for all WhatsApp messages
+                # Provides consistent behavior with tools, memory, and context
+                log.info(f"[WA-AI-READY] ✅ Message passed all filters, using AgentKit for all messages")
                 log.info(f"[WA-AI-READY] Parameters: business_id={business_id}, lead_id={lead.id}, from={from_number_e164}, jid={remote_jid[:30]}")
-                
-                # 🔥 FIX #2: Route based on intent (route_intent_hebrew imported at top)
-                intent = route_intent_hebrew(message_text)
-                log.info(f"[WA-INTENT] Detected intent: {intent} for message: {message_text[:50]}...")
-                
-                # Determine if we should use AgentKit or regular response
-                use_agent = intent in ["book", "reschedule", "cancel"]
-                
-                if use_agent:
-                    log.info(f"[WA-ROUTING] ✅ Using AgentKit for intent={intent}")
-                else:
-                    log.info(f"[WA-ROUTING] ✅ Using regular AI response for intent={intent}")
                 
                 try:
                     db.session.rollback()
@@ -1207,10 +1192,10 @@ def baileys_webhook():
                 from server.services.ai_service import get_ai_service
                 ai_service = get_ai_service()
                 
-                # 🔥 BUILD 200 DEBUG: Log state before AI call
-                log.info(f"[WA-AI-START] About to call AI for jid={remote_jid[:30]}, lead_id={lead.id}, use_agent={use_agent}")
+                # 🔥 AGENTKIT-ONLY: Log state before AI call
+                log.info(f"[WA-AI-START] About to call AgentKit for jid={remote_jid[:30]}, lead_id={lead.id}")
                 
-                # 🔥 COMPREHENSIVE LOGGING: Track all context for debugging bot repetition
+                # 🔥 COMPREHENSIVE LOGGING: Track all context for debugging
                 try:
                     from server.models_sql import Business
                     business_obj = Business.query.get(business_id)
@@ -1218,6 +1203,7 @@ def baileys_webhook():
                     
                     # Load conversation state to check if it exists
                     state_found = False
+                    conv_state = None
                     try:
                         conv_state = WhatsAppConversationState.query.filter_by(
                             business_id=business_id,
@@ -1235,7 +1221,6 @@ def baileys_webhook():
                     log.info(f"  ├─ history_count={len(previous_messages)}")
                     log.info(f"  ├─ state_found={state_found}")
                     log.info(f"  ├─ prompt_source={prompt_source}")
-                    log.info(f"  └─ intent={intent}")
                     
                     # Log last few messages from history for debugging
                     if previous_messages:
@@ -1249,55 +1234,45 @@ def baileys_webhook():
                     log.error(f"[WA-AI-CONTEXT] Error logging context: {e}")
                 
                 try:
-                    # Build AI context with customer memory
-                    # 🔥 FIX #5: Include lead_id for tools
-                    # 🔥 FIX: Include conversation state for better context awareness
+                    # Build AI context with customer memory and conversation state
+                    # 🔥 AgentKit Only: Always include full context for best results
                     
-                    # Load conversation state
-                    conv_state = None
-                    try:
-                        conv_state = WhatsAppConversationState.query.filter_by(
-                            business_id=business_id,
-                            phone=conversation_key
-                        ).first()
-                    except Exception as e:
-                        log.warning(f"[WA-CONTEXT] Could not load conv state: {e}")
+                    # Load conversation state for stage tracking
+                    if not conv_state:
+                        try:
+                            conv_state = WhatsAppConversationState.query.filter_by(
+                                business_id=business_id,
+                                phone=conversation_key
+                            ).first()
+                        except Exception as e:
+                            log.warning(f"[WA-CONTEXT] Could not load conv state: {e}")
                     
                     ai_context = {
                         'phone': from_number_e164,  # E.164 for CRM
                         'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
                         'customer_name': customer.name if customer else None,
                         'lead_status': lead.status if lead else None,
-                        'lead_id': lead.id if lead else None,  # 🔥 FIX #5: Add lead_id for tools
-                        'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 12 הודעות!
-                        'appointment_created': appointment_created,  # ✅ BUILD 93: הפגישה נקבעה!
-                        'customer_memory': customer_memory_text,  # 🆕 Unified customer memory
-                        'ask_continue_or_fresh': ask_continue_or_fresh,  # 🆕 Should ask returning customer?
-                        # 🔥 FIX: Add conversation state for context awareness
+                        'lead_id': lead.id if lead else None,
+                        'previous_messages': previous_messages,  # Full conversation history
+                        'appointment_created': appointment_created,
+                        'customer_memory': customer_memory_text,  # Unified customer memory
+                        'ask_continue_or_fresh': ask_continue_or_fresh,
+                        # 🔥 AgentKit Only: Include conversation state for better context
                         'last_user_message': conv_state.last_user_message if conv_state else None,
                         'last_agent_message': conv_state.last_agent_message if conv_state else None,
-                        'conversation_has_history': len(previous_messages) >= 2  # Flag to indicate this is not first message
+                        'conversation_stage': conv_state.conversation_stage if conv_state else None,
+                        'conversation_has_history': len(previous_messages) >= 2
                     }
                     
-                    # 🔥 FIX #2: Route to appropriate AI method based on intent
-                    if use_agent:
-                        # Use AgentKit for booking/rescheduling/canceling
-                        ai_response = ai_service.generate_response_with_agent(
-                            message=message_text,
-                            business_id=business_id,
-                            context=ai_context,
-                            channel='whatsapp',
-                            customer_phone=conversation_key,  # 🔥 FIX #3: Use conversation_key for consistency
-                            customer_name=customer.name if customer else None
-                        )
-                    else:
-                        # Use regular AI response for info/other intents
-                        ai_response = ai_service.generate_response(
-                            message=message_text,
-                            business_id=business_id,
-                            context=ai_context,
-                            channel='whatsapp'
-                        )
+                    # 🔥 AgentKit Only: ALWAYS use AgentKit - no routing
+                    ai_response = ai_service.generate_response_with_agent(
+                        message=message_text,
+                        business_id=business_id,
+                        context=ai_context,
+                        channel='whatsapp',
+                        customer_phone=conversation_key,  # Use conversation_key for consistency
+                        customer_name=customer.name if customer else None
+                    )
                     
                     # Handle dict response (text + actions) vs plain string
                     if isinstance(ai_response, dict):
@@ -1309,46 +1284,29 @@ def baileys_webhook():
                     ai_duration = time.time() - ai_start
                     log.info(f"[WA-AI-SUCCESS] AI generated response in {ai_duration:.2f}s, length={len(response_text) if response_text else 0}")
                     
-                    # 🔥 ANTI-STUCK GUARD: Prevent bot from repeating the same greeting/response
-                    # If we have history (not first message) and the new response starts with
-                    # the same pattern as a recent bot message, it's likely stuck in a loop
-                    if len(previous_messages) >= 2 and response_text:
-                        # Get last bot message from history
-                        last_bot_message = None
-                        for msg in reversed(previous_messages):
-                            if msg.startswith("עוזר:") or msg.startswith("עוזרת:"):
-                                last_bot_message = msg.split(":", 1)[1].strip() if ":" in msg else msg
-                                break
+                    # 🔥 AgentKit Only: Update conversation state after successful response
+                    # Track messages for anti-loop and better context in next turn
+                    try:
+                        if not conv_state:
+                            conv_state = WhatsAppConversationState()
+                            conv_state.business_id = business_id
+                            conv_state.phone = conversation_key
+                            conv_state.ai_active = True
+                            db.session.add(conv_state)
                         
-                        if last_bot_message:
-                            # Check if the new response starts with the same pattern (first 30 chars)
-                            # This catches cases like "היי זה רמי מ..." repeating
-                            response_start = response_text[:30].strip()
-                            last_start = last_bot_message[:30].strip()
-                            
-                            if response_start and last_start and response_start == last_start:
-                                log.warning(f"[WA-ANTI-STUCK] ⚠️ Bot repeating same greeting! Last: '{last_start}...', New: '{response_start}...'")
-                                log.info(f"[WA-ANTI-STUCK] Customer said: '{message_text}' - re-prompting AI to continue conversation")
-                                
-                                # Re-prompt the AI with explicit instruction to continue, not restart
-                                try:
-                                    enhanced_context = dict(ai_context)
-                                    enhanced_context['anti_repeat_instruction'] = (
-                                        f"הלקוח ענה: '{message_text}'. "
-                                        f"זו לא השיחה הראשונה! כבר שאלת את השאלה הראשונה. "
-                                        f"עכשיו המשך לשאלה הבאה בתהליך. אל תחזור על הברכה או השאלה הקודמת."
-                                    )
-                                    
-                                    response_text = ai_service.generate_response(
-                                        message=message_text,
-                                        business_id=business_id,
-                                        context=enhanced_context,
-                                        channel='whatsapp'
-                                    )
-                                    log.info(f"[WA-ANTI-STUCK] ✅ Re-generated response: {response_text[:50]}...")
-                                except Exception as retry_err:
-                                    log.error(f"[WA-ANTI-STUCK] ❌ Re-generation failed: {retry_err}")
-                                    # Keep original response if retry fails
+                        conv_state.last_user_message = message_text
+                        conv_state.last_agent_message = response_text
+                        # conversation_stage could be extracted from response or set by tools
+                        # For now, we'll leave it to be set by specific logic if needed
+                        
+                        db.session.commit()
+                        log.info(f"[WA-STATE] ✅ Updated conversation state for {conversation_key[:30]}")
+                    except Exception as state_err:
+                        log.warning(f"[WA-STATE] ⚠️ Could not update conversation state: {state_err}")
+                        try:
+                            db.session.rollback()
+                        except:
+                            pass
                     
                 except Exception as e:
                     logger.error(f"⚠️ AI call failed: {e}")

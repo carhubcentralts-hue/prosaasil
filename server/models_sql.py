@@ -431,7 +431,9 @@ class WhatsAppMessage(db.Model):
 
 
 class WhatsAppConversationState(db.Model):
-    """BUILD 150: Track AI active/inactive state per WhatsApp conversation"""
+    """BUILD 150: Track AI active/inactive state per WhatsApp conversation
+    AgentKit Only: Track conversation context for better agent behavior
+    """
     __tablename__ = "whatsapp_conversation_state"
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
@@ -439,6 +441,11 @@ class WhatsAppConversationState(db.Model):
     ai_active = db.Column(db.Boolean, default=True)  # True = AI responds, False = human only
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    
+    # AgentKit Only: Track conversation flow to prevent loops
+    last_user_message = db.Column(db.Text, nullable=True)  # Last message from user
+    last_agent_message = db.Column(db.Text, nullable=True)  # Last message from agent
+    conversation_stage = db.Column(db.String(64), nullable=True)  # Current conversation stage
     
     __table_args__ = (
         db.UniqueConstraint('business_id', 'phone', name='uq_business_phone_state'),
