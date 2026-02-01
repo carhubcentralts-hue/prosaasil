@@ -198,7 +198,7 @@ export function ScheduledMessagesPage() {
                     סטטוסים
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    עיכוב (דקות)
+                    ספק
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     סטטוס
@@ -220,7 +220,7 @@ export function ScheduledMessagesPage() {
                 ) : (
                   rules.map((rule) => (
                     <tr key={rule.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
+                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <div className="text-sm font-medium text-gray-900">{rule.name}</div>
                           {rule.send_immediately_on_enter && (
@@ -233,9 +233,6 @@ export function ScheduledMessagesPage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="text-xs text-gray-500 mt-1 truncate max-w-xs">
-                          {rule.message_text}
-                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-1">
@@ -245,12 +242,6 @@ export function ScheduledMessagesPage() {
                             </Badge>
                           ))}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <div>{rule.delay_minutes} דקות</div>
-                        {rule.delay_seconds && rule.delay_minutes && rule.delay_seconds !== rule.delay_minutes * 60 && (
-                          <div className="text-xs text-gray-500">({rule.delay_seconds} שניות)</div>
-                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <Badge variant={rule.provider === 'baileys' ? 'default' : rule.provider === 'meta' ? 'secondary' : 'warning'}>
@@ -400,10 +391,7 @@ function CreateRuleModal({
   
   const [formData, setFormData] = useState({
     name: rule?.name || '',
-    message_text: rule?.message_text || '',
     status_ids: rule?.statuses.map(s => s.id) || [],
-    delay_minutes: rule?.delay_minutes || 15,
-    delay_seconds: rule?.delay_seconds || (rule?.delay_minutes ? rule.delay_minutes * 60 : 900),
     provider: rule?.provider || 'baileys',
     is_active: rule?.is_active ?? true,
     send_immediately_on_enter: rule?.send_immediately_on_enter ?? false,
@@ -446,18 +434,8 @@ function CreateRuleModal({
       return;
     }
     
-    if (!formData.message_text.trim()) {
-      setError('תוכן ההודעה הוא שדה חובה');
-      return;
-    }
-    
     if (formData.status_ids.length === 0) {
       setError('יש לבחור לפחות סטטוס אחד');
-      return;
-    }
-    
-    if (formData.delay_minutes < 1 || formData.delay_minutes > 43200) {
-      setError('העיכוב חייב להיות בין 1 ל-43200 דקות (30 יום)');
       return;
     }
     
@@ -487,10 +465,10 @@ function CreateRuleModal({
       // Convert UI data to API format
       const apiData = {
         name: formData.name,
-        message_text: formData.message_text,
+        message_text: '',  // Empty string for backward compatibility
         status_ids: formData.status_ids,
-        delay_minutes: formData.delay_minutes,
-        delay_seconds: formData.delay_seconds,
+        delay_minutes: 0,  // Set to 0 as it's not used
+        delay_seconds: 0,  // Set to 0 as it's not used
         provider: formData.provider,
         is_active: formData.is_active,
         send_immediately_on_enter: formData.send_immediately_on_enter,
@@ -570,101 +548,6 @@ function CreateRuleModal({
                   </label>
                 ))}
               </div>
-            </div>
-            
-            {/* Template Selector */}
-            {templates.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  בחר תבנית (אופציונלי)
-                </label>
-                <select
-                  value={selectedTemplate}
-                  onChange={(e) => {
-                    const templateId = e.target.value;
-                    setSelectedTemplate(templateId);
-                    if (templateId) {
-                      const template = templates.find(t => t.id === parseInt(templateId));
-                      if (template) {
-                        setFormData({
-                          ...formData,
-                          message_text: template.message_text,
-                          name: formData.name || template.name
-                        });
-                      }
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
-                >
-                  <option value="">-- בחר תבנית --</option>
-                  {templates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  בחירת תבנית תמלא את תוכן ההודעה אוטומטית
-                </p>
-              </div>
-            )}
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                תוכן ההודעה *
-              </label>
-              <textarea
-                value={formData.message_text}
-                onChange={(e) => setFormData({ ...formData, message_text: e.target.value })}
-                rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="הודעת WhatsApp שתישלח ללקוח..."
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                משתנים זמינים: {'{lead_name}'}, {'{phone}'}, {'{business_name}'}, {'{status}'}
-              </p>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                עיכוב ראשוני בדקות * (1-43200)
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="43200"
-                value={formData.delay_minutes}
-                onChange={(e) => {
-                  const minutes = parseInt(e.target.value) || 1;
-                  setFormData({ 
-                    ...formData, 
-                    delay_minutes: minutes,
-                    delay_seconds: minutes * 60
-                  });
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                זמן ההמתנה לפני שליחת <strong>ההודעה הראשונה</strong> אחרי מעבר לסטטוס ({formData.delay_minutes} דקות = {formData.delay_seconds} שניות)
-              </p>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                ספק שליחה *
-              </label>
-              <select
-                value={formData.provider}
-                onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
-              >
-                <option value="baileys">Baileys (מומלץ)</option>
-                <option value="meta">Meta / WhatsApp Cloud API</option>
-                <option value="auto">אוטומטי (Baileys עם fallback)</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                בחר דרך איזה ספק לשלוח את ההודעות
-              </p>
             </div>
             
             {/* Send Immediately Section */}
@@ -862,7 +745,7 @@ function CreateRuleModal({
                 className="rounded"
               />
               <label className="text-sm font-medium text-gray-700">
-                הפעל את החוק מיד
+                הפעל את החוק
               </label>
             </div>
             
