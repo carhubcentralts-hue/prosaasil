@@ -209,6 +209,9 @@ USE_REALTIME_API = True  # Default for OpenAI, set to False per-call for Gemini
 # - Good quality for Hebrew voice calls
 OPENAI_REALTIME_MODEL = "gpt-4o-mini-realtime-preview"
 
+# 🔥 P0.2: Maximum length for raw event logging (prevents excessive log spam)
+MAX_RAW_EVENT_LOG_LENGTH = 1500
+
 # ⭐⭐⭐ BUILD 350: REMOVE ALL MID-CALL LOGIC & TOOLS
 # Keep calls 100% pure conversation. Only allow appointment scheduling when enabled.
 # Everything else (service, city, details) must happen AFTER the call via summary.
@@ -15811,41 +15814,71 @@ class MediaStreamHandler:
             if not gemini_function_calls:
                 # Try to extract from raw data
                 raw_tool_call = event.get('_gemini_raw', {})
-                if hasattr(raw_tool_call, 'function_calls') and raw_tool_call.function_calls:
+                
+                # 🔥 P0.2: Log raw event structure to debug parsing failures
+                # This helps understand what keys/structure Gemini actually sends
+                if raw_tool_call:
                     try:
-                        for fc in raw_tool_call.function_calls:
-                            fc_data = {
-                                'id': getattr(fc, 'id', 'NO_ID'),
-                                'name': getattr(fc, 'name', ''),
-                                'args': getattr(fc, 'args', {})
-                            }
-                            gemini_function_calls.append(fc_data)
+                        # Log event keys
+                        event_keys = list(event.keys())
+                        logger.warning(f"[GEMINI] function_call event keys={event_keys}")
+                        
+                        # Log raw event structure (limited to MAX_RAW_EVENT_LOG_LENGTH chars)
+                        raw_str = str(raw_tool_call)[:MAX_RAW_EVENT_LOG_LENGTH]
+                        logger.warning(f"[GEMINI] function_call raw={raw_str}")
+                        
+                        # Also log if raw_tool_call has any attributes that look like function calls
+                        raw_attrs = [attr for attr in dir(raw_tool_call) if not attr.startswith('_')]
+                        logger.warning(f"[GEMINI] raw_tool_call attributes={raw_attrs}")
+                    except Exception as log_error:
+                        logger.warning(f"[GEMINI] Failed to log raw event: {log_error}")
+                
+                # 🔥 P0.3: Try multiple attribute variants for function_calls extraction
+                # Different Gemini SDK versions may use different naming conventions
+                if raw_tool_call:
+                    try:
+                        fc_array = None
+                        
+                        # Try all possible attribute names (plural forms first, then singular)
+                        # Singular forms need to be wrapped in a list
+                        attribute_variants = [
+                            ('function_calls', False),  # (attribute_name, is_singular)
+                            ('functionCalls', False),
+                            ('tool_calls', False),
+                            ('toolCalls', False),
+                            ('function_call', True),
+                            ('functionCall', True),
+                            ('tool_call', True),
+                            ('toolCall', True),
+                        ]
+                        
+                        for attr_name, is_singular in attribute_variants:
+                            if hasattr(raw_tool_call, attr_name):
+                                fc_array = getattr(raw_tool_call, attr_name)
+                                # Wrap single call in list if needed
+                                if is_singular and fc_array and not isinstance(fc_array, list):
+                                    fc_array = [fc_array]
+                                break
+                        
+                        if fc_array:
+                            for fc in fc_array:
+                                fc_data = {
+                                    'id': getattr(fc, 'id', 'NO_ID'),
+                                    'name': getattr(fc, 'name', ''),
+                                    'args': getattr(fc, 'args', {})
+                                }
+                                gemini_function_calls.append(fc_data)
+                                logger.info(f"✅ [GEMINI] Extracted function_call: name={fc_data['name']} id={fc_data['id']}")
                     except Exception as extract_error:
                         logger.warning(f"[GEMINI] Failed to extract from raw: {extract_error}")
                 
-                # 🔥 CRITICAL FIX: If still empty, send NOOP response to avoid Gemini getting stuck
-                # Per problem statement: "If no response is returned to function_call - many providers simply 
-                # wait and don't continue talking" (אם לא מחזירים תגובה ל־function_call — הרבה ספקים פשוט מחכים ולא ממשיכים לדבר)
+                # 🔥 P0.1: DO NOT send NOOP response - this causes infinite loop
+                # If no valid function_calls found, simply ignore the event and continue listening
+                # Gemini will proceed with the conversation naturally
                 if not gemini_function_calls:
-                    logger.warning(f"[GEMINI] No extractable function_calls - sending NOOP response to prevent hang")
-                    try:
-                        # Generate a noop response to keep conversation flowing
-                        noop_response = types.FunctionResponse(
-                            id='noop_' + str(int(time.time())),
-                            name='noop',
-                            response={
-                                "ok": True,
-                                "skipped": True,
-                                "reason": "no_tools_enabled",
-                                "message": "המשך השיחה ללא כלים"  # Hebrew: "Continue conversation without tools"
-                            }
-                        )
-                        await client.send_tool_response([noop_response])
-                        logger.info(f"✅ [GEMINI] Sent NOOP tool response to prevent hang")
-                        return
-                    except Exception as noop_error:
-                        logger.error(f"❌ [GEMINI] Failed to send NOOP response: {noop_error}")
-                        return
+                    logger.warning(f"[GEMINI] No extractable function_calls - ignoring event and continuing")
+                    logger.info(f"[GEMINI] Skipping function_call event without valid calls - conversation will continue")
+                    return
             
             logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
             

@@ -49,6 +49,11 @@ GEMINI_TEMPERATURE_MIN = 0.0
 GEMINI_TEMPERATURE_MAX = 2.0
 GEMINI_TEMPERATURE_DEFAULT = 0.6
 
+# 🔥 P0.4: Tool control flag - allows temporarily disabling tools for debugging
+# When false, tools will not be configured even if tool_defs are provided
+# This helps isolate whether tool call loops are causing conversation issues
+GEMINI_ENABLE_TOOLS = os.getenv("GEMINI_ENABLE_TOOLS", "true").lower() in ("true", "1", "yes")
+
 
 def _clamp_temperature(requested_temp: Optional[float]) -> float:
     """
@@ -293,6 +298,16 @@ class GeminiRealtimeClient:
         temp = _clamp_temperature(temperature)
         
         # Build config for Gemini Live API
+        # 🔥 P0.5: Turn Detection / VAD Configuration
+        # Gemini Live API uses server-side VAD (Voice Activity Detection) by default
+        # The API automatically detects when the user stops speaking and triggers turn completion
+        # This is similar to OpenAI Realtime's SERVER VAD mode with:
+        # - Automatic speech detection
+        # - Automatic turn completion when user stops speaking
+        # - No explicit end_of_turn signal required from client
+        # 
+        # Unlike OpenAI where we configure vad_threshold and silence_duration_ms,
+        # Gemini's VAD is pre-configured and optimized for natural conversations
         config = {
             "response_modalities": ["AUDIO"],  # Request audio output
             "generation_config": {
@@ -302,7 +317,8 @@ class GeminiRealtimeClient:
         
         # 🔥 FIX: Add tools configuration if provided
         # Convert OpenAI Realtime tool format to Gemini format
-        if tool_defs and len(tool_defs) > 0:
+        # 🔥 P0.4: Check GEMINI_ENABLE_TOOLS flag - can be disabled for debugging
+        if tool_defs and len(tool_defs) > 0 and GEMINI_ENABLE_TOOLS:
             try:
                 # Convert tools to Gemini format
                 gemini_function_declarations = []
@@ -329,17 +345,21 @@ class GeminiRealtimeClient:
                 logger.error(f"❌ [GEMINI_CONFIG] Failed to configure tools: {tool_error}")
                 logger.exception("[GEMINI_CONFIG] Tool configuration error", exc_info=True)
                 # Continue without tools rather than failing
+        elif tool_defs and len(tool_defs) > 0 and not GEMINI_ENABLE_TOOLS:
+            # Tools were provided but disabled via environment flag
+            logger.warning(f"⚠️ [GEMINI_CONFIG] Tools disabled via GEMINI_ENABLE_TOOLS=false (count={len(tool_defs)} tools skipped)")
+            _orig_print(f"⚠️ [GEMINI_CONFIG] GEMINI_ENABLE_TOOLS=false - skipping {len(tool_defs)} tools", flush=True)
         
         # Add system instructions if provided
         if system_instructions:
             sanitized_instructions = _sanitize_text_for_realtime(system_instructions)
-            # Only add "no tools" instruction if no tools are configured
-            if not tool_defs or len(tool_defs) == 0:
+            # Only add "no tools" instruction if no tools are configured OR if tools are disabled
+            if not tool_defs or len(tool_defs) == 0 or not GEMINI_ENABLE_TOOLS:
                 sanitized_instructions += "\n\nIMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
             config["system_instruction"] = sanitized_instructions
         else:
-            # Only add "no tools" instruction if no tools are configured
-            if not tool_defs or len(tool_defs) == 0:
+            # Only add "no tools" instruction if no tools are configured OR if tools are disabled
+            if not tool_defs or len(tool_defs) == 0 or not GEMINI_ENABLE_TOOLS:
                 config["system_instruction"] = "IMPORTANT: You do NOT have access to any tools or functions. Never attempt to call any functions. Always respond directly with audio only."
         
         # Add voice if provided
