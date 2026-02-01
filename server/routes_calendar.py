@@ -778,11 +778,8 @@ def create_calendar():
         if not data.get('name') or not data.get('name').strip():
             return jsonify({'error': 'שם לוח השנה נדרש'}), 400
         
-        # Validate provider
-        valid_providers = ['internal', 'google', 'outlook']
-        provider = data.get('provider', 'internal')
-        if provider not in valid_providers:
-            return jsonify({'error': f'ספק לא חוקי. חייב להיות אחד מ: {", ".join(valid_providers)}'}), 400
+        # 🔥 Provider is always "internal" - no external calendar providers supported
+        # Ignore any provider value from client
         
         # Validate numeric fields
         default_duration = data.get('default_duration_minutes', 60)
@@ -812,13 +809,13 @@ def create_calendar():
         
         from server.models_sql import BusinessCalendar
         
-        # Create new calendar
+        # Create new calendar - ALWAYS use "internal" provider
         calendar = BusinessCalendar(
             business_id=business_id,
             name=data['name'].strip(),
             type_key=data.get('type_key'),
-            provider=provider,
-            calendar_external_id=data.get('calendar_external_id'),
+            provider='internal',  # 🔥 Always internal - no external calendar providers
+            calendar_external_id=None,  # Not used for internal calendars
             is_active=data.get('is_active', True),
             priority=priority,
             default_duration_minutes=default_duration,
@@ -884,12 +881,8 @@ def update_calendar(calendar_id):
                 return jsonify({'error': 'שם לוח השנה לא יכול להיות ריק'}), 400
             calendar.name = data['name'].strip()
         
-        # Validate provider if provided
-        if 'provider' in data:
-            valid_providers = ['internal', 'google', 'outlook']
-            if data['provider'] not in valid_providers:
-                return jsonify({'error': f'ספק לא חוקי. חייב להיות אחד מ: {", ".join(valid_providers)}'}), 400
-            calendar.provider = data['provider']
+        # 🔥 Provider is always "internal" - ignore any provider changes from client
+        # calendar.provider = 'internal'  # Don't change - already set on creation
         
         # Validate numeric fields if provided
         if 'default_duration_minutes' in data:
