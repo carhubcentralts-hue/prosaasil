@@ -334,7 +334,7 @@ export function CalendarPage() {
   }, [filterCalendar]);
 
   useEffect(() => {
-    // Initial data fetch on mount - appointments will be fetched by the activeTab useEffect
+    // Initial data fetch on mount - appointments will be fetched by the activeTab useEffect when switching to the appointments tab
     fetchAppointmentTypes();
     fetchAppointmentStatuses();
     fetchDefaultCalendar();
@@ -510,7 +510,8 @@ export function CalendarPage() {
     
     const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
     const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
-    // Calendar filtering now done server-side via fetchAppointments
+    // Calendar filtering now done server-side via fetchAppointments to reduce data transfer
+    // Other filters remain client-side to avoid excessive API calls for each filter combination
     
     // ✅ BUILD 144 + 170: Date filter - single date or date range
     let matchesDate = true;
