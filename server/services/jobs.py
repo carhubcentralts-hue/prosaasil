@@ -31,6 +31,8 @@ import os
 import logging
 import uuid
 import hashlib
+import inspect
+from functools import lru_cache
 from datetime import datetime
 from typing import Callable, Any, Optional, Dict
 from redis import Redis
@@ -43,6 +45,26 @@ logger = logging.getLogger(__name__)
 # Redis connection singleton - NEVER create Redis connections elsewhere!
 _redis_conn = None
 _redis_lock = __import__('threading').Lock()
+
+
+@lru_cache(maxsize=128)
+def _get_function_params(func: Callable) -> tuple:
+    """
+    Get function parameter names with caching.
+    
+    This is cached to avoid repeated inspect.signature() calls for
+    frequently enqueued jobs. Functions are hashable in Python by default
+    (using their memory address), so they work as cache keys.
+    
+    Args:
+        func: Function to inspect
+        
+    Returns:
+        tuple: Tuple of parameter names (hashable for caching)
+    """
+    sig = inspect.signature(func)
+    return tuple(sig.parameters.keys())
+
 
 def get_redis() -> Redis:
     """
@@ -203,11 +225,18 @@ def enqueue(
         log_context += f" run_id={run_id}"
     logger.info(f"{log_context} trace_id={trace_id[:8]}")
     
-    # 🔥 FIXED: Do NOT auto-inject business_id/run_id into job function kwargs
-    # This was causing "invalid keyword argument" errors for jobs that don't expect them.
-    # If a job needs business_id or run_id, pass them explicitly when calling enqueue().
-    # All metadata (business_id, run_id, trace_id) is stored in job.meta for logging/tracking.
+    # Pass business_id and run_id to job function if it accepts them
+    # They are also stored in job.meta for logging/tracking
     job_func_kwargs = dict(kwargs)
+    
+    # Check if job function accepts business_id/run_id parameters (with caching)
+    # Note: We only pass these if they are not None, as None typically means "not provided"
+    # rather than an intentional None value. Job functions can still have default None values.
+    func_params = _get_function_params(func)
+    if 'business_id' in func_params and business_id is not None:
+        job_func_kwargs['business_id'] = business_id
+    if 'run_id' in func_params and run_id is not None:
+        job_func_kwargs['run_id'] = run_id
     
     # Enqueue job
     try:
