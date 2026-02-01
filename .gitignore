@@ -1,14 +1,15 @@
 # ===========================================
-# ProSaaS - Complete .gitignore
+# ProSaaS - .gitignore
 # ===========================================
 
-# Node.js
-node_modules/
-client/node_modules/
-services/whatsapp/node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Environment Variables (NEVER commit secrets!)
+.env
+.env.local
+.env.production
+.env.development
+.env.*.local
+*.env
+!.env.example
 
 # Python
 __pycache__/
@@ -32,40 +33,37 @@ wheels/
 .installed.cfg
 *.egg
 repl_nix_workspace.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+*.pyo
 
-# Virtual environments
+# Virtual Environments
 venv/
 ENV/
 env/
 .venv/
 
-# Build outputs
+# Node.js
+node_modules/
+client/node_modules/
+services/whatsapp/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json.*
+
+# Build Outputs
 client/dist/
 server/public/
 *.tar.gz
+*.zip
 
-# Environment files (NEVER commit secrets!)
-.env
-.env.local
-.env.production
-.env.development
-.env.*.local
-*.env
-
-# Baileys WhatsApp auth (session data - NEVER commit!)
-baileys-service/auth_info_baileys/
-auth_info_baileys/
-storage/whatsapp/**/auth/
-services/whatsapp/auth_info_baileys/
-services/whatsapp/auth/
-
-# Recordings and media storage (large files)
-storage/recordings/
-storage/audio/
-storage/media/
-server/recordings/
-# Lock files for recording downloads (prevent concurrent downloads across workers/pods)
-server/recordings/.*.lock
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
 
 # Logs
 *.log
@@ -73,7 +71,14 @@ server.log
 logs/
 *.pid
 
-# IDE and editors
+# Temporary Files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# IDE and Editors
 .idea/
 .vscode/
 *.swp
@@ -87,36 +92,54 @@ playwright-report/
 coverage/
 .coverage
 htmlcov/
-.pytest_cache/
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
+# WhatsApp Auth Sessions (NEVER commit!)
+baileys-service/auth_info_baileys/
+auth_info_baileys/
+storage/whatsapp/**/auth/
+services/whatsapp/auth_info_baileys/
+services/whatsapp/auth/
 
-# Temporary files
-tmp/
-temp/
-*.tmp
+# Media Storage (large files)
+storage/recordings/
+storage/audio/
+storage/media/
+server/recordings/
+server/recordings/.*.lock
+uploads/
 
-# Replit specific (keep for development)
-.replit
-replit.nix
-
-# Docker volumes (if created locally)
+# Docker Volumes
 pgdata/
 postgres-data/
+redis-data/
 
-# Certificates and SSL
+# SSL Certificates
 certs/
 *.pem
 *.key
 *.crt
+!docker/nginx/ssl/.gitkeep
 
-# Misc
-*.bak
-*.backup
-vite.config.ts.*
-test_media_ws_ai_import.py
-test_media_ws_indentation_fix.py
-test_tab_config_fixes.py
+# Generated Files
+*.mp3
+*.wav
+*.m4a
+!server/static/*.mp3
+!server/static/*.wav
+
+# Replit (development platform)
+.replit
+replit.nix
+.upm/
+.cache/
+.config/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
