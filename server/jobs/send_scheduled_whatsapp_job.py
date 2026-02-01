@@ -28,17 +28,19 @@ def send_scheduled_whatsapp_job(message_id: int):
     
     with current_app.app_context():
         try:
-            logger.info(f"[SEND-SCHEDULED-WA] Starting send for message {message_id}")
+            logger.info(f"[SEND-SCHEDULED-WA] 📤 Starting send for message {message_id}")
             
             # Load message
             message = ScheduledMessagesQueue.query.get(message_id)
             if not message:
-                logger.error(f"[SEND-SCHEDULED-WA] Message {message_id} not found")
+                logger.error(f"[SEND-SCHEDULED-WA] ❌ Message {message_id} not found in database")
                 return {'status': 'error', 'error': 'message_not_found'}
+            
+            logger.info(f"[SEND-SCHEDULED-WA] Message {message_id}: business={message.business_id}, lead={message.lead_id}, status={message.status}")
             
             # Check if already sent (idempotency check)
             if message.status != 'pending':
-                logger.warning(f"[SEND-SCHEDULED-WA] Message {message_id} status is {message.status}, skipping")
+                logger.warning(f"[SEND-SCHEDULED-WA] ⏭️  Message {message_id} status is '{message.status}', skipping send")
                 return {'status': 'skipped', 'reason': f'status_{message.status}'}
             
             # Load lead
@@ -48,8 +50,8 @@ def send_scheduled_whatsapp_job(message_id: int):
             ).first()
             
             if not lead:
-                error_msg = f"Lead {message.lead_id} not found"
-                logger.error(f"[SEND-SCHEDULED-WA] {error_msg}")
+                error_msg = f"Lead {message.lead_id} not found for business {message.business_id}"
+                logger.error(f"[SEND-SCHEDULED-WA] ❌ {error_msg}")
                 scheduled_messages_service.mark_failed(message_id, error_msg)
                 return {'status': 'error', 'error': 'lead_not_found'}
             

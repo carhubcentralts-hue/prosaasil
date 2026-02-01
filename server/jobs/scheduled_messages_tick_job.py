@@ -33,44 +33,54 @@ def scheduled_messages_tick_job():
                 'enqueued': 0
             }
         
-        logger.info(f"[SCHEDULED-MSG-TICK] Claimed {len(messages)} message(s), enqueuing to workers")
+        logger.info(f"[SCHEDULED-MSG-TICK] ✅ Claimed {len(messages)} message(s) ready to send")
         
         # Enqueue each message to worker
         enqueued_count = 0
+        failed_count = 0
         for message in messages:
             try:
                 # Import the job function
                 from server.jobs.send_scheduled_whatsapp_job import send_scheduled_whatsapp_job
                 
+                logger.info(f"[SCHEDULED-MSG-TICK] Enqueuing message {message.id} for lead {message.lead_id}, business {message.business_id}")
+                
                 # Enqueue to RQ worker
-                enqueue(
+                job = enqueue(
                     'default',  # Use default queue for WhatsApp messages
                     send_scheduled_whatsapp_job,
                     message_id=message.id,
+                    business_id=message.business_id,  # Add business_id for proper tracking
                     job_id=f"scheduled_wa_{message.id}",
                     timeout=300,  # 5 minutes timeout
                     retry=None,  # Don't auto-retry (we'll handle failures)
-                    ttl=3600  # 1 hour TTL
+                    ttl=3600,  # 1 hour TTL
+                    description=f"Send scheduled WhatsApp to lead {message.lead_id}"
                 )
                 
                 enqueued_count += 1
-                logger.debug(f"[SCHEDULED-MSG-TICK] Enqueued message {message.id} for lead {message.lead_id}")
+                logger.info(f"[SCHEDULED-MSG-TICK] ✅ Enqueued message {message.id} as job {job.id}")
                 
             except Exception as e:
-                logger.error(f"[SCHEDULED-MSG-TICK] Failed to enqueue message {message.id}: {e}")
+                failed_count += 1
+                logger.error(f"[SCHEDULED-MSG-TICK] ❌ Failed to enqueue message {message.id}: {e}", exc_info=True)
                 # Mark as failed
-                scheduled_messages_service.mark_failed(message.id, f"Failed to enqueue: {str(e)}")
+                try:
+                    scheduled_messages_service.mark_failed(message.id, f"Failed to enqueue: {str(e)}")
+                except Exception as mark_err:
+                    logger.error(f"[SCHEDULED-MSG-TICK] Could not mark message {message.id} as failed: {mark_err}")
         
-        logger.info(f"[SCHEDULED-MSG-TICK] Successfully enqueued {enqueued_count}/{len(messages)} message(s)")
+        logger.info(f"[SCHEDULED-MSG-TICK] ✅ Successfully enqueued {enqueued_count}/{len(messages)} message(s), failed={failed_count}")
         
         return {
             'status': 'success',
             'claimed': len(messages),
-            'enqueued': enqueued_count
+            'enqueued': enqueued_count,
+            'failed': failed_count
         }
         
     except Exception as e:
-        logger.error(f"[SCHEDULED-MSG-TICK] Error in tick job: {e}", exc_info=True)
+        logger.error(f"[SCHEDULED-MSG-TICK] ❌ Critical error in tick job: {e}", exc_info=True)
         return {
             'status': 'error',
             'error': str(e)
