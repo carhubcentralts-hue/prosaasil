@@ -209,6 +209,9 @@ USE_REALTIME_API = True  # Default for OpenAI, set to False per-call for Gemini
 # - Good quality for Hebrew voice calls
 OPENAI_REALTIME_MODEL = "gpt-4o-mini-realtime-preview"
 
+# 🔥 P0.2: Maximum length for raw event logging (prevents excessive log spam)
+MAX_RAW_EVENT_LOG_LENGTH = 1500
+
 # ⭐⭐⭐ BUILD 350: REMOVE ALL MID-CALL LOGIC & TOOLS
 # Keep calls 100% pure conversation. Only allow appointment scheduling when enabled.
 # Everything else (service, city, details) must happen AFTER the call via summary.
@@ -15820,8 +15823,8 @@ class MediaStreamHandler:
                         event_keys = list(event.keys())
                         logger.warning(f"[GEMINI] function_call event keys={event_keys}")
                         
-                        # Log raw event structure (limited to 1500 chars)
-                        raw_str = str(raw_tool_call)[:1500]
+                        # Log raw event structure (limited to MAX_RAW_EVENT_LOG_LENGTH chars)
+                        raw_str = str(raw_tool_call)[:MAX_RAW_EVENT_LOG_LENGTH]
                         logger.warning(f"[GEMINI] function_call raw={raw_str}")
                         
                         # Also log if raw_tool_call has any attributes that look like function calls
@@ -15836,35 +15839,26 @@ class MediaStreamHandler:
                     try:
                         fc_array = None
                         
-                        # Try all possible attribute names
-                        if hasattr(raw_tool_call, 'function_calls'):
-                            fc_array = raw_tool_call.function_calls
-                        elif hasattr(raw_tool_call, 'functionCalls'):
-                            fc_array = raw_tool_call.functionCalls
-                        elif hasattr(raw_tool_call, 'function_call'):
-                            fc_array = raw_tool_call.function_call
-                            # Wrap single call in list
-                            if fc_array and not isinstance(fc_array, list):
-                                fc_array = [fc_array]
-                        elif hasattr(raw_tool_call, 'functionCall'):
-                            fc_array = raw_tool_call.functionCall
-                            # Wrap single call in list
-                            if fc_array and not isinstance(fc_array, list):
-                                fc_array = [fc_array]
-                        elif hasattr(raw_tool_call, 'tool_calls'):
-                            fc_array = raw_tool_call.tool_calls
-                        elif hasattr(raw_tool_call, 'toolCalls'):
-                            fc_array = raw_tool_call.toolCalls
-                        elif hasattr(raw_tool_call, 'tool_call'):
-                            fc_array = raw_tool_call.tool_call
-                            # Wrap single call in list
-                            if fc_array and not isinstance(fc_array, list):
-                                fc_array = [fc_array]
-                        elif hasattr(raw_tool_call, 'toolCall'):
-                            fc_array = raw_tool_call.toolCall
-                            # Wrap single call in list
-                            if fc_array and not isinstance(fc_array, list):
-                                fc_array = [fc_array]
+                        # Try all possible attribute names (plural forms first, then singular)
+                        # Singular forms need to be wrapped in a list
+                        attribute_variants = [
+                            ('function_calls', False),  # (attribute_name, is_singular)
+                            ('functionCalls', False),
+                            ('tool_calls', False),
+                            ('toolCalls', False),
+                            ('function_call', True),
+                            ('functionCall', True),
+                            ('tool_call', True),
+                            ('toolCall', True),
+                        ]
+                        
+                        for attr_name, is_singular in attribute_variants:
+                            if hasattr(raw_tool_call, attr_name):
+                                fc_array = getattr(raw_tool_call, attr_name)
+                                # Wrap single call in list if needed
+                                if is_singular and fc_array and not isinstance(fc_array, list):
+                                    fc_array = [fc_array]
+                                break
                         
                         if fc_array:
                             for fc in fc_array:
