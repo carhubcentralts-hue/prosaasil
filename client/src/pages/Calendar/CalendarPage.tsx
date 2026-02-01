@@ -267,7 +267,7 @@ export function CalendarPage() {
   });
 
   // Calendar management states
-  const [activeTab, setActiveTab] = useState<'appointments' | 'calendars'>('appointments');
+  const [activeTab, setActiveTab] = useState<'appointments' | 'calendars' | 'management'>('appointments');
   const [calendars, setCalendars] = useState<BusinessCalendar[]>([]);
   const [loadingCalendars, setLoadingCalendars] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
@@ -308,7 +308,7 @@ export function CalendarPage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'calendars') {
+    if (activeTab === 'calendars' || activeTab === 'management') {
       fetchCalendars();
     }
   }, [activeTab]);
@@ -692,7 +692,9 @@ export function CalendarPage() {
               לוח שנה
             </h1>
             <p className="text-slate-600">
-              {activeTab === 'appointments' ? 'ניהול פגישות ומעקב פעילות יומית' : 'ניהול לוחות שנה מרובים'}
+              {activeTab === 'appointments' ? 'ניהול פגישות ומעקב פעילות יומית' : 
+               activeTab === 'calendars' ? 'ניהול לוחות שנה מרובים' :
+               'תצוגת ניהול - כל הפגישות לפי לוח שנה'}
             </p>
           </div>
           <div className="flex gap-3 w-full sm:w-auto">
@@ -758,6 +760,20 @@ export function CalendarPage() {
             <div className="flex items-center justify-center gap-2">
               <Calendar className="h-5 w-5" />
               <span>לוחות שנה</span>
+            </div>
+          </button>
+          <button
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${
+              activeTab === 'management'
+                ? 'bg-blue-500 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+            onClick={() => setActiveTab('management')}
+            data-testid="tab-management"
+          >
+            <div className="flex items-center justify-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              <span>ניהול לוחות</span>
             </div>
           </button>
         </div>
@@ -1430,6 +1446,171 @@ export function CalendarPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Management Tab - Appointments organized by calendar */}
+      {activeTab === 'management' && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+          <div className="p-4 md:p-6 border-b border-slate-200">
+            <h2 className="text-xl font-semibold text-slate-900">תצוגת ניהול - פגישות לפי לוח שנה</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              כל הפגישות מאורגנות לפי לוחות שנה למעקב ותיאום קל
+            </p>
+          </div>
+
+          {loading || loadingCalendars ? (
+            <div className="p-8 flex justify-center items-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p className="text-slate-600">טוען נתונים...</p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 md:p-6 space-y-6">
+              {/* Show appointments grouped by calendar */}
+              {calendars.filter(c => c.is_active).length === 0 ? (
+                <div className="text-center py-12">
+                  <Calendar className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-slate-900 mb-2">אין לוחות שנה פעילים</h3>
+                  <p className="text-slate-600">
+                    צור לוח שנה חדש בכרטיסייה "לוחות שנה" כדי להתחיל לנהל פגישות
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Unassigned appointments */}
+                  {(() => {
+                    const unassignedAppointments = appointments.filter(a => !a.calendar_id);
+                    if (unassignedAppointments.length > 0) {
+                      return (
+                        <div className="border border-slate-200 rounded-xl overflow-hidden">
+                          <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="font-semibold text-slate-900">ללא לוח שנה</h3>
+                                <p className="text-sm text-slate-600">פגישות שלא משויכות ללוח שנה</p>
+                              </div>
+                              <span className="bg-slate-200 text-slate-700 px-3 py-1 rounded-full text-sm font-medium">
+                                {unassignedAppointments.length}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="divide-y divide-slate-200">
+                            {unassignedAppointments.slice(0, 5).map(appointment => (
+                              <div key={appointment.id} className="p-4 hover:bg-slate-50 transition-colors">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-slate-900">{appointment.title}</h4>
+                                    <div className="flex flex-wrap gap-2 mt-2 text-sm text-slate-600">
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-4 w-4" />
+                                        {new Date(appointment.start_time).toLocaleString('he-IL', {
+                                          month: 'short',
+                                          day: 'numeric',
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                          timeZone: 'Asia/Jerusalem'
+                                        })}
+                                      </span>
+                                      {appointment.contact_name && (
+                                        <span className="flex items-center gap-1">
+                                          <User className="h-4 w-4" />
+                                          {appointment.contact_name}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_TYPES[appointment.status]?.color || 'bg-gray-100 text-gray-800'}`}>
+                                    {STATUS_TYPES[appointment.status]?.label || appointment.status}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                            {unassignedAppointments.length > 5 && (
+                              <div className="p-3 text-center text-sm text-slate-600 bg-slate-50">
+                                ועוד {unassignedAppointments.length - 5} פגישות...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {/* Appointments by calendar */}
+                  {calendars.filter(c => c.is_active).map(calendar => {
+                    const calendarAppointments = appointments.filter(a => a.calendar_id === calendar.id);
+                    return (
+                      <div key={calendar.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 border-b border-slate-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h3 className="font-semibold text-slate-900">{calendar.name}</h3>
+                              <p className="text-sm text-slate-600">
+                                עדיפות: {calendar.priority} | משך ברירת מחדל: {calendar.default_duration_minutes} דקות
+                              </p>
+                            </div>
+                            <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
+                              {calendarAppointments.length}
+                            </span>
+                          </div>
+                        </div>
+                        {calendarAppointments.length === 0 ? (
+                          <div className="p-8 text-center text-slate-500">
+                            <CalendarIcon className="h-12 w-12 text-slate-300 mx-auto mb-2" />
+                            <p>אין פגישות בלוח שנה זה</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-200">
+                            {calendarAppointments.slice(0, 5).map(appointment => (
+                              <div key={appointment.id} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openEditAppointmentModal(appointment)}>
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-slate-900">{appointment.title}</h4>
+                                    <div className="flex flex-wrap gap-2 mt-2 text-sm text-slate-600">
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-4 w-4" />
+                                        {new Date(appointment.start_time).toLocaleString('he-IL', {
+                                          month: 'short',
+                                          day: 'numeric',
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                          timeZone: 'Asia/Jerusalem'
+                                        })}
+                                      </span>
+                                      {appointment.contact_name && (
+                                        <span className="flex items-center gap-1">
+                                          <User className="h-4 w-4" />
+                                          {appointment.contact_name}
+                                        </span>
+                                      )}
+                                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${APPOINTMENT_TYPES[appointment.appointment_type]?.color || 'bg-gray-100 text-gray-800'}`}>
+                                        {APPOINTMENT_TYPES[appointment.appointment_type]?.label || appointment.appointment_type}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_TYPES[appointment.status]?.color || 'bg-gray-100 text-gray-800'}`}>
+                                    {STATUS_TYPES[appointment.status]?.label || appointment.status}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                            {calendarAppointments.length > 5 && (
+                              <div className="p-3 text-center text-sm text-slate-600 bg-slate-50">
+                                ועוד {calendarAppointments.length - 5} פגישות...
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </div>
           )}
         </div>
