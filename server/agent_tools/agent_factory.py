@@ -40,6 +40,9 @@ _CACHE_TTL_MINUTES = 30  # 🔥 FIX: Increased to 30 minutes to maintain convers
 _CONVERSATION_STATS: Dict[str, Dict] = {}
 _STATS_LOCK = threading.Lock()
 
+# 🔥 Configuration: Repetitive response detection threshold
+MAX_UNIQUE_RESPONSES_THRESHOLD = 2  # If only 1-2 unique responses in last 5 turns, warn about repetition
+
 def get_conversation_stats(conversation_id: str = None) -> Dict:
     """
     🔥 NEW: Get conversation statistics for debugging
@@ -85,7 +88,7 @@ def track_conversation_turn(conversation_id: str, message: str, response: str):
                 stats['recent_responses'] = stats['recent_responses'][-5:]
             
             # Check for repeated responses
-            if len(set(stats['recent_responses'])) <= 2:  # Only 1-2 unique responses in last 5
+            if len(set(stats['recent_responses'])) <= MAX_UNIQUE_RESPONSES_THRESHOLD:
                 logger.warning(f"⚠️ [CONVERSATION] Possible repetitive responses detected: "
                              f"conversation_id={conversation_id}, turn_count={stats['turn_count']}, "
                              f"unique_responses={len(set(stats['recent_responses']))}")
