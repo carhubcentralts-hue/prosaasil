@@ -517,17 +517,6 @@ def schedule_messages_for_lead_status_change(
         logger.error(f"[SCHEDULED-MSG] Failed to commit tasks: {e}", exc_info=True)
         db.session.rollback()
 
-            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
-                logger.debug(f"[SCHEDULED-MSG] Message already scheduled for lead {lead_id}, rule {rule.id} - skipping")
-                db.session.rollback()
-            else:
-                logger.error(f"[SCHEDULED-MSG] Error scheduling message for rule {rule.id}: {e}")
-                db.session.rollback()
-    
-    if created_count > 0:
-        db.session.commit()
-        logger.info(f"[SCHEDULED-MSG] Created {created_count} scheduled message(s) for lead {lead_id}")
-
 
 def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
     """
