@@ -7684,6 +7684,16 @@ def apply_migrations():
                 if fields_added:
                     migrations_applied.append('migration_122_scheduled_rules_fields')
                     checkpoint(f"✅ Migration 122a completed - Added {len(fields_added)} fields to scheduled_message_rules")
+                    
+                    # 🔄 BACKFILL: Populate delay_seconds from delay_minutes for existing rules
+                    checkpoint("  → Backfilling delay_seconds from delay_minutes...")
+                    result = execute_with_retry(migrate_engine, """
+                        UPDATE scheduled_message_rules 
+                        SET delay_seconds = delay_minutes * 60 
+                        WHERE delay_seconds = 0 AND delay_minutes > 0
+                    """)
+                    rows_updated = result.rowcount if hasattr(result, 'rowcount') else 0
+                    checkpoint(f"  ✅ Backfilled delay_seconds for {rows_updated} existing rule(s)")
                 else:
                     checkpoint("  ℹ️  All fields already exist in scheduled_message_rules")
                     

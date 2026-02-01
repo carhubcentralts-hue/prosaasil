@@ -237,7 +237,7 @@ export function ScheduledMessagesPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <div>{rule.delay_minutes} דקות</div>
-                        {rule.delay_seconds && rule.delay_seconds !== rule.delay_minutes * 60 && (
+                        {rule.delay_seconds && rule.delay_minutes && rule.delay_seconds !== rule.delay_minutes * 60 && (
                           <div className="text-xs text-gray-500">({rule.delay_seconds} שניות)</div>
                         )}
                       </td>

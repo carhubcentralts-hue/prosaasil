@@ -102,7 +102,7 @@ def get_rules():
                 'is_active': rule.is_active,
                 'message_text': rule.message_text,
                 'delay_minutes': rule.delay_minutes,
-                'delay_seconds': getattr(rule, 'delay_seconds', rule.delay_minutes * 60),  # Fallback for migration
+                'delay_seconds': getattr(rule, 'delay_seconds', rule.delay_minutes * 60 if rule.delay_minutes else 0),  # Fallback for migration
                 'provider': getattr(rule, 'provider', 'baileys'),  # Fallback for migration
                 'template_name': rule.template_name,
                 'send_window_start': rule.send_window_start,
@@ -327,7 +327,7 @@ def update_rule(rule_id: int):
                 'is_active': rule.is_active,
                 'message_text': rule.message_text,
                 'delay_minutes': rule.delay_minutes,
-                'delay_seconds': getattr(rule, 'delay_seconds', rule.delay_minutes * 60),
+                'delay_seconds': getattr(rule, 'delay_seconds', rule.delay_minutes * 60 if rule.delay_minutes else 0),
                 'provider': getattr(rule, 'provider', 'baileys'),
                 'statuses': [
                     {

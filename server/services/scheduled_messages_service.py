@@ -55,11 +55,17 @@ def create_rule(
     """
     # Determine delay_seconds (prefer delay_seconds over delay_minutes)
     if delay_seconds is None:
+        if delay_minutes is None:
+            raise ValueError("Either delay_minutes or delay_seconds is required")
         delay_seconds = delay_minutes * 60
     
     # Validation
     if delay_seconds < 0 or delay_seconds > 2592000:  # 0 seconds to 30 days
         raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
+    
+    # Set delay_minutes for backward compatibility if not provided
+    if delay_minutes is None:
+        delay_minutes = max(1, delay_seconds // 60)
     
     # Validate delay_minutes for backward compatibility
     if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
@@ -496,7 +502,9 @@ def mark_failed(message_id: int, error_message: str):
     if message:
         message.status = 'failed'
         message.error_message = error_message[:500]  # Limit error message length
-        message.attempts = getattr(message, 'attempts', 0) + 1  # Increment attempts counter
+        # ℹ️ Using getattr for migration compatibility - Migration 122 adds attempts column
+        # After migration runs, this becomes message.attempts + 1
+        message.attempts = getattr(message, 'attempts', 0) + 1
         message.updated_at = datetime.utcnow()
         db.session.commit()
         logger.error(f"[SCHEDULED-MSG] Marked message {message_id} as failed (attempt {message.attempts}): {error_message}")
