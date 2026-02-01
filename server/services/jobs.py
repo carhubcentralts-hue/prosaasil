@@ -203,11 +203,17 @@ def enqueue(
         log_context += f" run_id={run_id}"
     logger.info(f"{log_context} trace_id={trace_id[:8]}")
     
-    # 🔥 FIXED: Do NOT auto-inject business_id/run_id into job function kwargs
-    # This was causing "invalid keyword argument" errors for jobs that don't expect them.
-    # If a job needs business_id or run_id, pass them explicitly when calling enqueue().
-    # All metadata (business_id, run_id, trace_id) is stored in job.meta for logging/tracking.
+    # Pass business_id and run_id to job function if it accepts them
+    # They are also stored in job.meta for logging/tracking
+    import inspect
     job_func_kwargs = dict(kwargs)
+    
+    # Check if job function accepts business_id parameter
+    sig = inspect.signature(func)
+    if 'business_id' in sig.parameters and business_id is not None:
+        job_func_kwargs['business_id'] = business_id
+    if 'run_id' in sig.parameters and run_id is not None:
+        job_func_kwargs['run_id'] = run_id
     
     # Enqueue job
     try:

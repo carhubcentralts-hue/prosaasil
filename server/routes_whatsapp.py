@@ -1356,8 +1356,8 @@ def baileys_webhook():
                     log.info(f"[WA-ENQUEUE-DEBUG] business_id={business_id}, tenant_id={tenant_id}, reply_jid={reply_jid[:30]}, msg_length={len(response_text)}")
                     
                     job = enqueue_job(
-                        'default',
-                        send_whatsapp_message_job,
+                        queue_name='default',
+                        func=send_whatsapp_message_job,
                         business_id=business_id,
                         tenant_id=tenant_id,
                         remote_jid=reply_jid,  # 🔥 LID FIX: Use reply_jid instead of remote_jid
