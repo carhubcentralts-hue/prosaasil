@@ -102,6 +102,8 @@ def get_rules():
                 'is_active': rule.is_active,
                 'message_text': rule.message_text,
                 'delay_minutes': rule.delay_minutes,
+                'delay_seconds': getattr(rule, 'delay_seconds', rule.delay_minutes * 60),  # Fallback for migration
+                'provider': getattr(rule, 'provider', 'baileys'),  # Fallback for migration
                 'template_name': rule.template_name,
                 'send_window_start': rule.send_window_start,
                 'send_window_end': rule.send_window_end,
@@ -138,11 +140,13 @@ def create_rule():
             "name": str,  # Required
             "message_text": str,  # Required
             "status_ids": [int],  # Required - list of lead status IDs
-            "delay_minutes": int,  # Required - 1 to 43200
+            "delay_minutes": int,  # Optional - 1 to 43200 (for backward compatibility)
+            "delay_seconds": int,  # Optional - 0 to 2592000 (preferred)
             "template_name": str,  # Optional
             "send_window_start": str,  # Optional - HH:MM format
             "send_window_end": str,  # Optional - HH:MM format
-            "is_active": bool  # Optional - defaults to true
+            "is_active": bool,  # Optional - defaults to true
+            "provider": str  # Optional - "baileys" | "meta" | "auto" - defaults to "baileys"
         }
     
     Returns:
@@ -166,16 +170,40 @@ def create_rule():
         if not data.get('status_ids') or not isinstance(data['status_ids'], list):
             return jsonify({'error': 'status_ids must be a non-empty array'}), 400
         
-        if 'delay_minutes' not in data:
-            return jsonify({'error': 'delay_minutes is required'}), 400
+        # Handle delay - prefer delay_seconds, fallback to delay_minutes
+        delay_seconds = data.get('delay_seconds')
+        delay_minutes = data.get('delay_minutes')
         
-        try:
-            delay_minutes = int(data['delay_minutes'])
-        except (TypeError, ValueError):
-            return jsonify({'error': 'delay_minutes must be a valid integer'}), 400
+        if delay_seconds is None and delay_minutes is None:
+            return jsonify({'error': 'Either delay_minutes or delay_seconds is required'}), 400
+        
+        # Convert delay_minutes to delay_seconds if needed
+        if delay_seconds is None:
+            try:
+                delay_minutes = int(delay_minutes)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'delay_minutes must be a valid integer'}), 400
+                
+            if delay_minutes < 1 or delay_minutes > 43200:
+                return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
             
-        if delay_minutes < 1 or delay_minutes > 43200:
-            return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
+            delay_seconds = delay_minutes * 60
+        else:
+            try:
+                delay_seconds = int(delay_seconds)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
+            
+            if delay_seconds < 0 or delay_seconds > 2592000:
+                return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+            
+            # Set delay_minutes for backward compatibility
+            delay_minutes = max(1, delay_seconds // 60)
+        
+        # Get provider (default to baileys)
+        provider = data.get('provider', 'baileys')
+        if provider not in ('baileys', 'meta', 'auto'):
+            return jsonify({'error': 'provider must be "baileys", "meta", or "auto"'}), 400
         
         # Create rule
         rule = scheduled_messages_service.create_rule(
@@ -184,11 +212,13 @@ def create_rule():
             message_text=data['message_text'],
             status_ids=data['status_ids'],
             delay_minutes=delay_minutes,
+            delay_seconds=delay_seconds,
             created_by_user_id=user_id,
             template_name=data.get('template_name'),
             send_window_start=data.get('send_window_start'),
             send_window_end=data.get('send_window_end'),
-            is_active=data.get('is_active', True)
+            is_active=data.get('is_active', True),
+            provider=provider
         )
         
         logger.info(f"[SCHEDULED-MSG-API] Created rule {rule.id} for business {business_id}")
@@ -200,6 +230,8 @@ def create_rule():
                 'is_active': rule.is_active,
                 'message_text': rule.message_text,
                 'delay_minutes': rule.delay_minutes,
+                'delay_seconds': rule.delay_seconds,
+                'provider': rule.provider,
                 'statuses': [
                     {
                         'id': status.id,
@@ -234,10 +266,12 @@ def update_rule(rule_id: int):
             "message_text": str,
             "status_ids": [int],
             "delay_minutes": int,
+            "delay_seconds": int,
             "template_name": str,
             "send_window_start": str,
             "send_window_end": str,
-            "is_active": bool
+            "is_active": bool,
+            "provider": str  # "baileys" | "meta" | "auto"
         }
     
     Returns:
@@ -261,6 +295,22 @@ def update_rule(rule_id: int):
                 return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
             data['delay_minutes'] = delay_minutes
         
+        # Validate delay_seconds if provided
+        if 'delay_seconds' in data:
+            try:
+                delay_seconds = int(data['delay_seconds'])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
+                
+            if delay_seconds < 0 or delay_seconds > 2592000:
+                return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+            data['delay_seconds'] = delay_seconds
+        
+        # Validate provider if provided
+        if 'provider' in data:
+            if data['provider'] not in ('baileys', 'meta', 'auto'):
+                return jsonify({'error': 'provider must be "baileys", "meta", or "auto"'}), 400
+        
         # Update rule
         rule = scheduled_messages_service.update_rule(
             rule_id=rule_id,
@@ -277,6 +327,8 @@ def update_rule(rule_id: int):
                 'is_active': rule.is_active,
                 'message_text': rule.message_text,
                 'delay_minutes': rule.delay_minutes,
+                'delay_seconds': getattr(rule, 'delay_seconds', rule.delay_minutes * 60),
+                'provider': getattr(rule, 'provider', 'baileys'),
                 'statuses': [
                     {
                         'id': status.id,

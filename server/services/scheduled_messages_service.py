@@ -29,7 +29,9 @@ def create_rule(
     template_name: Optional[str] = None,
     send_window_start: Optional[str] = None,
     send_window_end: Optional[str] = None,
-    is_active: bool = True
+    is_active: bool = True,
+    provider: str = "baileys",
+    delay_seconds: Optional[int] = None
 ) -> ScheduledMessageRule:
     """
     Create a new scheduling rule
@@ -39,17 +41,27 @@ def create_rule(
         name: User-friendly name for the rule
         message_text: Message content to send
         status_ids: List of lead status IDs that trigger this rule
-        delay_minutes: Minutes to wait after status change (1-43200)
+        delay_minutes: Minutes to wait after status change (LEGACY - use delay_seconds)
         created_by_user_id: User creating the rule
         template_name: Optional template identifier
         send_window_start: Optional start time (HH:MM format)
         send_window_end: Optional end time (HH:MM format)
         is_active: Whether rule is active
+        provider: WhatsApp provider to use ("baileys" | "meta" | "auto")
+        delay_seconds: Seconds to wait after status change (NEW - preferred over delay_minutes)
     
     Returns:
         Created ScheduledMessageRule instance
     """
+    # Determine delay_seconds (prefer delay_seconds over delay_minutes)
+    if delay_seconds is None:
+        delay_seconds = delay_minutes * 60
+    
     # Validation
+    if delay_seconds < 0 or delay_seconds > 2592000:  # 0 seconds to 30 days
+        raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
+    
+    # Validate delay_minutes for backward compatibility
     if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
         raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
     
@@ -65,17 +77,23 @@ def create_rule(
     if len(statuses) != len(status_ids):
         raise ValueError("One or more status_ids are invalid or don't belong to this business")
     
+    # Validate provider
+    if provider not in ("baileys", "meta", "auto"):
+        raise ValueError("provider must be 'baileys', 'meta', or 'auto'")
+    
     # Create rule
     rule = ScheduledMessageRule(
         business_id=business_id,
         name=name,
         message_text=message_text,
         delay_minutes=delay_minutes,
+        delay_seconds=delay_seconds,
         created_by_user_id=created_by_user_id,
         template_name=template_name,
         send_window_start=send_window_start,
         send_window_end=send_window_end,
-        is_active=is_active
+        is_active=is_active,
+        provider=provider
     )
     
     db.session.add(rule)
@@ -102,10 +120,12 @@ def update_rule(
     message_text: Optional[str] = None,
     status_ids: Optional[List[int]] = None,
     delay_minutes: Optional[int] = None,
+    delay_seconds: Optional[int] = None,
     template_name: Optional[str] = None,
     send_window_start: Optional[str] = None,
     send_window_end: Optional[str] = None,
-    is_active: Optional[bool] = None
+    is_active: Optional[bool] = None,
+    provider: Optional[str] = None
 ) -> ScheduledMessageRule:
     """
     Update an existing scheduling rule
@@ -129,6 +149,18 @@ def update_rule(
         if delay_minutes < 1 or delay_minutes > 43200:
             raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
         rule.delay_minutes = delay_minutes
+        # Also update delay_seconds
+        rule.delay_seconds = delay_minutes * 60
+    if delay_seconds is not None:
+        if delay_seconds < 0 or delay_seconds > 2592000:
+            raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
+        rule.delay_seconds = delay_seconds
+        # Also update delay_minutes for backward compatibility
+        rule.delay_minutes = max(1, delay_seconds // 60)
+    if provider is not None:
+        if provider not in ("baileys", "meta", "auto"):
+            raise ValueError("provider must be 'baileys', 'meta', or 'auto'")
+        rule.provider = provider
     if template_name is not None:
         rule.template_name = template_name
     if send_window_start is not None:
@@ -225,6 +257,7 @@ def schedule_messages_for_lead_status_change(
     business_id: int,
     lead_id: int,
     new_status_id: int,
+    old_status_id: Optional[int] = None,
     changed_at: Optional[datetime] = None
 ):
     """
@@ -237,6 +270,7 @@ def schedule_messages_for_lead_status_change(
         business_id: Business ID for multi-tenant isolation
         lead_id: Lead that changed status
         new_status_id: New status ID
+        old_status_id: Previous status ID (optional, for tracking)
         changed_at: When the status changed (defaults to now)
     """
     if changed_at is None:
@@ -258,11 +292,20 @@ def schedule_messages_for_lead_status_change(
     
     logger.info(f"[SCHEDULED-MSG] Found {len(rules)} active rule(s) for lead {lead_id}, status {new_status_id}")
     
-    # Get lead details
-    lead = Lead.query.filter_by(id=lead_id, business_id=business_id).first()
+    # Get lead details with business info for template rendering
+    lead = db.session.query(Lead).join(Business).filter(
+        Lead.id == lead_id, 
+        Lead.business_id == business_id
+    ).first()
+    
     if not lead:
         logger.error(f"[SCHEDULED-MSG] Lead {lead_id} not found for business {business_id}")
         return
+    
+    # Get status info for template rendering
+    status = db.session.query(LeadStatus).filter_by(id=new_status_id).first()
+    status_name = status.name if status else "unknown"
+    status_label = status.label if status else "unknown"
     
     # Determine WhatsApp JID
     remote_jid = lead.whatsapp_jid or lead.reply_jid
@@ -284,29 +327,47 @@ def schedule_messages_for_lead_status_change(
     created_count = 0
     for rule in rules:
         try:
-            # Calculate scheduled_for time
-            scheduled_for = changed_at + timedelta(minutes=rule.delay_minutes)
+            # Render message template with variables
+            message_text = render_message_template(
+                template=rule.message_text,
+                lead=lead,
+                business=lead.business,
+                status_name=status_name,
+                status_label=status_label
+            )
             
-            # Create dedupe key: business:rule:lead:scheduled_timestamp
-            dedupe_key = f"{business_id}:{rule.id}:{lead_id}:{scheduled_for.isoformat()}"
+            # Calculate scheduled_for time using delay_seconds
+            delay_seconds = rule.delay_seconds or (rule.delay_minutes * 60)
+            scheduled_for = changed_at + timedelta(seconds=delay_seconds)
+            
+            # Create dedupe key: lead_status:{lead_id}:{rule_id}:{new_status_id}:{YYYYMMDDHHMM}
+            # Using minute-level granularity for deduplication
+            dedupe_timestamp = scheduled_for.strftime("%Y%m%d%H%M")
+            dedupe_key = f"lead_status:{lead_id}:{rule.id}:{new_status_id}:{dedupe_timestamp}"
+            
+            # Determine provider (from rule or business default)
+            provider = rule.provider or "baileys"
             
             # Try to create queue entry (ON CONFLICT DO NOTHING via dedupe_key)
             queue_entry = ScheduledMessagesQueue(
                 business_id=business_id,
                 rule_id=rule.id,
                 lead_id=lead_id,
-                message_text=rule.message_text,
+                channel='whatsapp',
+                provider=provider,
+                message_text=message_text,
                 remote_jid=remote_jid,
                 scheduled_for=scheduled_for,
                 status='pending',
-                dedupe_key=dedupe_key
+                dedupe_key=dedupe_key,
+                attempts=0
             )
             
             db.session.add(queue_entry)
             db.session.flush()  # This will raise if dedupe_key exists
             
             created_count += 1
-            logger.info(f"[SCHEDULED-MSG] Scheduled message {queue_entry.id} for lead {lead_id}, rule {rule.id}, send at {scheduled_for}")
+            logger.info(f"[SCHEDULED-MSG] Scheduled message {queue_entry.id} for lead {lead_id}, rule {rule.id}, send at {scheduled_for} via {provider}")
             
         except Exception as e:
             # Likely duplicate key violation - this is expected and OK
@@ -320,6 +381,50 @@ def schedule_messages_for_lead_status_change(
     if created_count > 0:
         db.session.commit()
         logger.info(f"[SCHEDULED-MSG] Created {created_count} scheduled message(s) for lead {lead_id}")
+
+
+def render_message_template(
+    template: str,
+    lead,
+    business,
+    status_name: str,
+    status_label: str
+) -> str:
+    """
+    Render message template with available variables
+    
+    Supported variables:
+    - {lead_name} - Lead's full name
+    - {phone} - Lead's phone number
+    - {business_name} - Business name
+    - {status} - Status label (user-friendly)
+    - {status_name} - Status name (technical)
+    
+    Args:
+        template: Message template with placeholders
+        lead: Lead object
+        business: Business object
+        status_name: Status technical name
+        status_label: Status user-friendly label
+    
+    Returns:
+        Rendered message text
+    """
+    # Build replacement dictionary
+    replacements = {
+        '{lead_name}': lead.full_name or lead.name or 'Customer',
+        '{phone}': lead.phone_e164 or lead.phone_raw or '',
+        '{business_name}': business.name if business else '',
+        '{status}': status_label,
+        '{status_name}': status_name
+    }
+    
+    # Apply replacements
+    rendered = template
+    for placeholder, value in replacements.items():
+        rendered = rendered.replace(placeholder, str(value))
+    
+    return rendered
 
 
 def claim_pending_messages(batch_size: int = 50) -> List[ScheduledMessagesQueue]:
