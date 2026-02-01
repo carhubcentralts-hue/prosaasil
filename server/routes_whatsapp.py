@@ -1170,11 +1170,26 @@ def baileys_webhook():
                     ask_continue_or_fresh = False
                 
                 # ✅ BUILD 119: Generate AI response with Agent SDK (real actions!)
+                # 🔥 FIX #2: Add intent routing - only use AgentKit for booking/rescheduling/canceling
                 # ✅ BUILD 170.1: Improved error handling - use DB prompt even on fallback!
                 # 🔥 BUILD 170.1: Clear any poisoned DB session before AI call!
                 # 🔥 FIX: Add explicit logging to show AgentKit is about to be invoked
-                log.info(f"[WA-AI-READY] ✅ Message passed all filters, invoking AgentKit now!")
+                log.info(f"[WA-AI-READY] ✅ Message passed all filters, determining routing...")
                 log.info(f"[WA-AI-READY] Parameters: business_id={business_id}, lead_id={lead.id}, from={from_number_e164}, jid={remote_jid[:30]}")
+                
+                # 🔥 FIX #2: Route based on intent
+                from server.services.ai_service import route_intent_hebrew
+                intent = route_intent_hebrew(message_text)
+                log.info(f"[WA-INTENT] Detected intent: {intent} for message: {message_text[:50]}...")
+                
+                # Determine if we should use AgentKit or regular response
+                use_agent = intent in ["book", "reschedule", "cancel"]
+                
+                if use_agent:
+                    log.info(f"[WA-ROUTING] ✅ Using AgentKit for intent={intent}")
+                else:
+                    log.info(f"[WA-ROUTING] ✅ Using regular AI response for intent={intent}")
+                
                 try:
                     db.session.rollback()
                 except:
@@ -1187,7 +1202,7 @@ def baileys_webhook():
                 ai_service = get_ai_service()
                 
                 # 🔥 BUILD 200 DEBUG: Log state before AI call
-                log.info(f"[WA-AI-START] About to call AI for jid={remote_jid[:30]}, lead_id={lead.id}")
+                log.info(f"[WA-AI-START] About to call AI for jid={remote_jid[:30]}, lead_id={lead.id}, use_agent={use_agent}")
                 
                 try:
                     # Build AI context with customer memory
@@ -1202,14 +1217,25 @@ def baileys_webhook():
                         'ask_continue_or_fresh': ask_continue_or_fresh  # 🆕 Should ask returning customer?
                     }
                     
-                    ai_response = ai_service.generate_response_with_agent(
-                        message=message_text,
-                        business_id=business_id,
-                        context=ai_context,
-                        channel='whatsapp',
-                        customer_phone=from_number_e164,
-                        customer_name=customer.name if customer else None
-                    )
+                    # 🔥 FIX #2: Route to appropriate AI method based on intent
+                    if use_agent:
+                        # Use AgentKit for booking/rescheduling/canceling
+                        ai_response = ai_service.generate_response_with_agent(
+                            message=message_text,
+                            business_id=business_id,
+                            context=ai_context,
+                            channel='whatsapp',
+                            customer_phone=from_number_e164,
+                            customer_name=customer.name if customer else None
+                        )
+                    else:
+                        # Use regular AI response for info/other intents
+                        ai_response = ai_service.generate_response(
+                            message=message_text,
+                            business_id=business_id,
+                            context=ai_context,
+                            channel='whatsapp'
+                        )
                     
                     # Handle dict response (text + actions) vs plain string
                     if isinstance(ai_response, dict):
@@ -1221,7 +1247,7 @@ def baileys_webhook():
                     ai_duration = time.time() - ai_start
                     log.info(f"[WA-AI-SUCCESS] AI generated response in {ai_duration:.2f}s, length={len(response_text) if response_text else 0}")
                 except Exception as e:
-                    logger.error(f"⚠️ Agent failed, trying regular AI response: {e}")
+                    logger.error(f"⚠️ AI call failed: {e}")
                     import traceback
                     traceback.print_exc()
                     

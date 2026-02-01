@@ -993,6 +993,42 @@ class AIService:
             if customer_name:
                 agent_context['customer_name'] = customer_name
             
+            # 🔥 FIX #4: Build enriched message with conversation history and memory
+            # This injects context directly into the message so the Agent SDK can see it
+            previous_messages = agent_context.get('previous_messages', [])
+            customer_memory = agent_context.get('customer_memory', '')
+            
+            # Build history context (last 10-12 messages)
+            history_text = ""
+            if previous_messages:
+                # Take last 12 messages for better context
+                recent_history = previous_messages[-12:] if len(previous_messages) > 12 else previous_messages
+                history_text = "\n".join(recent_history)
+                logger.info(f"[AGENTKIT] Including {len(recent_history)} previous messages in context")
+            
+            # Build enriched message with context
+            if history_text or customer_memory:
+                message_parts = []
+                
+                if history_text:
+                    message_parts.append("--- הקשר שיחה (אל תצטט) ---")
+                    message_parts.append(history_text)
+                    message_parts.append("")
+                
+                if customer_memory:
+                    message_parts.append("--- זיכרון לקוח ---")
+                    message_parts.append(customer_memory)
+                    message_parts.append("")
+                
+                message_parts.append("הודעת הלקוח:")
+                message_parts.append(message)
+                
+                enriched_message = "\n".join(message_parts)
+                logger.info(f"[AGENTKIT] Enriched message with history ({len(history_text)} chars) and memory ({len(customer_memory)} chars)")
+            else:
+                enriched_message = message
+                logger.info(f"[AGENTKIT] No history/memory to inject, using plain message")
+            
             # 🔥 CRITICAL FIX: Generate conversation_id for internal tracking only
             # OpenAI Agents SDK expects conversation IDs starting with 'conv' prefix
             # Since we can't use custom IDs, we rely on previous_messages in context for history
@@ -1000,7 +1036,7 @@ class AIService:
             # Generate conversation_id for monitoring/tracking purposes only
             conversation_id = self._generate_conversation_id(business_id, context, customer_phone)
             
-            logger.info(f"[AGENTKIT] 🔑 tracking_id={conversation_id}, message_preview='{message[:50]}...'")
+            logger.info(f"[AGENTKIT] 🔑 tracking_id={conversation_id}, message_preview='{enriched_message[:50]}...'")
             logger.info(f"[AGENTKIT] 📊 Context: business_id={business_id}, channel={channel}, "
                        f"has_previous_messages={bool(context and context.get('previous_messages'))}, "
                        f"previous_msg_count={len(context.get('previous_messages', []))}")
@@ -1010,7 +1046,7 @@ class AIService:
             # Context history is provided via previous_messages in agent_context instead
             agent_coroutine = runner.run(
                 agent, 
-                message,
+                enriched_message,  # 🔥 FIX #4: Pass enriched message instead of plain message
                 context=agent_context
                 # NOTE: conversation_id removed - OpenAI expects 'conv' prefix or generates its own
             )
