@@ -188,15 +188,19 @@ def summarize_conversation(
 {transcription}
 {business_context}{duration_context}
 
-הנחיות לסיכום:
+הנחיות לסיכום (חובה):
 1. כתוב רק את מה שנאמר בפועל - אל תמציא מידע
 2. סכם את תוכן השיחה בצורה קצרה וממוקדת
 3. ציין את המטרה או הנושא העיקרי של השיחה
 4. אם יש פעולה נדרשת - ציין אותה
-5. הסיכום צריך להיות בין 40-120 מילים
+5. הסיכום יכול להיות קצר (אפילו 20-30 מילים) אם השיחה קצרה, או ארוך יותר (עד 120 מילים) אם יש הרבה תוכן
 
-דוגמה לסיכום טוב:
-"שיחה לאישור הגעה לחתונה. הלקוח אישר שהוא מגיע לאירוע."
+דוגמאות לסיכומים טובים:
+- "שיחה לאישור הגעה לחתונה. הלקוח אישר שהוא מגיע לאירוע."
+- "תזכורת לפגישה מחר. הלקוח אישר."
+- "בדיקת זמינות למועד. הלקוח לא זמין בתאריך המוצע."
+
+חשוב: כתוב תמיד סיכום - גם אם השיחה קצרה מאוד!
 
 כתוב את הסיכום בעברית:
         
@@ -207,22 +211,24 @@ def summarize_conversation(
                     "role": "system", 
                     "content": """אתה מערכת לסיכום שיחות עסקיות בעברית.
 
-כתוב סיכום פשוט וברור של השיחה בעברית.
+כתוב תמיד סיכום פשוט וברור של השיחה בעברית - גם אם השיחה קצרה!
 כתוב רק את מה שנאמר בפועל - אל תמציא מידע.
 
-הסיכום צריך להיות בין 40-120 מילים.
+הסיכום יכול להיות קצר (20-30 מילים) או ארוך יותר (עד 120 מילים) - תלוי בתוכן השיחה.
 התמקד בתוכן העיקרי של השיחה.
 
 דוגמאות לסיכומים טובים:
 - "שיחה לאישור הגעה לחתונה. הלקוח אישר שהוא מגיע לאירוע."
 - "לקוח מבקש מידע על מוצר. הוסבר לו על המחיר והזמינות. הלקוח מעוניין לחזור אליו מחר."
 - "שיחת תזכורת לפגישה מחר בשעה 10. הלקוח אישר שהוא יגיע."
+- "תזכורת לפגישה. הלקוח אישר."
 
+חשוב: כתוב תמיד סיכום - גם אם השיחה קצרה מאוד!
 סכם את השיחה בצורה ברורה ופשוטה."""
                 },
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=400,
+            max_tokens=500,  # 🔥 FIX: Increased from 400 to 500 to ensure AI has enough tokens
             temperature=0.0  # 🔥 FIX: Temperature 0.0 for deterministic summaries
         )
         
@@ -231,12 +237,15 @@ def summarize_conversation(
             summary = summary.strip()
             word_count = len(summary.split())
             
-            # 🔥 FIX: Lower threshold to accept shorter summaries (from 50 to 30 words)
-            # Short calls naturally have short summaries
-            if word_count < 30:
-                log.warning(f"⚠️ Summary too short ({word_count} words) for {call_sid} - using fallback")
+            # 🔥 FIX: Accept ANY summary from AI - no minimum word count!
+            # The AI knows best what summary length is appropriate for each call
+            if not summary or len(summary) < 5:
+                # Only reject if completely empty or just 1-2 characters
+                log.warning(f"⚠️ Summary essentially empty for {call_sid} - using fallback")
                 return _fallback_summary(transcription)
-            elif word_count > 200:
+            
+            # Truncate if too long
+            if word_count > 200:
                 log.warning(f"⚠️ Summary too long ({word_count} words) for {call_sid} - truncating")
                 words = summary.split()
                 summary = " ".join(words[:180]) + "..."
