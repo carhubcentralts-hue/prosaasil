@@ -23,9 +23,6 @@ BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 log = logging.getLogger(__name__)
 
-# 🔥 FIX: Default fallback message for when business greeting is not available
-DEFAULT_FALLBACK_MESSAGE = "תודה על הפנייה. נציג יחזור אליך בהקדם."
-
 # BUILD 136: REMOVED hardcoded business_1 - now uses tenant_id_from_ctx() dynamically
 # Helper function to get tenant-specific auth directory
 def get_auth_dir(tenant_id: str) -> tuple:
@@ -1373,41 +1370,20 @@ def baileys_webhook():
                         )
                     except Exception as e2:
                         logger.error(f"⚠️ Regular AI also failed: {e2}")
-                        # ✅ Last resort - use business whatsapp_greeting or greeting_message
-                        try:
-                            from server.models_sql import Business
-                            business = Business.query.get(business_id)
-                            if business:
-                                # Use whatsapp_greeting first, then greeting_message, then name
-                                response_text = business.whatsapp_greeting or business.greeting_message or f"{business.name}" if business.name else ""
-                            else:
-                                response_text = None  # Don't send if no business
-                        except:
-                            response_text = None  # Don't send on error
-                        
-                        # 🔥 Guard: Don't send empty messages
-                        if not response_text or not response_text.strip():
-                            log.warning(f"⚠️ No fallback response available - skipping send")
-                            continue
+                        # 🔥 NO FALLBACK: If AI fails completely, don't send anything
+                        # The bot should ONLY respond based on the DB prompt, never hardcoded text
+                        log.error(f"[WA-ERROR] ❌ All AI methods failed - skipping message to avoid hardcoded response")
+                        log.error(f"[WA-ERROR] This preserves bot behavior according to DB prompt only")
+                        continue
                 
                 # 🔥 BUILD 200 DEBUG: Log before sending
                 log.info(f"[WA-SEND-DEBUG] reply_jid={reply_jid[:30]}, response_text_length={len(response_text) if response_text else 0}")
                 
                 # 🔥 CRITICAL: Verify response_text is not empty before sending
+                # If AI returned empty, skip sending (don't use fallback - only DB prompt matters)
                 if not response_text or response_text.isspace():
-                    log.error(f"[WA-ERROR] ❌ AgentKit returned empty response! Cannot send empty message.")
-                    # Try to send a fallback message instead of silence
-                    try:
-                        business = Business.query.get(business_id)
-                        if business:
-                            response_text = business.whatsapp_greeting or business.greeting_message or DEFAULT_FALLBACK_MESSAGE
-                        else:
-                            response_text = DEFAULT_FALLBACK_MESSAGE
-                        log.warning(f"[WA-WARN] Using fallback response: {response_text[:50]}...")
-                    except Exception as e:
-                        log.error(f"[WA-ERROR] Could not fetch fallback: {e}")
-                        log.error(f"[WA-ERROR] Skipping message - cannot send empty response")
-                        continue
+                    log.error(f"[WA-ERROR] ❌ AI returned empty response! Skipping send to preserve DB prompt behavior.")
+                    continue
                 
                 # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
                 # This ensures Android messages with @lid, @g.us, etc. get proper replies
