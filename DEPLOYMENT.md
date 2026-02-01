@@ -1,587 +1,349 @@
-# 🚀 ProSaaS Deployment Guide
+# Deployment Guide
 
-This guide covers deploying ProSaaS to different environments.
+This guide covers deploying ProSaaS to production environments.
 
----
+## Prerequisites
 
-## 📋 Table of Contents
+### Required
+- Docker & Docker Compose v2.x
+- PostgreSQL database (managed service recommended: Railway, Neon, Supabase)
+- Redis instance (optional, included in Docker setup)
+- Domain with SSL certificate
+- Minimum 2GB RAM, 2 vCPU per service
 
-1. [Development (Replit)](#development-replit)
-2. [Docker Deployment (VPS/Self-hosted)](#docker-deployment)
-3. [n8n Workflow Automation](#n8n-workflow-automation)
-4. [Cloud Run Deployment](#cloud-run-deployment)
-5. [Environment Variables](#environment-variables)
-6. [Troubleshooting](#troubleshooting)
+### External Services
+- **Twilio**: Voice calling (SIP/WebRTC)
+- **OpenAI**: AI conversation engine
+- **Google Cloud**: Speech-to-Text, Text-to-Speech (optional)
+- **Cloudflare R2 / S3**: Media storage (optional)
 
----
+## Production Architecture
 
-## 🛠️ Development (Replit)
-
-### Quick Start
-
-```bash
-# In Replit workspace - run both services
-honcho start -f Procfile
+```
+Internet
+   ↓
+Nginx (80/443) → Reverse Proxy
+   ↓
+   ├─→ Frontend (React SPA)
+   ├─→ API Service (Flask)
+   ├─→ Calls Service (WebSocket + AI)
+   ├─→ N8N (Workflow Automation)
+   └─→ Baileys (WhatsApp)
+       ↓
+   PostgreSQL Database
+   Redis (Background Jobs)
 ```
 
-This starts:
-- **Flask/ASGI** on port 5000
-- **Baileys** on port 3300
+## Step-by-Step Deployment
 
-### Manual Start
+### 1. Server Setup
 
 ```bash
-# Start backend only
-uvicorn asgi:app --host 0.0.0.0 --port 5000 --ws websockets
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-# Start Baileys (in separate terminal)
-cd services/whatsapp && node baileys_service.js
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+
+# Install Docker Compose
+sudo curl -L "https://github.com/docker/docker-compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
 ```
 
----
-
-## 🐳 Docker Deployment
-
-### Prerequisites
-
-- Docker & Docker Compose installed
-- Git repository cloned
-- OpenAI API key (required)
-- Twilio credentials (for phone calls)
-- **GCP credentials NOT required** - Uses OpenAI Realtime API by default!
-
-### Step 1: Clone & Setup
+### 2. Clone and Configure
 
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/prosaas.git
-cd prosaas
+git clone <repository-url>
+cd prosaasil
 
-# Copy environment template
+# Create environment file
 cp .env.example .env
-
-# Edit with your values
-nano .env
 ```
 
-### Step 2: Setup Docker Network
+### 3. Configure Environment Variables
 
-ProSaaS uses an external Docker network for service communication. Before starting the services, ensure the network exists:
+Edit `.env` with production values (see [ENVIRONMENT.md](./ENVIRONMENT.md)):
 
+**Critical Settings:**
 ```bash
-# Create the Docker network (if it doesn't exist)
-./scripts/ensure_docker_network.sh
+# Domain
+PUBLIC_HOST=https://your-domain.com
+PUBLIC_BASE_URL=https://your-domain.com
 
-# Or with a custom network name
-DOCKER_NETWORK_NAME=custom-net ./scripts/ensure_docker_network.sh
+# Database (use connection pooler for API, direct for migrations)
+DATABASE_URL_POOLER=postgresql://user:pass@host.pooler.supabase.com:5432/db
+DATABASE_URL_DIRECT=postgresql://user:pass@host.db.supabase.com:5432/db
+
+# Security
+SECRET_KEY=<generate-random-64-char-string>
+JWT_SECRET_KEY=<generate-random-64-char-string>
+
+# APIs
+OPENAI_API_KEY=sk-...
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
 ```
 
-This step is **required** before running `docker compose up` for the first time.
+Generate secure keys:
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
 
-### Step 3: Build & Run
+### 4. SSL Certificates
+
+Place SSL certificates in `docker/nginx/ssl/`:
 
 ```bash
-# Build all images
-docker compose build
+mkdir -p docker/nginx/ssl
+# Copy your certificates
+cp /path/to/cert.pem docker/nginx/ssl/
+cp /path/to/key.pem docker/nginx/ssl/
+```
 
-# Start all services
-docker compose up -d
+Or use Let's Encrypt:
+```bash
+sudo certbot certonly --standalone -d your-domain.com
+sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem docker/nginx/ssl/cert.pem
+sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem docker/nginx/ssl/key.pem
+```
 
-# Check status
-docker compose ps
+### 5. Build Docker Images
+
+```bash
+# Build all production images
+docker compose -f docker-compose.prod.yml build
+
+# This will build:
+# - Backend API (Python/Flask)
+# - Frontend (React/Vite)
+# - Worker (Background jobs)
+# - Baileys (WhatsApp service)
+# - N8N (Workflow automation)
+# - Nginx (Reverse proxy)
+```
+
+### 6. Run Database Migrations
+
+```bash
+# Ensure database is accessible
+docker compose -f docker-compose.prod.yml run --rm migrate
+
+# Verify migrations completed
+docker compose -f docker-compose.prod.yml logs migrate
+```
+
+### 7. Start Production Services
+
+```bash
+# Start with production profile
+docker compose -f docker-compose.prod.yml --profile prod up -d
+
+# Check all services are healthy
+docker compose -f docker-compose.prod.yml ps
 
 # View logs
-docker compose logs -f
+docker compose -f docker-compose.prod.yml logs -f
 ```
 
-### Step 4: Verify
+### 8. Verify Deployment
 
 ```bash
-# Check backend health
-curl http://localhost:5000/health
+# Health checks
+curl https://your-domain.com/health
+curl https://your-domain.com/api/health
 
-# Check Baileys health
-curl http://localhost:3300/health
-
-# Check frontend (nginx)
-curl http://localhost/health
-
-# Or from inside nginx container
-docker exec nginx wget -qO- http://localhost/health
+# Check service status
+docker compose -f docker-compose.prod.yml exec prosaas-api python -c "from server import db; print(db.engine.url)"
 ```
 
-### Important: Nginx Health Check
+## Docker Compose Profiles
 
-The nginx service uses **wget** for healthchecks (not curl). This is because:
-- nginx:alpine base image includes wget by default
-- Dockerfile.nginx ensures wget is available
-- Health endpoint at `/health` returns immediately (no backend dependency)
+The application uses profiles to separate development and production services:
 
-This ensures nginx becomes healthy within 20 seconds of startup.
-
-### Image Split: Light vs Heavy
-
-ProSaaS uses **two different backend images** for optimal resource usage:
-
-1. **Dockerfile.backend.light** - Used by API and Calls services
-   - No Playwright/Chromium installation
-   - Smaller image size (~400MB less)
-   - Faster startup time
-   - Lower memory footprint
-   - Lower attack surface
-
-2. **Dockerfile.backend** - Used by Worker service only
-   - Includes Playwright/Chromium
-   - Required for Gmail receipt sync (HTML screenshots)
-   - Required for receipt previews
-   - Handles all heavy background processing
-
-**Why this split?**
-- API and Calls services don't need browser automation
-- Worker service handles all receipt processing via RQ queues
-- Reduces memory usage by ~300-500MB per service instance
-- Faster deployment and scaling for API/Calls
-
-**Verification:**
+**Development** (default):
 ```bash
-# Check image sizes
-docker images | grep prosaas
-
-# Verify services are running
-docker compose ps
-
-# Check that worker has Playwright
-docker exec worker python -c "from playwright.sync_api import sync_playwright; print('✅ Playwright available')"
-
-# Check that api/calls don't have Playwright (should fail gracefully)
-docker exec prosaas-api python -c "try: from playwright.sync_api import sync_playwright; print('❌ Should not have Playwright'); except ImportError: print('✅ No Playwright (expected)')"
+docker compose up
 ```
+Starts: nginx, redis, postgres, backend, frontend, worker, baileys, n8n
 
-### Production with Managed Database
+**Production**:
+```bash
+docker compose --profile prod up
+```
+Starts: nginx, redis, migrate, prosaas-api, prosaas-calls, frontend, worker, baileys, n8n
 
-If using an external managed database (Railway, Neon, Supabase, etc.):
+## Nginx Configuration
+
+The Nginx reverse proxy handles:
+- SSL termination
+- Request routing to services
+- Static file serving
+- WebSocket proxying for real-time features
+
+Routes:
+- `/` → Frontend (React SPA)
+- `/api/*` → Backend API
+- `/ws/calls/*` → WebSocket calls service
+- `/n8n/*` → N8N workflow UI
+
+## Database Migrations
+
+**Important**: Always run migrations before deploying new code.
 
 ```bash
-# Use production overrides (skips local PostgreSQL)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Run migrations
+docker compose -f docker-compose.prod.yml run --rm migrate
+
+# Rollback (if needed)
+# Migrations are forward-only; rollback requires restore from backup
 ```
 
-### SSL/TLS Setup (Production)
+### Migration Guidelines
+- Use `DATABASE_URL_DIRECT` for migrations (not pooler)
+- Migrations run automatically in Docker via the `migrate` service
+- Never run migrations concurrently
+- Always backup database before migrations
 
-For HTTPS in production, you need SSL certificates:
+## Background Workers
+
+The worker service processes:
+- Call recordings and transcriptions
+- Email sending (Gmail integration)
+- WhatsApp message broadcasting
+- Scheduled notifications
+- Receipt processing
+
+Worker runs via Redis Queue (RQ):
+```bash
+# Scale workers
+docker compose -f docker-compose.prod.yml up -d --scale worker=3
+
+# Monitor worker jobs
+docker compose -f docker-compose.prod.yml exec worker python -m rq info
+```
+
+## Monitoring and Logs
 
 ```bash
-# Create certs directory
-mkdir -p certs
+# View logs for all services
+docker compose -f docker-compose.prod.yml logs -f
 
-# Option 1: Let's Encrypt (recommended for production)
-sudo certbot certonly --standalone -d prosaas.pro
-cp /etc/letsencrypt/live/prosaas.pro/fullchain.pem ./certs/
-cp /etc/letsencrypt/live/prosaas.pro/privkey.pem ./certs/
+# View specific service logs
+docker compose -f docker-compose.prod.yml logs -f prosaas-api
+docker compose -f docker-compose.prod.yml logs -f worker
 
-# Option 2: Self-signed (for testing only)
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout ./certs/privkey.pem \
-  -out ./certs/fullchain.pem \
-  -subj "/CN=localhost"
+# Check resource usage
+docker stats
 ```
 
-The production compose file will use these certificates automatically.
+## Backup and Restore
 
-### Useful Commands
-
+### Database Backup
 ```bash
-# Stop all services
-docker compose down
+# Backup PostgreSQL
+docker compose -f docker-compose.prod.yml exec postgres pg_dump -U prosaas prosaas > backup_$(date +%Y%m%d).sql
 
-# Restart specific service
-docker compose restart backend
-
-# View logs for specific service
-docker compose logs -f backend
-
-# Rebuild and restart
-docker compose up -d --build
-
-# Clean everything (including volumes)
-docker compose down -v
+# Or for external database
+pg_dump $DATABASE_URL_DIRECT > backup_$(date +%Y%m%d).sql
 ```
 
-### Service Ports
-
-| Service   | Internal Port | External Port | Description                    |
-|-----------|---------------|---------------|--------------------------------|
-| Frontend  | 80            | 80            | Nginx serving React app        |
-| Backend   | 5000          | 5000          | Flask/ASGI API + WebSockets    |
-| Baileys   | 3300          | 3300          | WhatsApp Baileys service       |
-| Database  | 5432          | 5432          | PostgreSQL (local only)        |
-
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Docker Compose                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Frontend   │  │   Backend    │  │   Baileys    │      │
-│  │   (Nginx)    │──│ (Flask/ASGI) │──│  (Node.js)   │      │
-│  │   :80        │  │   :5000      │  │   :3300      │      │
-│  └──────────────┘  └──────┬───────┘  └──────────────┘      │
-│                           │                                 │
-│                    ┌──────┴───────┐                        │
-│                    │  PostgreSQL  │                        │
-│                    │    :5432     │                        │
-│                    └──────────────┘                        │
-└─────────────────────────────────────────────────────────────┘
-              │              │              │
-              ▼              ▼              ▼
-         External:       External:      External:
-          OpenAI         Twilio      Google Cloud
-```
-
-### WhatsApp QR Code
-
-After starting, get the WhatsApp QR code:
-
+### Restore
 ```bash
-# Check Baileys logs for QR code
-docker compose logs baileys
-
-# Or via API
-curl http://localhost:3300/qr
+# Restore PostgreSQL
+psql $DATABASE_URL_DIRECT < backup_20240101.sql
 ```
 
-Scan the QR code with your WhatsApp mobile app to connect.
+## Scaling
 
----
-
-## 🔄 n8n Workflow Automation
-
-n8n is integrated as a workflow automation platform for ProSaaS. It enables custom automation flows triggered by WhatsApp messages, calls, leads, and other events.
-
-### Overview
-
-| Feature | Description |
-|---------|-------------|
-| Service Name | `n8n` |
-| Internal Port | 5678 |
-| External URL | `https://prosaas.pro/n8n` |
-| Webhook URL | `https://prosaas.pro/n8n/webhook/<workflow-id>` |
-
-⚠️ **Note**: n8n runs only in Docker deployment (VPS), not in Replit.
-
-### Environment Variables
-
+### Horizontal Scaling
 ```bash
-# n8n Server Settings
-N8N_PORT=5678                    # Port for n8n UI
-N8N_USER=admin                   # Username for n8n UI
-N8N_PASSWORD=secure_password     # Password for n8n UI
-TZ=Asia/Jerusalem               # Timezone
+# Scale API service
+docker compose -f docker-compose.prod.yml up -d --scale prosaas-api=3
 
-# n8n Integration (Backend → n8n events)
-N8N_ENABLED=true                                           # Enable event sending
-N8N_WEBHOOK_URL=https://prosaas.pro/n8n/webhook/abc123     # Your workflow webhook
-N8N_WEBHOOK_SECRET=your_secret_token                        # Security token
+# Scale workers
+docker compose -f docker-compose.prod.yml up -d --scale worker=5
 ```
 
-### Quick Start (Docker)
+### Vertical Scaling
+Edit `docker-compose.prod.yml` to adjust resource limits:
+```yaml
+services:
+  prosaas-api:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+```
 
-1. **Add n8n environment variables to `.env`**
+## Troubleshooting
 
-2. **Start with Docker Compose** (n8n starts automatically):
+### Service won't start
 ```bash
-docker compose up -d
-```
-
-3. **Access n8n UI**:
-   - Open `https://prosaas.pro/n8n`
-   - Login with `N8N_USER` / `N8N_PASSWORD`
-
-4. **Create a workflow**:
-   - Add **Webhook** trigger node
-   - Copy the webhook URL
-   - Set `N8N_WEBHOOK_URL` in `.env` to this URL
-   - Set `N8N_ENABLED=true`
-
-### Event Types
-
-The backend automatically sends these events to n8n:
-
-| Event Type | Trigger | Payload |
-|------------|---------|---------|
-| `whatsapp_incoming` | Customer sends WhatsApp message | `from`, `message`, `business_id`, `lead_id`, `lead_name` |
-| `whatsapp_outgoing` | AI/System sends WhatsApp response | `to`, `message`, `business_id`, `lead_id`, `is_ai_response` |
-| `call_started` | Phone call begins | `phone`, `business_id`, `call_sid` |
-| `call_ended` | Phone call ends | `phone`, `business_id`, `duration_seconds`, `summary` |
-| `lead_created` | New lead created | `lead_id`, `phone`, `name`, `business_id`, `source` |
-| `appointment_created` | Appointment scheduled | `appointment_id`, `lead_id`, `datetime`, `business_id` |
-
-### Example Payload (WhatsApp Incoming)
-
-```json
-{
-  "event_type": "whatsapp_incoming",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "source": "prosaas",
-  "from": "+972501234567",
-  "message": "שלום, אני מעוניין לקבוע פגישה",
-  "business_id": "1",
-  "lead_id": 42,
-  "lead_name": "ישראל ישראלי",
-  "direction": "incoming"
-}
-```
-
-### Security
-
-1. **n8n UI Authentication**: Protected by `N8N_USER` / `N8N_PASSWORD`
-
-2. **Webhook Token**: Add `?token=your_secret` to verify requests:
-   - Set `N8N_WEBHOOK_SECRET=your_secret` in `.env`
-   - The backend automatically adds `?token=...` to webhook requests
-   - Configure n8n to validate the token in your workflow
-
-3. **CORS**: Pre-configured in nginx for:
-   - `https://*.replit.app`
-   - `https://*.replit.dev`
-   - Your custom domain (`PUBLIC_BASE_URL`)
-
-### Integration Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Docker Compose                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Frontend   │  │   Backend    │──│     n8n      │      │
-│  │   (Nginx)    │  │ (Flask/ASGI) │  │  (Workflows) │      │
-│  │   :80        │  │   :5000      │  │   :5678      │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-│         │                  │                  │             │
-│         └──────────────────┴──────────────────┘             │
-│                            │                                │
-│                     ┌──────┴───────┐                        │
-│                     │   WhatsApp   │                        │
-│                     │   Events     │                        │
-│                     │   ──────►    │                        │
-│                     │   n8n Hooks  │                        │
-│                     └──────────────┘                        │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Use Cases
-
-- **Lead Notifications**: Send Slack/Email when new lead arrives
-- **CRM Integration**: Sync leads to external CRM (Salesforce, HubSpot)
-- **Custom Responses**: Trigger specific workflows based on keywords
-- **Appointment Reminders**: Send reminders via additional channels
-- **Analytics**: Push data to Google Sheets, Airtable, etc.
-
-### Troubleshooting
-
-**n8n not accessible**:
-```bash
-# Check if container is running
-docker compose ps n8n
-
 # Check logs
-docker compose logs n8n
-```
+docker compose -f docker-compose.prod.yml logs <service-name>
 
-**Events not arriving**:
-```bash
-# Check N8N_ENABLED is true
-echo $N8N_ENABLED
-
-# Check webhook URL is correct
-echo $N8N_WEBHOOK_URL
-
-# Check backend logs for n8n events
-docker compose logs backend | grep N8N
-```
-
----
-
-## ☁️ Cloud Run Deployment
-
-### Overview
-
-Deploy Flask/ASGI to Cloud Run with external Baileys service.
-
-### Required Environment Variables
-
-```bash
-BAILEYS_BASE_URL=https://your-baileys-service.com
-DATABASE_URL=postgresql://...
-OPENAI_API_KEY=sk-...
-GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON={...}
-INTERNAL_SECRET=...
-```
-
-### Deployment Command
-
-```bash
-# In Replit
-replit deploy
-
-# The deployment will:
-# 1. Skip Baileys installation (BAILEYS_BASE_URL is set)
-# 2. Start only Flask/ASGI on port $PORT
-# 3. Use external Baileys service
-```
-
-### How it Works
-
-The `start_production.sh` script checks for `BAILEYS_BASE_URL`:
-
-- **If SET**: Skip Baileys, use external service → ✅ Cloud Run compatible
-- **If NOT SET**: Start Baileys locally → ⚠️ Development only
-
-### Testing Deployment
-
-```bash
 # Check health
-curl https://your-app.run.app/health
+docker compose -f docker-compose.prod.yml ps
 
-# Check warmup status
-curl https://your-app.run.app/warmup
-
-# Check version
-curl https://your-app.run.app/version
+# Restart service
+docker compose -f docker-compose.prod.yml restart <service-name>
 ```
 
----
+### Database connection issues
+- Verify `DATABASE_URL_POOLER` is correct
+- Check database server is accessible
+- Ensure SSL mode matches database provider
+- For Supabase: Use pooler URL for API, direct URL for migrations
 
-## 🔐 Environment Variables
+### Migration failures
+- Check `DATABASE_URL_DIRECT` is correct (not pooler)
+- Ensure no concurrent migrations
+- Review migration logs: `docker compose logs migrate`
 
-### Required
+## Security Checklist
 
-| Variable                 | Description                              | Example                        |
-|--------------------------|------------------------------------------|--------------------------------|
-| `DATABASE_URL`           | PostgreSQL connection string             | `postgresql://user:pass@host/db` |
-| `OPENAI_API_KEY`         | OpenAI API key                           | `sk-...`                       |
-| `TWILIO_ACCOUNT_SID`     | Twilio Account SID                       | `AC...`                        |
-| `TWILIO_AUTH_TOKEN`      | Twilio Auth Token                        | `...`                          |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to GCP credentials JSON    | `/app/credentials/gcp.json`    |
+- [ ] All secrets in `.env` (not in code)
+- [ ] SSL certificates installed and valid
+- [ ] Firewall configured (allow 80, 443 only)
+- [ ] Database uses strong passwords
+- [ ] Regular backups configured
+- [ ] Monitoring and alerting setup
+- [ ] Rate limiting enabled
+- [ ] CSRF protection active
 
-### Optional
-
-| Variable           | Default                | Description                   |
-|--------------------|------------------------|-------------------------------|
-| `TTS_VOICE`        | `he-IL-Standard-A`     | Google TTS voice              |
-| `TTS_RATE`         | `1.0`                  | Speech rate                   |
-| `TTS_PITCH`        | `0.0`                  | Voice pitch                   |
-| `INTERNAL_SECRET`  | (auto-generated)       | Internal API security token   |
-| `FLASK_ENV`        | `production`           | Flask environment             |
-
-See `.env.example` for the complete list.
-
----
-
-## 🔧 Troubleshooting
-
-### Docker Issues
-
-**Error: Port already in use**
-```bash
-# Check what's using the port
-lsof -i :5000
-
-# Kill the process or change port in .env
-BACKEND_PORT=8000
-```
-
-**Error: Database connection failed**
-```bash
-# Check if PostgreSQL is running
-docker compose ps db
-
-# Check database logs
-docker compose logs db
-
-# Restart database
-docker compose restart db
-```
-
-**Error: WhatsApp not connecting**
-```bash
-# Check Baileys logs
-docker compose logs baileys
-
-# Restart Baileys
-docker compose restart baileys
-
-# Remove auth and re-scan QR
-rm -rf storage/whatsapp/*
-docker compose restart baileys
-```
-
-### Cloud Run Issues
-
-**Error: "multiple ports exposed"**
-- Cloud Run only uses port 5000. This warning is normal.
-
-**Error: "multiple services"**
-- Set `BAILEYS_BASE_URL` to use external Baileys service.
-
-**Error: "localhost not accessible"**
-- Cloud Run doesn't support localhost. Use external services.
-
----
-
-## 📊 Monitoring
-
-### Health Endpoints
+## Updates and Maintenance
 
 ```bash
-# Backend
-curl http://localhost:5000/health
-
-# Baileys
-curl http://localhost:3300/health
-
-# Frontend
-curl http://localhost/health
-```
-
-### Logs
-
-```bash
-# All services
-docker compose logs -f
-
-# Specific service
-docker compose logs -f backend
-docker compose logs -f baileys
-```
-
----
-
-## 🔄 Updates
-
-### Updating the Application
-
-```bash
-# Pull latest code
+# Pull latest changes
 git pull origin main
 
-# Rebuild and restart
-docker compose up -d --build
+# Rebuild images
+docker compose -f docker-compose.prod.yml build
+
+# Run migrations
+docker compose -f docker-compose.prod.yml run --rm migrate
+
+# Restart services with zero-downtime
+docker compose -f docker-compose.prod.yml up -d --no-deps --build prosaas-api
 ```
 
-### Database Migrations
+## Environment-Specific Notes
 
-Migrations run automatically on startup. If needed manually:
+### Railway
+- Use Railway PostgreSQL plugin
+- Set `DATABASE_URL` from Railway
+- Configure custom domain in Railway settings
 
-```bash
-docker compose exec backend python -c "from server.db import db; db.create_all()"
-```
+### AWS / DigitalOcean
+- Use managed PostgreSQL (RDS/Managed Databases)
+- Configure security groups for ports 80, 443
+- Use load balancer for multiple instances
 
----
-
-## 📞 Support
-
-For issues:
-1. Check logs: `docker compose logs -f`
-2. Check health endpoints
-3. Review environment variables
-4. Check GitHub issues
+### Supabase
+- **Critical**: Use separate pooler and direct URLs
+- Pooler for API: `*.pooler.supabase.com`
+- Direct for migrations: `*.db.supabase.com`
+- Enable connection pooling in Supabase settings
