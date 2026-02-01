@@ -462,7 +462,7 @@ export function CalendarPage() {
     const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
     const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
     const matchesCalendar = filterCalendar === 'all' || 
-      (appointment.calendar_id && appointment.calendar_id.toString() === filterCalendar);
+      (appointment.calendar_id && appointment.calendar_id === parseInt(filterCalendar));
     
     // ✅ BUILD 144 + 170: Date filter - single date or date range
     let matchesDate = true;
