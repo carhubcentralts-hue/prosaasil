@@ -819,6 +819,11 @@ def baileys_webhook():
                         f"remoteJidAlt={(remote_jid_alt or '')[:30]}, "
                         f"phone_e164={from_number_e164}, external_id={(customer_external_id or '')[:30]}")
                 
+                # 🔥 FIX #3: Create unified conversation_key for consistent history tracking
+                # This prevents context loss in LID/Android conversations where from_number_e164 can be None
+                conversation_key = phone_for_ai_check or from_number_e164 or remote_jid
+                log.info(f"[WA-CONTEXT] Using conversation_key={conversation_key[:30]} for history/state tracking")
+                
                 # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
                 # Different devices send messages in different formats:
                 # - iPhone: usually uses 'conversation'
@@ -883,10 +888,11 @@ def baileys_webhook():
                 # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!
                 # Sometimes Baileys sends bot's outbound messages back as "incoming"
                 # 🔥 BUILD 180: Check both 'out' and 'outbound' for backwards compatibility
+                # 🔥 FIX #3: Use conversation_key for echo detection
                 # 🔥 FIX: Only check for EXACT match, not substring, to avoid false positives
                 recent_outbound = WhatsAppMessage.query.filter(
                     WhatsAppMessage.business_id == business_id,
-                    WhatsAppMessage.to_number == from_number_e164,
+                    WhatsAppMessage.to_number == conversation_key,  # 🔥 FIX #3: Use conversation_key
                     WhatsAppMessage.direction.in_(['out', 'outbound'])
                 ).order_by(WhatsAppMessage.created_at.desc()).first()
                 
@@ -899,7 +905,7 @@ def baileys_webhook():
                         # Check if message content is EXACTLY the same (exact echo)
                         # 🔥 FIX: Changed from "message_text in recent_outbound.body" to equality check
                         if recent_outbound.body and message_text.strip() == recent_outbound.body.strip():
-                            logger.info(f"🚫 LOOP PREVENTED: Ignoring exact echo of our own message to {from_number_e164}")
+                            logger.info(f"🚫 LOOP PREVENTED: Ignoring exact echo of our own message to {conversation_key[:30]}")
                             log.warning(f"🚫 Ignoring bot echo (exact match): {message_text[:50]}...")
                             continue
                 
@@ -975,6 +981,7 @@ def baileys_webhook():
                         continue
                 
                 # Second check: remote_jid + timestamp (for messages without message_id)
+                # 🔥 FIX #3: Use conversation_key for deduplication
                 if not existing_msg and remote_jid and timestamp_ms:
                     # Allow 1-second tolerance for timestamp matching
                     timestamp_dt = datetime.utcfromtimestamp(timestamp_ms)
@@ -982,7 +989,7 @@ def baileys_webhook():
                     
                     existing_msg = WhatsAppMessage.query.filter(
                         WhatsAppMessage.business_id == business_id,
-                        WhatsAppMessage.to_number == from_number_e164,
+                        WhatsAppMessage.to_number == conversation_key,  # 🔥 FIX #3: Use conversation_key
                         WhatsAppMessage.created_at >= timestamp_dt - time_tolerance,
                         WhatsAppMessage.created_at <= timestamp_dt + time_tolerance,
                         WhatsAppMessage.direction.in_(['in', 'inbound'])
@@ -993,10 +1000,11 @@ def baileys_webhook():
                         continue
                 
                 # Third check: body content + phone within 10 seconds (fallback)
+                # 🔥 FIX #3: Use conversation_key for deduplication
                 if not existing_msg:
                     existing_msg = WhatsAppMessage.query.filter(
                         WhatsAppMessage.business_id == business_id,
-                        WhatsAppMessage.to_number == from_number_e164,
+                        WhatsAppMessage.to_number == conversation_key,  # 🔥 FIX #3: Use conversation_key
                         WhatsAppMessage.body == message_text,
                         WhatsAppMessage.direction.in_(['in', 'inbound'])
                     ).order_by(WhatsAppMessage.created_at.desc()).first()
@@ -1011,7 +1019,7 @@ def baileys_webhook():
                 # Use ON CONFLICT DO NOTHING pattern for race condition protection
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
-                wa_msg.to_number = from_number_e164  # E.164 format for database consistency
+                wa_msg.to_number = conversation_key  # 🔥 FIX #3: Use unified conversation_key instead of from_number_e164
                 wa_msg.body = message_text
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'in'  # 🔥 BUILD 180: Consistent 'in'/'out' values
@@ -1036,7 +1044,7 @@ def baileys_webhook():
                 try:
                     update_session_activity(
                         business_id=business_id,
-                        customer_wa_id=from_number_e164,
+                        customer_wa_id=conversation_key,  # 🔥 FIX #3: Use conversation_key
                         direction="in",
                         provider="baileys"
                     )
@@ -1061,27 +1069,25 @@ def baileys_webhook():
                     log.warning(f"⚠️ Appointment check failed: {e}")
                 
                 # ✅ BUILD 152: Check if AI is enabled for this conversation
-                # 🔥 FIX: Use phone_for_ai_check (remoteJid) instead of from_number_e164 for @lid messages
+                # 🔥 FIX #3: Use conversation_key for consistent state management
                 ai_enabled = True  # Default to enabled
                 try:
                     from server.models_sql import WhatsAppConversationState
-                    # Use phone_for_ai_check if available, otherwise use from_number_e164
-                    check_phone = phone_for_ai_check if 'phone_for_ai_check' in locals() else from_number_e164
                     
-                    if not check_phone:
-                        log.warning(f"[WA-INCOMING] No phone identifier for AI check - defaulting to enabled")
+                    if not conversation_key:
+                        log.warning(f"[WA-INCOMING] No conversation_key for AI check - defaulting to enabled")
                         ai_enabled = True  # Explicitly set to True
                     else:
                         conv_state = WhatsAppConversationState.query.filter_by(
                             business_id=business_id,
-                            phone=check_phone
+                            phone=conversation_key  # 🔥 FIX #3: Use conversation_key
                         ).first()
                         if conv_state:
                             ai_enabled = conv_state.ai_active
-                            log.info(f"[WA-INCOMING] 🤖 AI state for {check_phone}: {'✅ ENABLED' if ai_enabled else '❌ DISABLED'}")
+                            log.info(f"[WA-INCOMING] 🤖 AI state for {conversation_key[:30]}: {'✅ ENABLED' if ai_enabled else '❌ DISABLED'}")
                         else:
                             ai_enabled = True  # Explicitly set to True when no state found
-                            log.info(f"[WA-INCOMING] 🤖 No AI state found for {check_phone} - defaulting to ENABLED")
+                            log.info(f"[WA-INCOMING] 🤖 No AI state found for {conversation_key[:30]} - defaulting to ENABLED")
                 except Exception as e:
                     ai_enabled = True  # Explicitly set to True on error
                     log.warning(f"[WA-WARN] Could not check AI state: {e}")
@@ -1089,19 +1095,20 @@ def baileys_webhook():
                 # If AI is disabled, skip sending any response
                 # User requirement: When AI is OFF, don't send ANY message at all
                 if not ai_enabled:
-                    log.info(f"[WA-INCOMING] 🚫 AI disabled for {check_phone if 'check_phone' in locals() else from_number_e164} - skipping response (no message sent)")
+                    log.info(f"[WA-INCOMING] 🚫 AI disabled for {conversation_key[:30]} - skipping response (no message sent)")
                     msg_duration = time.time() - msg_start
                     log.info(f"[WA-INCOMING] Message processed (AI disabled, no response) in {msg_duration:.2f}s")
                     continue
                 
                 # ✅ FIX: Load conversation history for AI context (20 messages for better context)
+                # 🔥 FIX #3: Use conversation_key for consistent history loading
                 # 🔥 IMPORTANT: Even though OpenAI Agents SDK manages history via conversation_id,
                 # we still pass previous_messages for fallback and context enrichment
                 previous_messages = []
                 try:
                     recent_msgs = WhatsAppMessage.query.filter_by(
                         business_id=business_id,
-                        to_number=from_number_e164
+                        to_number=conversation_key  # 🔥 FIX #3: Use conversation_key
                     ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
                     
                     # Format as conversation (reversed to chronological order)

@@ -204,38 +204,45 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                     from sqlalchemy import text
                     from server.db import db
                     
-                    # 🔥 BUILD 309: Use raw SQL to avoid ORM column mapping issues
-                    # This prevents errors when new columns are added to model but not yet in DB
-                    settings_row = None
-                    try:
-                        result = db.session.execute(text(
-                            "SELECT ai_prompt FROM business_settings WHERE tenant_id = :bid LIMIT 1"
-                        ), {"bid": business_id})
-                        row = result.fetchone()
-                        if row:
-                            settings_row = {"ai_prompt": row[0]}
-                    except Exception as sql_err:
-                        logger.warning(f"⚠️ [BUILD 309] Raw SQL fallback for prompt: {sql_err}")
-                    
                     business = Business.query.filter_by(id=business_id).first()
-                    if settings_row and settings_row.get("ai_prompt"):
-                        import json
+                    
+                    # 🔥 FIX #1: For WhatsApp, prioritize business.whatsapp_system_prompt
+                    if channel == "whatsapp" and business and business.whatsapp_system_prompt:
+                        custom_instructions = business.whatsapp_system_prompt
+                        logger.info(f"✅ Using dedicated WhatsApp prompt for business={business_id}")
+                    else:
+                        # Fallback to BusinessSettings.ai_prompt (JSON format)
+                        # 🔥 BUILD 309: Use raw SQL to avoid ORM column mapping issues
+                        # This prevents errors when new columns are added to model but not yet in DB
+                        settings_row = None
                         try:
-                            prompt_data = json.loads(settings_row["ai_prompt"])
-                            if isinstance(prompt_data, dict):
-                                # Extract channel-specific prompt
-                                if channel == "whatsapp":
-                                    custom_instructions = prompt_data.get('whatsapp', '')
+                            result = db.session.execute(text(
+                                "SELECT ai_prompt FROM business_settings WHERE tenant_id = :bid LIMIT 1"
+                            ), {"bid": business_id})
+                            row = result.fetchone()
+                            if row:
+                                settings_row = {"ai_prompt": row[0]}
+                        except Exception as sql_err:
+                            logger.warning(f"⚠️ [BUILD 309] Raw SQL fallback for prompt: {sql_err}")
+                        
+                        if settings_row and settings_row.get("ai_prompt"):
+                            import json
+                            try:
+                                prompt_data = json.loads(settings_row["ai_prompt"])
+                                if isinstance(prompt_data, dict):
+                                    # Extract channel-specific prompt
+                                    if channel == "whatsapp":
+                                        custom_instructions = prompt_data.get('whatsapp', '')
+                                    else:
+                                        custom_instructions = prompt_data.get('calls', '')
                                 else:
-                                    custom_instructions = prompt_data.get('calls', '')
-                            else:
+                                    # Legacy single prompt
+                                    custom_instructions = settings_row["ai_prompt"]
+                            except json.JSONDecodeError:
                                 # Legacy single prompt
                                 custom_instructions = settings_row["ai_prompt"]
-                        except json.JSONDecodeError:
-                            # Legacy single prompt
-                            custom_instructions = settings_row["ai_prompt"]
-                    else:
-                        logger.warning(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings_row={settings_row is not None}")
+                        else:
+                            logger.warning(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings_row={settings_row is not None}")
                 except Exception as e:
                     logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}")
                     custom_instructions = None
