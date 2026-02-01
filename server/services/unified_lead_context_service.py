@@ -238,11 +238,7 @@ class UnifiedLeadContextService:
             notes_query = LeadNote.query.filter(
                 LeadNote.lead_id == lead.id,
                 LeadNote.tenant_id == self.business_id,
-                db.or_(
-                    LeadNote.note_type == 'call_summary',
-                    LeadNote.note_type == 'system',
-                    LeadNote.note_type == 'customer_service_ai'
-                )
+                LeadNote.note_type.in_(['call_summary', 'system', 'customer_service_ai'])
             ).order_by(LeadNote.created_at.desc()).limit(10)
             
             payload.recent_notes = []
@@ -250,17 +246,17 @@ class UnifiedLeadContextService:
                 is_latest = (idx == 0)
                 note_content = note.content if note.content else ""
                 
-                # Mark latest note for AI prioritization
-                if is_latest and note_content:
-                    note_content = f"[הערה עדכנית ביותר - מידע מדויק] {note_content}"
-                
-                payload.recent_notes.append({
+                # Create note dict with metadata
+                note_dict = {
                     'id': note.id,
                     'type': getattr(note, 'note_type', 'manual') or 'manual',
                     'content': note_content,
                     'created_at': note.created_at.isoformat() if note.created_at else "",
-                    'created_by': 'ai' if note.created_by is None else str(note.created_by)
-                })
+                    'created_by': 'ai' if note.created_by is None else str(note.created_by),
+                    'is_latest': is_latest  # Metadata instead of modifying content
+                }
+                
+                payload.recent_notes.append(note_dict)
             
             # Load appointments
             now = datetime.utcnow()
@@ -431,7 +427,11 @@ class UnifiedLeadContextService:
             parts.append(f"\n📝 הערות אחרונות ({len(context.recent_notes)}):")
             for note in context.recent_notes[:3]:  # Show top 3
                 note_date = note['created_at'][:10] if note.get('created_at') else ''
-                parts.append(f"  - [{note_date}] {note['content'][:150]}...")
+                content = note['content'][:150]
+                # Add marker for latest note
+                if note.get('is_latest'):
+                    content = f"[עדכני ביותר] {content}"
+                parts.append(f"  - [{note_date}] {content}...")
         
         # Summary
         if context.summary:

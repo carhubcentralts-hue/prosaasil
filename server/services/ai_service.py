@@ -14,6 +14,7 @@ from openai import OpenAI
 from server.models_sql import BusinessSettings, PromptRevisions, Business, AgentTrace
 from server.db import db
 from datetime import datetime
+from server.services.unified_lead_context_service import UnifiedLeadContextPayload, UnifiedLeadContextService
 
 # 🔥 FIX E: LAZY agent imports to prevent schema errors from breaking WhatsApp
 # Agents are loaded on-demand, so WhatsApp still works even if agent schema fails
@@ -1076,7 +1077,6 @@ class AIService:
             # 🔥 NEW: Inject lead context as system message if available
             if context and context.get('lead_context'):
                 try:
-                    from server.services.unified_lead_context_service import UnifiedLeadContextPayload, UnifiedLeadContextService
                     lead_ctx_dict = context['lead_context']
                     lead_ctx = UnifiedLeadContextPayload(**lead_ctx_dict)
                     

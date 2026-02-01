@@ -1644,8 +1644,8 @@ def build_inbound_system_prompt(
         
         full_prompt = (
             f"{system_rules}{appointment_instructions}\n\n"
-            f"BUSINESS PROMPT (Business ID: {business_id}):\n{business_prompt}"
-            f"{lead_context_section}\n\n"  # 🔥 NEW: Inject lead context
+            f"BUSINESS PROMPT (Business ID: {business_id}):\n{business_prompt}\n\n"
+            f"{lead_context_section}"  # 🔥 NEW: Inject lead context (includes own newlines)
             "CALL TYPE: INBOUND. The customer called the business. Follow the business prompt for greeting and flow."
         )
         

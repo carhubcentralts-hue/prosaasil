@@ -8,6 +8,8 @@ from agents import function_tool
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 import logging
+from server.services.unified_status_service import update_lead_status_unified
+from flask import g
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +83,6 @@ def update_lead_status(input: UpdateLeadStatusInput) -> UpdateLeadStatusOutput:
     Security: Query is scoped to business_id (multi-tenant safe).
     """
     try:
-        from server.services.unified_status_service import update_lead_status_unified
-        from flask import g
-        
         # Detect channel from context
         channel = "unknown"
         if hasattr(g, 'agent_channel'):

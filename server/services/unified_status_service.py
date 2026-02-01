@@ -365,13 +365,8 @@ class UnifiedStatusService:
             Audit log entry ID or None
         """
         try:
-            # Check if LeadStatusHistory table exists
-            if not hasattr(db.Model, 'LeadStatusHistory'):
-                # If table doesn't exist, log to file only
-                logger.info(f"[UnifiedStatus] AUDIT: lead_id={lead.id}, "
-                           f"{old_status} → {new_status}, channel={channel}, "
-                           f"reason={reason}, confidence={confidence}")
-                return None
+            # Check if LeadStatusHistory model exists
+            from server.models_sql import LeadStatusHistory
             
             audit = LeadStatusHistory(
                 lead_id=lead.id,
@@ -392,6 +387,12 @@ class UnifiedStatusService:
             logger.info(f"[UnifiedStatus] Created audit log #{audit.id} for lead {lead.id}")
             return audit.id
             
+        except ImportError:
+            # LeadStatusHistory table doesn't exist yet
+            logger.info(f"[UnifiedStatus] AUDIT: lead_id={lead.id}, "
+                       f"{old_status} → {new_status}, channel={channel}, "
+                       f"reason={reason}, confidence={confidence}")
+            return None
         except Exception as e:
             logger.error(f"[UnifiedStatus] Error creating audit log: {e}")
             return None

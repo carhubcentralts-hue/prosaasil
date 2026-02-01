@@ -7,6 +7,7 @@ Replaces threading.Thread approach with proper RQ queue processing.
 import logging
 import time
 from typing import List, Dict, Any
+from server.services.unified_lead_context_service import get_unified_context_for_phone, UnifiedLeadContextService
 
 logger = logging.getLogger(__name__)
 
@@ -193,8 +194,6 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         # 🔥 NEW: Load unified lead context if customer service enabled
                         lead_context = None
                         try:
-                            from server.services.unified_lead_context_service import get_unified_context_for_phone, UnifiedLeadContextService
-                            
                             service = UnifiedLeadContextService(business_id)
                             if service.is_customer_service_enabled():
                                 lead_context = get_unified_context_for_phone(business_id, phone_number, channel="whatsapp")
