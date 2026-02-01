@@ -2104,6 +2104,7 @@ class ScheduledMessageRule(db.Model):
         backref="scheduled_rules"
     )
     steps = db.relationship("ScheduledMessageRuleStep", backref="rule", cascade="all, delete-orphan", order_by="ScheduledMessageRuleStep.step_index")
+    scheduled_messages = db.relationship("ScheduledMessagesQueue", backref="rule", cascade="all, delete-orphan")
     
     __table_args__ = (
         db.Index('idx_business_active', 'business_id', 'is_active'),
@@ -2200,7 +2201,7 @@ class ScheduledMessagesQueue(db.Model):
     
     # Relationships
     business = db.relationship("Business", backref="scheduled_messages")
-    rule = db.relationship("ScheduledMessageRule", backref="scheduled_messages")
+    # rule relationship is now defined in ScheduledMessageRule with cascade
     step = db.relationship("ScheduledMessageRuleStep", backref="scheduled_messages")  # NEW: Link to step
     lead = db.relationship("Lead", backref="scheduled_messages")
     
