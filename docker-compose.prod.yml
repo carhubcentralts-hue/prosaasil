@@ -64,11 +64,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
     networks:
       - prosaas-net
 
@@ -78,11 +73,6 @@ services:
   redis:
     # Override to not expose port in production
     ports: []
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
     networks:
       - prosaas-net
 
@@ -107,11 +97,6 @@ services:
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
 
   # ===========================================
   # Index Builder Service - Builds performance indexes
@@ -148,11 +133,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
     networks:
       - prosaas-net
 
@@ -201,11 +181,6 @@ services:
         condition: service_completed_successfully
       indexer:
         condition: service_completed_successfully
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
     networks:
       - prosaas-net
 
@@ -266,14 +241,6 @@ services:
         condition: service_completed_successfully
       prosaas-api:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     networks:
       - prosaas-net
   
@@ -352,14 +319,6 @@ services:
       timeout: 3s
       retries: 30
       start_period: 20s
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     networks:
       - prosaas-net
 
@@ -402,8 +361,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
-      # 🔥 P2+Calls: Maximum concurrent calls limit (server-wide)
-      MAX_CONCURRENT_CALLS: 15
+      # 🔥 P2+Calls: Maximum concurrent calls limit (server-wide, 0 = unlimited)
+      MAX_CONCURRENT_CALLS: 0
       # 🔥 TTS WARMUP: Optional - disable TTS warmup if needed (does not affect DB)
       # Set to "true" to skip TTS client warmup (useful for faster deployments)
       DISABLE_TTS_WARMUP: ${DISABLE_TTS_WARMUP:-false}
@@ -455,14 +414,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '3'
-          memory: 3G
-        reservations:
-          cpus: '1'
-          memory: 1G
     networks:
       - prosaas-net
 
@@ -479,14 +430,6 @@ services:
     depends_on:
       prosaas-api:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.25'
-          memory: 256M
     networks:
       - prosaas-net
 
@@ -518,11 +461,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
     networks:
       - prosaas-net
 

@@ -7,6 +7,7 @@ from server.db import db
 from server.models_sql import BusinessContactChannel, Business
 from server.services.business_resolver import add_business_channel, list_business_channels, delete_business_channel
 from server.extensions import csrf
+from server.auth_api import require_api_auth
 import logging
 
 log = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ log = logging.getLogger(__name__)
 admin_channels_bp = Blueprint('admin_channels', __name__, url_prefix='/api/admin/channels')
 
 @admin_channels_bp.route('/', methods=['GET'])
+@require_api_auth(["system_admin"])
 def get_all_channels():
     """Get all business contact channels"""
     try:
@@ -38,6 +40,7 @@ def get_all_channels():
 
 
 @admin_channels_bp.route('/business/<int:business_id>', methods=['GET'])
+@require_api_auth(["system_admin"])
 def get_business_channels(business_id):
     """Get all channels for a specific business"""
     try:
@@ -49,7 +52,7 @@ def get_business_channels(business_id):
 
 
 @admin_channels_bp.route('/', methods=['POST'])
-@csrf.exempt  # Temporary - should require auth
+@require_api_auth(["system_admin"])
 def create_channel():
     """Create a new business contact channel mapping"""
     try:
@@ -101,7 +104,7 @@ def create_channel():
 
 
 @admin_channels_bp.route('/<int:channel_id>', methods=['DELETE'])
-@csrf.exempt  # Temporary - should require auth
+@require_api_auth(["system_admin"])
 def remove_channel(channel_id):
     """Delete a business contact channel"""
     try:
@@ -116,6 +119,7 @@ def remove_channel(channel_id):
 
 
 @admin_channels_bp.route('/businesses', methods=['GET'])
+@require_api_auth(["system_admin"])
 def get_businesses():
     """Get all businesses for the dropdown"""
     try:
