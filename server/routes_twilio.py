@@ -463,6 +463,79 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
         import traceback
         traceback.print_exc()
 
+
+def _prebuild_prompts_async(call_sid, business_id):
+    """Pre-build FULL prompt for inbound call - doesn't block webhook response"""
+    try:
+        from server.services.realtime_prompt_builder import (
+            build_full_business_prompt,
+            MissingPromptError,
+        )
+        from server.stream_state import stream_registry
+        from server.app_factory import get_process_app
+        
+        # 🔥 BUG FIX: Wrap with app context for database queries
+        app = get_process_app()
+        with app.app_context():
+            # Build FULL BUSINESS prompt ONLY - sent immediately in session.update
+            # NO COMPACT PROMPT - AI gets full context from the very first word
+            try:
+                full_prompt = build_full_business_prompt(business_id, call_direction="inbound")
+                
+                # 🔥 CRITICAL: Store with metadata for validation
+                import hashlib
+                prompt_hash = hashlib.sha256(full_prompt.encode()).hexdigest()[:16]
+                
+                stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
+                stream_registry.set_metadata(call_sid, '_prebuilt_direction', 'inbound')
+                stream_registry.set_metadata(call_sid, '_prebuilt_business_id', business_id)
+                stream_registry.set_metadata(call_sid, '_prebuilt_prompt_hash', prompt_hash)
+                
+                logger.debug("[PROMPT] Pre-built inbound FULL prompt: len=%s hash=%s", len(full_prompt), prompt_hash)
+            except MissingPromptError as e:
+                # Don't store anything if prompt is missing - let WebSocket handle error
+                logger.error(f"[PROMPT] Failed to pre-build inbound prompt: {e}")
+                # Don't set any metadata - WebSocket will build fresh or fail properly
+    except Exception as e:
+        logger.debug(f"[PROMPT] Background inbound prompt build failed (fallback to async build): {e}")
+
+
+def _prebuild_prompts_async_outbound(call_sid, business_id):
+    """Pre-build FULL prompt for outbound call - doesn't block webhook response"""
+    try:
+        from server.services.realtime_prompt_builder import (
+            build_full_business_prompt,
+            MissingPromptError,
+        )
+        from server.stream_state import stream_registry
+        from server.app_factory import get_process_app
+        
+        # 🔥 BUG FIX: Wrap with app context for database queries
+        app = get_process_app()
+        with app.app_context():
+            # Build FULL BUSINESS prompt ONLY - sent immediately in session.update
+            # NO COMPACT PROMPT - AI gets full context from the very first word
+            try:
+                full_prompt = build_full_business_prompt(int(business_id), call_direction="outbound")
+                
+                # 🔥 CRITICAL: Store with metadata for validation
+                import hashlib
+                prompt_hash = hashlib.sha256(full_prompt.encode()).hexdigest()[:16]
+                
+                stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
+                stream_registry.set_metadata(call_sid, '_prebuilt_direction', 'outbound')
+                stream_registry.set_metadata(call_sid, '_prebuilt_business_id', int(business_id))
+                stream_registry.set_metadata(call_sid, '_prebuilt_prompt_hash', prompt_hash)
+                
+                logger.debug("[PROMPT] Pre-built outbound FULL prompt: len=%s hash=%s", len(full_prompt), prompt_hash)
+            except MissingPromptError as e:
+                # Don't store anything if prompt is missing - let WebSocket handle error
+                logger.error(f"[PROMPT] Failed to pre-build outbound prompt: {e}")
+                # Don't set any metadata - WebSocket will build fresh or fail properly
+    except Exception as e:
+        logger.debug(f"[PROMPT] Background outbound prompt build failed: {e}")
+
+
 # TwiML Preview endpoint
 @csrf.exempt
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
@@ -792,40 +865,7 @@ def incoming_call():
     
     # 🔥 LATENCY-FIRST: Build ONLY FULL PROMPT - no compact, no upgrade
     # FULL PROMPT is sent immediately in session.update for fastest response
-    def _prebuild_prompts_async(call_sid, business_id):
-        """Background thread to pre-build FULL prompt - doesn't block webhook response"""
-        try:
-            from server.services.realtime_prompt_builder import (
-                build_full_business_prompt,
-                MissingPromptError,
-            )
-            from server.stream_state import stream_registry
-            from server.app_factory import get_process_app
-            
-            # 🔥 BUG FIX: Wrap with app context for database queries
-            app = get_process_app()
-            with app.app_context():
-                # Build FULL BUSINESS prompt ONLY - sent immediately in session.update
-                # NO COMPACT PROMPT - AI gets full context from the very first word
-                try:
-                    full_prompt = build_full_business_prompt(business_id, call_direction="inbound")
-                    
-                    # 🔥 CRITICAL: Store with metadata for validation
-                    import hashlib
-                    prompt_hash = hashlib.sha256(full_prompt.encode()).hexdigest()[:16]
-                    
-                    stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-                    stream_registry.set_metadata(call_sid, '_prebuilt_direction', 'inbound')
-                    stream_registry.set_metadata(call_sid, '_prebuilt_business_id', business_id)
-                    stream_registry.set_metadata(call_sid, '_prebuilt_prompt_hash', prompt_hash)
-                    
-                    logger.debug("[PROMPT] Pre-built inbound FULL prompt: len=%s hash=%s", len(full_prompt), prompt_hash)
-                except MissingPromptError as e:
-                    # Don't store anything if prompt is missing - let WebSocket handle error
-                    logger.error(f"[PROMPT] Failed to pre-build inbound prompt: {e}")
-                    # Don't set any metadata - WebSocket will build fresh or fail properly
-        except Exception as e:
-            logger.debug(f"[PROMPT] Background inbound prompt build failed (fallback to async build): {e}")
+    # (Function moved to module level for RQ job import)
     
     # Start prompt building in background (non-blocking)
     # 🔥 REMOVED THREADING: Use RQ job for prompt pre-building
@@ -983,40 +1023,7 @@ def outbound_call():
     
     # 🔥 LATENCY-FIRST: Build ONLY FULL PROMPT - no compact, no upgrade
     # FULL PROMPT is sent immediately in session.update for fastest response
-    def _prebuild_prompts_async_outbound(call_sid, business_id):
-        """Background thread to pre-build FULL prompt - doesn't block webhook response"""
-        try:
-            from server.services.realtime_prompt_builder import (
-                build_full_business_prompt,
-                MissingPromptError,
-            )
-            from server.stream_state import stream_registry
-            from server.app_factory import get_process_app
-            
-            # 🔥 BUG FIX: Wrap with app context for database queries
-            app = get_process_app()
-            with app.app_context():
-                # Build FULL BUSINESS prompt ONLY - sent immediately in session.update
-                # NO COMPACT PROMPT - AI gets full context from the very first word
-                try:
-                    full_prompt = build_full_business_prompt(int(business_id), call_direction="outbound")
-                    
-                    # 🔥 CRITICAL: Store with metadata for validation
-                    import hashlib
-                    prompt_hash = hashlib.sha256(full_prompt.encode()).hexdigest()[:16]
-                    
-                    stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-                    stream_registry.set_metadata(call_sid, '_prebuilt_direction', 'outbound')
-                    stream_registry.set_metadata(call_sid, '_prebuilt_business_id', int(business_id))
-                    stream_registry.set_metadata(call_sid, '_prebuilt_prompt_hash', prompt_hash)
-                    
-                    logger.debug("[PROMPT] Pre-built outbound FULL prompt: len=%s hash=%s", len(full_prompt), prompt_hash)
-                except MissingPromptError as e:
-                    # Don't store anything if prompt is missing - let WebSocket handle error
-                    logger.error(f"[PROMPT] Failed to pre-build outbound prompt: {e}")
-                    # Don't set any metadata - WebSocket will build fresh or fail properly
-        except Exception as e:
-            logger.debug(f"[PROMPT] Background outbound prompt build failed: {e}")
+    # (Function moved to module level for RQ job import)
     
     # Start prompt building in background (non-blocking)
     # 🔥 REMOVED THREADING: Use RQ job for prompt pre-building
