@@ -53,6 +53,33 @@ def send_scheduled_whatsapp_job(message_id: int):
                 scheduled_messages_service.mark_failed(message_id, error_msg)
                 return {'status': 'error', 'error': 'lead_not_found'}
             
+            # 🆕 MULTI-STEP: Check if lead is still in correct status (for apply_mode=ON_ENTER_ONLY)
+            # Load the rule to check apply_mode
+            from server.models_sql import ScheduledMessageRule, ScheduledRuleStatus, LeadStatus
+            rule = ScheduledMessageRule.query.get(message.rule_id)
+            if rule:
+                # Check if rule applies "WHILE_IN_STATUS" or "ON_ENTER_ONLY"
+                apply_mode = getattr(rule, 'apply_mode', 'ON_ENTER_ONLY')
+                
+                if apply_mode == 'WHILE_IN_STATUS':
+                    # Verify lead is still in one of the rule's statuses
+                    rule_status_ids = [rs.status_id for rs in ScheduledRuleStatus.query.filter_by(rule_id=rule.id).all()]
+                    
+                    # Get lead's current status_id
+                    current_status = LeadStatus.query.filter_by(
+                        business_id=message.business_id,
+                        name=lead.status
+                    ).first()
+                    
+                    if not current_status or current_status.id not in rule_status_ids:
+                        # Lead has moved out of the trigger status
+                        cancel_msg = f"Lead no longer in trigger status (current: {lead.status})"
+                        logger.info(f"[SEND-SCHEDULED-WA] {cancel_msg}, cancelling message {message_id}")
+                        scheduled_messages_service.mark_cancelled(message_id, cancel_msg)
+                        return {'status': 'cancelled', 'reason': 'status_changed'}
+                
+                logger.info(f"[SEND-SCHEDULED-WA] Status check passed (apply_mode={apply_mode})")
+            
             # Verify remote_jid is valid
             if not message.remote_jid:
                 error_msg = "No WhatsApp JID available"

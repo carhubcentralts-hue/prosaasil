@@ -518,6 +518,10 @@ class Lead(db.Model):
     status = db.Column(db.String(32), default="new", index=True)  # Canonical lowercase: new|attempting|contacted|qualified|won|lost|unqualified
     order_index = db.Column(db.Integer, default=0, index=True)  # For Kanban board ordering within status
     
+    # 🆕 STATUS TRACKING FOR SCHEDULED MESSAGES: Deduplication and timing
+    status_sequence_token = db.Column(db.Integer, nullable=False, default=0)  # Incremented each time lead enters a status
+    status_entered_at = db.Column(db.DateTime, default=datetime.utcnow)  # When lead entered current status
+    
     # BUILD 182: Outbound import list tracking
     outbound_list_id = db.Column(db.Integer, db.ForeignKey("outbound_lead_lists.id"), nullable=True, index=True)
     outbound_list = db.relationship("OutboundLeadList", backref=db.backref("leads", lazy="dynamic"))
@@ -2048,6 +2052,9 @@ class ScheduledMessageRule(db.Model):
     """
     Scheduling rule defining "who, what, when" for WhatsApp messages
     Creates pending messages when leads enter specified statuses
+    
+    🎯 Multi-step support: Can have multiple steps (via ScheduledMessageRuleStep)
+    Each step has its own delay and message template
     """
     __tablename__ = "scheduled_message_rules"
     
@@ -2060,16 +2067,20 @@ class ScheduledMessageRule(db.Model):
     
     # WhatsApp template to send (for future use - currently will send plain text)
     template_name = db.Column(db.String(255))  # Template identifier
-    message_text = db.Column(db.Text, nullable=False)  # Message content
+    message_text = db.Column(db.Text, nullable=False)  # Message content (LEGACY - for backward compatibility)
     
     # Timing configuration
     delay_minutes = db.Column(db.Integer, nullable=False, default=0)  # Delay after status change (LEGACY - use delay_seconds)
-    delay_seconds = db.Column(db.Integer, nullable=False, default=0)  # Delay after status change in seconds (NEW)
+    delay_seconds = db.Column(db.Integer, nullable=False, default=0)  # Delay after status change in seconds (LEGACY)
     send_window_start = db.Column(db.String(5))  # Optional: e.g., "09:00"
     send_window_end = db.Column(db.String(5))  # Optional: e.g., "20:00"
     
     # Provider selection for WhatsApp sending
     provider = db.Column(db.String(32), default="baileys")  # "baileys" | "meta" | "auto" - WhatsApp provider choice
+    
+    # Multi-step configuration (NEW)
+    send_immediately_on_enter = db.Column(db.Boolean, default=False, nullable=False)  # Send message immediately on status change
+    apply_mode = db.Column(db.String(32), default="ON_ENTER_ONLY", nullable=False)  # "ON_ENTER_ONLY" | "WHILE_IN_STATUS"
     
     # Metadata
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
@@ -2084,6 +2095,7 @@ class ScheduledMessageRule(db.Model):
         secondary="scheduled_rule_statuses",
         backref="scheduled_rules"
     )
+    steps = db.relationship("ScheduledMessageRuleStep", backref="rule", cascade="all, delete-orphan", order_by="ScheduledMessageRuleStep.step_index")
     
     __table_args__ = (
         db.Index('idx_business_active', 'business_id', 'is_active'),
@@ -2110,16 +2122,43 @@ class ScheduledRuleStatus(db.Model):
     )
 
 
+class ScheduledMessageRuleStep(db.Model):
+    """
+    Individual step in a multi-step scheduled message sequence
+    Each rule can have multiple steps with different delays and messages
+    """
+    __tablename__ = "scheduled_message_rule_steps"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    rule_id = db.Column(db.Integer, db.ForeignKey("scheduled_message_rules.id", ondelete="CASCADE"), nullable=False, index=True)
+    step_index = db.Column(db.Integer, nullable=False)  # 1, 2, 3, etc. (1-indexed for display)
+    message_template = db.Column(db.Text, nullable=False)  # Message content with optional variables
+    delay_seconds = db.Column(db.Integer, nullable=False, default=0)  # Delay after status change
+    enabled = db.Column(db.Boolean, nullable=False, default=True)  # Can disable individual steps
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Unique constraint: one step index per rule
+    __table_args__ = (
+        db.UniqueConstraint('rule_id', 'step_index', name='_rule_step_uc'),
+        db.Index('idx_rule_steps_rule_step', 'rule_id', 'step_index'),
+    )
+
+
 class ScheduledMessagesQueue(db.Model):
     """
     Queue of scheduled WhatsApp messages to be sent
     Each row represents one future send for a specific lead
+    Can be linked to a specific step in a multi-step sequence
     """
     __tablename__ = "scheduled_messages_queue"
     
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
     rule_id = db.Column(db.Integer, db.ForeignKey("scheduled_message_rules.id", ondelete="CASCADE"), nullable=False, index=True)
+    step_id = db.Column(db.Integer, db.ForeignKey("scheduled_message_rule_steps.id", ondelete="SET NULL"), nullable=True, index=True)  # NEW: Link to specific step
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Message details
@@ -2154,6 +2193,7 @@ class ScheduledMessagesQueue(db.Model):
     # Relationships
     business = db.relationship("Business", backref="scheduled_messages")
     rule = db.relationship("ScheduledMessageRule", backref="scheduled_messages")
+    step = db.relationship("ScheduledMessageRuleStep", backref="scheduled_messages")  # NEW: Link to step
     lead = db.relationship("Lead", backref="scheduled_messages")
     
     __table_args__ = (

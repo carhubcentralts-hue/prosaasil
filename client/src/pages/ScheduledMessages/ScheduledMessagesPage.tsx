@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Plus, Play, Pause, Trash2, Edit2, Eye, CheckCircle, XCircle, AlertCircle, Calendar } from 'lucide-react';
+import { Clock, Plus, Play, Pause, Trash2, Edit2, Eye, CheckCircle, XCircle, AlertCircle, Calendar, Zap, List, GripVertical, X } from 'lucide-react';
 import * as scheduledMessagesApi from '../../services/scheduledMessages';
 import { http } from '../../services/http';
 
@@ -221,7 +221,18 @@ export function ScheduledMessagesPage() {
                   rules.map((rule) => (
                     <tr key={rule.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{rule.name}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-medium text-gray-900">{rule.name}</div>
+                          {rule.send_immediately_on_enter && (
+                            <Zap className="w-4 h-4 text-yellow-500" title="שולח מיד בעת כניסה לסטטוס" />
+                          )}
+                          {rule.steps && rule.steps.length > 0 && (
+                            <Badge variant="secondary" className="flex items-center gap-1">
+                              <List className="w-3 h-3" />
+                              {rule.steps.length} שלבים
+                            </Badge>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500 mt-1 truncate max-w-xs">
                           {rule.message_text}
                         </div>
@@ -351,6 +362,42 @@ function CreateRuleModal({
   onClose: () => void;
   onSave: () => void;
 }) {
+  // UI-friendly step format
+  type UIStep = {
+    step_index: number;
+    message_text: string;
+    delay_value: number;
+    delay_unit: 'minutes' | 'hours' | 'days';
+    is_enabled: boolean;
+  };
+  
+  // Convert API steps to UI format
+  const convertApiStepsToUI = (apiSteps?: scheduledMessagesApi.RuleStep[]): UIStep[] => {
+    if (!apiSteps) return [];
+    return apiSteps.map(step => {
+      const delayMinutes = Math.floor(step.delay_seconds / 60);
+      let delay_value = delayMinutes;
+      let delay_unit: 'minutes' | 'hours' | 'days' = 'minutes';
+      
+      // Try to convert to larger units if possible
+      if (delayMinutes >= 1440 && delayMinutes % 1440 === 0) {
+        delay_value = delayMinutes / 1440;
+        delay_unit = 'days';
+      } else if (delayMinutes >= 60 && delayMinutes % 60 === 0) {
+        delay_value = delayMinutes / 60;
+        delay_unit = 'hours';
+      }
+      
+      return {
+        step_index: step.step_index,
+        message_text: step.message_template,
+        delay_value,
+        delay_unit,
+        is_enabled: step.enabled
+      };
+    });
+  };
+  
   const [formData, setFormData] = useState({
     name: rule?.name || '',
     message_text: rule?.message_text || '',
@@ -358,11 +405,38 @@ function CreateRuleModal({
     delay_minutes: rule?.delay_minutes || 15,
     delay_seconds: rule?.delay_seconds || (rule?.delay_minutes ? rule.delay_minutes * 60 : 900),
     provider: rule?.provider || 'baileys',
-    is_active: rule?.is_active ?? true
+    is_active: rule?.is_active ?? true,
+    send_immediately_on_enter: rule?.send_immediately_on_enter ?? false,
+    immediate_message: rule?.immediate_message || '',
+    apply_mode: rule?.apply_mode || 'ON_ENTER_ONLY',
+    steps: convertApiStepsToUI(rule?.steps)
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+
+  const getDelayInMinutes = (value: number, unit: 'minutes' | 'hours' | 'days'): number => {
+    switch (unit) {
+      case 'minutes': return value;
+      case 'hours': return value * 60;
+      case 'days': return value * 60 * 24;
+      default: return value;
+    }
+  };
+  
+  const getDelayInSeconds = (value: number, unit: 'minutes' | 'hours' | 'days'): number => {
+    return getDelayInMinutes(value, unit) * 60;
+  };
+  
+  // Convert UI steps to API format
+  const convertUIStepsToAPI = (uiSteps: UIStep[]) => {
+    return uiSteps.map(step => ({
+      step_index: step.step_index,
+      message_template: step.message_text,
+      delay_seconds: getDelayInSeconds(step.delay_value, step.delay_unit),
+      enabled: step.is_enabled
+    }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -387,14 +461,48 @@ function CreateRuleModal({
       return;
     }
     
+    // Validate immediate message if send_immediately_on_enter is checked
+    if (formData.send_immediately_on_enter && !formData.immediate_message.trim()) {
+      setError('יש למלא הודעה מיידית כאשר "שלח מיד בעת כניסה לסטטוס" מסומן');
+      return;
+    }
+    
+    // Validate steps
+    for (let i = 0; i < formData.steps.length; i++) {
+      const step = formData.steps[i];
+      if (step.is_enabled && !step.message_text.trim()) {
+        setError(`שלב ${i + 1}: יש למלא תוכן הודעה`);
+        return;
+      }
+      if (step.delay_value < 1) {
+        setError(`שלב ${i + 1}: העיכוב חייב להיות לפחות 1`);
+        return;
+      }
+    }
+    
     try {
       setSaving(true);
       setError(null);
       
+      // Convert UI data to API format
+      const apiData = {
+        name: formData.name,
+        message_text: formData.message_text,
+        status_ids: formData.status_ids,
+        delay_minutes: formData.delay_minutes,
+        delay_seconds: formData.delay_seconds,
+        provider: formData.provider,
+        is_active: formData.is_active,
+        send_immediately_on_enter: formData.send_immediately_on_enter,
+        immediate_message: formData.send_immediately_on_enter ? formData.immediate_message : undefined,
+        apply_mode: formData.apply_mode,
+        steps: convertUIStepsToAPI(formData.steps)
+      };
+      
       if (rule) {
-        await scheduledMessagesApi.updateRule(rule.id, formData);
+        await scheduledMessagesApi.updateRule(rule.id, apiData);
       } else {
-        await scheduledMessagesApi.createRule(formData as scheduledMessagesApi.CreateRuleRequest);
+        await scheduledMessagesApi.createRule(apiData as scheduledMessagesApi.CreateRuleRequest);
       }
       
       onSave();
@@ -557,6 +665,188 @@ function CreateRuleModal({
               <p className="text-xs text-gray-500 mt-1">
                 בחר דרך איזה ספק לשלוח את ההודעות
               </p>
+            </div>
+            
+            {/* Send Immediately Section */}
+            <div className="border-t pt-4">
+              <div className="flex items-center gap-2 mb-4">
+                <input
+                  type="checkbox"
+                  checked={formData.send_immediately_on_enter}
+                  onChange={(e) => setFormData({ 
+                    ...formData, 
+                    send_immediately_on_enter: e.target.checked,
+                    immediate_message: e.target.checked ? formData.immediate_message : ''
+                  })}
+                  className="rounded"
+                />
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-yellow-500" />
+                  שלח מיד בעת כניסה לסטטוס
+                </label>
+              </div>
+              
+              {formData.send_immediately_on_enter && (
+                <div className="mr-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    הודעה מיידית *
+                  </label>
+                  <textarea
+                    value={formData.immediate_message}
+                    onChange={(e) => setFormData({ ...formData, immediate_message: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="הודעה שתישלח מיד כאשר הליד נכנס לסטטוס..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    משתנים זמינים: {'{lead_name}'}, {'{phone}'}, {'{business_name}'}, {'{status}'}
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            {/* Apply Mode */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                אופן החלה *
+              </label>
+              <select
+                value={formData.apply_mode}
+                onChange={(e) => setFormData({ ...formData, apply_mode: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+              >
+                <option value="ON_ENTER_ONLY">רק בכניסה לסטטוס</option>
+                <option value="WHILE_IN_STATUS">כל עוד בסטטוס</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {formData.apply_mode === 'ON_ENTER_ONLY' 
+                  ? 'ההודעות יישלחו רק כאשר הליד נכנס לסטטוס' 
+                  : 'ההודעות יישלחו כל עוד הליד נמצא בסטטוס'}
+              </p>
+            </div>
+            
+            {/* Multi-Step Messages */}
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-4">
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <List className="w-4 h-4" />
+                  שלבי הודעות מתוזמנות
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const newStep = {
+                      step_index: formData.steps.length + 1,  // 1-based indexing for API
+                      message_text: '',
+                      delay_value: 15,
+                      delay_unit: 'minutes' as const,
+                      is_enabled: true
+                    };
+                    setFormData({ ...formData, steps: [...formData.steps, newStep] });
+                  }}
+                >
+                  <Plus className="w-4 h-4 ml-1" />
+                  הוסף הודעה
+                </Button>
+              </div>
+              
+              {formData.steps.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 text-sm border-2 border-dashed border-gray-200 rounded-lg">
+                  אין שלבים. לחץ על "הוסף הודעה" כדי להוסיף שלב ראשון
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {formData.steps.map((step, index) => (
+                    <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                      <div className="flex items-start gap-3">
+                        <GripVertical className="w-5 h-5 text-gray-400 mt-2 cursor-move" />
+                        
+                        <div className="flex-1 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-700">
+                              הודעה #{index + 1}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <label className="flex items-center gap-1 text-xs text-gray-600">
+                                <input
+                                  type="checkbox"
+                                  checked={step.is_enabled}
+                                  onChange={(e) => {
+                                    const newSteps = [...formData.steps];
+                                    newSteps[index].is_enabled = e.target.checked;
+                                    setFormData({ ...formData, steps: newSteps });
+                                  }}
+                                  className="rounded"
+                                />
+                                פעיל
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newSteps = formData.steps.filter((_, i) => i !== index);
+                                  // Re-index remaining steps (1-based)
+                                  newSteps.forEach((s, i) => s.step_index = i + 1);
+                                  setFormData({ ...formData, steps: newSteps });
+                                }}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <textarea
+                              value={step.message_text}
+                              onChange={(e) => {
+                                const newSteps = [...formData.steps];
+                                newSteps[index].message_text = e.target.value;
+                                setFormData({ ...formData, steps: newSteps });
+                              }}
+                              rows={2}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                              placeholder="תוכן ההודעה..."
+                            />
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs text-gray-600">עיכוב:</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={step.delay_value}
+                              onChange={(e) => {
+                                const newSteps = [...formData.steps];
+                                newSteps[index].delay_value = parseInt(e.target.value) || 1;
+                                setFormData({ ...formData, steps: newSteps });
+                              }}
+                              className="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm"
+                            />
+                            <select
+                              value={step.delay_unit}
+                              onChange={(e) => {
+                                const newSteps = [...formData.steps];
+                                newSteps[index].delay_unit = e.target.value as 'minutes' | 'hours' | 'days';
+                                setFormData({ ...formData, steps: newSteps });
+                              }}
+                              className="px-2 py-1 border border-gray-300 rounded-md text-sm bg-white"
+                            >
+                              <option value="minutes">דקות</option>
+                              <option value="hours">שעות</option>
+                              <option value="days">ימים</option>
+                            </select>
+                            <span className="text-xs text-gray-500">
+                              ({getDelayInMinutes(step.delay_value, step.delay_unit)} דקות)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             
             <div className="flex items-center gap-2">
