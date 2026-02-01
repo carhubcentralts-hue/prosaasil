@@ -3924,7 +3924,8 @@ class MediaStreamHandler:
                 app = _get_flask_app()
                 with app.app_context():
                     from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                    full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=True)
+                    caller_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                    full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=True, caller_phone=caller_phone)
             else:
                 logger.info(f"🚀 [PROMPT] Using PRE-BUILT FULL prompt from registry (LATENCY-FIRST)")
                 logger.info(f"   └─ FULL: {len(full_prompt)} chars (sent ONCE at start)")
@@ -3941,7 +3942,8 @@ class MediaStreamHandler:
                     app = _get_flask_app()
                     with app.app_context():
                         from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                        full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=False)
+                        caller_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                        full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=False, caller_phone=caller_phone)
                     logger.info(f"   ✅ Rebuilt prompt: {len(full_prompt)} chars")
                 else:
                     logger.info(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
