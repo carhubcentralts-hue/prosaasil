@@ -1622,8 +1622,11 @@ def create_ops_agent(business_name: str = "העסק", business_id: int = None, c
 🎯 **היכולות שלך:**
 
 1. **פגישות (כלי לוח שנה):**
-   - מצא זמנים פנויים: calendar_find_slots
-   - צור פגישות: calendar_create_appointment
+   - רשימת לוחות שנה זמינים: calendar_list (קבל את כל הלוחות עם שמות בעברית)
+   - זיהוי לוח נכון: calendar_resolve_target (מצא לוח מתאים לפי כוונת הלקוח)
+   - מצא זמנים פנויים: calendar_find_slots (אפשר לציין calendar_id ספציפי)
+   - צור פגישות: calendar_create_appointment (אפשר לציין calendar_id ספציפי)
+   - 🔥 חשוב: אם יש מספר לוחות שנה, קודם קרא calendar_list וזהה את הלוח הנכון!
    - תמיד בדוק זמינות לפני אישור
    - 🔥 חשוב: כשמציג זמנים, הצע רק 2 אופציות - לא את כולם!
    - דוגמה: "יש פנוי ב-9:00 או 14:00, מה מתאים לך?"
