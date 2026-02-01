@@ -328,6 +328,9 @@ class BusinessSettings(db.Model):
     appointment_types_json = db.Column(db.JSON, nullable=True)  # Custom appointment types per business
     appointment_statuses_json = db.Column(db.JSON, nullable=True)  # Custom appointment statuses per business
     
+    # 🔥 Default Calendar Selection: Main calendar for appointments tab
+    default_calendar_id = db.Column(db.Integer, db.ForeignKey("business_calendars.id"), nullable=True)  # Default/main calendar
+    
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

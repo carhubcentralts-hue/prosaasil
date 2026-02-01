@@ -1426,3 +1426,75 @@ def update_appointment_statuses():
         logger.error(f"Error updating appointment statuses: {e}")
         db.session.rollback()
         return jsonify({'error': 'שגיאה בעדכון סטטוסי פגישות'}), 500
+
+@calendar_bp.route('/config/default-calendar', methods=['GET'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
+def get_default_calendar():
+    """Get the default/main calendar for the current business"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.models_sql import BusinessSettings
+        
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        default_calendar_id = settings.default_calendar_id if settings else None
+        
+        return jsonify({
+            'default_calendar_id': default_calendar_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching default calendar: {e}")
+        return jsonify({'error': 'שגיאה בטעינת לוח השנה הראשי'}), 500
+
+@calendar_bp.route('/config/default-calendar', methods=['PUT'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def update_default_calendar():
+    """Update the default/main calendar for the current business"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        data = request.get_json()
+        if data is None:
+            return jsonify({'error': 'Request body required'}), 400
+        
+        # Allow null to clear default calendar
+        default_calendar_id = data.get('default_calendar_id')
+        
+        # Validate calendar exists and belongs to business if provided
+        if default_calendar_id is not None:
+            from server.models_sql import BusinessCalendar
+            calendar = BusinessCalendar.query.filter_by(
+                id=default_calendar_id, 
+                business_id=business_id
+            ).first()
+            if not calendar:
+                return jsonify({'error': 'Calendar not found or does not belong to your business'}), 404
+        
+        from server.models_sql import BusinessSettings
+        
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        if not settings:
+            settings = BusinessSettings(tenant_id=business_id)
+            db.session.add(settings)
+        
+        settings.default_calendar_id = default_calendar_id
+        db.session.commit()
+        
+        logger.info(f"✅ Updated default calendar to {default_calendar_id} for business_id={business_id}")
+        
+        return jsonify({
+            'success': True,
+            'default_calendar_id': default_calendar_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating default calendar: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'שגיאה בעדכון לוח השנה הראשי'}), 500

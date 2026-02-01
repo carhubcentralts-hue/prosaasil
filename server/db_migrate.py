@@ -8033,6 +8033,35 @@ def apply_migrations():
         
         checkpoint("✅ Migration 126 complete: Appointment configuration columns ready")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 127: Add default_calendar_id to business_settings
+        # Allows businesses to select a default/main calendar for the appointments tab
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 127: Adding default_calendar_id to business_settings")
+        
+        if check_table_exists('business_settings'):
+            try:
+                if not check_column_exists('business_settings', 'default_calendar_id'):
+                    checkpoint("  → Adding default_calendar_id to business_settings...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE business_settings 
+                        ADD COLUMN default_calendar_id INTEGER NULL 
+                        REFERENCES business_calendars(id) ON DELETE SET NULL
+                    """)
+                    checkpoint("  ✅ default_calendar_id column added")
+                    checkpoint("     💡 Allows selecting a main calendar for the appointments tab")
+                    migrations_applied.append("migration_127_default_calendar_id")
+                else:
+                    checkpoint("  ℹ️  default_calendar_id column already exists")
+            except Exception as e:
+                checkpoint(f"  ❌ Migration 127 failed: {e}")
+                logger.error(f"Migration 127 error: {e}", exc_info=True)
+                raise
+        else:
+            checkpoint("  ℹ️  business_settings table does not exist - skipping Migration 127")
+        
+        checkpoint("✅ Migration 127 complete: Default calendar selection ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
