@@ -20,7 +20,11 @@ import {
   ExternalLink,
   TrendingUp,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  Settings,
+  ChevronDown,
+  ChevronUp,
+  Check
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { http } from '../../services/http';
@@ -286,6 +290,16 @@ export function CalendarPage() {
   // Configurable appointment types and statuses
   const [appointmentTypes, setAppointmentTypes] = useState<AppointmentTypeConfig[]>([]);
   const [appointmentStatuses, setAppointmentStatuses] = useState<AppointmentStatusConfig[]>([]);
+  
+  // Status management UI states
+  const [showStatusSettings, setShowStatusSettings] = useState(false);
+  const [editingStatus, setEditingStatus] = useState<AppointmentStatusConfig | null>(null);
+  const [statusFormData, setStatusFormData] = useState({
+    key: '',
+    label: '',
+    color: 'gray'
+  });
+  const [savingStatuses, setSavingStatuses] = useState(false);
 
   // Fetch appointments using the proper HTTP client
   const fetchAppointments = async () => {
@@ -605,6 +619,96 @@ export function CalendarPage() {
       alert(`שגיאה במחיקת הפגישה: ${errorMessage}`);
       console.error('שגיאה במחיקת הפגישה:', error);
     }
+  };
+
+  // Status management functions
+  const handleSaveStatuses = async () => {
+    try {
+      setSavingStatuses(true);
+      await http.put('/api/calendar/config/appointment-statuses', {
+        appointment_statuses: appointmentStatuses
+      });
+      alert('הסטטוסים נשמרו בהצלחה!');
+      await fetchAppointmentStatuses(); // Refresh from server
+    } catch (error: any) {
+      alert(`שגיאה בשמירת הסטטוסים: ${error?.message || 'שגיאה לא ידועה'}`);
+      console.error('שגיאה בשמירת הסטטוסים:', error);
+    } finally {
+      setSavingStatuses(false);
+    }
+  };
+
+  const handleAddStatus = () => {
+    if (!statusFormData.key || !statusFormData.label) {
+      alert('נא למלא את כל השדות');
+      return;
+    }
+    
+    // Check if key already exists
+    if (appointmentStatuses.some(s => s.key === statusFormData.key)) {
+      alert('קוד הסטטוס כבר קיים');
+      return;
+    }
+    
+    const newStatus: AppointmentStatusConfig = {
+      key: statusFormData.key,
+      label: statusFormData.label,
+      color: statusFormData.color
+    };
+    
+    setAppointmentStatuses([...appointmentStatuses, newStatus]);
+    setStatusFormData({ key: '', label: '', color: 'gray' });
+  };
+
+  const handleEditStatus = (status: AppointmentStatusConfig) => {
+    setEditingStatus(status);
+    setStatusFormData({
+      key: status.key,
+      label: status.label,
+      color: status.color
+    });
+  };
+
+  const handleUpdateStatus = () => {
+    if (!editingStatus || !statusFormData.label) {
+      alert('נא למלא את כל השדות');
+      return;
+    }
+    
+    setAppointmentStatuses(appointmentStatuses.map(s => 
+      s.key === editingStatus.key 
+        ? { key: s.key, label: statusFormData.label, color: statusFormData.color }
+        : s
+    ));
+    
+    setEditingStatus(null);
+    setStatusFormData({ key: '', label: '', color: 'gray' });
+  };
+
+  const handleDeleteStatus = (key: string) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק סטטוס זה?')) return;
+    setAppointmentStatuses(appointmentStatuses.filter(s => s.key !== key));
+  };
+
+  const handleCancelStatusEdit = () => {
+    setEditingStatus(null);
+    setStatusFormData({ key: '', label: '', color: 'gray' });
+  };
+
+  const getColorClasses = (color: string) => {
+    const colorMap: Record<string, string> = {
+      gray: 'bg-gray-100 text-gray-800',
+      red: 'bg-red-100 text-red-800',
+      yellow: 'bg-yellow-100 text-yellow-800',
+      green: 'bg-green-100 text-green-800',
+      blue: 'bg-blue-100 text-blue-800',
+      indigo: 'bg-indigo-100 text-indigo-800',
+      purple: 'bg-purple-100 text-purple-800',
+      pink: 'bg-pink-100 text-pink-800',
+      orange: 'bg-orange-100 text-orange-800',
+      teal: 'bg-teal-100 text-teal-800'
+    };
+    return colorMap[color] || 'bg-gray-100 text-gray-800';
   };
 
   // Open modal for new appointment
@@ -1611,6 +1715,192 @@ export function CalendarPage() {
                   })}
                 </>
               )}
+            </div>
+          )}
+          
+          {/* Status Management Settings Section */}
+          {!loading && !loadingCalendars && (
+            <div className="border-t border-slate-200 mt-6">
+              <div className="p-4 md:p-6">
+                <button
+                  onClick={() => setShowStatusSettings(!showStatusSettings)}
+                  className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl hover:from-blue-100 hover:to-indigo-100 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-500 rounded-lg">
+                      <Settings className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="text-right">
+                      <h3 className="font-semibold text-slate-900">ניהול סטטוסי פגישות</h3>
+                      <p className="text-sm text-slate-600">התאם אישית את הסטטוסים עבור העסק שלך</p>
+                    </div>
+                  </div>
+                  {showStatusSettings ? (
+                    <ChevronUp className="h-5 w-5 text-slate-600" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-slate-600" />
+                  )}
+                </button>
+
+                {showStatusSettings && (
+                  <div className="mt-6 space-y-6">
+                    {/* Current Statuses */}
+                    <div>
+                      <h4 className="font-medium text-slate-900 mb-3">סטטוסים קיימים</h4>
+                      <div className="space-y-2">
+                        {appointmentStatuses.map((status) => (
+                          <div
+                            key={status.key}
+                            className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg hover:shadow-sm transition-shadow"
+                          >
+                            <div className="flex items-center gap-3 flex-1">
+                              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getColorClasses(status.color)}`}>
+                                {status.label}
+                              </span>
+                              <span className="text-xs text-slate-500">({status.key})</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleEditStatus(status)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="ערוך סטטוס"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteStatus(status.key)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                title="מחק סטטוס"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Add/Edit Status Form */}
+                    <div className="border-t border-slate-200 pt-6">
+                      <h4 className="font-medium text-slate-900 mb-3">
+                        {editingStatus ? 'עריכת סטטוס' : 'הוספת סטטוס חדש'}
+                      </h4>
+                      <div className="bg-slate-50 p-4 rounded-lg space-y-4">
+                        {!editingStatus && (
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                              קוד סטטוס (באנגלית, ללא רווחים) *
+                            </label>
+                            <input
+                              type="text"
+                              value={statusFormData.key}
+                              onChange={(e) => setStatusFormData({ ...statusFormData, key: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
+                              placeholder="לדוגמה: in_progress"
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              disabled={!!editingStatus}
+                            />
+                          </div>
+                        )}
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            שם הסטטוס (להצגה) *
+                          </label>
+                          <input
+                            type="text"
+                            value={statusFormData.label}
+                            onChange={(e) => setStatusFormData({ ...statusFormData, label: e.target.value })}
+                            placeholder="לדוגמה: בטיפול"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            צבע
+                          </label>
+                          <select
+                            value={statusFormData.color}
+                            onChange={(e) => setStatusFormData({ ...statusFormData, color: e.target.value })}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="gray">אפור</option>
+                            <option value="red">אדום</option>
+                            <option value="yellow">צהוב</option>
+                            <option value="green">ירוק</option>
+                            <option value="blue">כחול</option>
+                            <option value="indigo">אינדיגו</option>
+                            <option value="purple">סגול</option>
+                            <option value="pink">ורוד</option>
+                            <option value="orange">כתום</option>
+                            <option value="teal">טורקיז</option>
+                          </select>
+                        </div>
+
+                        {/* Preview */}
+                        <div className="pt-2">
+                          <p className="text-sm text-slate-600 mb-2">תצוגה מקדימה:</p>
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getColorClasses(statusFormData.color)}`}>
+                            {statusFormData.label || 'שם הסטטוס'}
+                          </span>
+                        </div>
+
+                        <div className="flex gap-2 pt-2">
+                          {editingStatus ? (
+                            <>
+                              <button
+                                onClick={handleUpdateStatus}
+                                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                              >
+                                <Check className="h-4 w-4" />
+                                עדכן סטטוס
+                              </button>
+                              <button
+                                onClick={handleCancelStatusEdit}
+                                className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
+                              >
+                                ביטול
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={handleAddStatus}
+                              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                            >
+                              <Plus className="h-4 w-4" />
+                              הוסף סטטוס
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Save Changes Button */}
+                    <div className="border-t border-slate-200 pt-6">
+                      <button
+                        onClick={handleSaveStatuses}
+                        disabled={savingStatuses}
+                        className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {savingStatuses ? (
+                          <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                            שומר...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="h-5 w-5" />
+                            שמור שינויים
+                          </>
+                        )}
+                      </button>
+                      <p className="text-xs text-slate-500 text-center mt-2">
+                        השינויים ישמרו עבור העסק שלך בלבד
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
