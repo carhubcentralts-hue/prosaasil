@@ -348,7 +348,8 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
                         logger.info(f"  ✓ Deleted ScheduledMessagesQueue records for {len(actual_lead_ids)} leads")
                     except Exception as smq_err:
                         err_str = str(smq_err).lower()
-                        if 'undefinedtable' in err_str or 'does not exist' in err_str or 'scheduled_messages_queue' in err_str:
+                        # Only skip if table doesn't exist (UndefinedTable or relation does not exist errors)
+                        if 'undefinedtable' in err_str or ('does not exist' in err_str and 'relation' in err_str):
                             logger.warning(f"⚠️ ScheduledMessagesQueue delete skipped (table does not exist)")
                         else:
                             raise
