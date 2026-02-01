@@ -60,16 +60,33 @@ text = service.format_context_for_prompt(context)
     "lead_id": int,
     "lead_name": str,
     "lead_phone": str,
+    "lead_email": str,
+    "lead_source": str,
     "current_status": str,
     "pipeline_stage": str,
+    "status_history": [...],  # Last status changes
     "next_appointment": {...},
     "past_appointments": [...],
     "recent_notes": [...],  # AI-visible only (call_summary, system, customer_service_ai)
     "last_call_summary": str,
+    "last_whatsapp_summary": str,
     "customer_memory": str,
     "tags": [...],
     "service_type": str,
     "city": str,
+    "summary": str,
+    "owner_name": str,
+    "owner_user_id": int,
+    "open_tasks": [...],  # Open tasks for lead
+    "deal_status": str,  # Read-only
+    "deal_value": float,  # Read-only
+    "loss_reason": str,  # Read-only
+    "invoices": [...],  # Recent invoices (read-only)
+    "payments": [...],  # Recent payments (read-only)
+    "contracts": [...],  # Contracts
+    "recent_calls": [...],  # Recent call logs with details
+    "recent_whatsapp_messages": [...],  # Last 20 WhatsApp messages
+    "available_calendars": [...],  # All calendars with Hebrew names
     "recent_calls_count": int,
     "recent_whatsapp_count": int
 }
@@ -316,20 +333,120 @@ Call Starts → Build Prompt → Load Lead Context (if enabled)
 ## Modified Files Summary
 
 ### New Files (3)
-1. `server/services/unified_lead_context_service.py` - Lead context (565 lines)
+1. `server/services/unified_lead_context_service.py` - Lead context (900+ lines) ✅ **ENHANCED**
 2. `server/services/unified_status_service.py` - Status updates (436 lines)
 3. `server/agent_tools/tools_status_update.py` - Status tool (118 lines)
 
-### Modified Files (5)
+### Modified Files (6)
 1. `server/jobs/webhook_process_job.py` - WhatsApp context injection
 2. `server/services/ai_service.py` - Context formatting for AI
-3. `server/agent_tools/agent_factory.py` - Status tool registration
+3. `server/agent_tools/agent_factory.py` - Status tool registration + calendar tools ✅ **ENHANCED**
 4. `server/services/realtime_prompt_builder.py` - Calls context injection
 5. `server/media_ws_ai.py` - Pass caller phone to prompt builder
+6. `server/agent_tools/tools_calendar.py` - Multi-calendar support (already existed)
+
+## Multi-Calendar Support
+
+### Overview
+
+The system now fully supports multiple calendars per business, allowing AI to intelligently schedule appointments to the correct calendar based on customer intent and Hebrew calendar names.
+
+### Calendar Tools
+
+**Available Tools**:
+1. `calendar_list(business_id)` - Lists all active calendars with Hebrew names
+2. `calendar_resolve_target(business_id, intent_text, service_label)` - Intelligently resolves which calendar to use
+3. `calendar_find_slots(business_id, date_iso, duration_min, preferred_time, calendar_id)` - Find slots (optionally for specific calendar)
+4. `calendar_create_appointment(..., calendar_id)` - Create appointment (optionally to specific calendar)
+
+### Calendar Context in Lead Information
+
+When customer service is enabled, the unified lead context now includes:
+```python
+"available_calendars": [
+    {
+        "id": 1,
+        "name": "פגישות",  # Hebrew name
+        "type_key": "meetings",
+        "priority": 10,
+        "default_duration_minutes": 60,
+        "allowed_tags": ["פגישה", "ייעוץ"]
+    },
+    {
+        "id": 2,
+        "name": "הובלות",  # Hebrew name
+        "type_key": "moves",
+        "priority": 5,
+        "default_duration_minutes": 120,
+        "allowed_tags": ["הובלה", "העברה"]
+    }
+]
+```
+
+### AI Behavior with Multiple Calendars
+
+When multiple calendars exist:
+1. AI sees all available calendars in the lead context
+2. AI can use `calendar_resolve_target()` to determine which calendar is appropriate
+3. AI passes `calendar_id` parameter when finding slots or creating appointments
+4. If unclear, AI asks customer for clarification using Hebrew calendar names
+
+### Integration Points
+
+- **WhatsApp**: Wrapped calendar tools include calendar selection
+- **Calls (Realtime)**: Uses same underlying calendar implementation
+- **AgentKit**: Full calendar tools exposed for non-realtime flows
+
+## Complete Lead Context Fields
+
+The unified lead context service now loads **all** available information:
+
+### Basic Lead Info ✅
+- Full name, first name, last name
+- Phone (E.164), email
+- Lead source, creation date
+- Owner/agent information
+
+### Status & Pipeline ✅
+- Current status
+- Pipeline stage
+- Status history (last 10 changes)
+
+### Appointments ✅
+- Next upcoming appointment
+- Past appointments (last 3)
+- Appointment cancellation reasons (via status)
+
+### Communication History ✅
+- Recent notes (last 10, AI-visible only)
+- Last call summary
+- Last WhatsApp summary
+- Recent calls (last 10 with details)
+- Recent WhatsApp messages (last 20)
+- Call/WhatsApp counts
+
+### Sales & Business ✅
+- Deal status, value, loss reason (read-only)
+- Quote sent status (if applicable)
+- Service type and city
+
+### Tasks & Organization ✅
+- Open tasks (last 10)
+- Tags
+- Customer memory
+
+### Financial ✅ (Read-Only)
+- Recent invoices (last 5)
+- Recent payments (last 5)
+- Contract status
+
+### Calendars ✅
+- All available calendars with Hebrew names
+- Calendar priorities and allowed tags
 
 ## Future Enhancements
 
-1. **Status History**: Implement LeadStatusHistory model if not exists
+1. ~~**Status History**: Implement LeadStatusHistory model if not exists~~ ✅ **IMPLEMENTED**
 2. **Webhook Triggers**: Complete status change webhook integration
 3. **Cross-channel Memory**: Enhanced memory persistence
 4. **Analytics**: Context usage and status change analytics

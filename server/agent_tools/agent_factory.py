@@ -15,7 +15,7 @@ from typing import Dict, Tuple, Optional
 
 # 🔥 CRITICAL FIX: Import OpenAI Agents SDK directly (server/agents/__init__.py is now empty)
 from agents import Agent, ModelSettings
-from server.agent_tools.tools_calendar import calendar_find_slots, calendar_create_appointment
+from server.agent_tools.tools_calendar import calendar_find_slots, calendar_create_appointment, calendar_list, calendar_resolve_target
 from server.agent_tools.tools_leads import leads_upsert, leads_search
 from server.agent_tools.tools_whatsapp import whatsapp_send
 from server.agent_tools.tools_invoices import invoices_create, payments_link
@@ -657,7 +657,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
 
         # Wrapper for calendar_find_slots
         @function_tool
-        def calendar_find_slots_wrapped(date_iso: str, duration_min: int = 60, preferred_time: str = None):
+        def calendar_find_slots_wrapped(date_iso: str, duration_min: int = 60, preferred_time: str = None, calendar_id: int = None):
             """
             Find available appointment slots for a specific date
             
@@ -665,6 +665,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 date_iso: Date in ISO format (YYYY-MM-DD) like "2025-11-10"
                 duration_min: Duration in minutes (default 60)
                 preferred_time: Customer's preferred time in HH:MM format (e.g., "17:00"). IMPORTANT: Always send this when customer requests specific time! System returns 2 slots closest to this time.
+                calendar_id: Optional specific calendar ID to check. Use calendar_list() to see available calendars. If not provided, checks all calendars.
                 
             Returns:
                 FindSlotsOutput with list of available slots (max 2, closest to preferred_time if provided)
@@ -676,6 +677,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 logger.info(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧")
                 logger.info(f"   📅 date_iso (RAW from Agent)={date_iso}")
                 logger.info(f"   ⏱️  duration_min={duration_min}")
+                logger.info(f"   📆 calendar_id={calendar_id}")
                 logger.info(f"   🏢 business_id={business_id}")
                 
                 # 🔥 FIX #1: Auto-correct suspicious ISO year (generic; no hardcoded year).
@@ -696,6 +698,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 logger.info(f"🔧 TOOL CALLED: calendar_find_slots_wrapped")
                 logger.info(f"   📅 date_iso: {date_iso} → {corrected_date}")
                 logger.info(f"   ⏱️  duration_min={duration_min}")
+                logger.info(f"   📆 calendar_id={calendar_id}")
                 logger.info(f"   🏢 business_id={business_id}")
                 
                 from server.agent_tools.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
@@ -705,7 +708,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                     business_id=business_id,
                     date_iso=corrected_date,  # Use corrected date!
                     duration_min=duration_min,
-                    preferred_time=preferred_time  # 🎯 BUILD 117: Send customer's requested time!
+                    preferred_time=preferred_time,  # 🎯 BUILD 117: Send customer's requested time!
+                    calendar_id=calendar_id  # 🆕 Pass calendar_id for multi-calendar support
                 )
                 # Call internal implementation function directly
                 result = _calendar_find_slots_impl(input_data)
@@ -764,7 +768,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             end_iso: str,
             customer_phone: str = "",
             customer_name: str = "",
-            notes: str = None
+            notes: str = None,
+            calendar_id: int = None
         ):
             """
             Create a new appointment in the calendar
@@ -780,6 +785,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 customer_phone: Customer phone number (optional unless policy requires it)
                 customer_name: Customer name (required - collected verbally)
                 notes: Additional notes (optional)
+                calendar_id: Optional specific calendar ID. Use calendar_list() to see available calendars and select the appropriate one.
             """
             try:
                 import time
@@ -790,6 +796,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 logger.info(f"   📅 start_iso={start_iso}, end_iso={end_iso}")
                 logger.info(f"   📞 customer_phone (from Agent)={customer_phone}")
                 logger.info(f"   👤 customer_name (from Agent)={customer_name}")
+                logger.info(f"   📆 calendar_id={calendar_id}")
                 logger.info(f"   🏢 business_id={business_id}")
                 
                 from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
@@ -863,7 +870,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                     start_iso=start_iso,
                     end_iso=end_iso,
                     notes=notes,
-                    source="ai_agent"
+                    source="ai_agent",
+                    calendar_id=calendar_id  # 🆕 Pass calendar_id for multi-calendar support
                 )
                 
                 logger.info(f"🔧 calendar_create_appointment_wrapped: {customer_name}, phone={customer_phone}, business_id={business_id}")
@@ -913,6 +921,96 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                     "ok": False,
                     "error": "validation_error",
                     "message": error_msg
+                }
+        
+        # Wrapper for calendar_list
+        @function_tool
+        def calendar_list_wrapped():
+            """
+            List all available calendars for this business with Hebrew names
+            
+            Use this to know which calendars are available before scheduling appointments.
+            Each calendar has a name (in Hebrew) and may have specific usage tags.
+            
+            Returns:
+                CalendarListOutput with list of available calendars and default_calendar_id if only one exists
+            """
+            try:
+                logger.info(f"🔧 TOOL CALLED: calendar_list_wrapped")
+                logger.info(f"   🏢 business_id={business_id}")
+                
+                from server.agent_tools.tools_calendar import CalendarListInput, calendar_list
+                
+                input_data = CalendarListInput(business_id=business_id)
+                result = calendar_list(input_data)
+                
+                logger.info(f"✅ calendar_list_wrapped RESULT: {len(result.calendars)} calendar(s) found")
+                for cal in result.calendars:
+                    logger.info(f"   📆 {cal.name} (id={cal.calendar_id}, priority={cal.priority})")
+                
+                return result.model_dump()
+                
+            except Exception as e:
+                error_msg = str(e)[:120]
+                logger.error(f"❌ calendar_list_wrapped FAILED: {error_msg}")
+                return {
+                    "calendars": [],
+                    "default_calendar_id": None,
+                    "error": error_msg
+                }
+        
+        # Wrapper for calendar_resolve_target
+        @function_tool
+        def calendar_resolve_target_wrapped(intent_text: str, service_label: str = None):
+            """
+            Intelligently resolve which calendar to use based on customer intent
+            
+            Use this when multiple calendars exist and you need to determine which one to use.
+            Analyzes customer's intent and service type to suggest the most appropriate calendar.
+            
+            Args:
+                intent_text: Customer's intent or conversation text (e.g., "אני רוצה לקבוע פגישה להובלה")
+                service_label: Optional service type mentioned (e.g., "פגישה", "הובלה", "טיפול")
+            
+            Returns:
+                CalendarResolveOutput with:
+                - calendar_id: Specific calendar ID if match found
+                - needs_clarification: True if need to ask customer
+                - question_text: Question to ask customer
+                - suggested_calendars: List of matching calendars
+            """
+            try:
+                logger.info(f"🔧 TOOL CALLED: calendar_resolve_target_wrapped")
+                logger.info(f"   🏢 business_id={business_id}")
+                logger.info(f"   💬 intent_text={intent_text[:100]}")
+                logger.info(f"   🏷️  service_label={service_label}")
+                
+                from server.agent_tools.tools_calendar import CalendarResolveInput, calendar_resolve_target
+                
+                input_data = CalendarResolveInput(
+                    business_id=business_id,
+                    intent_text=intent_text,
+                    service_label=service_label
+                )
+                result = calendar_resolve_target(input_data)
+                
+                if result.calendar_id:
+                    logger.info(f"✅ calendar_resolve_target resolved to calendar_id={result.calendar_id}")
+                elif result.needs_clarification:
+                    logger.info(f"⚠️  calendar_resolve_target needs clarification: {result.question_text}")
+                else:
+                    logger.info(f"ℹ️  calendar_resolve_target: No specific routing, use default")
+                
+                return result.model_dump()
+                
+            except Exception as e:
+                error_msg = str(e)[:120]
+                logger.error(f"❌ calendar_resolve_target_wrapped FAILED: {error_msg}")
+                return {
+                    "calendar_id": None,
+                    "needs_clarification": False,
+                    "suggested_calendars": [],
+                    "error": error_msg
                 }
         
         # Wrapper for leads_upsert (simple implementation - creates lead directly)
@@ -1133,6 +1231,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             tools_to_use = [
                 calendar_find_slots_wrapped,
                 calendar_create_appointment_wrapped,
+                calendar_list_wrapped,
+                calendar_resolve_target_wrapped,
                 leads_upsert_wrapped,
                 leads_search,
                 whatsapp_send,
@@ -1213,11 +1313,13 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         tools_to_use = [
             calendar_find_slots,
             calendar_create_appointment,
+            calendar_list,
+            calendar_resolve_target,
             leads_upsert,
             leads_search,
             whatsapp_send
         ]
-        logger.info(f"✅ AgentKit tools RESTORED (non-realtime flows)")
+        logger.info(f"✅ AgentKit tools RESTORED (non-realtime flows) with calendar support")
     
 
     # 🔥 BUILD 135: MINIMAL SYSTEM RULES (Framework only)
@@ -1520,8 +1622,11 @@ def create_ops_agent(business_name: str = "העסק", business_id: int = None, c
 🎯 **היכולות שלך:**
 
 1. **פגישות (כלי לוח שנה):**
-   - מצא זמנים פנויים: calendar_find_slots
-   - צור פגישות: calendar_create_appointment
+   - רשימת לוחות שנה זמינים: calendar_list (קבל את כל הלוחות עם שמות בעברית)
+   - זיהוי לוח נכון: calendar_resolve_target (מצא לוח מתאים לפי כוונת הלקוח)
+   - מצא זמנים פנויים: calendar_find_slots (אפשר לציין calendar_id ספציפי)
+   - צור פגישות: calendar_create_appointment (אפשר לציין calendar_id ספציפי)
+   - 🔥 חשוב: אם יש מספר לוחות שנה, קודם קרא calendar_list וזהה את הלוח הנכון!
    - תמיד בדוק זמינות לפני אישור
    - 🔥 חשוב: כשמציג זמנים, הצע רק 2 אופציות - לא את כולם!
    - דוגמה: "יש פנוי ב-9:00 או 14:00, מה מתאים לך?"
@@ -1663,6 +1768,8 @@ BEFORE any appointment/invoice/contract:
     tools_to_use = [
         calendar_find_slots,
         calendar_create_appointment,
+        calendar_list,
+        calendar_resolve_target,
         leads_upsert,
         leads_search,
         invoices_create,
@@ -1672,7 +1779,7 @@ BEFORE any appointment/invoice/contract:
         summarize_thread,
         business_get_info
     ]
-    logger.info(f"✅ Ops agent tools RESTORED (non-realtime flows)")
+    logger.info(f"✅ Ops agent tools RESTORED (non-realtime flows) with calendar support")
     
     # If business_id provided, could wrap tools here (similar to booking_agent)
     # For now, business_id will come from context
