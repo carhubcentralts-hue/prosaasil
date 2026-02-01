@@ -4,7 +4,7 @@ Allows businesses to create, read, update, delete custom lead statuses
 """
 from flask import Blueprint, request, jsonify, session, g
 from server.auth_api import require_api_auth
-from server.models_sql import LeadStatus, Lead, Business
+from server.models_sql import LeadStatus, Lead, Business, ScheduledRuleStatus
 from server.db import db
 from datetime import datetime
 import logging
@@ -387,7 +387,12 @@ def delete_status(status_id):
         if not business_id:
             business_id = status.business_id
             
-        # BUILD 146: Removed is_system restriction - users can delete any status
+        # ✅ System status protection - cannot delete system statuses (won, lost, unqualified)
+        if status.is_system:
+            return jsonify({
+                'error': 'Cannot delete system status. System statuses (won, lost, unqualified) are protected.',
+                'is_system': True
+            }), 403
         
         # ✅ Default status protection - cannot delete if it's the only default or no other default exists
         if status.is_default:
@@ -417,7 +422,11 @@ def delete_status(status_id):
                 'action': 'deletion_blocked'
             }), 409
         else:
-            # Safe to delete
+            # Delete related ScheduledRuleStatus records first
+            # Explicit deletion for better error handling and logging (CASCADE is configured in DB)
+            ScheduledRuleStatus.query.filter_by(status_id=status_id).delete()
+            
+            # Safe to delete the status
             db.session.delete(status)
             db.session.commit()
             
