@@ -7984,6 +7984,50 @@ def apply_migrations():
         
         checkpoint("✅ Migration 125 complete: Conversation tracking fields ready for AgentKit Only mode")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 126: Add Appointment Configuration Columns to BusinessSettings
+        # Adds appointment_types_json and appointment_statuses_json for per-business customization
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 126: Adding appointment configuration columns to business_settings")
+        
+        if check_table_exists('business_settings'):
+            try:
+                # Add appointment_types_json column
+                if not check_column_exists('business_settings', 'appointment_types_json'):
+                    checkpoint("  → Adding appointment_types_json to business_settings...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE business_settings 
+                        ADD COLUMN appointment_types_json JSON NULL
+                    """)
+                    checkpoint("  ✅ appointment_types_json column added")
+                    checkpoint("     💡 Custom appointment types per business")
+                else:
+                    checkpoint("  ℹ️  appointment_types_json column already exists")
+                
+                # Add appointment_statuses_json column
+                if not check_column_exists('business_settings', 'appointment_statuses_json'):
+                    checkpoint("  → Adding appointment_statuses_json to business_settings...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE business_settings 
+                        ADD COLUMN appointment_statuses_json JSON NULL
+                    """)
+                    checkpoint("  ✅ appointment_statuses_json column added")
+                    checkpoint("     💡 Custom appointment statuses per business")
+                else:
+                    checkpoint("  ℹ️  appointment_statuses_json column already exists")
+                
+                migrations_applied.append('migration_126_appointment_config')
+                checkpoint("  ✅ All appointment configuration fields added")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 126 failed: {e}")
+                logger.error(f"Migration 126 error: {e}", exc_info=True)
+                raise
+        else:
+            checkpoint("  ℹ️  business_settings table does not exist - skipping Migration 126")
+        
+        checkpoint("✅ Migration 126 complete: Appointment configuration columns ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
