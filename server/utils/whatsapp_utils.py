@@ -210,3 +210,60 @@ def normalize_whatsapp_to(
     logger.info(f"[WA-SEND] normalized_to={jid} source={source} lead_id={lead_id} business_id={business_id}")
     
     return jid, source
+
+
+def normalize_conversation_key(
+    remote_jid: str,
+    from_number_e164: Optional[str] = None,
+    phone_for_ai_check: Optional[str] = None
+) -> str:
+    """
+    🔥 SINGLE SOURCE FOR CONVERSATION KEY
+    
+    Generate a consistent conversation key for tracking message history,
+    conversation state, and deduplication across all WhatsApp operations.
+    
+    This ensures:
+    - Save inbound message → same key
+    - Load previous_messages → same key
+    - Conversation state get/set → same key
+    - Dedup keys → same key
+    - Scheduled messages recipient → same key
+    
+    Priority:
+    1. phone_for_ai_check (handles @lid, Android, iPhone consistently)
+    2. from_number_e164 (E.164 format, standard)
+    3. remote_jid (original JID as fallback)
+    
+    Args:
+        remote_jid: Original WhatsApp JID from message
+        from_number_e164: Normalized E.164 phone (if available)
+        phone_for_ai_check: Special normalized phone for AI context (handles @lid)
+    
+    Returns:
+        str: Consistent conversation key
+        
+    Examples:
+        >>> normalize_conversation_key("972501234567@s.whatsapp.net", "+972501234567", "+972501234567")
+        "+972501234567"
+        
+        >>> normalize_conversation_key("ABC123@lid", None, "972501234567@s.whatsapp.net")
+        "972501234567@s.whatsapp.net"
+        
+        >>> normalize_conversation_key("972501234567@s.whatsapp.net", None, None)
+        "972501234567@s.whatsapp.net"
+    """
+    # Priority 1: phone_for_ai_check (most reliable, handles @lid)
+    if phone_for_ai_check:
+        logger.debug(f"[CONV-KEY] Using phone_for_ai_check: {phone_for_ai_check[:30]}")
+        return phone_for_ai_check
+    
+    # Priority 2: from_number_e164 (E.164 format)
+    if from_number_e164:
+        logger.debug(f"[CONV-KEY] Using from_number_e164: {from_number_e164}")
+        return from_number_e164
+    
+    # Priority 3: remote_jid (original JID)
+    logger.debug(f"[CONV-KEY] Using remote_jid: {remote_jid[:30]}")
+    return remote_jid
+

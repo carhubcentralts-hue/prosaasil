@@ -7,6 +7,7 @@ from server.security.permissions import require_page_access
 from server.db import db
 from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
 from server.services.whatsapp_session_service import update_session_activity
+from server.utils.whatsapp_utils import normalize_conversation_key
 from server.agent_tools.phone_utils import normalize_phone
 from server.services.jobs import enqueue_job
 from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
@@ -826,7 +827,11 @@ def baileys_webhook():
                 
                 # 🔥 FIX #3: Create unified conversation_key for consistent history tracking
                 # This prevents context loss in LID/Android conversations where from_number_e164 can be None
-                conversation_key = phone_for_ai_check or from_number_e164 or remote_jid
+                conversation_key = normalize_conversation_key(
+                    remote_jid=remote_jid,
+                    from_number_e164=from_number_e164,
+                    phone_for_ai_check=phone_for_ai_check
+                )
                 log.info(f"[WA-CONTEXT] Using conversation_key={conversation_key[:30]} for history/state tracking")
                 
                 # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
