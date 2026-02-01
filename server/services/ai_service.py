@@ -494,10 +494,9 @@ class AIService:
             logger.info(f"✅ Replaced {{{{business_name}}}} with '{business_name}'")
             
             # 🔥 SANITIZE business prompt (remove URLs, normalize punctuation, clean IDs)
-            # 🆕 FIX: No character limit for WhatsApp prompts - allow full prompt to be sent
+            # 🆕 FIX: Increased limit from 3000 to 20000 chars to allow full WhatsApp prompts
             from server.services.prompt_sanitizer import sanitize_prompt_text
-            # Use very high limit (20000 chars) to effectively allow any prompt size
-            # This ensures no truncation of business prompts
+            # Maximum 20000 characters - reasonable limit to prevent abuse while allowing large prompts
             sanitized_result = sanitize_prompt_text(system_prompt, max_length=20000)
             system_prompt = sanitized_result["sanitized_text"]
             flags = sanitized_result["flags"]

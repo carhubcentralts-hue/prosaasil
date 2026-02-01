@@ -13,6 +13,11 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Constants for test expectations
+WHITESPACE_REDUCTION_ALLOWANCE = 0.20  # Sanitizer may reduce size by up to 20% due to whitespace normalization
+TRUNCATION_SUFFIX_ALLOWANCE = 10  # Allow a few extra chars for "..." suffix when truncating
+
+
 def test_sanitize_text_no_truncation():
     """Test that sanitization with max_length=20000 does NOT truncate prompts"""
     from server.services.prompt_sanitizer import sanitize_prompt_text
@@ -136,8 +141,8 @@ def test_sanitize_text_no_truncation():
     result = sanitize_prompt_text(realistic_prompt, max_length=20000)
     
     # Should NOT be truncated if under 20000
-    # Allow more reduction for whitespace normalization and duplicate space removal (up to 20%)
-    min_expected_len = len(realistic_prompt) * 0.80
+    # Note: Allow reduction due to whitespace normalization (sanitizer removes duplicate spaces)
+    min_expected_len = len(realistic_prompt) * (1 - WHITESPACE_REDUCTION_ALLOWANCE)
     assert len(result["sanitized_text"]) >= min_expected_len, \
         f"Realistic prompt was over-truncated: {len(result['sanitized_text'])} vs {len(realistic_prompt)} (min expected: {min_expected_len})"
     # More importantly: ensure it's NOT cut at 3000
@@ -156,7 +161,7 @@ def test_sanitize_text_no_truncation():
     extremely_large_prompt = "ג" * 25000
     result = sanitize_prompt_text(extremely_large_prompt, max_length=20000)
     # Allow a few extra chars for the "..." suffix
-    assert len(result["sanitized_text"]) <= 20010, \
+    assert len(result["sanitized_text"]) <= 20000 + TRUNCATION_SUFFIX_ALLOWANCE, \
         f"25000-char prompt not truncated properly: {len(result['sanitized_text'])}"
     print(f"✅ Test 5 passed: 25000-char prompt truncated to {len(result['sanitized_text'])} (as expected)")
 
