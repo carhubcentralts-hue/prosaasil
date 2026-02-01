@@ -1042,26 +1042,32 @@ class AIService:
             messages = []
             if context and context.get('previous_messages'):
                 previous_messages = context['previous_messages']
-                # Keep last N messages for context (avoid token limits)
-                for msg_str in previous_messages[-MAX_CONVERSATION_HISTORY_MESSAGES:]:
-                    if msg_str.startswith("לקוח:"):
-                        # Customer message
-                        content = msg_str.replace("לקוח:", "", 1).strip()
-                        messages.append({"role": "user", "content": content})
-                    elif msg_str.startswith("עוזר:"):
-                        # Assistant message
-                        content = msg_str.replace("עוזר:", "", 1).strip()
-                        messages.append({"role": "assistant", "content": content})
-                    # Ignore messages that don't match format
-                
-                logger.info(f"[AGENTKIT] 📚 Converted {len(messages)} previous messages to conversation history")
+                # Defensive: Ensure previous_messages is a list before slicing
+                if isinstance(previous_messages, list):
+                    # Keep last N messages for context (avoid token limits)
+                    for msg_str in previous_messages[-MAX_CONVERSATION_HISTORY_MESSAGES:]:
+                        # Defensive: Ensure msg_str is a string before processing
+                        if isinstance(msg_str, str):
+                            if msg_str.startswith("לקוח:"):
+                                # Customer message
+                                content = msg_str.replace("לקוח:", "", 1).strip()
+                                messages.append({"role": "user", "content": content})
+                            elif msg_str.startswith("עוזר:"):
+                                # Assistant message
+                                content = msg_str.replace("עוזר:", "", 1).strip()
+                                messages.append({"role": "assistant", "content": content})
+                            # Ignore messages that don't match format
+                    
+                    logger.info(f"[AGENTKIT] 📚 Converted {len(messages)} previous messages to conversation history")
+                else:
+                    logger.warning(f"[AGENTKIT] ⚠️ previous_messages is not a list, type={type(previous_messages)}")
             
             # Add current message
             messages.append({"role": "user", "content": message})
             
             # 🔥 FIX: Use agent.run() instead of Runner.run() to support conversation history
             # agent.run() accepts messages parameter for full conversation context
-            # Note: agent.run() is synchronous (not async) - see routes_agent_ops.py line 103
+            # Note: agent.run() is synchronous (see server/routes_agent_ops.py for reference implementation)
             result = agent.run(messages=messages, context=agent_context)
             
             # Extract response text from result
