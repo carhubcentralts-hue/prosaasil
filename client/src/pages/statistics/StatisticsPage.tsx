@@ -180,8 +180,8 @@ export function StatisticsPage() {
 
   const loadStatuses = async () => {
     try {
-      const response = await http.get<{ items: LeadStatusConfig[] }>('/api/lead-statuses');
-      setStatuses(response.items || []);
+      const response = await http.get<LeadStatusConfig[]>('/api/lead-statuses');
+      setStatuses(response || []);
     } catch (err) {
       console.error('Error loading statuses:', err);
     }
