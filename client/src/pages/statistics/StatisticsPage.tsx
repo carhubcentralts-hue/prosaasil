@@ -173,6 +173,11 @@ export function StatisticsPage() {
     loadStats();
   }, [selectedStatuses, dateFrom, dateTo]);
 
+  const formatDateDisplay = (dateStr: string): string => {
+    // Format YYYY-MM-DD to DD/MM/YYYY for Hebrew display
+    return dateStr.split('-').reverse().join('/');
+  };
+
   const loadStatuses = async () => {
     try {
       const response = await http.get<{ items: LeadStatusConfig[] }>('/api/lead-statuses');
@@ -195,12 +200,13 @@ export function StatisticsPage() {
         });
       }
       if (dateFrom) {
-        // Create ISO string from date input (YYYY-MM-DD) at start of day in local timezone
+        // Convert local date (YYYY-MM-DD) to UTC timestamp at start of local day
+        // Backend compares with created_at (UTC), so we need UTC representation of local date
         const fromDate = new Date(dateFrom + 'T00:00:00');
         params.append('from', fromDate.toISOString());
       }
       if (dateTo) {
-        // Create ISO string from date input (YYYY-MM-DD) at end of day in local timezone
+        // Convert local date (YYYY-MM-DD) to UTC timestamp at end of local day
         const toDate = new Date(dateTo + 'T23:59:59');
         params.append('to', toDate.toISOString());
       }
@@ -431,12 +437,12 @@ export function StatisticsPage() {
                   )}
                   {dateFrom && (
                     <Badge variant="info">
-                      מ-{dateFrom.split('-').reverse().join('/')}
+                      מ-{formatDateDisplay(dateFrom)}
                     </Badge>
                   )}
                   {dateTo && (
                     <Badge variant="info">
-                      עד-{dateTo.split('-').reverse().join('/')}
+                      עד-{formatDateDisplay(dateTo)}
                     </Badge>
                   )}
                 </div>
