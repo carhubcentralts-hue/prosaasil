@@ -60,6 +60,10 @@ logger = logging.getLogger(__name__)
 # Global AI service instance for cache sharing
 _global_ai_service = None
 
+# 🔥 Configuration: Maximum number of previous messages to include in conversation history
+# This prevents token limit issues while maintaining sufficient context
+MAX_CONVERSATION_HISTORY_MESSAGES = 12
+
 # 🚨 OBSOLETE: The following flags are no longer used after AgentKit Only implementation
 # All messages now use AgentKit regardless of intent
 # Left here for backward compatibility in case of rollback
@@ -1038,8 +1042,8 @@ class AIService:
             messages = []
             if context and context.get('previous_messages'):
                 previous_messages = context['previous_messages']
-                # Keep last 12 messages for context (avoid token limits)
-                for msg_str in previous_messages[-12:]:
+                # Keep last N messages for context (avoid token limits)
+                for msg_str in previous_messages[-MAX_CONVERSATION_HISTORY_MESSAGES:]:
                     if msg_str.startswith("לקוח:"):
                         # Customer message
                         content = msg_str.replace("לקוח:", "", 1).strip()
@@ -1057,10 +1061,14 @@ class AIService:
             
             # 🔥 FIX: Use agent.run() instead of Runner.run() to support conversation history
             # agent.run() accepts messages parameter for full conversation context
+            # Note: agent.run() is synchronous (not async) - see routes_agent_ops.py line 103
             result = agent.run(messages=messages, context=agent_context)
             
             # Extract response text from result
-            # Different result types depending on agent configuration
+            # The OpenAI Agents SDK can return different result types:
+            # - output_text: Most common (standard agent response)
+            # - final_output: Alternative format in some configurations
+            # - text/response: Legacy formats for backward compatibility
             reply_text = ""
             if hasattr(result, 'output_text') and result.output_text:
                 reply_text = str(result.output_text)
