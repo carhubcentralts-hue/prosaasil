@@ -34,6 +34,7 @@ class PushPayload:
     notification_type: Optional[str] = None  # appointment_reminder, whatsapp_disconnect, etc.
     entity_id: Optional[str] = None  # Related entity ID
     business_id: Optional[int] = None
+    data: Optional[Dict[str, Any]] = None  # Additional custom data
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict for JSON serialization"""
@@ -44,7 +45,8 @@ class PushPayload:
             "tag": self.tag,
             "type": self.notification_type,
             "entity_id": self.entity_id,
-            "business_id": self.business_id
+            "business_id": self.business_id,
+            "data": self.data or {}
         }
 
 
