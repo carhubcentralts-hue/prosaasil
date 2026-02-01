@@ -2772,9 +2772,9 @@ def get_templates():
         if not business:
             return jsonify({'templates': []}), 200
         
-        # Check if Meta Cloud API is configured
-        meta_phone_id = os.getenv('META_PHONE_NUMBER_ID')
-        meta_token = os.getenv('META_ACCESS_TOKEN')
+        # Check if Meta Cloud API is configured (using unified META_WA_* variables)
+        meta_phone_id = os.getenv('META_WA_PHONE_NUMBER_ID')
+        meta_token = os.getenv('META_WA_ACCESS_TOKEN')
         
         if not meta_phone_id or not meta_token:
             log.warning("Meta Cloud API not configured - no templates available")
@@ -2782,7 +2782,7 @@ def get_templates():
         
         # Fetch templates from Meta API
         # GET /v18.0/{WABA_ID}/message_templates
-        waba_id = os.getenv('META_WABA_ID')
+        waba_id = os.getenv('META_WA_WABA_ID')
         if not waba_id:
             return jsonify({'templates': []}), 200
         
