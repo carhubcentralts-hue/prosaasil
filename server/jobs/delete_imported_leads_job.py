@@ -14,7 +14,10 @@ Features:
 import logging
 import time
 import json
+import os
+import redis
 from datetime import datetime, timezone
+from server.services.bulk_gate import get_bulk_gate
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +37,6 @@ def _release_bulk_gate_lock(business_id: int):
         business_id: Business ID for the lock
     """
     try:
-        import redis
-        import os
-        from server.services.bulk_gate import get_bulk_gate
         REDIS_URL = os.getenv('REDIS_URL')
         redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
         
