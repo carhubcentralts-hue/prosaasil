@@ -227,6 +227,14 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                     logger.error(f"❌ Error loading DB prompt for business={business_id}: {e}")
                     custom_instructions = None
             
+            # Log prompt hash for debugging
+            if custom_instructions:
+                import hashlib
+                prompt_hash = hashlib.sha1(custom_instructions.encode()).hexdigest()[:8]
+                logger.info(f"🔑 Creating agent with prompt_hash={prompt_hash} for business={business_id}, channel={channel}")
+            else:
+                logger.warning(f"⚠️ Creating agent WITHOUT custom instructions for business={business_id}, channel={channel}")
+            
             new_agent = create_booking_agent(
                 business_name=business_name,
                 custom_instructions=custom_instructions,
@@ -242,6 +250,10 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             if new_agent:
                 # Cache the new agent
                 _AGENT_CACHE[cache_key] = (new_agent, now)
+                if custom_instructions:
+                    import hashlib
+                    prompt_hash = hashlib.sha1(custom_instructions.encode()).hexdigest()[:8]
+                    logger.info(f"✅ Agent cached: business={business_id}, channel={channel}, prompt_hash={prompt_hash}")
             
             return new_agent
             
