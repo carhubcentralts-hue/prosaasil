@@ -24,7 +24,8 @@ import {
   Settings,
   ChevronDown,
   ChevronUp,
-  Check
+  Check,
+  Star
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { http } from '../../services/http';
@@ -289,9 +290,9 @@ export function CalendarPage() {
   
   // Calendar filter state for appointments tab
   const [filterCalendar, setFilterCalendar] = useState<string>('all');
-  
-  // Calendars tab view state: 'manage' for calendar management, 'consolidated' for all appointments view
-  const [calendarsView, setCalendarsView] = useState<'manage' | 'consolidated'>('manage');
+
+  // Default calendar selection
+  const [defaultCalendarId, setDefaultCalendarId] = useState<number | null>(null);
 
   // Configurable appointment types and statuses
   const [appointmentTypes, setAppointmentTypes] = useState<AppointmentTypeConfig[]>([]);
@@ -325,6 +326,7 @@ export function CalendarPage() {
     fetchAppointments();
     fetchAppointmentTypes();
     fetchAppointmentStatuses();
+    fetchDefaultCalendar();
   }, []);
 
   useEffect(() => {
@@ -379,6 +381,38 @@ export function CalendarPage() {
       console.error('שגיאה בטעינת לוחות שנה:', error);
     } finally {
       setLoadingCalendars(false);
+    }
+  };
+
+  // Fetch default calendar
+  const fetchDefaultCalendar = async () => {
+    try {
+      const data = await http.get<{default_calendar_id: number | null}>('/api/calendar/config/default-calendar');
+      setDefaultCalendarId(data.default_calendar_id);
+      // Set filter to default calendar if one is set
+      if (data.default_calendar_id) {
+        setFilterCalendar(String(data.default_calendar_id));
+      }
+    } catch (error) {
+      console.error('שגיאה בטעינת לוח שנה ראשי:', error);
+    }
+  };
+
+  // Update default calendar
+  const handleSetDefaultCalendar = async (calendarId: number | null) => {
+    try {
+      await http.put('/api/calendar/config/default-calendar', {
+        default_calendar_id: calendarId
+      });
+      setDefaultCalendarId(calendarId);
+      // Update filter to match new default
+      if (calendarId) {
+        setFilterCalendar(String(calendarId));
+      }
+      alert('לוח השנה הראשי עודכן בהצלחה!');
+    } catch (error) {
+      console.error('שגיאה בעדכון לוח שנה ראשי:', error);
+      alert('שגיאה בעדכון לוח השנה הראשי. אנא נסה שוב.');
     }
   };
 
@@ -461,8 +495,9 @@ export function CalendarPage() {
     
     const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
     const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
+    // Show all appointments when "all" is selected, or match specific calendar
     const matchesCalendar = filterCalendar === 'all' || 
-      (appointment.calendar_id && appointment.calendar_id === parseInt(filterCalendar));
+      (filterCalendar !== 'all' && appointment.calendar_id === parseInt(filterCalendar));
     
     // ✅ BUILD 144 + 170: Date filter - single date or date range
     let matchesDate = true;
@@ -820,15 +855,26 @@ export function CalendarPage() {
               </button>
             )}
             {activeTab === 'appointments' && (
-              <button
-                className="btn-primary flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
-                onClick={openNewAppointmentModal}
-                data-testid="button-new-appointment"
-              >
-                <Plus className="h-5 w-5 flex-shrink-0" />
-                <span className="hidden sm:inline font-medium">פגישה חדשה</span>
-                <span className="sm:hidden font-medium">פגישה</span>
-              </button>
+              <>
+                <button
+                  className="btn-ghost flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
+                  onClick={() => setShowStatusSettings(true)}
+                  data-testid="button-status-management"
+                >
+                  <Settings className="h-5 w-5 flex-shrink-0" />
+                  <span className="hidden sm:inline font-medium">ניהול סטטוסים</span>
+                  <span className="sm:hidden font-medium">סטטוסים</span>
+                </button>
+                <button
+                  className="btn-primary flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
+                  onClick={openNewAppointmentModal}
+                  data-testid="button-new-appointment"
+                >
+                  <Plus className="h-5 w-5 flex-shrink-0" />
+                  <span className="hidden sm:inline font-medium">פגישה חדשה</span>
+                  <span className="sm:hidden font-medium">פגישה</span>
+                </button>
+              </>
             )}
             {activeTab === 'calendars' && (
               <button
@@ -926,9 +972,12 @@ export function CalendarPage() {
               onChange={(e) => setFilterCalendar(e.target.value)}
               data-testid="select-filter-calendar"
             >
-              <option value="all">כל הלוחות</option>
+              <option value="all">🗓️ כל הלוחות (מאוחד)</option>
               {calendars.filter(c => c.is_active).map(calendar => (
-                <option key={calendar.id} value={calendar.id.toString()}>{calendar.name}</option>
+                <option key={calendar.id} value={calendar.id.toString()}>
+                  {calendar.name}
+                  {defaultCalendarId === calendar.id ? ' ⭐' : ''}
+                </option>
               ))}
             </select>
             
@@ -1047,9 +1096,12 @@ export function CalendarPage() {
               onChange={(e) => setFilterCalendar(e.target.value)}
               data-testid="select-filter-calendar-desktop"
             >
-              <option value="all">כל הלוחות</option>
+              <option value="all">🗓️ כל הלוחות (מאוחד)</option>
               {calendars.filter(c => c.is_active).map(calendar => (
-                <option key={calendar.id} value={calendar.id.toString()}>{calendar.name}</option>
+                <option key={calendar.id} value={calendar.id.toString()}>
+                  {calendar.name}
+                  {defaultCalendarId === calendar.id ? ' ⭐' : ''}
+                </option>
               ))}
             </select>
             
@@ -1456,44 +1508,14 @@ export function CalendarPage() {
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">לוחות שנה</h2>
                 <p className="text-sm text-slate-600 mt-1">
-                  {calendarsView === 'manage' 
-                    ? 'נהל מספר לוחות שנה לעסק שלך עם הגדרות ייחודיות לכל אחד'
-                    : 'צפה בכל הפגישות מאורגנות לפי לוחות שנה'}
+                  נהל מספר לוחות שנה לעסק שלך עם הגדרות ייחודיות לכל אחד
                 </p>
-              </div>
-              
-              {/* Toggle between manage and consolidated view */}
-              <div className="flex bg-slate-100 rounded-lg p-1">
-                <button
-                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                    calendarsView === 'manage' 
-                      ? 'bg-white text-slate-900 shadow-sm' 
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  onClick={() => setCalendarsView('manage')}
-                  data-testid="button-view-manage"
-                >
-                  ניהול לוחות
-                </button>
-                <button
-                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                    calendarsView === 'consolidated' 
-                      ? 'bg-white text-slate-900 shadow-sm' 
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  onClick={() => setCalendarsView('consolidated')}
-                  data-testid="button-view-consolidated"
-                >
-                  לוח כללי
-                </button>
               </div>
             </div>
           </div>
 
-          {/* Calendar Management View */}
-          {calendarsView === 'manage' && (
-            <>
-              {loadingCalendars ? (
+          {/* Calendar Management */}
+          {loadingCalendars ? (
                 <div className="p-8 flex justify-center items-center">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
@@ -1600,171 +1622,32 @@ export function CalendarPage() {
                           </div>
                         </div>
                       )}
+
+                      {/* Set as default calendar button */}
+                      <div className="mt-3 pt-3 border-t border-slate-200">
+                        {defaultCalendarId === calendar.id ? (
+                          <div className="flex items-center gap-2 text-sm text-green-600">
+                            <CheckCircle className="h-4 w-4" />
+                            <span className="font-medium">לוח שנה ראשי</span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleSetDefaultCalendar(calendar.id)}
+                            className="w-full px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="הגדר כלוח שנה ראשי"
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              <Star className="h-4 w-4" />
+                              <span>הגדר כלוח ראשי</span>
+                            </div>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
-            </>
-          )}
-          
-          {/* Consolidated Calendar View - All appointments by calendar */}
-          {calendarsView === 'consolidated' && (
-            <>
-              {loading || loadingCalendars ? (
-                <div className="p-8 flex justify-center items-center">
-                  <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                    <p className="text-slate-600">טוען נתונים...</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-4 md:p-6 space-y-6">
-                  {/* Show appointments grouped by calendar */}
-                  {calendars.filter(c => c.is_active).length === 0 ? (
-                    <div className="text-center py-12">
-                      <Calendar className="h-16 w-16 text-slate-300 mx-auto mb-4" />
-                      <h3 className="text-lg font-medium text-slate-900 mb-2">אין לוחות שנה פעילים</h3>
-                      <p className="text-slate-600">
-                        צור לוח שנה חדש בתצוגת "ניהול לוחות" כדי להתחיל לנהל פגישות
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Unassigned appointments */}
-                      {(() => {
-                        const unassignedAppointments = appointments.filter(a => !a.calendar_id);
-                        if (unassignedAppointments.length > 0) {
-                          return (
-                            <div className="border border-slate-200 rounded-xl overflow-hidden">
-                              <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <h3 className="font-semibold text-slate-900">ללא לוח שנה</h3>
-                                    <p className="text-sm text-slate-600">פגישות שלא משויכות ללוח שנה</p>
-                                  </div>
-                                  <span className="bg-slate-200 text-slate-700 px-3 py-1 rounded-full text-sm font-medium">
-                                    {unassignedAppointments.length}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="divide-y divide-slate-200">
-                                {unassignedAppointments.slice(0, 5).map(appointment => (
-                                  <div key={appointment.id} className="p-4 hover:bg-slate-50 transition-colors">
-                                    <div className="flex items-start justify-between">
-                                      <div className="flex-1">
-                                        <h4 className="font-medium text-slate-900">{appointment.title}</h4>
-                                        <div className="flex flex-wrap gap-2 mt-2 text-sm text-slate-600">
-                                          <span className="flex items-center gap-1">
-                                            <Clock className="h-4 w-4" />
-                                            {new Date(appointment.start_time).toLocaleString('he-IL', {
-                                              month: 'short',
-                                              day: 'numeric',
-                                              hour: '2-digit',
-                                              minute: '2-digit',
-                                              timeZone: 'Asia/Jerusalem'
-                                            })}
-                                          </span>
-                                          {appointment.contact_name && (
-                                            <span className="flex items-center gap-1">
-                                              <User className="h-4 w-4" />
-                                              {appointment.contact_name}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_TYPES[appointment.status]?.color || 'bg-gray-100 text-gray-800'}`}>
-                                        {STATUS_TYPES[appointment.status]?.label || appointment.status}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                                {unassignedAppointments.length > 5 && (
-                                  <div className="p-3 text-center text-sm text-slate-600 bg-slate-50">
-                                    ועוד {unassignedAppointments.length - 5} פגישות...
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })()}
-
-                      {/* Appointments by calendar */}
-                      {calendars.filter(c => c.is_active).map(calendar => {
-                        const calendarAppointments = appointments.filter(a => a.calendar_id === calendar.id);
-                        return (
-                          <div key={calendar.id} className="border border-slate-200 rounded-xl overflow-hidden">
-                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 border-b border-slate-200">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <h3 className="font-semibold text-slate-900">{calendar.name}</h3>
-                                  <p className="text-sm text-slate-600">
-                                    עדיפות: {calendar.priority} | משך ברירת מחדל: {calendar.default_duration_minutes} דקות
-                                  </p>
-                                </div>
-                                <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
-                                  {calendarAppointments.length}
-                                </span>
-                              </div>
-                            </div>
-                            {calendarAppointments.length === 0 ? (
-                              <div className="p-8 text-center text-slate-500">
-                                <CalendarIcon className="h-12 w-12 text-slate-300 mx-auto mb-2" />
-                                <p>אין פגישות בלוח שנה זה</p>
-                              </div>
-                            ) : (
-                              <div className="divide-y divide-slate-200">
-                                {calendarAppointments.slice(0, 5).map(appointment => (
-                                  <div key={appointment.id} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openEditAppointmentModal(appointment)}>
-                                    <div className="flex items-start justify-between">
-                                      <div className="flex-1">
-                                        <h4 className="font-medium text-slate-900">{appointment.title}</h4>
-                                        <div className="flex flex-wrap gap-2 mt-2 text-sm text-slate-600">
-                                          <span className="flex items-center gap-1">
-                                            <Clock className="h-4 w-4" />
-                                            {new Date(appointment.start_time).toLocaleString('he-IL', {
-                                              month: 'short',
-                                              day: 'numeric',
-                                              hour: '2-digit',
-                                              minute: '2-digit',
-                                              timeZone: 'Asia/Jerusalem'
-                                            })}
-                                          </span>
-                                          {appointment.contact_name && (
-                                            <span className="flex items-center gap-1">
-                                              <User className="h-4 w-4" />
-                                              {appointment.contact_name}
-                                            </span>
-                                          )}
-                                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${APPOINTMENT_TYPES[appointment.appointment_type]?.color || 'bg-gray-100 text-gray-800'}`}>
-                                            {APPOINTMENT_TYPES[appointment.appointment_type]?.label || appointment.appointment_type}
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_TYPES[appointment.status]?.color || 'bg-gray-100 text-gray-800'}`}>
-                                        {STATUS_TYPES[appointment.status]?.label || appointment.status}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                                {calendarAppointments.length > 5 && (
-                                  <div className="p-3 text-center text-sm text-slate-600 bg-slate-50">
-                                    ועוד {calendarAppointments.length - 5} פגישות...
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
-              )}
-            </>
           )}
         </div>
       )}
@@ -2135,6 +2018,184 @@ export function CalendarPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Status Management Modal */}
+      {showStatusSettings && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-900">ניהול סטטוסים</h2>
+              <button
+                onClick={() => setShowStatusSettings(false)}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                data-testid="button-close-status-settings"
+              >
+                <X className="h-6 w-6 text-slate-600" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {/* Current Statuses List */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">סטטוסים קיימים</h3>
+                <div className="space-y-2">
+                  {appointmentStatuses.map((status) => (
+                    <div 
+                      key={status.key}
+                      className="flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getColorClasses(status.color)}`}>
+                          {status.label}
+                        </span>
+                        <span className="text-sm text-slate-500">({status.key})</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEditStatus(status)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="ערוך"
+                          data-testid={`button-edit-status-${status.key}`}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteStatus(status.key)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="מחק"
+                          data-testid={`button-delete-status-${status.key}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Add/Edit Status Form */}
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">
+                  {editingStatus ? 'עריכת סטטוס' : 'הוספת סטטוס חדש'}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-900 mb-2">
+                      קוד סטטוס (אנגלית)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={statusFormData.key}
+                      onChange={(e) => setStatusFormData({...statusFormData, key: e.target.value})}
+                      placeholder="scheduled"
+                      disabled={!!editingStatus}
+                      data-testid="input-status-key"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-900 mb-2">
+                      שם הסטטוס (עברית)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={statusFormData.label}
+                      onChange={(e) => setStatusFormData({...statusFormData, label: e.target.value})}
+                      placeholder="מתוכנן"
+                      data-testid="input-status-label"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-900 mb-2">
+                      צבע
+                    </label>
+                    <select
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={statusFormData.color}
+                      onChange={(e) => setStatusFormData({...statusFormData, color: e.target.value})}
+                      data-testid="select-status-color"
+                    >
+                      <option value="gray">אפור</option>
+                      <option value="red">אדום</option>
+                      <option value="yellow">צהוב</option>
+                      <option value="green">ירוק</option>
+                      <option value="blue">כחול</option>
+                      <option value="indigo">אינדיגו</option>
+                      <option value="purple">סגול</option>
+                      <option value="pink">ורוד</option>
+                      <option value="orange">כתום</option>
+                      <option value="teal">טורקיז</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-4">
+                  {editingStatus ? (
+                    <>
+                      <button
+                        onClick={handleUpdateStatus}
+                        className="btn-primary flex-1"
+                        data-testid="button-update-status"
+                      >
+                        <Save className="h-5 w-5 mr-2" />
+                        עדכן סטטוס
+                      </button>
+                      <button
+                        onClick={handleCancelStatusEdit}
+                        className="btn-ghost flex-1"
+                        data-testid="button-cancel-status-edit"
+                      >
+                        ביטול
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={handleAddStatus}
+                      className="btn-primary w-full"
+                      data-testid="button-add-status"
+                    >
+                      <Plus className="h-5 w-5 mr-2" />
+                      הוסף סטטוס
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Save Changes Button */}
+              <div className="flex gap-3 mt-6 pt-6 border-t border-slate-200">
+                <button
+                  onClick={() => setShowStatusSettings(false)}
+                  className="btn-ghost flex-1"
+                  data-testid="button-close-status-modal"
+                >
+                  סגור
+                </button>
+                <button
+                  onClick={handleSaveStatuses}
+                  disabled={savingStatuses}
+                  className="btn-primary flex-1"
+                  data-testid="button-save-statuses"
+                >
+                  {savingStatuses ? (
+                    <>
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
+                      שומר...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-5 w-5 mr-2" />
+                      שמור שינויים
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
