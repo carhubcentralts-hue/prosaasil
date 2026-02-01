@@ -550,7 +550,7 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
     # Get lead with business info
     lead = db.session.query(Lead).join(Business).filter(
         Lead.id == lead_id,
-        Lead.business_id == rule.business_id
+        Lead.tenant_id == rule.business_id
     ).first()
     
     if not lead:
@@ -558,9 +558,12 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
         return
     
     # Get status info
-    status = db.session.query(LeadStatus).filter_by(id=lead.status_id).first()
-    status_name = status.name if status else "unknown"
-    status_label = status.label if status else "unknown"
+    current_status = db.session.query(LeadStatus).filter_by(
+        business_id=rule.business_id,
+        name=lead.status
+    ).first()
+    status_name = current_status.name if current_status else lead.status
+    status_label = current_status.label if current_status else lead.status
     
     # Determine WhatsApp JID
     remote_jid = lead.whatsapp_jid or lead.reply_jid
@@ -585,7 +588,7 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
             message_text = render_message_template(
                 template=rule.message_text,
                 lead=lead,
-                business=lead.business,
+                business=lead.tenant,
                 status_name=status_name,
                 status_label=status_label
             )
@@ -631,7 +634,7 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
             message_text = render_message_template(
                 template=step.message_template,
                 lead=lead,
-                business=lead.business,
+                business=lead.tenant,
                 status_name=status_name,
                 status_label=status_label
             )
