@@ -957,44 +957,38 @@ class AIService:
             if customer_name:
                 agent_context['customer_name'] = customer_name
             
-            # 🔥 CRITICAL FIX: Convert previous_messages to proper message format for OpenAI Agents SDK
-            # The SDK expects a list of message dicts with 'role' and 'content' keys
-            messages_list = []
-            if context and 'previous_messages' in context:
-                previous_messages = context['previous_messages']
-                if isinstance(previous_messages, list) and len(previous_messages) > 0:
-                    logger.info(f"[AGENTKIT] Converting {len(previous_messages)} previous messages to OpenAI format")
-                    for prev_msg in previous_messages:
-                        # Messages are formatted as "לקוח: text" or "עוזר: text"
-                        if prev_msg.startswith("לקוח:"):
-                            messages_list.append({
-                                "role": "user",
-                                "content": prev_msg.replace("לקוח:", "").strip()
-                            })
-                        elif prev_msg.startswith("עוזר:"):
-                            messages_list.append({
-                                "role": "assistant",
-                                "content": prev_msg.replace("עוזר:", "").strip()
-                            })
-                        else:
-                            # Fallback: assume it's a user message
-                            messages_list.append({
-                                "role": "user",
-                                "content": prev_msg.strip()
-                            })
+            # 🔥 CRITICAL FIX: OpenAI Agents SDK uses conversation_id to manage conversation history
+            # on OpenAI's servers. We need to pass a unique conversation_id per customer/JID.
+            # This allows the AI to remember the conversation across multiple messages.
             
-            # Add the current message
-            messages_list.append({
-                "role": "user",
-                "content": message
-            })
+            # Generate conversation_id from customer phone or JID
+            conversation_id = None
+            if context:
+                # Try to get remote_jid first (most unique for WhatsApp)
+                remote_jid = context.get('remote_jid')
+                if remote_jid:
+                    # Use JID as conversation_id (e.g., "972549750505@s.whatsapp.net")
+                    conversation_id = f"wa_{business_id}_{remote_jid}".replace('@', '_').replace('.', '_')
+                elif customer_phone:
+                    # Fallback to phone number
+                    conversation_id = f"wa_{business_id}_{customer_phone}".replace('+', '')
             
-            logger.info(f"[AGENTKIT] Running agent with {len(messages_list)} messages (including {len(messages_list)-1} history)")
+            if not conversation_id and business_id:
+                # Last resort: use business_id only (not ideal but better than nothing)
+                conversation_id = f"wa_{business_id}_default"
+                logger.warning(f"[AGENTKIT] No remote_jid or phone found, using default conversation_id")
+            
+            logger.info(f"[AGENTKIT] conversation_id={conversation_id}, message='{message[:50]}...'")
             runner = Runner()
             
-            # 🔥 FIX: Pass messages_list instead of just the current message
-            # This provides full conversation context to the agent
-            agent_coroutine = runner.run(agent, messages_list, context=agent_context)
+            # 🔥 FIX: Pass conversation_id to Runner.run() so OpenAI manages the history
+            # The SDK will automatically retrieve and maintain conversation history on their side
+            agent_coroutine = runner.run(
+                agent, 
+                message,  # Just the current message - history is managed by OpenAI
+                context=agent_context,
+                conversation_id=conversation_id  # This is the key fix!
+            )
             
             # Check if we're already in an async context
             try:
