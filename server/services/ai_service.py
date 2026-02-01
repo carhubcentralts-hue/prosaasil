@@ -494,8 +494,11 @@ class AIService:
             logger.info(f"✅ Replaced {{{{business_name}}}} with '{business_name}'")
             
             # 🔥 SANITIZE business prompt (remove URLs, normalize punctuation, clean IDs)
+            # 🆕 FIX: No character limit for WhatsApp prompts - allow full prompt to be sent
             from server.services.prompt_sanitizer import sanitize_prompt_text
-            sanitized_result = sanitize_prompt_text(system_prompt, max_length=3000)
+            # Use very high limit (20000 chars) to effectively allow any prompt size
+            # This ensures no truncation of business prompts
+            sanitized_result = sanitize_prompt_text(system_prompt, max_length=20000)
             system_prompt = sanitized_result["sanitized_text"]
             flags = sanitized_result["flags"]
             
@@ -508,11 +511,8 @@ class AIService:
             # If you need appointment info, add it to whatsapp_system_prompt in DB.
             # DO NOT add hardcoded appointment logic here!
             
-            # ⚡ BUILD 118: Warn if prompt is too long (causes OpenAI timeouts)
-            if len(system_prompt) > 3000:
-                logger.warning(f"⚠️ PROMPT_TOO_LONG: {len(system_prompt)} chars (recommended: <3000) - may cause OpenAI timeouts!")
-            else:
-                logger.info(f"✅ Prompt length OK: {len(system_prompt)} chars")
+            # Log prompt length for monitoring
+            logger.info(f"✅ Prompt length: {len(system_prompt)} chars - no artificial limits applied")
             
             # Build prompt_data with channel-specific or fallback settings
             if channel == "whatsapp":
