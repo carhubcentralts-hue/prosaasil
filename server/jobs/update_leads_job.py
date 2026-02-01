@@ -25,7 +25,34 @@ MAX_RUNTIME_SECONDS = 300  # 5 minutes max runtime before pausing
 MAX_BATCH_FAILURES = 10  # Stop job after 10 consecutive batch failures
 
 
-def update_leads_batch_job(job_id: int):
+def _release_bulk_gate_lock(business_id: int):
+    """
+    Helper function to release BulkGate lock for update_leads_bulk operation.
+    This should be called whenever the job exits (success, failure, cancellation, pause).
+    
+    Args:
+        business_id: Business ID for the lock
+    """
+    try:
+        import redis
+        import os
+        from server.services.bulk_gate import get_bulk_gate
+        REDIS_URL = os.getenv('REDIS_URL')
+        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+        
+        if redis_conn:
+            bulk_gate = get_bulk_gate(redis_conn)
+            if bulk_gate:
+                bulk_gate.release_lock(
+                    business_id=business_id,
+                    operation_type='update_leads_bulk'
+                )
+                logger.info(f"🔓 Released BulkGate lock for business_id={business_id}")
+    except Exception as e:
+        logger.warning(f"Failed to release BulkGate lock: {e}")
+
+
+def update_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
     """
     Background job for bulk updating leads in batches
     
@@ -40,6 +67,8 @@ def update_leads_batch_job(job_id: int):
     
     Args:
         job_id: BackgroundJob ID to track progress
+        business_id: Business ID (optional, extracted from job if not provided)
+        **kwargs: Additional keyword arguments (ignored, for compatibility with enqueue)
     """
     # 🔥 CRITICAL: Log IMMEDIATELY when job starts (before any imports/setup)
     print(f"=" * 70)
@@ -139,6 +168,10 @@ def update_leads_batch_job(job_id: int):
                 job.finished_at = datetime.utcnow()
                 job.updated_at = datetime.utcnow()
                 db.session.commit()
+                
+                # Release BulkGate lock
+                _release_bulk_gate_lock(business_id)
+                
                 return {
                     "success": True,
                     "cancelled": True,
@@ -154,6 +187,10 @@ def update_leads_batch_job(job_id: int):
                 job.status = 'paused'
                 job.updated_at = datetime.utcnow()
                 db.session.commit()
+                
+                # Release BulkGate lock when pausing
+                _release_bulk_gate_lock(business_id)
+                
                 return {
                     "success": True,
                     "paused": True,
@@ -182,22 +219,7 @@ def update_leads_batch_job(job_id: int):
                 db.session.commit()
                     
                 # Release BulkGate lock
-                try:
-                    import redis
-                    import os
-                    from server.services.bulk_gate import get_bulk_gate
-                    REDIS_URL = os.getenv('REDIS_URL')
-                    redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
-                        
-                    if redis_conn:
-                        bulk_gate = get_bulk_gate(redis_conn)
-                        if bulk_gate:
-                            bulk_gate.release_lock(
-                                business_id=business_id,
-                                operation_type='update_leads_bulk'
-                            )
-                except Exception as e:
-                    logger.warning(f"Failed to release BulkGate lock: {e}")
+                _release_bulk_gate_lock(business_id)
                     
                 return {
                     "success": True,
@@ -300,6 +322,10 @@ def update_leads_batch_job(job_id: int):
                     job.status = 'failed'
                     job.finished_at = datetime.utcnow()
                     db.session.commit()
+                    
+                    # Release BulkGate lock on repeated failures
+                    _release_bulk_gate_lock(business_id)
+                    
                     return {
                         "success": False,
                         "error": f"Job failed after {consecutive_failures} consecutive batch failures",
@@ -321,22 +347,7 @@ def update_leads_batch_job(job_id: int):
         db.session.commit()
             
         # Release BulkGate lock even on failure
-        try:
-            import redis
-            import os
-            from server.services.bulk_gate import get_bulk_gate
-            REDIS_URL = os.getenv('REDIS_URL')
-            redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
-                
-            if redis_conn:
-                bulk_gate = get_bulk_gate(redis_conn)
-                if bulk_gate:
-                    bulk_gate.release_lock(
-                        business_id=business_id,
-                        operation_type='update_leads_bulk'
-                    )
-        except Exception as lock_err:
-            logger.warning(f"Failed to release BulkGate lock: {lock_err}")
+        _release_bulk_gate_lock(business_id)
             
         return {
             "success": False,
