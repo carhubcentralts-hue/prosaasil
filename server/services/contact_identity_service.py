@@ -234,6 +234,10 @@ class ContactIdentityService:
                 existing_lead.reply_jid_type = remote_jid.split('@')[-1] if '@' in remote_jid else 's.whatsapp.net'
                 existing_lead.last_contact_at = ts or datetime.utcnow()
                 
+                # Set phone_raw if not already set (for consistency)
+                if not existing_lead.phone_raw and normalized_jid:
+                    existing_lead.phone_raw = normalized_jid.split('@')[0] if '@' in normalized_jid else None
+                
                 if existing_lead.source in ['form', 'manual', 'imported_outbound']:
                     existing_lead.source = 'whatsapp'  # Update source if was generic
                 
@@ -250,6 +254,10 @@ class ContactIdentityService:
         lead = Lead()
         lead.tenant_id = business_id
         lead.phone_e164 = phone_e164  # May be None for @lid
+        # Also set phone_raw for debugging/fallback (extract from JID)
+        if phone_e164:
+            # Store the raw phone extracted from JID for consistency
+            lead.phone_raw = normalized_jid.split('@')[0] if '@' in normalized_jid else None
         lead.source = 'whatsapp'
         lead.whatsapp_jid = normalized_jid
         lead.reply_jid = remote_jid  # Original JID for replies
