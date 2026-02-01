@@ -338,6 +338,20 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
                             logger.warning(f"⚠️ ContactIdentity delete skipped (table does not exist)")
                         else:
                             raise
+                    
+                    # Delete ScheduledMessagesQueue records (prevent NOT NULL constraint violation on lead_id)
+                    try:
+                        from server.models_sql import ScheduledMessagesQueue
+                        ScheduledMessagesQueue.query.filter(
+                            ScheduledMessagesQueue.lead_id.in_(actual_lead_ids)
+                        ).delete(synchronize_session=False)
+                        logger.info(f"  ✓ Deleted ScheduledMessagesQueue records for {len(actual_lead_ids)} leads")
+                    except Exception as smq_err:
+                        err_str = str(smq_err).lower()
+                        if 'undefinedtable' in err_str or 'does not exist' in err_str or 'scheduled_messages_queue' in err_str:
+                            logger.warning(f"⚠️ ScheduledMessagesQueue delete skipped (table does not exist)")
+                        else:
+                            raise
                         
                     # Delete the leads themselves
                     for lead in leads:
