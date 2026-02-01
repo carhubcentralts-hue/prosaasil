@@ -49,6 +49,24 @@ def save_prompt(tenant):
     
     return {"ok": True, "id": settings.tenant_id}
 
+def _get_whatsapp_prompt_with_priority(business, default_prompt):
+    """
+    Get WhatsApp prompt with priority: Business.whatsapp_system_prompt > default_prompt.
+    
+    Args:
+        business: Business object
+        default_prompt: Fallback prompt if whatsapp_system_prompt is not set
+    
+    Returns:
+        WhatsApp prompt string
+    """
+    # Priority: Business.whatsapp_system_prompt (matches WhatsApp runtime behavior)
+    # hasattr() is defensive coding for schema migrations where column might not exist yet
+    if business and hasattr(business, 'whatsapp_system_prompt') and business.whatsapp_system_prompt:
+        return business.whatsapp_system_prompt
+    return default_prompt
+
+
 def _get_business_prompt_internal(business_id):
     """
     Internal function to get AI prompts for business.
@@ -90,8 +108,7 @@ def _get_business_prompt_internal(business_id):
                 whatsapp_prompt = prompt_data
             
             # 🔥 FIX: Priority read from Business.whatsapp_system_prompt (matches WhatsApp usage priority)
-            if business and hasattr(business, 'whatsapp_system_prompt') and business.whatsapp_system_prompt:
-                whatsapp_prompt = business.whatsapp_system_prompt
+            whatsapp_prompt = _get_whatsapp_prompt_with_priority(business, whatsapp_prompt)
             
             return jsonify({
                 "calls_prompt": calls_prompt,
@@ -108,9 +125,7 @@ def _get_business_prompt_internal(business_id):
             default_prompt = business.system_prompt or "אתה נציג שירות מקצועי ואדיב. עזור ללקוחות במה שהם צריכים."
             
             # 🔥 FIX: Priority read from Business.whatsapp_system_prompt (matches WhatsApp usage priority)
-            whatsapp_prompt = default_prompt
-            if business and hasattr(business, 'whatsapp_system_prompt') and business.whatsapp_system_prompt:
-                whatsapp_prompt = business.whatsapp_system_prompt
+            whatsapp_prompt = _get_whatsapp_prompt_with_priority(business, default_prompt)
             
             return jsonify({
                 "calls_prompt": default_prompt,
