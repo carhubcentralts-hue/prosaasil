@@ -195,13 +195,14 @@ export function StatisticsPage() {
         });
       }
       if (dateFrom) {
-        params.append('from', new Date(dateFrom).toISOString());
+        // Create ISO string from date input (YYYY-MM-DD) at start of day in local timezone
+        const fromDate = new Date(dateFrom + 'T00:00:00');
+        params.append('from', fromDate.toISOString());
       }
       if (dateTo) {
-        // Set to end of day
-        const endOfDay = new Date(dateTo);
-        endOfDay.setHours(23, 59, 59, 999);
-        params.append('to', endOfDay.toISOString());
+        // Create ISO string from date input (YYYY-MM-DD) at end of day in local timezone
+        const toDate = new Date(dateTo + 'T23:59:59');
+        params.append('to', toDate.toISOString());
       }
       
       // Try to fetch stats from various endpoints
@@ -430,12 +431,12 @@ export function StatisticsPage() {
                   )}
                   {dateFrom && (
                     <Badge variant="info">
-                      מ-{new Date(dateFrom).toLocaleDateString('he-IL')}
+                      מ-{dateFrom.split('-').reverse().join('/')}
                     </Badge>
                   )}
                   {dateTo && (
                     <Badge variant="info">
-                      עד-{new Date(dateTo).toLocaleDateString('he-IL')}
+                      עד-{dateTo.split('-').reverse().join('/')}
                     </Badge>
                   )}
                 </div>
