@@ -897,16 +897,14 @@ class AIService:
         It must be unique per customer/conversation but consistent across messages.
         
         Args:
-            business_id: Business ID
+            business_id: Business ID (can be 0 for system business)
             context: Context dict (may contain remote_jid)
             customer_phone: Customer phone number
             
         Returns:
             Sanitized conversation_id string (alphanumeric + underscores only)
         """
-        import re
-        
-        conversation_id = None
+        conversation_id = ""  # Initialize to empty string for clarity
         
         if context:
             # Try to get remote_jid first (most unique for WhatsApp)
@@ -920,7 +918,7 @@ class AIService:
                 sanitized_phone = re.sub(r'[^a-zA-Z0-9]', '', customer_phone)
                 conversation_id = f"wa_{business_id}_{sanitized_phone}"
         
-        if not conversation_id and business_id:
+        if not conversation_id and business_id is not None:
             # Last resort: use business_id only (not ideal but better than nothing)
             conversation_id = f"wa_{business_id}_default"
             logger.warning(f"[AGENTKIT] No remote_jid or phone found, using default conversation_id")
