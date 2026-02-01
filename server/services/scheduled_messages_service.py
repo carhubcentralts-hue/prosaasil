@@ -16,6 +16,7 @@ from server.models_sql import (
     Lead,
     Business
 )
+from server.agent_tools.phone_utils import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -564,12 +565,23 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
     # Determine WhatsApp JID
     remote_jid = lead.whatsapp_jid or lead.reply_jid
     if not remote_jid:
-        if lead.phone_raw:
-            phone_clean = ''.join(c for c in lead.phone_raw if c.isdigit())
-            if phone_clean:
-                remote_jid = f"{phone_clean}@s.whatsapp.net"
+        # Try to construct JID from phone number (prefer phone_e164, fallback to phone_raw)
+        phone_to_use = lead.phone_e164 or lead.phone_raw
+        if phone_to_use:
+            # Normalize phone to WhatsApp JID format
+            # First normalize the phone to E.164 format
+            phone_normalized = normalize_phone(phone_to_use)
+            if phone_normalized:
+                # Extract just the digits from E.164 format (e.g., "+972501234567" -> "972501234567")
+                phone_clean = ''.join(c for c in phone_normalized if c.isdigit())
+                if phone_clean:
+                    remote_jid = f"{phone_clean}@s.whatsapp.net"
+                    logger.info(f"[SCHEDULED-MSG] Constructed JID from phone: {phone_to_use} -> {remote_jid}")
+                else:
+                    logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} phone normalized but contains no digits - skipping")
+                    return 0
             else:
-                logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} phone_raw contains no digits - skipping")
+                logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} phone could not be normalized: {phone_to_use} - skipping")
                 return 0
         else:
             logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} has no WhatsApp JID or phone - skipping")
