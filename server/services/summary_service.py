@@ -9,6 +9,9 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
+# 🔥 CRITICAL: Minimum summary length - only reject if essentially empty
+MIN_SUMMARY_LENGTH = 5  # Characters
+
 
 def summarize_conversation(
     transcription: str, 
@@ -228,8 +231,8 @@ def summarize_conversation(
                 },
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=500,  # 🔥 FIX: Increased from 400 to 500 to ensure AI has enough tokens
-            temperature=0.0  # 🔥 FIX: Temperature 0.0 for deterministic summaries
+            max_tokens=500,  # Increased token limit to ensure AI has sufficient space for summaries
+            temperature=0.0  # Temperature 0.0 for deterministic summaries
         )
         
         summary = response.choices[0].message.content
@@ -239,8 +242,8 @@ def summarize_conversation(
             
             # 🔥 FIX: Accept ANY summary from AI - no minimum word count!
             # The AI knows best what summary length is appropriate for each call
-            if not summary or len(summary) < 5:
-                # Only reject if completely empty or less than 5 characters
+            if not summary or len(summary) < MIN_SUMMARY_LENGTH:
+                # Only reject if completely empty or less than minimum characters
                 log.warning(f"⚠️ Summary essentially empty for {call_sid} - using fallback")
                 return _fallback_summary(transcription)
             
