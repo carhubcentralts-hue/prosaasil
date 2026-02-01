@@ -3,7 +3,7 @@ Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
 from flask import Blueprint, jsonify, request, session, g, send_file
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog, Contract
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog, Contract, ContactIdentity
 from server.db import db
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
@@ -914,6 +914,9 @@ def delete_lead(lead_id):
     # Delete related activities and reminders first (cascade)
     LeadActivity.query.filter_by(lead_id=lead_id).delete()
     LeadReminder.query.filter_by(lead_id=lead_id).delete()
+    
+    # Delete contact identities (prevents NOT NULL constraint violation)
+    ContactIdentity.query.filter_by(lead_id=lead_id).delete()
     
     # Delete the lead
     db.session.delete(lead)

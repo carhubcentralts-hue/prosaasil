@@ -18,6 +18,7 @@ import os
 import redis
 from datetime import datetime, timezone
 from server.services.bulk_gate import get_bulk_gate
+from server.models_sql import ContactIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +251,12 @@ def delete_imported_leads_batch_job(job_id: int, business_id: int = None, **kwar
             batch_failed = 0
                 
             try:
+                # Delete contact identities first (prevents NOT NULL constraint violation)
+                lead_ids_to_delete = [lead.id for lead in leads]
+                ContactIdentity.query.filter(
+                    ContactIdentity.lead_id.in_(lead_ids_to_delete)
+                ).delete(synchronize_session=False)
+                
                 # Delete leads in batch
                 for lead in leads:
                     try:

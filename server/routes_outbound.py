@@ -18,7 +18,7 @@ from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
 from sqlalchemy import func
 from sqlalchemy import text
 from flask import Blueprint, jsonify, request, g, session
-from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings, OutboundCallRun, OutboundCallJob, RecordingRun
+from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings, OutboundCallRun, OutboundCallJob, RecordingRun, ContactIdentity
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.services.call_limiter import check_call_limits, get_call_counts, MAX_TOTAL_CALLS_PER_BUSINESS, MAX_OUTBOUND_CALLS_PER_BUSINESS
@@ -1864,6 +1864,9 @@ def delete_imported_lead(lead_id: int):
         # Only allow deletion of imported leads
         if lead.source != "imported_outbound":
             return jsonify({"error": "ניתן למחוק רק לידים מיובאים מרשימת שיחות יוצאות"}), 403
+        
+        # Delete contact identities (prevents NOT NULL constraint violation)
+        ContactIdentity.query.filter_by(lead_id=lead_id).delete()
         
         db.session.delete(lead)
         db.session.commit()
