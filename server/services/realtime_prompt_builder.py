@@ -610,6 +610,9 @@ def validate_business_prompts(business_id: int) -> Dict[str, Any]:
     """
     Validate that business has properly configured prompts.
     
+    # TODO: If called from a thread (e.g., RX thread), wrap DB access with app.app_context()
+    # to avoid "Working outside of application context" errors.
+    
     Returns:
         Dict with validation results:
         {
@@ -1150,6 +1153,9 @@ def build_full_business_prompt(business_id: int, call_direction: str = "inbound"
     - Injected via session.update.instructions
     - NO separate conversation.item.create for system rules
     
+    # TODO: If called from a thread (e.g., RX thread), wrap DB access with app.app_context()
+    # to avoid "Working outside of application context" errors.
+    
     This combines:
     1. System behavior rules (universal)
     2. Appointment instructions (if applicable)
@@ -1241,6 +1247,9 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
     Returns (greeting_text, business_name)
     
     🔥 CRITICAL: All greetings must come from DB. No hardcoded fallbacks.
+    
+    # TODO: If called from a thread (e.g., RX thread), wrap DB access with app.app_context()
+    # to avoid "Working outside of application context" errors.
     """
     try:
         from server.models_sql import Business
@@ -1283,6 +1292,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
     - build_outbound_system_prompt() for outbound calls
     
     🔥 GREETING OPTIMIZATION: Uses prompt cache to eliminate DB/prompt building latency
+    
+    # TODO: If called from a thread (e.g., RX thread), wrap DB access with app.app_context()
+    # to avoid "Working outside of application context" errors.
     
     Args:
         business_id: Business ID
@@ -1403,6 +1415,9 @@ def _get_fallback_prompt(business_id: Optional[int] = None) -> str:
     This should RARELY be called in production.
     
     🎯 SSOT: Uses shared prompt helpers for final fallback
+    
+    # TODO: If called from a thread (e.g., RX thread), wrap DB access with app.app_context()
+    # to avoid "Working outside of application context" errors.
     """
     try:
         if business_id:
