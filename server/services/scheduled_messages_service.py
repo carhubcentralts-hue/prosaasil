@@ -16,6 +16,7 @@ from server.models_sql import (
     Lead,
     Business
 )
+from server.agent_tools.phone_utils import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -568,9 +569,6 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
         phone_to_use = lead.phone_e164 or lead.phone_raw
         if phone_to_use:
             # Normalize phone to WhatsApp JID format
-            # Import phone normalization utility
-            from server.agent_tools.phone_utils import normalize_phone
-            
             # First normalize the phone to E.164 format
             phone_normalized = normalize_phone(phone_to_use)
             if phone_normalized:

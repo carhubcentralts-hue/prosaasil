@@ -254,9 +254,10 @@ class ContactIdentityService:
         lead = Lead()
         lead.tenant_id = business_id
         lead.phone_e164 = phone_e164  # May be None for @lid
-        # Also set phone_raw for debugging/fallback (extract from JID)
+        # Set phone_raw for consistency - used by scheduled messages and other services
+        # that may fallback to phone_raw when whatsapp_jid is not set
         if phone_e164:
-            # Store the raw phone extracted from JID for consistency
+            # Store the raw phone extracted from JID (just the digits without domain)
             lead.phone_raw = normalized_jid.split('@')[0] if '@' in normalized_jid else None
         lead.source = 'whatsapp'
         lead.whatsapp_jid = normalized_jid
