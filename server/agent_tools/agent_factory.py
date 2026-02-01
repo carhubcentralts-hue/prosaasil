@@ -197,55 +197,43 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             import time
             agent_start = time.time()
             
-            # 🔥 CRITICAL FIX: Load DB prompt if not provided
+            # Load DB prompt if not provided - ONLY source of truth
             if not custom_instructions or not isinstance(custom_instructions, str) or not custom_instructions.strip():
                 try:
                     from server.models_sql import Business
-                    from sqlalchemy import text
                     from server.db import db
                     
                     business = Business.query.filter_by(id=business_id).first()
                     
-                    # 🔥 FIX #1: For WhatsApp, prioritize business.whatsapp_system_prompt
-                    if channel == "whatsapp" and business and business.whatsapp_system_prompt:
-                        custom_instructions = business.whatsapp_system_prompt
-                        logger.info(f"✅ Using dedicated WhatsApp prompt for business={business_id}")
-                    else:
-                        # Fallback to BusinessSettings.ai_prompt (JSON format)
-                        # 🔥 BUILD 309: Use raw SQL to avoid ORM column mapping issues
-                        # This prevents errors when new columns are added to model but not yet in DB
-                        settings_row = None
-                        try:
-                            result = db.session.execute(text(
-                                "SELECT ai_prompt FROM business_settings WHERE tenant_id = :bid LIMIT 1"
-                            ), {"bid": business_id})
-                            row = result.fetchone()
-                            if row:
-                                settings_row = {"ai_prompt": row[0]}
-                        except Exception as sql_err:
-                            logger.warning(f"⚠️ [BUILD 309] Raw SQL fallback for prompt: {sql_err}")
-                        
-                        if settings_row and settings_row.get("ai_prompt"):
-                            import json
-                            try:
-                                prompt_data = json.loads(settings_row["ai_prompt"])
-                                if isinstance(prompt_data, dict):
-                                    # Extract channel-specific prompt
-                                    if channel == "whatsapp":
-                                        custom_instructions = prompt_data.get('whatsapp', '')
-                                    else:
-                                        custom_instructions = prompt_data.get('calls', '')
-                                else:
-                                    # Legacy single prompt
-                                    custom_instructions = settings_row["ai_prompt"]
-                            except json.JSONDecodeError:
-                                # Legacy single prompt
-                                custom_instructions = settings_row["ai_prompt"]
+                    # For WhatsApp: Use ONLY business.whatsapp_system_prompt
+                    if channel == "whatsapp":
+                        if business and business.whatsapp_system_prompt:
+                            custom_instructions = business.whatsapp_system_prompt
+                            logger.info(f"✅ Using WhatsApp prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
                         else:
-                            logger.warning(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings_row={settings_row is not None}")
+                            logger.error(f"❌ MISSING_WHATSAPP_PROMPT for business={business_id}! Agent will not have instructions.")
+                            custom_instructions = None
+                    else:
+                        # For other channels (calls, etc.), use general prompt if available
+                        # But no fallback to BusinessSettings.ai_prompt
+                        if business and hasattr(business, 'ai_prompt') and business.ai_prompt:
+                            custom_instructions = business.ai_prompt
+                            logger.info(f"✅ Using general prompt from DB for business={business_id}")
+                        else:
+                            logger.warning(f"⚠️ No prompt found for business={business_id}, channel={channel}")
+                            custom_instructions = None
+                            
                 except Exception as e:
-                    logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}")
+                    logger.error(f"❌ Error loading DB prompt for business={business_id}: {e}")
                     custom_instructions = None
+            
+            # Log prompt hash for debugging
+            if custom_instructions:
+                import hashlib
+                prompt_hash = hashlib.sha1(custom_instructions.encode()).hexdigest()[:8]
+                logger.info(f"🔑 Creating agent with prompt_hash={prompt_hash} for business={business_id}, channel={channel}")
+            else:
+                logger.warning(f"⚠️ Creating agent WITHOUT custom instructions for business={business_id}, channel={channel}")
             
             new_agent = create_booking_agent(
                 business_name=business_name,
@@ -262,6 +250,10 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             if new_agent:
                 # Cache the new agent
                 _AGENT_CACHE[cache_key] = (new_agent, now)
+                if custom_instructions:
+                    import hashlib
+                    prompt_hash = hashlib.sha1(custom_instructions.encode()).hexdigest()[:8]
+                    logger.info(f"✅ Agent cached: business={business_id}, channel={channel}, prompt_hash={prompt_hash}")
             
             return new_agent
             
@@ -1242,30 +1234,30 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         except Exception:
             pass
     
-    # 🔥 NEW ARCHITECTURE: Minimal system rules (framework only)
-    # No business logic, no conversation scripts, no appointment flows
-    # All behavior comes from custom_instructions (DB prompt)
+    # DB Prompt as Single Source of Truth
+    # For WhatsApp: NO hardcoded rules or instructions
+    # Everything must come from custom_instructions (DB prompt)
     if channel == "whatsapp":
-        # WhatsApp uses the new Prompt Stack architecture
-        # Keep ONLY tool safety rules - zero business logic
-        system_rules = f"""🔒 FRAMEWORK (Internal Rules):
-TODAY: {today_str}
-
-🔧 Tool Safety:
-- Never claim you did something unless tool returned success=true
-- If tool fails, acknowledge gracefully
-
-📱 Format:
-- Short responses (1-2 sentences)
-- One question at a time
-- Always Hebrew
+        # WhatsApp: DB prompt ONLY - no framework rules
+        # Only add date context (data, not instruction)
+        if custom_instructions and custom_instructions.strip():
+            # Use DB prompt directly - no prepended rules
+            instructions = f"""TODAY: {today_str}
 
 ---
-YOUR INSTRUCTIONS:
-"""
-        logger.info(f"📱 WhatsApp: using MINIMAL framework ({len(system_rules)} chars)")
+{custom_instructions}"""
+            logger.info(f"✅ WhatsApp: Using ONLY DB prompt ({len(custom_instructions)} chars)")
+        else:
+            # No DB prompt for WhatsApp = ERROR
+            logger.error(f"❌ MISSING_WHATSAPP_PROMPT for business={business_id}! Agent cannot function without DB prompt.")
+            # Return None or minimal error prompt
+            instructions = f"""TODAY: {today_str}
+
+❌ ERROR: No WhatsApp prompt configured for this business. Cannot respond."""
+            logger.error(f"❌ WhatsApp agent created WITHOUT prompt - will not function properly")
     else:
-        # 🔥 PHONE CHANNEL = Focused rules for voice calls
+        # Other channels (phone, etc.) - keep existing logic
+        # These are not covered by the requirement
         system_rules = f"""🔒 FRAMEWORK:
 TODAY: {today_str}
 
@@ -1282,29 +1274,20 @@ TODAY: {today_str}
 ---
 YOUR INSTRUCTIONS:
 """
-    
-    # 🔥 BUILD 99: Use DB prompt ONLY if it exists (it's the business's custom instructions!)
-    if custom_instructions and custom_instructions.strip():
-        # DB prompt exists - use it as the MAIN prompt!
-        # 🔥 NEW REQUIREMENT: NO length limits - let business prompts be as long as needed
-        # Just ensure system_rules are concise and focused
-        instructions = system_rules + custom_instructions
-        logger.info(f"\n✅ Using DB prompt for {business_name} ({len(custom_instructions)} chars)")
-        logger.info(f"   System rules: {len(system_rules)} chars (prepended)")
-        logger.info(f"   DB prompt: {len(custom_instructions)} chars")
-        logger.info(f"   = Total: {len(instructions)} chars")
-        logger.info(f"✅ Using DATABASE prompt for {business_name} (total: {len(instructions)} chars)")
-    else:
-        # No DB prompt - use minimal fallback IN HEBREW
-        fallback_prompt = f"""אתה העוזר הדיגיטלי של {business_name}.
+        
+        if custom_instructions and custom_instructions.strip():
+            instructions = system_rules + custom_instructions
+            logger.info(f"✅ Using DB prompt for {business_name} ({len(custom_instructions)} chars)")
+        else:
+            # No DB prompt - minimal fallback for non-WhatsApp channels
+            fallback_prompt = f"""אתה העוזר הדיגיטלי של {business_name}.
 
 תענה בעברית, תהיה חם ואדיב, ועזור ללקוח בהתאם לצרכיו.
 השתמש בכלים הזמינים לך כשצריך.
 תשובות קצרות - 2-3 משפטים."""
-        
-        instructions = system_rules + fallback_prompt
-        logger.warning(f"\n⚠️  NO DB prompt - using minimal fallback for {business_name}")
-        logger.warning(f"No DATABASE prompt for {business_name} - using minimal fallback")
+            
+            instructions = system_rules + fallback_prompt
+            logger.warning(f"⚠️ No DB prompt for {business_name} - using fallback")
 
     # 🎧 CRM Context-Aware Support: Add customer service instructions if enabled
     # Only for INBOUND calls/messages - outbound should not use customer service mode

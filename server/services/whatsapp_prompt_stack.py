@@ -1,19 +1,12 @@
 """
-WhatsApp Prompt Stack Builder - Clean Separation of Concerns
-=============================================================
+WhatsApp Prompt Stack Builder - DB Prompt as Single Source of Truth
+=====================================================================
 
-This module implements the "Prompt Stack" architecture where:
-- SYSTEM prompts = Framework only (tools, rules, format, memory, safety)
-- DB prompts = Single source of truth for business behavior
-- Context injection = Customer data, history, state
+This module builds the prompt stack for WhatsApp bot responses.
+The ONLY source of truth for bot behavior is business.whatsapp_system_prompt in DB.
 
-The SYSTEM prompt is minimal and never contains:
-- Sales scripts or conversation examples
-- Appointment processes or detailed flows
-- Business descriptions, services, pricing
-- Personality beyond general tone
-
-All business behavior comes from business.whatsapp_system_prompt in DB.
+NO hardcoded prompts, rules, or instructions are allowed in this file.
+All behavior, tone, rules, and instructions must come from the database.
 """
 import logging
 from typing import Dict, Any, List, Optional
@@ -22,51 +15,6 @@ import pytz
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
-# FRAMEWORK SYSTEM PROMPT - SHORT & MECHANICAL
-# ============================================================================
-# This prompt contains ONLY:
-# 1. Tool usage rules
-# 2. Memory/context rules
-# 3. Format rules (WhatsApp: short, one message, one question)
-# 4. Safety rules (don't invent facts, ask if missing info)
-# 5. CRM update rules (when to update after changes)
-# ============================================================================
-
-FRAMEWORK_SYSTEM_PROMPT = """אתה עוזר דיגיטלי ב-WhatsApp.
-
-🔧 כללי עבודה עם כלים (Tools):
-- אם אתה צריך מידע על לקוח/סטטוס/היסטוריה/שירותים - השתמש בכלים הזמינים.
-- אם יש צורך לעדכן CRM לאחר שינוי משמעותי - השתמש בכלי העדכון.
-
-🧠 כללי זיכרון והקשר:
-- אם יש summary/last_state: אל תתנהג כאילו זו שיחה חדשה.
-- שאל את הלקוח: "ראיתי שעצרנו ב-X. להמשיך משם או להתחיל מחדש?"
-- השתמש בהיסטוריה כדי להבין את ההקשר, אל תחזור על מה שכבר נשאל.
-- אם הלקוח כבר ענה על שאלה - אל תשאל אותה שוב! המשך לשאלה הבאה.
-
-📱 כללי פורמט ב-WhatsApp:
-- תענה קצר - הודעה אחת בכל פעם.
-- שאלה אחת בכל תגובה.
-- אל תשלח יותר מ-2-3 שורות.
-- תהיה ישיר ולעניין.
-
-🔄 כללי התקדמות בשיחה:
-- אם יש history_count >= 2 - זו לא שיחה חדשה! אל תברך שוב.
-- אם הלקוח ענה על השאלה שלך - המשך לשאלה הבאה, אל תחזור על הברכה.
-- בדוק את ההיסטוריה לראות מה כבר נשאל ומה כבר נענה.
-- כל תגובה שלך צריכה להתקדם בתהליך, לא לחזור על מה שכבר נאמר.
-
-🛡️ כללי בטיחות ויציבות:
-- אם חסר לך מידע - שאל את הלקוח במקום להמציא.
-- אל תבטיח דברים שאתה לא בטוח בהם.
-- אם יש שגיאה - הודה ושאל לנסות שוב.
-
-📝 כללי תיעוד:
-- לאחר שינוי משמעותי - עדכן את ה-CRM דרך הכלים.
-
-זהו. כל שאר ההתנהגות מגיעה מהפרומפט העסקי שלך."""
-
 
 def build_whatsapp_prompt_stack(
     business_id: int,
@@ -74,62 +22,53 @@ def build_whatsapp_prompt_stack(
     context: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, str]]:
     """
-    Build the complete WhatsApp prompt stack with clean separation.
+    Build the WhatsApp prompt stack using ONLY the DB prompt as the source of truth.
     
     Stack structure:
-    1. SYSTEM Framework Prompt (fixed, short)
-    2. DB Business Prompt (from database - single source of truth)
-    3. Context Injection (customer info, history, state)
-    4. User Message (added by caller)
+    1. DB Business Prompt (from database - ONLY source of truth)
+    2. Context Injection (structured data: history as user/assistant messages, memory, state)
+    3. User Message (added by caller)
+    
+    NO hardcoded instructions, rules, or behavioral guidance is included.
+    Everything must come from business.whatsapp_system_prompt.
     
     Args:
         business_id: Business ID for logging
-        db_prompt: Business prompt from database (whatsapp_system_prompt)
+        db_prompt: Business prompt from database (whatsapp_system_prompt) - REQUIRED
         context: Optional context dict with:
             - lead_id: Lead ID (if exists)
             - customer_name: Customer name (if exists)
-            - summary: Conversation summary (if exists)
-            - last_state: Last conversation state (if exists)
-            - last_intent: Last detected intent (if exists)
+            - customer_memory: Customer memory/notes (if exists)
             - previous_messages: List of last N messages (formatted as "לקוח: ..." or "עוזר: ...")
-            - last_user_message: Last user message (if exists)
-            - last_agent_message: Last agent message (if exists)
-            - conversation_has_history: Boolean flag indicating if this is not first message
-            - anti_repeat_instruction: Special instruction to prevent repetition (if needed)
+            - conversation_stage: Current conversation stage (if exists)
+            - collected_fields: Fields collected so far (if exists)
     
     Returns:
-        List of message dicts ready for LLM
+        List of message dicts ready for LLM, or error if no DB prompt
     """
     messages = []
     
     # ============================================================================
-    # LAYER 1: SYSTEM FRAMEWORK (Fixed - Never changes unless tools change)
-    # ============================================================================
-    messages.append({
-        "role": "system",
-        "content": FRAMEWORK_SYSTEM_PROMPT
-    })
-    
-    # ============================================================================
-    # LAYER 2: DB BUSINESS PROMPT (Single source of truth for behavior)
+    # LAYER 1: DB PROMPT - SINGLE SOURCE OF TRUTH
     # ============================================================================
     if not db_prompt or not db_prompt.strip():
-        logger.error(f"❌ NO DB PROMPT for business {business_id}! Cannot build prompt stack.")
-        # Return minimal stack with error - AI will fail and skip sending
+        logger.error(f"❌ MISSING_WHATSAPP_PROMPT for business {business_id}! Cannot respond without DB prompt.")
+        # Return error - bot will not respond
         return [{
             "role": "system",
-            "content": "❌ ERROR: No business prompt configured. Cannot respond."
+            "content": "❌ ERROR: MISSING_WHATSAPP_PROMPT - No business prompt configured in database."
         }]
     
+    # Add DB prompt as system message - this is the ONLY source of behavior
     messages.append({
         "role": "system",
-        "content": f"📋 הנחיות עסקיות:\n{db_prompt}"
+        "content": db_prompt
     })
     
-    logger.info(f"✅ Prompt stack built: framework={len(FRAMEWORK_SYSTEM_PROMPT)} + db={len(db_prompt)} chars")
+    logger.info(f"✅ Using DB prompt as single source of truth: {len(db_prompt)} chars")
     
     # ============================================================================
-    # LAYER 3: CONTEXT INJECTION (Customer data & state)
+    # LAYER 2: STRUCTURED CONTEXT (Data only, no instructions)
     # ============================================================================
     if context:
         context_parts = []
@@ -144,49 +83,33 @@ def build_whatsapp_prompt_stack(
         if context.get('customer_name'):
             context_parts.append(f"שם לקוח: {context['customer_name']}")
         
-        # 🔥 FIX: Add conversation history indicator
-        if context.get('conversation_has_history'):
-            context_parts.append(f"⚠️ זו לא שיחה חדשה! כבר יש היסטוריה של הודעות.")
+        # Customer memory (if exists)
+        if context.get('customer_memory'):
+            context_parts.append(f"זיכרון לקוח: {context['customer_memory']}")
         
-        # Conversation state (if exists)
-        if context.get('summary'):
-            context_parts.append(f"סיכום שיחה קודמת: {context['summary']}")
+        # Conversation stage (if exists)
+        if context.get('conversation_stage'):
+            context_parts.append(f"שלב נוכחי: {context['conversation_stage']}")
         
-        if context.get('last_state'):
-            context_parts.append(f"מצב אחרון: {context['last_state']}")
-        
-        if context.get('last_intent'):
-            context_parts.append(f"כוונה אחרונה: {context['last_intent']}")
-        
-        # 🔥 FIX: Add last exchange information
-        if context.get('last_user_message'):
-            msg = context['last_user_message']
-            # Only add '...' if message is actually truncated
-            display = msg[:100] + ('...' if len(msg) > 100 else '')
-            context_parts.append(f"הודעה אחרונה מהלקוח: {display}")
-        
-        if context.get('last_agent_message'):
-            msg = context['last_agent_message']
-            # Only add '...' if message is actually truncated
-            display = msg[:100] + ('...' if len(msg) > 100 else '')
-            context_parts.append(f"התשובה האחרונה שלך: {display}")
+        # Collected fields (if exists)
+        if context.get('collected_fields'):
+            context_parts.append(f"שדות שנאספו: {context['collected_fields']}")
         
         if context_parts:
             messages.append({
                 "role": "system",
-                "content": "🔍 הקשר נוכחי:\n" + "\n".join(context_parts)
+                "content": "🔍 הקשר:\n" + "\n".join(context_parts)
             })
         
-        # 🔥 CRITICAL FIX: Convert history to actual user/assistant messages
-        # Instead of system message with text, we need proper conversation history
-        # This allows the AI to understand context properly!
+        # Convert conversation history to proper user/assistant messages
+        # This is structured data, not instructions
         if context.get('previous_messages'):
             history = context['previous_messages']
-            # Limit to last 10 messages maximum for token efficiency
-            history = history[-10:] if len(history) > 10 else history
+            # Limit to last 20 messages for context
+            history = history[-20:] if len(history) > 20 else history
             
             if history:
-                logger.info(f"📜 Converting {len(history)} history messages to user/assistant format")
+                logger.info(f"📜 Adding {len(history)} history messages as user/assistant format")
                 
                 # Convert each message to proper role format
                 for msg in history:
@@ -197,7 +120,6 @@ def build_whatsapp_prompt_stack(
                             "content": msg.replace("לקוח:", "").strip()
                         })
                     elif msg.startswith("עוזר:") or msg.startswith("עוזרת:"):
-                        # Remove prefix and add as assistant
                         content = msg.replace("עוזר:", "").replace("עוזרת:", "").strip()
                         messages.append({
                             "role": "assistant",
@@ -210,40 +132,28 @@ def build_whatsapp_prompt_stack(
                             "role": "user",
                             "content": msg
                         })
-                
-                logger.info(f"✅ Added {len(history)} history messages as user/assistant (NOT system text)")
-        
-        # 🔥 FIX: Add anti-repetition instruction if there's a history
-        if context.get('anti_repeat_instruction'):
-            messages.append({
-                "role": "system",
-                "content": f"⚠️ הוראה חשובה:\n{context['anti_repeat_instruction']}"
-            })
     
     return messages
 
 
 def get_db_prompt_for_whatsapp(business_id: int) -> str:
     """
-    Get the DB prompt for WhatsApp - the single source of truth for behavior.
+    Get the DB prompt for WhatsApp - the ONLY source of truth for bot behavior.
     
-    Priority order:
-    1. business.whatsapp_system_prompt (primary)
-    2. BusinessSettings.ai_prompt['whatsapp'] (fallback)
-    3. Emergency minimal fallback (only if nothing exists)
+    Uses ONLY business.whatsapp_system_prompt.
+    NO fallback to BusinessSettings.ai_prompt or any hardcoded prompts.
     
     Args:
         business_id: Business ID
     
     Returns:
-        Prompt string from database
+        Prompt string from database, or empty string if not found
     """
-    from server.models_sql import Business, BusinessSettings
+    from server.models_sql import Business
     from server.db import db
-    import json
     
     try:
-        # Priority 1: business.whatsapp_system_prompt
+        # Load ONLY business.whatsapp_system_prompt
         business = Business.query.get(business_id)
         if business and hasattr(business, 'whatsapp_system_prompt') and business.whatsapp_system_prompt:
             prompt = business.whatsapp_system_prompt.strip()
@@ -251,27 +161,13 @@ def get_db_prompt_for_whatsapp(business_id: int) -> str:
                 logger.info(f"✅ Loaded WhatsApp prompt from business.whatsapp_system_prompt ({len(prompt)} chars)")
                 return prompt
         
-        # Priority 2: BusinessSettings.ai_prompt (JSON with 'whatsapp' key)
-        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-        if settings and settings.ai_prompt:
-            try:
-                if settings.ai_prompt.strip().startswith('{'):
-                    prompt_obj = json.loads(settings.ai_prompt)
-                    if 'whatsapp' in prompt_obj:
-                        prompt = prompt_obj['whatsapp'].strip()
-                        if prompt:
-                            logger.info(f"✅ Loaded WhatsApp prompt from BusinessSettings.ai_prompt ({len(prompt)} chars)")
-                            return prompt
-            except json.JSONDecodeError:
-                pass
-        
-        # Priority 3: Emergency minimal fallback (ONLY if nothing exists)
-        logger.error(f"❌ NO WhatsApp prompt found for business {business_id}! Cannot respond without DB prompt.")
-        return ""  # Return empty - this will prevent bot from responding
+        # No fallback - return empty string
+        logger.error(f"❌ MISSING_WHATSAPP_PROMPT for business {business_id}! Bot will not respond.")
+        return ""
         
     except Exception as e:
         logger.error(f"❌ Error loading WhatsApp prompt for business {business_id}: {e}")
-        return "אתה עוזר דיגיטלי. תענה בעברית ותהיה חם ואדיב."
+        return ""
 
 
 def validate_prompt_stack_usage(messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -279,9 +175,8 @@ def validate_prompt_stack_usage(messages: List[Dict[str, str]]) -> Dict[str, Any
     Validate that the prompt stack is being used correctly.
     
     This function checks:
-    - Framework prompt is present
     - DB prompt is present
-    - No duplicate system prompts
+    - No hardcoded system instructions
     - Total token count is reasonable
     
     Args:
@@ -301,16 +196,12 @@ def validate_prompt_stack_usage(messages: List[Dict[str, str]]) -> Dict[str, Any
     system_messages = [m for m in messages if m.get("role") == "system"]
     result["stats"]["system_message_count"] = len(system_messages)
     
-    # Check for framework prompt
-    has_framework = any("כללי עבודה עם כלים" in m.get("content", "") for m in system_messages)
-    if not has_framework:
-        result["errors"].append("Framework prompt missing!")
+    # Check for DB prompt (should be first system message)
+    if not system_messages:
+        result["errors"].append("No system messages found - DB prompt missing!")
         result["valid"] = False
-    
-    # Check for DB prompt
-    has_db_prompt = any("הנחיות עסקיות" in m.get("content", "") for m in system_messages)
-    if not has_db_prompt:
-        result["errors"].append("DB prompt missing!")
+    elif system_messages[0].get("content", "").startswith("❌ ERROR"):
+        result["errors"].append("DB prompt missing or error!")
         result["valid"] = False
     
     # Check total length

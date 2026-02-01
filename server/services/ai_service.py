@@ -1006,77 +1006,15 @@ class AIService:
             if customer_name:
                 agent_context['customer_name'] = customer_name
             
-            # 🔥 AgentKit Only: Build enriched message with full conversation context
-            # This injects context directly into the message so the Agent SDK can see it
-            previous_messages = agent_context.get('previous_messages', [])
-            customer_memory = agent_context.get('customer_memory', '')
-            last_user_message = agent_context.get('last_user_message', '')
-            last_agent_message = agent_context.get('last_agent_message', '')
-            conversation_stage = agent_context.get('conversation_stage', '')
-            
-            # Build history context (last 10-20 messages with clear role labels)
-            history_text = ""
-            if previous_messages:
-                # Take last 20 messages for comprehensive context
-                recent_history = previous_messages[-20:] if len(previous_messages) > 20 else previous_messages
-                # Format with clear role labels for better understanding
-                formatted_history = []
-                for msg in recent_history:
-                    # Messages are already formatted as "לקוח: ..." or "עוזר: ..."
-                    formatted_history.append(msg)
-                history_text = "\n".join(formatted_history)
-                logger.info(f"[AGENTKIT] Including {len(recent_history)} previous messages in context")
-            
-            # Build enriched message with structured sections
-            message_parts = []
-            
-            # Section 1: System rules (brief)
-            message_parts.append("=== חוקי מערכת ===")
-            message_parts.append("1. שאל שאלה אחת בכל פעם")
-            message_parts.append("2. המשך לפי ההיסטוריה - אל תחזור על שאלות שכבר נשאלו")
-            message_parts.append("3. אם זו לא השיחה הראשונה - אל תחזור על ברכה או פתיח")
-            message_parts.append("")
-            
-            # Section 2: Conversation context (if exists)
-            if history_text:
-                message_parts.append("=== הקשר שיחה - 20 הודעות אחרונות ===")
-                message_parts.append(history_text)
-                message_parts.append("")
-            
-            # Section 3: Customer memory (if exists)
-            if customer_memory:
-                message_parts.append("=== זיכרון לקוח ===")
-                message_parts.append(customer_memory)
-                message_parts.append("")
-            
-            # Section 4: Conversation state (if exists)
-            if conversation_stage or last_user_message or last_agent_message:
-                message_parts.append("=== מצב שיחה נוכחי ===")
-                if conversation_stage:
-                    message_parts.append(f"שלב: {conversation_stage}")
-                if last_user_message:
-                    message_parts.append(f"הודעת לקוח אחרונה: {last_user_message[:100]}...")
-                if last_agent_message:
-                    message_parts.append(f"תשובת עוזר אחרונה: {last_agent_message[:100]}...")
-                message_parts.append("")
-            
-            # Section 5: Current customer message
-            message_parts.append("=== הודעת הלקוח עכשיו ===")
-            message_parts.append(message)
-            
-            enriched_message = "\n".join(message_parts)
-            logger.info(f"[AGENTKIT] Enriched message with history ({len(history_text)} chars), memory ({len(customer_memory)} chars), state (stage={conversation_stage})")
-
-            
-            # 🔥 CRITICAL FIX: Generate conversation_id for internal tracking only
-            # OpenAI Agents SDK expects conversation IDs starting with 'conv' prefix
-            # Since we can't use custom IDs, we rely on previous_messages in context for history
+            # 🔥 DB Prompt Only: Pass ONLY the user message to the agent
+            # NO enriched messages, NO system rules injected here
+            # All behavior comes from the agent's custom_instructions (DB prompt)
+            # Context is handled by the agent's system prompt
             
             # Generate conversation_id for monitoring/tracking purposes only
             conversation_id = self._generate_conversation_id(business_id, context, customer_phone)
             
-            # 🔥 AgentKit Only: Set flask.g.agent_context so tools like whatsapp_send work properly
-            # This provides tools with necessary context (phone, jid, business_id, lead_id)
+            # Set flask.g.agent_context so tools like whatsapp_send work properly
             try:
                 from flask import g
                 g.agent_context = {
@@ -1085,26 +1023,22 @@ class AIService:
                     "remote_jid": agent_context.get('remote_jid'),
                     "business_id": business_id,
                     "lead_id": agent_context.get('lead_id'),
-                    "conversation_key": customer_phone,  # For consistent state tracking
+                    "conversation_key": customer_phone,
                     "channel": channel
                 }
                 logger.info(f"[AGENTKIT] ✅ Set g.agent_context for tools: phone={customer_phone}, jid={agent_context.get('remote_jid', 'N/A')[:30]}")
             except Exception as g_err:
                 logger.warning(f"[AGENTKIT] ⚠️ Could not set g.agent_context (tools may fail): {g_err}")
             
-            logger.info(f"[AGENTKIT] 🔑 tracking_id={conversation_id}, message_preview='{enriched_message[:50]}...'")
-            logger.info(f"[AGENTKIT] 📊 Context: business_id={business_id}, channel={channel}, "
-                       f"has_previous_messages={bool(context and context.get('previous_messages'))}, "
-                       f"previous_msg_count={len(context.get('previous_messages', []))}")
+            logger.info(f"[AGENTKIT] 🔑 tracking_id={conversation_id}, message='{message[:50]}...'")
+            logger.info(f"[AGENTKIT] 📊 Context: business_id={business_id}, channel={channel}")
             runner = Runner()
             
-            # 🔥 FIX: Don't pass conversation_id to OpenAI - let it manage internally
-            # Context history is provided via previous_messages in agent_context instead
+            # Pass ONLY the user message to the agent - no enrichment
             agent_coroutine = runner.run(
                 agent, 
-                enriched_message,  # 🔥 FIX #4: Pass enriched message instead of plain message
+                message,  # Pass plain message - agent prompt has all context
                 context=agent_context
-                # NOTE: conversation_id removed - OpenAI expects 'conv' prefix or generates its own
             )
             
             # Check if we're already in an async context
@@ -1135,67 +1069,20 @@ class AIService:
             logger.info(f"[AGENTKIT] ✅ Agent response generated: {len(reply_text)} chars")
             logger.info(f"[AGENTKIT] 📝 Response preview: {reply_text[:100] if reply_text else '(empty)'}...")
             
-            # 🔥 AgentKit Only: Anti-loop guard to prevent repetitive responses
-            # If the new response starts like the last agent message, retry once with explicit instruction
-            last_agent_message = agent_context.get('last_agent_message', '')
-            if last_agent_message and reply_text and len(previous_messages) >= 2:
-                # Compare first 40 characters to detect repetition
-                response_start = reply_text[:40].strip()
-                last_start = last_agent_message[:40].strip()
-                
-                if response_start and last_start and response_start == last_start:
-                    logger.warning(f"[AGENTKIT-ANTILOOP] ⚠️ Agent repeating same response! Last: '{last_start}...', New: '{response_start}...'")
-                    logger.info(f"[AGENTKIT-ANTILOOP] Customer said: '{message}' - re-prompting agent to continue")
+            # Anti-loop detection (logging only - no retry with hardcoded instructions)
+            # The DB prompt should handle anti-repetition rules
+            if context and context.get('last_agent_message'):
+                last_agent_message = context.get('last_agent_message', '')
+                if last_agent_message and reply_text:
+                    # Compare first 40 characters to detect repetition
+                    response_start = reply_text[:40].strip()
+                    last_start = last_agent_message[:40].strip()
                     
-                    try:
-                        # Build retry message with explicit anti-repeat instruction
-                        retry_parts = []
-                        retry_parts.append("=== חוק קריטי - אל תחזור על עצמך! ===")
-                        retry_parts.append(f"הלקוח ענה: '{message}'")
-                        retry_parts.append("זו לא השיחה הראשונה!")
-                        retry_parts.append(f"התשובה האחרונה שלך התחילה ב: '{last_start}...'")
-                        retry_parts.append("אל תחזור על הברכה או השאלה הקודמת!")
-                        retry_parts.append("המשך לשאלה הבאה בתהליך.")
-                        retry_parts.append("")
-                        retry_parts.append("=== הקשר שיחה ===")
-                        if history_text:
-                            retry_parts.append(history_text)
-                        retry_parts.append("")
-                        retry_parts.append(f"=== הודעת הלקוח עכשיו ===")
-                        retry_parts.append(message)
-                        
-                        retry_message = "\n".join(retry_parts)
-                        
-                        # Retry the agent call once
-                        logger.info(f"[AGENTKIT-ANTILOOP] Retrying agent call with anti-repeat instruction")
-                        agent_coroutine_retry = runner.run(agent, retry_message, context=agent_context)
-                        
-                        try:
-                            loop = asyncio.get_running_loop()
-                            result_retry = loop.run_until_complete(agent_coroutine_retry)
-                        except RuntimeError:
-                            result_retry = asyncio.run(agent_coroutine_retry)
-                        
-                        # Extract retry response
-                        retry_text = ""
-                        if hasattr(result_retry, 'final_output') and result_retry.final_output:
-                            retry_text = str(result_retry.final_output)
-                        elif hasattr(result_retry, 'text') and result_retry.text:
-                            retry_text = result_retry.text
-                        elif hasattr(result_retry, 'response') and result_retry.response:
-                            retry_text = result_retry.response
-                        
-                        if retry_text and retry_text.strip():
-                            reply_text = retry_text
-                            logger.info(f"[AGENTKIT-ANTILOOP] ✅ Retry successful: {reply_text[:100]}...")
-                        else:
-                            logger.warning(f"[AGENTKIT-ANTILOOP] ⚠️ Retry returned empty, keeping original")
-                            
-                    except Exception as retry_err:
-                        logger.error(f"[AGENTKIT-ANTILOOP] ❌ Retry failed: {retry_err}")
-                        # Keep original response if retry fails
+                    if response_start and last_start and response_start == last_start:
+                        logger.warning(f"[AGENTKIT] ⚠️ Agent may be repeating response! Last: '{last_start}...', New: '{response_start}...'")
+                        logger.warning(f"[AGENTKIT] Consider adding anti-repetition rules to the DB prompt")
             
-            # 🔥 NEW: Track conversation turn for debugging repetitive responses
+            # Track conversation turn for debugging
             try:
                 from server.agent_tools.agent_factory import track_conversation_turn
                 track_conversation_turn(conversation_id, message, reply_text)
