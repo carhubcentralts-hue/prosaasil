@@ -4802,6 +4802,15 @@ class MediaStreamHandler:
                     buffer_len = len(self._gemini_input_buffer)
                     chunk_size = self._gemini_input_chunk_size  # 640 bytes
                     
+                    # 🔥 BUFFER OVERFLOW PROTECTION: Warn if buffer grows too large
+                    # Normal buffer should be < 2 chunks (1280 bytes). If much larger, something's wrong
+                    MAX_BUFFER_SIZE = chunk_size * 10  # 6400 bytes = ~125ms of audio
+                    if buffer_len > MAX_BUFFER_SIZE:
+                        logger.warning(f"⚠️ [GEMINI_BUFFER] Buffer overflow: {buffer_len} bytes (max: {MAX_BUFFER_SIZE}) - may indicate send loop stall")
+                        # Trim to max size to prevent unbounded growth
+                        self._gemini_input_buffer = self._gemini_input_buffer[:MAX_BUFFER_SIZE]
+                        buffer_len = len(self._gemini_input_buffer)
+                    
                     # Send all complete chunks we have
                     while buffer_len >= chunk_size:
                         # Extract exactly chunk_size bytes
@@ -9787,6 +9796,13 @@ class MediaStreamHandler:
                 # 🔥 PART C: Log first frame and stream_sid state
                 if not _first_frame_logged:
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
+                    
+                    # 🔥 LARGE CHUNK WARNING: Flag if first chunk is abnormally large
+                    # Normal Gemini chunks should be ~1000-5000 bytes. >20000 suggests buffering issue
+                    if len(chunk_bytes) > 20000:
+                        logger.warning(f"⚠️ [AUDIO_OUT_LOOP] LARGE FIRST CHUNK: {len(chunk_bytes)} bytes - may indicate buffering/pacing issue")
+                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Abnormally large first chunk ({len(chunk_bytes)} bytes) - will slice to 20ms frames", flush=True)
+                    
                     _first_frame_logged = True
                 
                 # 🔥 RECORDING TRIGGER: Start recording when first audio sent (from TX loop flag)
