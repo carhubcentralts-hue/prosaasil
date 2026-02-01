@@ -7992,6 +7992,8 @@ def apply_migrations():
         
         if check_table_exists('business_settings'):
             try:
+                changes_made = False
+                
                 # Add appointment_types_json column
                 if not check_column_exists('business_settings', 'appointment_types_json'):
                     checkpoint("  → Adding appointment_types_json to business_settings...")
@@ -8001,6 +8003,7 @@ def apply_migrations():
                     """)
                     checkpoint("  ✅ appointment_types_json column added")
                     checkpoint("     💡 Custom appointment types per business")
+                    changes_made = True
                 else:
                     checkpoint("  ℹ️  appointment_types_json column already exists")
                 
@@ -8013,11 +8016,13 @@ def apply_migrations():
                     """)
                     checkpoint("  ✅ appointment_statuses_json column added")
                     checkpoint("     💡 Custom appointment statuses per business")
+                    changes_made = True
                 else:
                     checkpoint("  ℹ️  appointment_statuses_json column already exists")
                 
-                migrations_applied.append('migration_126_appointment_config')
-                checkpoint("  ✅ All appointment configuration fields added")
+                if changes_made:
+                    migrations_applied.append('migration_126_appointment_config')
+                    checkpoint("  ✅ All appointment configuration fields added")
                     
             except Exception as e:
                 checkpoint(f"❌ Migration 126 failed: {e}")
