@@ -4804,11 +4804,11 @@ class MediaStreamHandler:
                     
                     # 🔥 BUFFER OVERFLOW PROTECTION: Warn if buffer grows too large
                     # Normal buffer should be < 2 chunks (1280 bytes). If much larger, something's wrong
-                    MAX_BUFFER_SIZE = chunk_size * 10  # 6400 bytes = ~125ms of audio
-                    if buffer_len > MAX_BUFFER_SIZE:
-                        logger.warning(f"⚠️ [GEMINI_BUFFER] Buffer overflow: {buffer_len} bytes (max: {MAX_BUFFER_SIZE}) - may indicate send loop stall")
+                    # 6400 bytes = 10 chunks = ~125ms of audio at 16kHz PCM16
+                    if buffer_len > 6400:  # MAX_BUFFER_SIZE = chunk_size * 10
+                        logger.warning(f"⚠️ [GEMINI_BUFFER] Buffer overflow: {buffer_len} bytes (max: 6400) - may indicate send loop stall")
                         # Trim to max size to prevent unbounded growth
-                        self._gemini_input_buffer = self._gemini_input_buffer[:MAX_BUFFER_SIZE]
+                        self._gemini_input_buffer = self._gemini_input_buffer[:6400]
                         buffer_len = len(self._gemini_input_buffer)
                     
                     # Send all complete chunks we have
@@ -15824,7 +15824,8 @@ class MediaStreamHandler:
                         logger.warning(f"[GEMINI] Failed to extract from raw: {extract_error}")
                 
                 # 🔥 CRITICAL FIX: If still empty, send NOOP response to avoid Gemini getting stuck
-                # Per problem statement: "אם לא מחזירים תגובה ל־function_call — הרבה ספקים פשוט מחכים ולא ממשיכים לדבר"
+                # Per problem statement: "If no response is returned to function_call - many providers simply 
+                # wait and don't continue talking" (אם לא מחזירים תגובה ל־function_call — הרבה ספקים פשוט מחכים ולא ממשיכים לדבר)
                 if not gemini_function_calls:
                     logger.warning(f"[GEMINI] No extractable function_calls - sending NOOP response to prevent hang")
                     try:
@@ -15836,7 +15837,7 @@ class MediaStreamHandler:
                                 "ok": True,
                                 "skipped": True,
                                 "reason": "no_tools_enabled",
-                                "message": "המשך השיחה ללא כלים"
+                                "message": "המשך השיחה ללא כלים"  # Hebrew: "Continue conversation without tools"
                             }
                         )
                         await client.send_tool_response([noop_response])
