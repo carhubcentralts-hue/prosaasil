@@ -627,7 +627,7 @@ function CreateRuleModal({
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                עיכוב בדקות * (1-43200)
+                עיכוב ראשוני בדקות * (1-43200)
               </label>
               <input
                 type="number"
@@ -645,7 +645,7 @@ function CreateRuleModal({
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
               <p className="text-xs text-gray-500 mt-1">
-                ההודעה תישלח {formData.delay_minutes} דקות ({formData.delay_seconds} שניות) אחרי מעבר לסטטוס
+                זמן ההמתנה לפני שליחת <strong>ההודעה הראשונה</strong> אחרי מעבר לסטטוס ({formData.delay_minutes} דקות = {formData.delay_seconds} שניות)
               </p>
             </div>
             
@@ -728,10 +728,15 @@ function CreateRuleModal({
             {/* Multi-Step Messages */}
             <div className="border-t pt-4">
               <div className="flex items-center justify-between mb-4">
-                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <List className="w-4 h-4" />
-                  שלבי הודעות מתוזמנות
-                </label>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <List className="w-4 h-4" />
+                    שלבי הודעות מתוזמנות
+                  </label>
+                  <p className="text-xs text-gray-500 mt-1">
+                    הודעות נוספות שיישלחו בהפרשי זמן שונים אחרי ההודעה הקודמת
+                  </p>
+                </div>
                 <Button
                   type="button"
                   size="sm"
@@ -812,7 +817,7 @@ function CreateRuleModal({
                           </div>
                           
                           <div className="flex items-center gap-2">
-                            <label className="text-xs text-gray-600">עיכוב:</label>
+                            <label className="text-xs text-gray-600">עיכוב מהודעה קודמת:</label>
                             <input
                               type="number"
                               min="1"
@@ -838,7 +843,7 @@ function CreateRuleModal({
                               <option value="days">ימים</option>
                             </select>
                             <span className="text-xs text-gray-500">
-                              ({getDelayInMinutes(step.delay_value, step.delay_unit)} דקות)
+                              (זמן המתנה: {getDelayInMinutes(step.delay_value, step.delay_unit)} דקות)
                             </span>
                           </div>
                         </div>
