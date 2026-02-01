@@ -24,6 +24,7 @@ from server.agent_tools.tools_summarize import summarize_thread
 from server.agent_tools.tools_crm_context import (
     find_lead_by_phone, get_lead_context, create_lead_note, update_lead_fields
 )
+from server.agent_tools.tools_status_update import update_lead_status
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1144,9 +1145,10 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 crm_find_lead_by_phone,
                 crm_get_lead_context,
                 crm_create_note,
-                crm_create_call_summary
+                crm_create_call_summary,
+                update_lead_status  # 🔥 NEW: Unified status update tool
             ])
-            logger.info(f"🎧 Customer service mode ENABLED for business {business_id} - CRM tools added")
+            logger.info(f"🎧 Customer service mode ENABLED for business {business_id} - CRM tools + status update added")
         
         # 📦 Assets Library: Add assets tools if enabled for this business
         try:

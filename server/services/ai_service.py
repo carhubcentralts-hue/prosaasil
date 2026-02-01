@@ -1010,6 +1010,14 @@ class AIService:
             if customer_name:
                 agent_context['customer_name'] = customer_name
             
+            # 🔥 NEW: Inject unified lead context if available
+            if context and context.get('lead_context'):
+                lead_ctx = context['lead_context']
+                agent_context['lead_context'] = lead_ctx
+                logger.info(f"[AGENTKIT] 🎧 Injected lead context: lead_id={lead_ctx.get('lead_id')}, "
+                          f"notes={len(lead_ctx.get('recent_notes', []))}, "
+                          f"next_apt={'Yes' if lead_ctx.get('next_appointment') else 'No'}")
+            
             # 🔥 FIX: Pass conversation history to agent for context retention
             # The agent needs full message history to maintain conversation context
             # and avoid repeating introductions or losing track of what was discussed
@@ -1064,6 +1072,27 @@ class AIService:
             
             # Add current message
             messages.append({"role": "user", "content": message})
+            
+            # 🔥 NEW: Inject lead context as system message if available
+            if context and context.get('lead_context'):
+                try:
+                    from server.services.unified_lead_context_service import UnifiedLeadContextPayload, UnifiedLeadContextService
+                    lead_ctx_dict = context['lead_context']
+                    lead_ctx = UnifiedLeadContextPayload(**lead_ctx_dict)
+                    
+                    if lead_ctx.found:
+                        service = UnifiedLeadContextService(business_id)
+                        context_text = service.format_context_for_prompt(lead_ctx)
+                        
+                        if context_text:
+                            # Prepend lead context as system message
+                            messages.insert(0, {
+                                "role": "system",
+                                "content": f"מידע על הלקוח (שימוש פנימי - אל תחזור על המידע הזה ללקוח):\n{context_text}"
+                            })
+                            logger.info(f"[AGENTKIT] 🎧 Prepended lead context to conversation ({len(context_text)} chars)")
+                except Exception as ctx_err:
+                    logger.warning(f"[AGENTKIT] Failed to format lead context: {ctx_err}")
             
             # 🔥 FIX: Use agent.run() instead of Runner.run() to support conversation history
             # agent.run() accepts messages parameter for full conversation context

@@ -190,6 +190,25 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         except Exception as e:
                             logger.warning(f"⚠️ Could not load conversation summary: {e}")
                         
+                        # 🔥 NEW: Load unified lead context if customer service enabled
+                        lead_context = None
+                        try:
+                            from server.services.unified_lead_context_service import get_unified_context_for_phone, UnifiedLeadContextService
+                            
+                            service = UnifiedLeadContextService(business_id)
+                            if service.is_customer_service_enabled():
+                                lead_context = get_unified_context_for_phone(business_id, phone_number, channel="whatsapp")
+                                if lead_context and lead_context.found:
+                                    logger.info(f"[UnifiedContext] ✅ Loaded context for lead #{lead_context.lead_id}: "
+                                              f"{len(lead_context.recent_notes)} notes, "
+                                              f"next_apt={'Yes' if lead_context.next_appointment else 'No'}")
+                                else:
+                                    logger.info(f"[UnifiedContext] No context found for phone {phone_number}")
+                            else:
+                                logger.info(f"[UnifiedContext] Customer service disabled for business {business_id}")
+                        except Exception as ctx_err:
+                            logger.warning(f"[UnifiedContext] Error loading context: {ctx_err}")
+                        
                         # Generate AI response
                         ai_start = time.time()
                         logger.info(f"🤖 [AGENTKIT_START] trace_id={trace_id} business_id={business_id} message='{message_text[:50]}...'")
@@ -212,7 +231,10 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                                 'previous_messages': previous_messages,  # Keep old key for backwards compatibility
                                 # Channel & trace
                                 'channel': 'whatsapp',
-                                'trace_id': trace_id
+                                'trace_id': trace_id,
+                                # 🔥 NEW: Add unified lead context
+                                'lead_context': lead_context.model_dump() if lead_context and lead_context.found else None,
+                                'remote_jid': jid  # Add JID for tool context
                             }
                             
                             ai_response = ai_service.generate_response_with_agent(
