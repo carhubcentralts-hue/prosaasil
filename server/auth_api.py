@@ -521,10 +521,20 @@ def require_api_auth(allowed_roles=None):
         @wraps(func_to_decorate)
         def decorated_function(*args, **kwargs):
             from server.services.auth_service import AuthService
+            from flask import Response
             
-            # Allow OPTIONS immediately (204)
+            # Allow OPTIONS immediately (204) with CORS headers
             if request.method == "OPTIONS":
-                return '', 204
+                response = Response('', 204)
+                origin = request.headers.get('Origin')
+                if origin:
+                    response.headers['Access-Control-Allow-Origin'] = origin
+                    response.headers['Access-Control-Allow-Credentials'] = 'true'
+                    response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, POST, PUT, DELETE, OPTIONS'
+                    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+                    response.headers['Vary'] = 'Origin'
+                    response.headers['Access-Control-Max-Age'] = '86400'  # Cache preflight for 24 hours
+                return response
             
             # BUILD 142 FINAL: Check session keys in priority order (al_user first, then user)
             user = session.get("al_user") or session.get("user")
@@ -591,10 +601,20 @@ def require_api_auth(allowed_roles=None):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             from server.services.auth_service import AuthService
+            from flask import Response
             
-            # Allow OPTIONS immediately (204)
+            # Allow OPTIONS immediately (204) with CORS headers
             if request.method == "OPTIONS":
-                return '', 204
+                response = Response('', 204)
+                origin = request.headers.get('Origin')
+                if origin:
+                    response.headers['Access-Control-Allow-Origin'] = origin
+                    response.headers['Access-Control-Allow-Credentials'] = 'true'
+                    response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, POST, PUT, DELETE, OPTIONS'
+                    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+                    response.headers['Vary'] = 'Origin'
+                    response.headers['Access-Control-Max-Age'] = '86400'  # Cache preflight for 24 hours
+                return response
             
             # BUILD 142 FINAL: Check session keys in priority order (al_user first, then user)
             user = session.get("al_user") or session.get("user")
