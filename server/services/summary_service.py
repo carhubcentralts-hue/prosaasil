@@ -9,6 +9,9 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
+# 🔥 CRITICAL: Minimum summary length - only reject if essentially empty
+MIN_SUMMARY_LENGTH = 5  # Characters
+
 
 def summarize_conversation(
     transcription: str, 
@@ -182,33 +185,27 @@ def summarize_conversation(
             else:
                 disconnect_hint = "\n🔍 שיחה ארוכה - ככל הנראה שיחה מלאה"
         
-        prompt = f"""סכם את השיחה בצורה עובדתית וממוקדת.
-
-כתוב רק את מה שנאמר בפועל. אין להמציא מידע.
-
-זהה סוג עסק/נושא מתוכן השיחה.
-
-תעד משך שיחה וסיבת סיום.
-
-אם הלקוח ניתק - ציין זאת.
-
-אם הגיע למשיבון/תא קולי - ציין זאת.
-{business_context}{duration_context}{disconnect_hint}
+        prompt = f"""סכם את השיחה הבאה בצורה פשוטה וברורה בעברית.
 
 תמלול השיחה:
 {transcription}
+{business_context}{duration_context}
 
-סיכום (80-120 מילים בעברית):
-1. שורה ראשונה: משך שיחה וסיבת סיום (חובה).
-   דוגמאות: "שיחה 45 שניות - הלקוח ניתק באמצע"
-            "שיחה 3 שניות - הגיע למשיבון"
-            "שיחה 54 שניות - הושלמה בהצלחה"
-2. נושא/מטרת השיחה (מה הייתה הסיבה לשיחה?)
-3. פרטים עיקריים שנאמרו (ממוקדים ורלוונטיים בלבד)
-4. תוצאה/מצב: מעוניין/לא מעוניין/לא ברור/אישר/דחה
-5. פעולה נדרשת (אם יש)
+הנחיות לסיכום (חובה):
+1. כתוב רק את מה שנאמר בפועל - אל תמציא מידע
+2. סכם את תוכן השיחה בצורה קצרה וממוקדת
+3. ציין את המטרה או הנושא העיקרי של השיחה
+4. אם יש פעולה נדרשת - ציין אותה
+5. הסיכום יכול להיות קצר (אפילו 20-30 מילים) אם השיחה קצרה, או ארוך יותר (עד 120 מילים) אם יש הרבה תוכן
 
-חשוב: הסיכום צריך להיות קצר, ממוקד ומכיל רק מידע מהותי ורלוונטי."""
+דוגמאות לסיכומים טובים:
+- "שיחה לאישור הגעה לחתונה. הלקוח אישר שהוא מגיע לאירוע."
+- "תזכורת לפגישה מחר. הלקוח אישר."
+- "בדיקת זמינות למועד. הלקוח לא זמין בתאריך המוצע."
+
+חשוב: כתוב תמיד סיכום - גם אם השיחה קצרה מאוד!
+
+כתוב את הסיכום בעברית:
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -217,28 +214,25 @@ def summarize_conversation(
                     "role": "system", 
                     "content": """אתה מערכת לסיכום שיחות עסקיות בעברית.
 
-חובה לכתוב רק מה שנאמר בפועל. אסור להמציא.
+כתוב תמיד סיכום פשוט וברור של השיחה בעברית - גם אם השיחה קצרה!
+כתוב רק את מה שנאמר בפועל - אל תמציא מידע.
 
-שורה ראשונה: משך + סיבת סיום (חובה).
+הסיכום יכול להיות קצר (20-30 מילים) או ארוך יותר (עד 120 מילים) - תלוי בתוכן השיחה.
+התמקד בתוכן העיקרי של השיחה.
 
-אם ניתק - ציין זאת.
+דוגמאות לסיכומים טובים:
+- "שיחה לאישור הגעה לחתונה. הלקוח אישר שהוא מגיע לאירוע."
+- "לקוח מבקש מידע על מוצר. הוסבר לו על המחיר והזמינות. הלקוח מעוניין לחזור אליו מחר."
+- "שיחת תזכורת לפגישה מחר בשעה 10. הלקוח אישר שהוא יגיע."
+- "תזכורת לפגישה. הלקוח אישר."
 
-אם משיבון - ציין זאת.
-
-אל תמציא.
-
-דוגמאות:
-- "שיחה 45 שניות - הלקוח ניתק באמצע"
-- "שיחה 3 שניות - הגיע למשיבון"  
-- "שיחה 54 שניות - הושלמה בהצלחה"
-
-הסיכום: 80-120 מילים, עובדתי וממוקד בלבד.
-מבנה: משך+סיום | נושא | פרטים עיקריים | תוצאה | פעולה נדרשת."""
+חשוב: כתוב תמיד סיכום - גם אם השיחה קצרה מאוד!
+סכם את השיחה בצורה ברורה ופשוטה."""
                 },
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=400,
-            temperature=0.0  # 🔥 FIX: Temperature 0.0 for deterministic summaries
+            max_tokens=500,  # Increased token limit to ensure AI has sufficient space for summaries
+            temperature=0.0  # Temperature 0.0 for deterministic summaries
         )
         
         summary = response.choices[0].message.content
@@ -246,10 +240,15 @@ def summarize_conversation(
             summary = summary.strip()
             word_count = len(summary.split())
             
-            if word_count < 50:
-                log.warning(f"⚠️ Summary too short ({word_count} words) for {call_sid} - using fallback")
+            # 🔥 FIX: Accept ANY summary from AI - no minimum word count!
+            # The AI knows best what summary length is appropriate for each call
+            if not summary or len(summary) < MIN_SUMMARY_LENGTH:
+                # Only reject if completely empty or less than minimum characters
+                log.warning(f"⚠️ Summary essentially empty for {call_sid} - using fallback")
                 return _fallback_summary(transcription)
-            elif word_count > 200:
+            
+            # Truncate if too long
+            if word_count > 200:
                 log.warning(f"⚠️ Summary too long ({word_count} words) for {call_sid} - truncating")
                 words = summary.split()
                 summary = " ".join(words[:180]) + "..."
@@ -267,30 +266,23 @@ def summarize_conversation(
 
 def _fallback_summary(transcription: str) -> str:
     """
-    סיכום fallback דינמי (במקרה של כשל ב-AI)
-    🔥 FIX: Generate concise summary without embedding full transcript
+    סיכום fallback פשוט (במקרה של כשל ב-AI)
+    🔥 FIX: Generate simple summary from transcript directly without mentioning AI issues
+    Note: This should RARELY be used - only when AI completely fails
     """
     words = transcription.strip().split()
     
-    # Create a clean, concise fallback summary
-    summary_parts = []
-    summary_parts.append("סיכום אוטומטי: שיחה עסקית התקבלה")
+    # For short transcripts, return as-is with header for consistency
+    if len(words) <= 50:
+        return f"סיכום שיחה:\n\n{transcription.strip()}"
     
-    # Add length indication without full content
-    if len(words) >= 80:
-        summary_parts.append(f"\n\nהשיחה הכילה {len(words)} מילים - שיחה מפורטת")
-    elif len(words) >= 40:
-        summary_parts.append(f"\n\nהשיחה הכילה {len(words)} מילים - שיחה בינונית")
-    else:
-        summary_parts.append(f"\n\nהשיחה הכילה {len(words)} מילים - שיחה קצרה")
+    # For longer transcripts, create a brief preview
+    # Take first ~40 words as a preview
+    preview = " ".join(words[:40]) + "..."
+    summary = f"סיכום שיחה:\n\n{preview}"
     
-    summary_parts.append("\n\n**הערה**: התמליל המלא זמין בהיסטוריית שיחות")
-    summary_parts.append("\n\n(סיכום זה נוצר אוטומטית - שירות AI זמנית לא זמין)")
-    
-    fallback = "\n".join(summary_parts)
-    word_count = len(fallback.split())
-    log.info(f"📋 Fallback summary created: {word_count} words")
-    return fallback
+    log.info(f"📋 Fallback summary created from transcript preview")
+    return summary
 
 
 def extract_lead_info(transcription: str, business_type: Optional[str] = None) -> dict:

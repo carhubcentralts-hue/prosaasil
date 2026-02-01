@@ -544,6 +544,8 @@ def serve_recording_file(call_sid):
     - 202 Accepted + Retry-After header if file is being prepared
     - 404 + JSON if recording doesn't exist at all
     - 403 if call doesn't belong to user's tenant
+    
+    Note: OPTIONS requests are handled by @require_api_auth decorator
     """
     try:
         # 🔥 FIX: Handle HEAD requests for file existence checks

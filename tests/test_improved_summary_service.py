@@ -33,19 +33,11 @@ def test_wedding_invitation_summary():
 
 תודה, ביי."""
     
-    # Mock OpenAI response with improved Hebrew summary
+    # Mock OpenAI response with simple Hebrew summary
     mock_response = Mock()
     mock_response.choices = [Mock()]
-    mock_response.choices[0].message.content = """שיחה 54 שניות - הושלמה בהצלחה.
-
-נושא: הזמנה לחתונה של אלון ושני.
-
-המארגנים שאלו האם המוזמן מגיע לחתונה. המוזמן אישר הגעה עם ארבעה אנשים.
-מיקום: גן האירועים הוד והדר בדרך הים 18, ראשון לציון.
-
-תוצאה: המוזמן אישר הגעה בוודאות.
-
-פעולה נדרשת: המוזמן ביקש לעדכן את מספר המוזמנים הסופי כשיידע בוודאות."""
+    # Updated to match simpler summary format (user's request: just summarize the call)
+    mock_response.choices[0].message.content = """שיחה לאישור הגעה לחתונה של אלון ושני. הלקוח אישר הגעה עם ארבעה אנשים. החתונה תתקיים בגן האירועים הוד והדר בדרך הים 18, ראשון לציון."""
     
     with patch('server.services.summary_service.OpenAI') as mock_openai:
         mock_client = Mock()
@@ -61,10 +53,9 @@ def test_wedding_invitation_summary():
         # Verify summary is not empty
         assert summary, "Summary should not be empty"
         
-        # Verify summary contains key information
-        assert "שיחה" in summary or "54" in summary, "Summary should mention call duration"
-        assert len(summary.split()) >= 50, "Summary should be substantial (at least 50 words)"
-        assert len(summary.split()) <= 120, "Summary should be concise (at most 120 words per new spec)"
+        # Verify summary is reasonable length (no minimum - AI decides!)
+        # Just check it's not absurdly long
+        assert len(summary.split()) <= 150, "Summary should be concise (at most 150 words)"
         
         # Verify the prompt was in Hebrew
         call_args = mock_client.chat.completions.create.call_args
@@ -73,14 +64,9 @@ def test_wedding_invitation_summary():
             "Prompt should be in Hebrew"
 
 
-def test_summary_structure():
+def test_simplified_summary():
     """
-    Test that the summary follows the improved structure:
-    1. Duration + completion status
-    2. Topic/purpose
-    3. Key details
-    4. Outcome
-    5. Required action
+    Test that the simplified summary generation works correctly.
     """
     transcript = """שלום, זה משרד עורכי דין כהן. התקשרנו בנוגע לתיק שלך.
 
@@ -94,15 +80,8 @@ def test_summary_structure():
     
     mock_response = Mock()
     mock_response.choices = [Mock()]
-    mock_response.choices[0].message.content = """שיחה 45 שניות - הושלמה בהצלחה.
-
-נושא: עדכון על תיק משפטי.
-
-משרד עו"ד כהן עדכן את הלקוח על התקדמות התיק. יש מועד בבית משפט מחר בשעה 10.
-
-תוצאה: הלקוח אישר הגעה.
-
-פעולה נדרשת: הלקוח יגיע למועד מחר בשעה 10."""
+    # Updated to match simpler summary format
+    mock_response.choices[0].message.content = """שיחה לעדכון על תיק משפטי. משרד עו"ד כהן עדכן את הלקוח שיש מועד בבית משפט מחר בשעה 10. הלקוח אישר שהוא יגיע."""
     
     with patch('server.services.summary_service.OpenAI') as mock_openai:
         mock_client = Mock()
@@ -115,19 +94,17 @@ def test_summary_structure():
             call_duration=45
         )
         
-        # Verify summary structure
-        assert "שיחה" in summary, "Should start with call duration"
+        # Verify summary is not empty and reasonable length
+        assert summary, "Summary should not be empty"
+        assert len(summary.split()) >= 5, "Summary should have at least a few words"
         
-        # Check that the prompt requested structured output
+        # Check that the prompt requested a simple summary
         call_args = mock_client.chat.completions.create.call_args
         user_message = call_args[1]['messages'][1]['content']
         
-        # Verify Hebrew prompt structure
-        assert 'שורה ראשונה' in user_message, "Prompt should specify first line requirement"
-        assert 'נושא' in user_message, "Prompt should request topic"
-        assert 'פרטים עיקריים' in user_message, "Prompt should request key details"
-        assert 'תוצאה' in user_message, "Prompt should request outcome"
-        assert 'פעולה נדרשת' in user_message, "Prompt should request required action"
+        # Verify simplified Hebrew prompt structure
+        assert 'סכם את השיחה' in user_message, "Prompt should request summary"
+        assert 'תמלול השיחה' in user_message, "Prompt should include transcript"
 
 
 def test_short_call_no_answer():
