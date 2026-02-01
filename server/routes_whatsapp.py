@@ -1094,14 +1094,15 @@ def baileys_webhook():
                     log.info(f"[WA-INCOMING] Message processed (AI disabled, no response) in {msg_duration:.2f}s")
                     continue
                 
-                # ✅ FIX: Load conversation history for AI context (12 messages for better context)
-                # Increased from 10 to 12 to match AI service limit and prevent context loss
+                # ✅ FIX: Load conversation history for AI context (20 messages for better context)
+                # 🔥 IMPORTANT: Even though OpenAI Agents SDK manages history via conversation_id,
+                # we still pass previous_messages for fallback and context enrichment
                 previous_messages = []
                 try:
                     recent_msgs = WhatsAppMessage.query.filter_by(
                         business_id=business_id,
                         to_number=from_number_e164
-                    ).order_by(WhatsAppMessage.created_at.desc()).limit(12).all()
+                    ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
                     
                     # Format as conversation (reversed to chronological order)
                     # 🔥 BUILD 180: Handle both 'in'/'inbound' and 'out'/'outbound' for backwards compatibility
@@ -1111,7 +1112,9 @@ def baileys_webhook():
                         else:
                             previous_messages.append(f"עוזר: {msg_hist.body}")  # ✅ כללי - לא hardcoded!
                     
-                    log.info(f"📚 Loaded {len(previous_messages)} previous messages for context")
+                    log.info(f"📚 Loaded {len(previous_messages)} previous messages for context (last 20 messages)")
+                    if len(previous_messages) > 0:
+                        log.debug(f"📚 Last 3 messages: {previous_messages[-3:] if len(previous_messages) >= 3 else previous_messages}")
                 except Exception as e:
                     log.warning(f"⚠️ Could not load conversation history: {e}")
                 

@@ -993,23 +993,26 @@ class AIService:
             if customer_name:
                 agent_context['customer_name'] = customer_name
             
-            # 🔥 CRITICAL FIX: OpenAI Agents SDK uses conversation_id to manage conversation history
-            # on OpenAI's servers. We need to pass a unique conversation_id per customer/JID.
-            # This allows the AI to remember the conversation across multiple messages.
+            # 🔥 CRITICAL FIX: Generate conversation_id for internal tracking only
+            # OpenAI Agents SDK expects conversation IDs starting with 'conv' prefix
+            # Since we can't use custom IDs, we rely on previous_messages in context for history
             
-            # Generate conversation_id from customer phone or JID
+            # Generate conversation_id for monitoring/tracking purposes only
             conversation_id = self._generate_conversation_id(business_id, context, customer_phone)
             
-            logger.info(f"[AGENTKIT] conversation_id={conversation_id}, message='{message[:50]}...'")
+            logger.info(f"[AGENTKIT] 🔑 tracking_id={conversation_id}, message_preview='{message[:50]}...'")
+            logger.info(f"[AGENTKIT] 📊 Context: business_id={business_id}, channel={channel}, "
+                       f"has_previous_messages={bool(context and context.get('previous_messages'))}, "
+                       f"previous_msg_count={len(context.get('previous_messages', []))}")
             runner = Runner()
             
-            # 🔥 FIX: Pass conversation_id to Runner.run() so OpenAI manages the history
-            # The SDK will automatically retrieve and maintain conversation history on their side
+            # 🔥 FIX: Don't pass conversation_id to OpenAI - let it manage internally
+            # Context history is provided via previous_messages in agent_context instead
             agent_coroutine = runner.run(
                 agent, 
-                message,  # Just the current message - history is managed by OpenAI
-                context=agent_context,
-                conversation_id=conversation_id  # This is the key fix!
+                message,
+                context=agent_context
+                # NOTE: conversation_id removed - OpenAI expects 'conv' prefix or generates its own
             )
             
             # Check if we're already in an async context
@@ -1037,7 +1040,16 @@ class AIService:
                 logger.warning(f"[AGENTKIT] Unable to extract text from result type: {type(result)}")
                 reply_text = ""
             
-            logger.info(f"[AGENTKIT] Agent response: {len(reply_text)} chars")
+            logger.info(f"[AGENTKIT] ✅ Agent response generated: {len(reply_text)} chars")
+            logger.info(f"[AGENTKIT] 📝 Response preview: {reply_text[:100] if reply_text else '(empty)'}...")
+            
+            # 🔥 NEW: Track conversation turn for debugging repetitive responses
+            try:
+                from server.agent_tools.agent_factory import track_conversation_turn
+                track_conversation_turn(conversation_id, message, reply_text)
+            except Exception as track_err:
+                logger.debug(f"Could not track conversation turn: {track_err}")
+            
             logger.info(f"🔙 About to return from generate_response_with_agent()")
             
             # Return structured response
