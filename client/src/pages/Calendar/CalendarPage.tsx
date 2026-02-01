@@ -85,13 +85,24 @@ interface BusinessCalendar {
 interface CalendarForm {
   name: string;
   type_key: string;
-  provider: string;
   is_active: boolean;
   priority: number;
   default_duration_minutes: number;
   buffer_before_minutes: number;
   buffer_after_minutes: number;
   allowed_tags: string[];
+}
+
+interface AppointmentTypeConfig {
+  key: string;
+  label: string;
+  color: string;
+}
+
+interface AppointmentStatusConfig {
+  key: string;
+  label: string;
+  color: string;
 }
 
 const APPOINTMENT_TYPES: Record<string, { label: string; color: string }> = {
@@ -256,7 +267,7 @@ export function CalendarPage() {
   });
 
   // Calendar management states
-  const [activeTab, setActiveTab] = useState<'appointments' | 'calendars'>('appointments');
+  const [activeTab, setActiveTab] = useState<'appointments' | 'calendars' | 'management'>('appointments');
   const [calendars, setCalendars] = useState<BusinessCalendar[]>([]);
   const [loadingCalendars, setLoadingCalendars] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
@@ -264,7 +275,6 @@ export function CalendarPage() {
   const [calendarFormData, setCalendarFormData] = useState<CalendarForm>({
     name: '',
     type_key: '',
-    provider: 'internal',
     is_active: true,
     priority: 0,
     default_duration_minutes: 60,
@@ -272,6 +282,10 @@ export function CalendarPage() {
     buffer_after_minutes: 0,
     allowed_tags: []
   });
+
+  // Configurable appointment types and statuses
+  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentTypeConfig[]>([]);
+  const [appointmentStatuses, setAppointmentStatuses] = useState<AppointmentStatusConfig[]>([]);
 
   // Fetch appointments using the proper HTTP client
   const fetchAppointments = async () => {
@@ -289,13 +303,51 @@ export function CalendarPage() {
 
   useEffect(() => {
     fetchAppointments();
+    fetchAppointmentTypes();
+    fetchAppointmentStatuses();
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'calendars') {
+    if (activeTab === 'calendars' || activeTab === 'management') {
       fetchCalendars();
     }
   }, [activeTab]);
+
+  // Fetch configurable appointment types
+  const fetchAppointmentTypes = async () => {
+    try {
+      const data = await http.get<{appointment_types: AppointmentTypeConfig[]}>('/api/calendar/config/appointment-types');
+      setAppointmentTypes(data.appointment_types || []);
+    } catch (error) {
+      console.error('שגיאה בטעינת סוגי פגישות:', error);
+      // Fallback to defaults if API fails
+      setAppointmentTypes([
+        {key: "viewing", label: "צפייה", color: "blue"},
+        {key: "meeting", label: "פגישה", color: "green"},
+        {key: "signing", label: "חתימה", color: "purple"},
+        {key: "call_followup", label: "מעקב שיחה", color: "orange"},
+        {key: "phone_call", label: "שיחה טלפונית", color: "pink"}
+      ]);
+    }
+  };
+
+  // Fetch configurable appointment statuses
+  const fetchAppointmentStatuses = async () => {
+    try {
+      const data = await http.get<{appointment_statuses: AppointmentStatusConfig[]}>('/api/calendar/config/appointment-statuses');
+      setAppointmentStatuses(data.appointment_statuses || []);
+    } catch (error) {
+      console.error('שגיאה בטעינת סטטוסי פגישות:', error);
+      // Fallback to defaults if API fails
+      setAppointmentStatuses([
+        {key: "scheduled", label: "מתוכנן", color: "yellow"},
+        {key: "confirmed", label: "מאושר", color: "green"},
+        {key: "paid", label: "שולם", color: "blue"},
+        {key: "unpaid", label: "לא שולם", color: "red"},
+        {key: "cancelled", label: "בוטל", color: "gray"}
+      ]);
+    }
+  };
 
   // Fetch calendars
   const fetchCalendars = async () => {
@@ -349,7 +401,6 @@ export function CalendarPage() {
     setCalendarFormData({
       name: '',
       type_key: '',
-      provider: 'internal',
       is_active: true,
       priority: 0,
       default_duration_minutes: 60,
@@ -366,7 +417,6 @@ export function CalendarPage() {
     setCalendarFormData({
       name: calendar.name,
       type_key: calendar.type_key || '',
-      provider: calendar.provider,
       is_active: calendar.is_active,
       priority: calendar.priority,
       default_duration_minutes: calendar.default_duration_minutes,
@@ -570,7 +620,8 @@ export function CalendarPage() {
       appointment_type: 'meeting',
       priority: 'medium',
       contact_name: '',
-      contact_phone: ''
+      contact_phone: '',
+      calendar_id: undefined
     });
     // Always fetch calendars to ensure up-to-date list
     fetchCalendars();
@@ -641,7 +692,9 @@ export function CalendarPage() {
               לוח שנה
             </h1>
             <p className="text-slate-600">
-              {activeTab === 'appointments' ? 'ניהול פגישות ומעקב פעילות יומית' : 'ניהול לוחות שנה מרובים'}
+              {activeTab === 'appointments' ? 'ניהול פגישות ומעקב פעילות יומית' : 
+               activeTab === 'calendars' ? 'ניהול לוחות שנה מרובים' :
+               'תצוגת ניהול - כל הפגישות לפי לוח שנה'}
             </p>
           </div>
           <div className="flex gap-3 w-full sm:w-auto">
@@ -707,6 +760,20 @@ export function CalendarPage() {
             <div className="flex items-center justify-center gap-2">
               <Calendar className="h-5 w-5" />
               <span>לוחות שנה</span>
+            </div>
+          </button>
+          <button
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${
+              activeTab === 'management'
+                ? 'bg-blue-500 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+            onClick={() => setActiveTab('management')}
+            data-testid="tab-management"
+          >
+            <div className="flex items-center justify-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              <span>ניהול לוחות</span>
             </div>
           </button>
         </div>
@@ -1384,6 +1451,171 @@ export function CalendarPage() {
         </div>
       )}
 
+      {/* Management Tab - Appointments organized by calendar */}
+      {activeTab === 'management' && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+          <div className="p-4 md:p-6 border-b border-slate-200">
+            <h2 className="text-xl font-semibold text-slate-900">תצוגת ניהול - פגישות לפי לוח שנה</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              כל הפגישות מאורגנות לפי לוחות שנה למעקב ותיאום קל
+            </p>
+          </div>
+
+          {loading || loadingCalendars ? (
+            <div className="p-8 flex justify-center items-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p className="text-slate-600">טוען נתונים...</p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 md:p-6 space-y-6">
+              {/* Show appointments grouped by calendar */}
+              {calendars.filter(c => c.is_active).length === 0 ? (
+                <div className="text-center py-12">
+                  <Calendar className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-slate-900 mb-2">אין לוחות שנה פעילים</h3>
+                  <p className="text-slate-600">
+                    צור לוח שנה חדש בכרטיסייה "לוחות שנה" כדי להתחיל לנהל פגישות
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Unassigned appointments */}
+                  {(() => {
+                    const unassignedAppointments = appointments.filter(a => !a.calendar_id);
+                    if (unassignedAppointments.length > 0) {
+                      return (
+                        <div className="border border-slate-200 rounded-xl overflow-hidden">
+                          <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="font-semibold text-slate-900">ללא לוח שנה</h3>
+                                <p className="text-sm text-slate-600">פגישות שלא משויכות ללוח שנה</p>
+                              </div>
+                              <span className="bg-slate-200 text-slate-700 px-3 py-1 rounded-full text-sm font-medium">
+                                {unassignedAppointments.length}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="divide-y divide-slate-200">
+                            {unassignedAppointments.slice(0, 5).map(appointment => (
+                              <div key={appointment.id} className="p-4 hover:bg-slate-50 transition-colors">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-slate-900">{appointment.title}</h4>
+                                    <div className="flex flex-wrap gap-2 mt-2 text-sm text-slate-600">
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-4 w-4" />
+                                        {new Date(appointment.start_time).toLocaleString('he-IL', {
+                                          month: 'short',
+                                          day: 'numeric',
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                          timeZone: 'Asia/Jerusalem'
+                                        })}
+                                      </span>
+                                      {appointment.contact_name && (
+                                        <span className="flex items-center gap-1">
+                                          <User className="h-4 w-4" />
+                                          {appointment.contact_name}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_TYPES[appointment.status]?.color || 'bg-gray-100 text-gray-800'}`}>
+                                    {STATUS_TYPES[appointment.status]?.label || appointment.status}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                            {unassignedAppointments.length > 5 && (
+                              <div className="p-3 text-center text-sm text-slate-600 bg-slate-50">
+                                ועוד {unassignedAppointments.length - 5} פגישות...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {/* Appointments by calendar */}
+                  {calendars.filter(c => c.is_active).map(calendar => {
+                    const calendarAppointments = appointments.filter(a => a.calendar_id === calendar.id);
+                    return (
+                      <div key={calendar.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 border-b border-slate-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h3 className="font-semibold text-slate-900">{calendar.name}</h3>
+                              <p className="text-sm text-slate-600">
+                                עדיפות: {calendar.priority} | משך ברירת מחדל: {calendar.default_duration_minutes} דקות
+                              </p>
+                            </div>
+                            <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
+                              {calendarAppointments.length}
+                            </span>
+                          </div>
+                        </div>
+                        {calendarAppointments.length === 0 ? (
+                          <div className="p-8 text-center text-slate-500">
+                            <CalendarIcon className="h-12 w-12 text-slate-300 mx-auto mb-2" />
+                            <p>אין פגישות בלוח שנה זה</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-200">
+                            {calendarAppointments.slice(0, 5).map(appointment => (
+                              <div key={appointment.id} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openEditAppointmentModal(appointment)}>
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-slate-900">{appointment.title}</h4>
+                                    <div className="flex flex-wrap gap-2 mt-2 text-sm text-slate-600">
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-4 w-4" />
+                                        {new Date(appointment.start_time).toLocaleString('he-IL', {
+                                          month: 'short',
+                                          day: 'numeric',
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                          timeZone: 'Asia/Jerusalem'
+                                        })}
+                                      </span>
+                                      {appointment.contact_name && (
+                                        <span className="flex items-center gap-1">
+                                          <User className="h-4 w-4" />
+                                          {appointment.contact_name}
+                                        </span>
+                                      )}
+                                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${APPOINTMENT_TYPES[appointment.appointment_type]?.color || 'bg-gray-100 text-gray-800'}`}>
+                                        {APPOINTMENT_TYPES[appointment.appointment_type]?.label || appointment.appointment_type}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_TYPES[appointment.status]?.color || 'bg-gray-100 text-gray-800'}`}>
+                                    {STATUS_TYPES[appointment.status]?.label || appointment.status}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                            {calendarAppointments.length > 5 && (
+                              <div className="p-3 text-center text-sm text-slate-600 bg-slate-50">
+                                ועוד {calendarAppointments.length - 5} פגישות...
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Appointment Modal */}
       {showAppointmentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1455,10 +1687,9 @@ export function CalendarPage() {
                     onChange={(e) => setFormData({...formData, appointment_type: e.target.value as any})}
                     data-testid="select-appointment-type"
                   >
-                    <option value="meeting">פגישה</option>
-                    <option value="viewing">צפייה</option>
-                    <option value="signing">חתימה</option>
-                    <option value="call_followup">מעקב שיחה</option>
+                    {appointmentTypes.map(type => (
+                      <option key={type.key} value={type.key}>{type.label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1472,11 +1703,26 @@ export function CalendarPage() {
                     onChange={(e) => setFormData({...formData, status: e.target.value as any})}
                     data-testid="select-appointment-status"
                   >
-                    <option value="scheduled">מתוכנן</option>
-                    <option value="confirmed">מאושר</option>
-                    <option value="paid">שילם</option>
-                    <option value="unpaid">לא שילם</option>
-                    <option value="cancelled">בוטל</option>
+                    {appointmentStatuses.map(status => (
+                      <option key={status.key} value={status.key}>{status.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    לוח שנה
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.calendar_id || ''}
+                    onChange={(e) => setFormData({...formData, calendar_id: e.target.value ? parseInt(e.target.value) : undefined})}
+                    data-testid="select-calendar"
+                  >
+                    <option value="">ברירת מחדל</option>
+                    {calendars.filter(c => c.is_active).map(calendar => (
+                      <option key={calendar.id} value={calendar.id}>{calendar.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1642,22 +1888,6 @@ export function CalendarPage() {
                     placeholder="לדוגמה: meetings, moves"
                     data-testid="input-calendar-type-key"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-900 mb-2">
-                    ספק לוח שנה
-                  </label>
-                  <select
-                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    value={calendarFormData.provider}
-                    onChange={(e) => setCalendarFormData({...calendarFormData, provider: e.target.value})}
-                    data-testid="select-calendar-provider"
-                  >
-                    <option value="internal">פנימי</option>
-                    <option value="google">Google Calendar</option>
-                    <option value="outlook">Outlook Calendar</option>
-                  </select>
                 </div>
 
                 <div>

@@ -323,6 +323,11 @@ class BusinessSettings(db.Model):
     # When enabled, AI can search and retrieve asset information during conversations
     assets_use_ai = db.Column(db.Boolean, default=True)  # Toggle for AI access to assets library
     
+    # 🔥 Configurable Appointment Types & Statuses: Per-business customization
+    # Format: [{"key": "viewing", "label": "צפייה", "color": "blue"}, {"key": "meeting", "label": "פגישה", "color": "green"}]
+    appointment_types_json = db.Column(db.JSON, nullable=True)  # Custom appointment types per business
+    appointment_statuses_json = db.Column(db.JSON, nullable=True)  # Custom appointment statuses per business
+    
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

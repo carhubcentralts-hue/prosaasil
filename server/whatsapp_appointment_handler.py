@@ -220,6 +220,20 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
         appointment.business_id = customer.business_id
         appointment.customer_id = customer.id
         appointment.whatsapp_message_id = whatsapp_message_id
+        
+        # 🔥 Assign to default calendar
+        from server.models_sql import BusinessCalendar
+        default_calendar = BusinessCalendar.query.filter(
+            BusinessCalendar.business_id == customer.business_id,
+            BusinessCalendar.is_active == True
+        ).order_by(BusinessCalendar.priority.desc()).first()
+        
+        if default_calendar:
+            appointment.calendar_id = default_calendar.id
+            logger.info(f"📅 WhatsApp appointment assigned to calendar '{default_calendar.name}' (id={default_calendar.id})")
+        else:
+            logger.warning(f"⚠️ No active calendars found for business_id={customer.business_id}")
+        
         appointment.title = title
         appointment.description = description
         appointment.start_time = meeting_time
