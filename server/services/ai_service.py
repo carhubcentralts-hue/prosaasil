@@ -1036,6 +1036,22 @@ class AIService:
             # Generate conversation_id for monitoring/tracking purposes only
             conversation_id = self._generate_conversation_id(business_id, context, customer_phone)
             
+            # 🔥 FIX #5: Set flask.g.agent_context so tools like whatsapp_send work properly
+            # This provides tools with necessary context (phone, jid, business_id, lead_id)
+            try:
+                from flask import g
+                g.agent_context = {
+                    "customer_phone": customer_phone,
+                    "whatsapp_from": customer_phone,
+                    "remote_jid": agent_context.get('remote_jid'),
+                    "business_id": business_id,
+                    "lead_id": agent_context.get('lead_id'),
+                    "channel": channel
+                }
+                logger.info(f"[AGENTKIT] ✅ Set g.agent_context for tools: phone={customer_phone}, jid={agent_context.get('remote_jid', 'N/A')[:30]}")
+            except Exception as g_err:
+                logger.warning(f"[AGENTKIT] ⚠️ Could not set g.agent_context (tools may fail): {g_err}")
+            
             logger.info(f"[AGENTKIT] 🔑 tracking_id={conversation_id}, message_preview='{enriched_message[:50]}...'")
             logger.info(f"[AGENTKIT] 📊 Context: business_id={business_id}, channel={channel}, "
                        f"has_previous_messages={bool(context and context.get('previous_messages'))}, "

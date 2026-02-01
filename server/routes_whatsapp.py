@@ -648,10 +648,14 @@ def save_whatsapp_prompt(business_id):
     # ✅ CRITICAL: Invalidate AI service cache after prompt update
     try:
         from server.services.ai_service import invalidate_business_cache
+        from server.agent_tools.agent_factory import invalidate_agent_cache  # 🔥 NEW: Also invalidate agent cache
+        
         invalidate_business_cache(business_id)
-        logging.info(f"🔥 AI cache invalidated for business {business_id} after WhatsApp prompt update")
+        invalidate_agent_cache(business_id)  # 🔥 FIX: Ensure agents get updated prompts immediately
+        
+        logging.info(f"🔥 AI cache and Agent cache invalidated for business {business_id} after WhatsApp prompt update")
     except Exception as cache_error:
-        logging.error(f"❌ Failed to invalidate AI cache: {cache_error}")
+        logging.error(f"❌ Failed to invalidate caches: {cache_error}")
     
     return {"ok": True, "id": business_id, "prompt_length": len(settings.ai_prompt)}
 
@@ -1206,11 +1210,13 @@ def baileys_webhook():
                 
                 try:
                     # Build AI context with customer memory
+                    # 🔥 FIX #5: Include lead_id for tools
                     ai_context = {
                         'phone': from_number_e164,  # E.164 for CRM
                         'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
                         'customer_name': customer.name if customer else None,
                         'lead_status': lead.status if lead else None,
+                        'lead_id': lead.id if lead else None,  # 🔥 FIX #5: Add lead_id for tools
                         'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 12 הודעות!
                         'appointment_created': appointment_created,  # ✅ BUILD 93: הפגישה נקבעה!
                         'customer_memory': customer_memory_text,  # 🆕 Unified customer memory
