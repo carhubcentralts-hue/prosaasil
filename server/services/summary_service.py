@@ -240,7 +240,7 @@ def summarize_conversation(
             # 🔥 FIX: Accept ANY summary from AI - no minimum word count!
             # The AI knows best what summary length is appropriate for each call
             if not summary or len(summary) < 5:
-                # Only reject if completely empty or just 1-2 characters
+                # Only reject if completely empty or less than 5 characters
                 log.warning(f"⚠️ Summary essentially empty for {call_sid} - using fallback")
                 return _fallback_summary(transcription)
             
@@ -265,17 +265,17 @@ def _fallback_summary(transcription: str) -> str:
     """
     סיכום fallback פשוט (במקרה של כשל ב-AI)
     🔥 FIX: Generate simple summary from transcript directly without mentioning AI issues
+    Note: This should RARELY be used - only when AI completely fails
     """
     words = transcription.strip().split()
     
-    # If transcript is short enough, just return it as the summary
+    # For short transcripts, return as-is with header for consistency
     if len(words) <= 50:
-        return transcription.strip()
+        return f"סיכום שיחה:\n\n{transcription.strip()}"
     
-    # For longer transcripts, create a brief summary
+    # For longer transcripts, create a brief preview
     # Take first ~40 words as a preview
     preview = " ".join(words[:40]) + "..."
-    
     summary = f"סיכום שיחה:\n\n{preview}"
     
     log.info(f"📋 Fallback summary created from transcript preview")

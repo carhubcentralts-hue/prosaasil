@@ -64,9 +64,9 @@ def test_wedding_invitation_summary():
             "Prompt should be in Hebrew"
 
 
-def test_summary_structure():
+def test_simplified_summary():
     """
-    Test that the summary follows the improved structure with simplified prompt
+    Test that the simplified summary generation works correctly.
     """
     transcript = """שלום, זה משרד עורכי דין כהן. התקשרנו בנוגע לתיק שלך.
 
