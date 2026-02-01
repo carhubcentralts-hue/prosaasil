@@ -141,12 +141,16 @@ class BaileysProvider(Provider):
                 is_auth_paired = data.get("authPaired", False)
                 can_send = data.get("canSend", False)
                 
-                logger.debug(f"Tenant {tenant_id} status: connected={is_connected}, authPaired={is_auth_paired}, canSend={can_send}")
+                # 🔥 ENHANCED LOGGING: Always log status for debugging
+                if can_send and is_connected and is_auth_paired:
+                    logger.info(f"✅ Tenant {tenant_id} ready: connected={is_connected}, authPaired={is_auth_paired}, canSend={can_send}")
+                else:
+                    logger.warning(f"⚠️ Tenant {tenant_id} NOT ready: connected={is_connected}, authPaired={is_auth_paired}, canSend={can_send}")
                 
                 # Return true ONLY if ALL conditions met
                 return can_send and is_connected and is_auth_paired
             else:
-                logger.debug(f"Status check failed for {tenant_id}: HTTP {response.status_code}")
+                logger.warning(f"⚠️ Status check failed for {tenant_id}: HTTP {response.status_code}")
                 return False
                 
         except Exception as e:
@@ -318,12 +322,24 @@ class BaileysProvider(Provider):
                 
                 if response.status_code == 200:
                     result = response.json()
-                    logger.info(f"✅ WhatsApp sent successfully to {to[:15]}... (attempt {attempt + 1})")
+                    # 🔥 CRITICAL: Check if Baileys actually sent the message
+                    # Even with 200 OK, the response might indicate an error
+                    if result.get("success") == False or result.get("error"):
+                        error_msg = result.get("error", "Unknown error from Baileys")
+                        logger.error(f"❌ Baileys returned 200 but send failed: {error_msg}")
+                        return {
+                            "provider": "baileys",
+                            "status": "error",
+                            "error": error_msg
+                        }
+                    
+                    message_id = result.get("messageId", idempotency_key)
+                    logger.info(f"✅ WhatsApp sent successfully to {to[:15]}... (attempt {attempt + 1}), messageId={message_id}")
                     return {
                         "provider": "baileys",
                         "status": "sent",
-                        "sid": result.get("messageId", idempotency_key),
-                        "message_id": result.get("messageId", idempotency_key)
+                        "sid": message_id,
+                        "message_id": message_id
                     }
                 else:
                     last_error = f"Service unavailable (HTTP {response.status_code})"

@@ -136,6 +136,7 @@ def enqueue(
         func: Function to execute (must be importable by worker)
         *args: Positional arguments for func
         business_id: Business ID for tenant isolation (CRITICAL for multi-tenant security)
+                    NOTE: This is stored in job.meta AND passed to the function if present in kwargs
         run_id: Optional run ID for job grouping
         job_id: Optional custom job ID (for deduplication - use generate_deterministic_job_id)
         trace_id: Optional trace ID for distributed tracing
@@ -143,7 +144,7 @@ def enqueue(
         timeout: Job execution timeout in seconds
         retry: Number of retry attempts (None = no retry)
         description: Human-readable job description
-        **kwargs: Keyword arguments for func
+        **kwargs: Keyword arguments for func (all kwargs are passed to the function)
     
     Returns:
         rq.job.Job: The enqueued job
@@ -203,11 +204,17 @@ def enqueue(
         log_context += f" run_id={run_id}"
     logger.info(f"{log_context} trace_id={trace_id[:8]}")
     
-    # 🔥 FIXED: Do NOT auto-inject business_id/run_id into job function kwargs
-    # This was causing "invalid keyword argument" errors for jobs that don't expect them.
-    # If a job needs business_id or run_id, pass them explicitly when calling enqueue().
-    # All metadata (business_id, run_id, trace_id) is stored in job.meta for logging/tracking.
+    # 🔥 CRITICAL FIX: Pass ALL kwargs to job function, including business_id if provided
+    # Previously, business_id was only stored in job.meta and not passed to the function,
+    # causing "missing required argument" errors for jobs that need business_id parameter.
+    # Now we pass all kwargs to the function. If business_id is passed as a kwarg,
+    # it will be sent to the function AND stored in job.meta for tracking.
     job_func_kwargs = dict(kwargs)
+    
+    # If business_id is provided but not in kwargs, add it to function kwargs
+    # This ensures backward compatibility for jobs that expect business_id parameter
+    if business_id is not None and 'business_id' not in job_func_kwargs:
+        job_func_kwargs['business_id'] = business_id
     
     # Enqueue job
     try:
