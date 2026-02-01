@@ -175,6 +175,10 @@ export function StatisticsPage() {
 
   const formatDateDisplay = (dateStr: string): string => {
     // Format YYYY-MM-DD to DD/MM/YYYY for Hebrew display
+    // Validate input format to prevent errors
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return dateStr; // Return as-is if invalid
+    }
     return dateStr.split('-').reverse().join('/');
   };
 
@@ -200,13 +204,18 @@ export function StatisticsPage() {
         });
       }
       if (dateFrom) {
-        // Convert local date (YYYY-MM-DD) to UTC timestamp at start of local day
-        // Backend compares with created_at (UTC), so we need UTC representation of local date
+        // Date filter logic:
+        // 1. User selects date in HTML5 date input (YYYY-MM-DD format)
+        // 2. We construct a Date object at 00:00:00 in LOCAL timezone
+        // 3. toISOString() converts this to UTC (e.g., 2024-01-15T00:00:00 GMT+2 -> 2024-01-14T22:00:00Z)
+        // 4. Backend receives UTC timestamp and compares with created_at (also UTC)
+        // 5. This correctly filters records created from start of selected day in user's local time
         const fromDate = new Date(dateFrom + 'T00:00:00');
         params.append('from', fromDate.toISOString());
       }
       if (dateTo) {
-        // Convert local date (YYYY-MM-DD) to UTC timestamp at end of local day
+        // Same as above but at end of day (23:59:59) in local timezone
+        // This ensures we include all records up to end of selected day in user's local time
         const toDate = new Date(dateTo + 'T23:59:59');
         params.append('to', toDate.toISOString());
       }
@@ -350,7 +359,8 @@ export function StatisticsPage() {
             <span>סינון</span>
             {hasActiveFilters && (
               <span className="bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                {(selectedStatuses.length > 0 ? 1 : 0) + (dateFrom || dateTo ? 1 : 0)}
+                {/* Show count of active filter groups (status filters + date range filter) */}
+                {(selectedStatuses.length > 0 ? 1 : 0) + ((dateFrom || dateTo) ? 1 : 0)}
               </span>
             )}
           </button>
