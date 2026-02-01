@@ -9,6 +9,7 @@ from sqlalchemy import text
 from server.db import db
 from server.models_sql import (
     ScheduledMessageRule,
+    ScheduledMessageRuleStep,
     ScheduledRuleStatus,
     ScheduledMessagesQueue,
     LeadStatus,
@@ -31,7 +32,10 @@ def create_rule(
     send_window_end: Optional[str] = None,
     is_active: bool = True,
     provider: str = "baileys",
-    delay_seconds: Optional[int] = None
+    delay_seconds: Optional[int] = None,
+    send_immediately_on_enter: bool = False,
+    apply_mode: str = "ON_ENTER_ONLY",
+    steps: Optional[List[Dict]] = None
 ) -> ScheduledMessageRule:
     """
     Create a new scheduling rule
@@ -49,6 +53,9 @@ def create_rule(
         is_active: Whether rule is active
         provider: WhatsApp provider to use ("baileys" | "meta" | "auto")
         delay_seconds: Seconds to wait after status change (NEW - preferred over delay_minutes)
+        send_immediately_on_enter: Send immediate message when lead enters status
+        apply_mode: When to apply rule ("ON_ENTER_ONLY" | "ON_ENTER_AND_EXISTING")
+        steps: Optional list of step dicts with step_index, message_template, delay_seconds
     
     Returns:
         Created ScheduledMessageRule instance
@@ -99,7 +106,9 @@ def create_rule(
         send_window_start=send_window_start,
         send_window_end=send_window_end,
         is_active=is_active,
-        provider=provider
+        provider=provider,
+        send_immediately_on_enter=send_immediately_on_enter,
+        apply_mode=apply_mode
     )
     
     db.session.add(rule)
@@ -113,10 +122,36 @@ def create_rule(
         )
         db.session.add(rule_status)
     
+    # Create rule steps if provided
+    if steps:
+        create_rule_steps(rule.id, steps)
+    
     db.session.commit()
     logger.info(f"[SCHEDULED-MSG] Created rule {rule.id}: '{name}' for business {business_id}")
     
     return rule
+
+
+def create_rule_steps(rule_id: int, steps: List[Dict]):
+    """
+    Create ScheduledMessageRuleStep entries for a rule
+    
+    Args:
+        rule_id: Rule ID
+        steps: List of dicts with step_index, message_template, delay_seconds
+    """
+    for step_data in steps:
+        step = ScheduledMessageRuleStep(
+            rule_id=rule_id,
+            step_index=step_data['step_index'],
+            message_template=step_data['message_template'],
+            delay_seconds=step_data['delay_seconds'],
+            enabled=step_data.get('enabled', True)
+        )
+        db.session.add(step)
+    
+    db.session.flush()
+    logger.info(f"[SCHEDULED-MSG] Created {len(steps)} step(s) for rule {rule_id}")
 
 
 def update_rule(
@@ -131,7 +166,10 @@ def update_rule(
     send_window_start: Optional[str] = None,
     send_window_end: Optional[str] = None,
     is_active: Optional[bool] = None,
-    provider: Optional[str] = None
+    provider: Optional[str] = None,
+    send_immediately_on_enter: Optional[bool] = None,
+    apply_mode: Optional[str] = None,
+    steps: Optional[List[Dict]] = None
 ) -> ScheduledMessageRule:
     """
     Update an existing scheduling rule
@@ -175,6 +213,10 @@ def update_rule(
         rule.send_window_end = send_window_end
     if is_active is not None:
         rule.is_active = is_active
+    if send_immediately_on_enter is not None:
+        rule.send_immediately_on_enter = send_immediately_on_enter
+    if apply_mode is not None:
+        rule.apply_mode = apply_mode
     
     # Update status mappings if provided
     if status_ids is not None:
@@ -200,6 +242,15 @@ def update_rule(
                 status_id=status_id
             )
             db.session.add(rule_status)
+    
+    # Update steps if provided
+    if steps is not None:
+        # Delete existing steps
+        ScheduledMessageRuleStep.query.filter_by(rule_id=rule_id).delete()
+        
+        # Create new steps
+        if steps:
+            create_rule_steps(rule_id, steps)
     
     rule.updated_at = datetime.utcnow()
     db.session.commit()
@@ -230,6 +281,126 @@ def delete_rule(rule_id: int, business_id: int) -> bool:
     logger.info(f"[SCHEDULED-MSG] Deleted rule {rule_id} for business {business_id}")
     
     return True
+
+
+def add_rule_step(
+    rule_id: int,
+    step_index: int,
+    message_template: str,
+    delay_seconds: int,
+    enabled: bool = True
+) -> ScheduledMessageRuleStep:
+    """
+    Add a new step to an existing rule
+    
+    Args:
+        rule_id: Rule ID
+        step_index: Order of the step (0-based)
+        message_template: Message template for the step
+        delay_seconds: Delay in seconds after status change
+        enabled: Whether step is active
+    
+    Returns:
+        Created ScheduledMessageRuleStep instance
+    """
+    step = ScheduledMessageRuleStep(
+        rule_id=rule_id,
+        step_index=step_index,
+        message_template=message_template,
+        delay_seconds=delay_seconds,
+        enabled=enabled
+    )
+    
+    db.session.add(step)
+    db.session.commit()
+    
+    logger.info(f"[SCHEDULED-MSG] Added step {step.id} to rule {rule_id}")
+    
+    return step
+
+
+def update_rule_step(
+    step_id: int,
+    message_template: Optional[str] = None,
+    delay_seconds: Optional[int] = None,
+    enabled: Optional[bool] = None
+) -> Optional[ScheduledMessageRuleStep]:
+    """
+    Update an existing rule step
+    
+    Args:
+        step_id: Step ID
+        message_template: New message template
+        delay_seconds: New delay in seconds
+        enabled: New enabled status
+    
+    Returns:
+        Updated ScheduledMessageRuleStep instance or None if not found
+    """
+    step = ScheduledMessageRuleStep.query.get(step_id)
+    
+    if not step:
+        return None
+    
+    if message_template is not None:
+        step.message_template = message_template
+    if delay_seconds is not None:
+        step.delay_seconds = delay_seconds
+    if enabled is not None:
+        step.enabled = enabled
+    
+    step.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    logger.info(f"[SCHEDULED-MSG] Updated step {step_id}")
+    
+    return step
+
+
+def delete_rule_step(step_id: int) -> bool:
+    """
+    Delete a rule step
+    
+    Args:
+        step_id: Step ID
+    
+    Returns:
+        True if deleted, False if not found
+    """
+    step = ScheduledMessageRuleStep.query.get(step_id)
+    
+    if not step:
+        return False
+    
+    db.session.delete(step)
+    db.session.commit()
+    
+    logger.info(f"[SCHEDULED-MSG] Deleted step {step_id}")
+    
+    return True
+
+
+def reorder_rule_steps(rule_id: int, step_ids: List[int]):
+    """
+    Reorder steps for a rule
+    
+    Args:
+        rule_id: Rule ID
+        step_ids: List of step IDs in desired order
+    """
+    for index, step_id in enumerate(step_ids):
+        step = ScheduledMessageRuleStep.query.filter_by(
+            id=step_id,
+            rule_id=rule_id
+        ).first()
+        
+        if step:
+            step.step_index = index
+            step.updated_at = datetime.utcnow()
+    
+    db.session.commit()
+    
+    logger.info(f"[SCHEDULED-MSG] Reordered {len(step_ids)} steps for rule {rule_id}")
 
 
 def get_rules(business_id: int, is_active: Optional[bool] = None) -> List[ScheduledMessageRule]:
@@ -387,6 +558,148 @@ def schedule_messages_for_lead_status_change(
     if created_count > 0:
         db.session.commit()
         logger.info(f"[SCHEDULED-MSG] Created {created_count} scheduled message(s) for lead {lead_id}")
+
+
+def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
+    """
+    Create scheduled tasks for a lead based on a rule and its steps
+    
+    This creates tasks for:
+    - Immediate send (if send_immediately_on_enter is True)
+    - All enabled steps with their respective delays
+    
+    Args:
+        rule_id: Rule ID
+        lead_id: Lead ID
+    """
+    # Get rule
+    rule = ScheduledMessageRule.query.get(rule_id)
+    if not rule:
+        logger.error(f"[SCHEDULED-MSG] Rule {rule_id} not found")
+        return
+    
+    # Get lead with business info
+    lead = db.session.query(Lead).join(Business).filter(
+        Lead.id == lead_id,
+        Lead.business_id == rule.business_id
+    ).first()
+    
+    if not lead:
+        logger.error(f"[SCHEDULED-MSG] Lead {lead_id} not found for business {rule.business_id}")
+        return
+    
+    # Get status info
+    status = db.session.query(LeadStatus).filter_by(id=lead.status_id).first()
+    status_name = status.name if status else "unknown"
+    status_label = status.label if status else "unknown"
+    
+    # Determine WhatsApp JID
+    remote_jid = lead.whatsapp_jid or lead.reply_jid
+    if not remote_jid:
+        if lead.phone_raw:
+            phone_clean = ''.join(c for c in lead.phone_raw if c.isdigit())
+            if phone_clean:
+                remote_jid = f"{phone_clean}@s.whatsapp.net"
+            else:
+                logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} phone_raw contains no digits - skipping")
+                return
+        else:
+            logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} has no WhatsApp JID or phone - skipping")
+            return
+    
+    now = datetime.utcnow()
+    created_count = 0
+    
+    # Create immediate message if enabled
+    if rule.send_immediately_on_enter:
+        try:
+            message_text = render_message_template(
+                template=rule.message_text,
+                lead=lead,
+                business=lead.business,
+                status_name=status_name,
+                status_label=status_label
+            )
+            
+            dedupe_key = f"{rule.business_id}:{lead_id}:{rule_id}:0:{lead.status_sequence_token}"
+            
+            queue_entry = ScheduledMessagesQueue(
+                business_id=rule.business_id,
+                rule_id=rule.id,
+                lead_id=lead_id,
+                channel='whatsapp',
+                provider=rule.provider or "baileys",
+                message_text=message_text,
+                remote_jid=remote_jid,
+                scheduled_for=now,
+                status='pending',
+                dedupe_key=dedupe_key,
+                attempts=0
+            )
+            
+            db.session.add(queue_entry)
+            db.session.flush()
+            created_count += 1
+            logger.info(f"[SCHEDULED-MSG] Scheduled immediate message {queue_entry.id} for lead {lead_id}")
+            
+        except Exception as e:
+            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                logger.debug(f"[SCHEDULED-MSG] Immediate message already scheduled for lead {lead_id} - skipping")
+                db.session.rollback()
+            else:
+                logger.error(f"[SCHEDULED-MSG] Error scheduling immediate message: {e}")
+                db.session.rollback()
+    
+    # Get all enabled steps
+    steps = ScheduledMessageRuleStep.query.filter_by(
+        rule_id=rule_id,
+        enabled=True
+    ).order_by(ScheduledMessageRuleStep.step_index).all()
+    
+    # Create tasks for each step
+    for step in steps:
+        try:
+            message_text = render_message_template(
+                template=step.message_template,
+                lead=lead,
+                business=lead.business,
+                status_name=status_name,
+                status_label=status_label
+            )
+            
+            scheduled_for = now + timedelta(seconds=step.delay_seconds)
+            dedupe_key = f"{rule.business_id}:{lead_id}:{rule_id}:{step.id}:{lead.status_sequence_token}"
+            
+            queue_entry = ScheduledMessagesQueue(
+                business_id=rule.business_id,
+                rule_id=rule.id,
+                lead_id=lead_id,
+                channel='whatsapp',
+                provider=rule.provider or "baileys",
+                message_text=message_text,
+                remote_jid=remote_jid,
+                scheduled_for=scheduled_for,
+                status='pending',
+                dedupe_key=dedupe_key,
+                attempts=0
+            )
+            
+            db.session.add(queue_entry)
+            db.session.flush()
+            created_count += 1
+            logger.info(f"[SCHEDULED-MSG] Scheduled step {step.id} message {queue_entry.id} for lead {lead_id}, send at {scheduled_for}")
+            
+        except Exception as e:
+            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                logger.debug(f"[SCHEDULED-MSG] Step {step.id} message already scheduled for lead {lead_id} - skipping")
+                db.session.rollback()
+            else:
+                logger.error(f"[SCHEDULED-MSG] Error scheduling step {step.id} message: {e}")
+                db.session.rollback()
+    
+    if created_count > 0:
+        db.session.commit()
+        logger.info(f"[SCHEDULED-MSG] Created {created_count} scheduled task(s) for lead {lead_id}, rule {rule_id}")
 
 
 def render_message_template(

@@ -107,6 +107,8 @@ def get_rules():
                 'template_name': rule.template_name,
                 'send_window_start': rule.send_window_start,
                 'send_window_end': rule.send_window_end,
+                'send_immediately_on_enter': getattr(rule, 'send_immediately_on_enter', False),
+                'apply_mode': getattr(rule, 'apply_mode', 'ON_ENTER_ONLY'),
                 'statuses': [
                     {
                         'id': status.id,
@@ -115,6 +117,18 @@ def get_rules():
                         'color': status.color
                     }
                     for status in rule.statuses
+                ],
+                'steps': [
+                    {
+                        'id': step.id,
+                        'step_index': step.step_index,
+                        'message_template': step.message_template,
+                        'delay_seconds': step.delay_seconds,
+                        'enabled': step.enabled,
+                        'created_at': step.created_at.isoformat() if step.created_at else None,
+                        'updated_at': step.updated_at.isoformat() if step.updated_at else None
+                    }
+                    for step in getattr(rule, 'steps', [])
                 ],
                 'created_by_user_id': rule.created_by_user_id,
                 'created_at': rule.created_at.isoformat() if rule.created_at else None,
@@ -146,7 +160,10 @@ def create_rule():
             "send_window_start": str,  # Optional - HH:MM format
             "send_window_end": str,  # Optional - HH:MM format
             "is_active": bool,  # Optional - defaults to true
-            "provider": str  # Optional - "baileys" | "meta" | "auto" - defaults to "baileys"
+            "provider": str,  # Optional - "baileys" | "meta" | "auto" - defaults to "baileys"
+            "send_immediately_on_enter": bool,  # Optional - send immediately on status change
+            "apply_mode": str,  # Optional - "ON_ENTER_ONLY" | "WHILE_IN_STATUS"
+            "steps": [{"step_index": int, "message_template": str, "delay_seconds": int, "enabled": bool}]  # Optional
         }
     
     Returns:
@@ -205,6 +222,41 @@ def create_rule():
         if provider not in ('baileys', 'meta', 'auto'):
             return jsonify({'error': 'provider must be "baileys", "meta", or "auto"'}), 400
         
+        # Validate apply_mode if provided
+        apply_mode = data.get('apply_mode', 'ON_ENTER_ONLY')
+        if apply_mode not in ('ON_ENTER_ONLY', 'WHILE_IN_STATUS'):
+            return jsonify({'error': 'apply_mode must be "ON_ENTER_ONLY" or "WHILE_IN_STATUS"'}), 400
+        
+        # Validate steps if provided
+        steps = data.get('steps')
+        if steps is not None:
+            if not isinstance(steps, list):
+                return jsonify({'error': 'steps must be an array'}), 400
+            
+            for step in steps:
+                if not isinstance(step, dict):
+                    return jsonify({'error': 'Each step must be an object'}), 400
+                
+                if 'step_index' not in step or 'message_template' not in step or 'delay_seconds' not in step:
+                    return jsonify({'error': 'Each step must have step_index, message_template, and delay_seconds'}), 400
+                
+                try:
+                    step_index = int(step['step_index'])
+                    if step_index < 1:
+                        return jsonify({'error': 'step_index must be >= 1'}), 400
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'step_index must be a valid integer'}), 400
+                
+                if not step['message_template'] or not isinstance(step['message_template'], str):
+                    return jsonify({'error': 'message_template must be a non-empty string'}), 400
+                
+                try:
+                    delay_seconds = int(step['delay_seconds'])
+                    if delay_seconds < 0 or delay_seconds > 2592000:
+                        return jsonify({'error': 'step delay_seconds must be between 0 and 2592000'}), 400
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'step delay_seconds must be a valid integer'}), 400
+        
         # Create rule
         rule = scheduled_messages_service.create_rule(
             business_id=business_id,
@@ -218,7 +270,10 @@ def create_rule():
             send_window_start=data.get('send_window_start'),
             send_window_end=data.get('send_window_end'),
             is_active=data.get('is_active', True),
-            provider=provider
+            provider=provider,
+            send_immediately_on_enter=data.get('send_immediately_on_enter', False),
+            apply_mode=apply_mode,
+            steps=steps
         )
         
         logger.info(f"[SCHEDULED-MSG-API] Created rule {rule.id} for business {business_id}")
@@ -232,6 +287,8 @@ def create_rule():
                 'delay_minutes': rule.delay_minutes,
                 'delay_seconds': rule.delay_seconds,
                 'provider': rule.provider,
+                'send_immediately_on_enter': getattr(rule, 'send_immediately_on_enter', False),
+                'apply_mode': getattr(rule, 'apply_mode', 'ON_ENTER_ONLY'),
                 'statuses': [
                     {
                         'id': status.id,
@@ -240,6 +297,16 @@ def create_rule():
                         'color': status.color
                     }
                     for status in rule.statuses
+                ],
+                'steps': [
+                    {
+                        'id': step.id,
+                        'step_index': step.step_index,
+                        'message_template': step.message_template,
+                        'delay_seconds': step.delay_seconds,
+                        'enabled': step.enabled
+                    }
+                    for step in getattr(rule, 'steps', [])
                 ],
                 'created_at': rule.created_at.isoformat()
             },
@@ -271,7 +338,10 @@ def update_rule(rule_id: int):
             "send_window_start": str,
             "send_window_end": str,
             "is_active": bool,
-            "provider": str  # "baileys" | "meta" | "auto"
+            "provider": str,  # "baileys" | "meta" | "auto"
+            "send_immediately_on_enter": bool,
+            "apply_mode": str,  # "ON_ENTER_ONLY" | "WHILE_IN_STATUS"
+            "steps": [{"step_index": int, "message_template": str, "delay_seconds": int, "enabled": bool}]
         }
     
     Returns:
@@ -311,6 +381,41 @@ def update_rule(rule_id: int):
             if data['provider'] not in ('baileys', 'meta', 'auto'):
                 return jsonify({'error': 'provider must be "baileys", "meta", or "auto"'}), 400
         
+        # Validate apply_mode if provided
+        if 'apply_mode' in data:
+            if data['apply_mode'] not in ('ON_ENTER_ONLY', 'WHILE_IN_STATUS'):
+                return jsonify({'error': 'apply_mode must be "ON_ENTER_ONLY" or "WHILE_IN_STATUS"'}), 400
+        
+        # Validate steps if provided
+        if 'steps' in data:
+            steps = data['steps']
+            if not isinstance(steps, list):
+                return jsonify({'error': 'steps must be an array'}), 400
+            
+            for step in steps:
+                if not isinstance(step, dict):
+                    return jsonify({'error': 'Each step must be an object'}), 400
+                
+                if 'step_index' not in step or 'message_template' not in step or 'delay_seconds' not in step:
+                    return jsonify({'error': 'Each step must have step_index, message_template, and delay_seconds'}), 400
+                
+                try:
+                    step_index = int(step['step_index'])
+                    if step_index < 1:
+                        return jsonify({'error': 'step_index must be >= 1'}), 400
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'step_index must be a valid integer'}), 400
+                
+                if not step['message_template'] or not isinstance(step['message_template'], str):
+                    return jsonify({'error': 'message_template must be a non-empty string'}), 400
+                
+                try:
+                    delay_seconds = int(step['delay_seconds'])
+                    if delay_seconds < 0 or delay_seconds > 2592000:
+                        return jsonify({'error': 'step delay_seconds must be between 0 and 2592000'}), 400
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'step delay_seconds must be a valid integer'}), 400
+        
         # Update rule
         rule = scheduled_messages_service.update_rule(
             rule_id=rule_id,
@@ -329,6 +434,8 @@ def update_rule(rule_id: int):
                 'delay_minutes': rule.delay_minutes,
                 'delay_seconds': getattr(rule, 'delay_seconds', rule.delay_minutes * 60 if rule.delay_minutes else 0),
                 'provider': getattr(rule, 'provider', 'baileys'),
+                'send_immediately_on_enter': getattr(rule, 'send_immediately_on_enter', False),
+                'apply_mode': getattr(rule, 'apply_mode', 'ON_ENTER_ONLY'),
                 'statuses': [
                     {
                         'id': status.id,
@@ -336,6 +443,16 @@ def update_rule(rule_id: int):
                         'label': status.label
                     }
                     for status in rule.statuses
+                ],
+                'steps': [
+                    {
+                        'id': step.id,
+                        'step_index': step.step_index,
+                        'message_template': step.message_template,
+                        'delay_seconds': step.delay_seconds,
+                        'enabled': step.enabled
+                    }
+                    for step in getattr(rule, 'steps', [])
                 ],
                 'updated_at': rule.updated_at.isoformat()
             },
@@ -549,4 +666,251 @@ def get_stats():
         
     except Exception as e:
         logger.error(f"[SCHEDULED-MSG-API] Error getting stats: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# === STEP MANAGEMENT ENDPOINTS ===
+
+@scheduled_messages_bp.route('/rules/<int:rule_id>/steps', methods=['POST'])
+@require_api_auth
+@require_page_access('scheduled_messages')
+def add_step(rule_id: int):
+    """
+    Add a new step to a scheduling rule
+    
+    Body:
+        {
+            "step_index": int,  # Required - position in sequence (1-indexed)
+            "message_template": str,  # Required - message content
+            "delay_seconds": int,  # Required - delay after status change (0-2592000)
+            "enabled": bool  # Optional - defaults to true
+        }
+    
+    Returns:
+        {
+            "step": {step object},
+            "message": "Step added successfully"
+        }
+    """
+    try:
+        business_id = get_business_id_from_session()
+        data = request.get_json()
+        
+        # Validate required fields
+        if 'step_index' not in data:
+            return jsonify({'error': 'step_index is required'}), 400
+        
+        if 'message_template' not in data:
+            return jsonify({'error': 'message_template is required'}), 400
+        
+        if 'delay_seconds' not in data:
+            return jsonify({'error': 'delay_seconds is required'}), 400
+        
+        # Validate step_index
+        try:
+            step_index = int(data['step_index'])
+            if step_index < 1:
+                return jsonify({'error': 'step_index must be >= 1'}), 400
+        except (TypeError, ValueError):
+            return jsonify({'error': 'step_index must be a valid integer'}), 400
+        
+        # Validate message_template
+        if not data['message_template'] or not isinstance(data['message_template'], str):
+            return jsonify({'error': 'message_template must be a non-empty string'}), 400
+        
+        # Validate delay_seconds
+        try:
+            delay_seconds = int(data['delay_seconds'])
+            if delay_seconds < 0 or delay_seconds > 2592000:
+                return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+        except (TypeError, ValueError):
+            return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
+        
+        # Add step
+        step = scheduled_messages_service.add_rule_step(
+            rule_id=rule_id,
+            business_id=business_id,
+            step_index=step_index,
+            message_template=data['message_template'],
+            delay_seconds=delay_seconds,
+            enabled=data.get('enabled', True)
+        )
+        
+        logger.info(f"[SCHEDULED-MSG-API] Added step {step.id} to rule {rule_id}")
+        
+        return jsonify({
+            'step': {
+                'id': step.id,
+                'rule_id': step.rule_id,
+                'step_index': step.step_index,
+                'message_template': step.message_template,
+                'delay_seconds': step.delay_seconds,
+                'enabled': step.enabled,
+                'created_at': step.created_at.isoformat()
+            },
+            'message': 'Step added successfully'
+        }), 201
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"[SCHEDULED-MSG-API] Error adding step: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@scheduled_messages_bp.route('/rules/<int:rule_id>/steps/<int:step_id>', methods=['PATCH'])
+@require_api_auth
+@require_page_access('scheduled_messages')
+def update_step(rule_id: int, step_id: int):
+    """
+    Update an existing step in a scheduling rule
+    
+    Body (all fields optional):
+        {
+            "step_index": int,
+            "message_template": str,
+            "delay_seconds": int,
+            "enabled": bool
+        }
+    
+    Returns:
+        {
+            "step": {step object},
+            "message": "Step updated successfully"
+        }
+    """
+    try:
+        business_id = get_business_id_from_session()
+        data = request.get_json()
+        
+        # Validate step_index if provided
+        if 'step_index' in data:
+            try:
+                step_index = int(data['step_index'])
+                if step_index < 1:
+                    return jsonify({'error': 'step_index must be >= 1'}), 400
+                data['step_index'] = step_index
+            except (TypeError, ValueError):
+                return jsonify({'error': 'step_index must be a valid integer'}), 400
+        
+        # Validate message_template if provided
+        if 'message_template' in data:
+            if not data['message_template'] or not isinstance(data['message_template'], str):
+                return jsonify({'error': 'message_template must be a non-empty string'}), 400
+        
+        # Validate delay_seconds if provided
+        if 'delay_seconds' in data:
+            try:
+                delay_seconds = int(data['delay_seconds'])
+                if delay_seconds < 0 or delay_seconds > 2592000:
+                    return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+                data['delay_seconds'] = delay_seconds
+            except (TypeError, ValueError):
+                return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
+        
+        # Update step
+        step = scheduled_messages_service.update_rule_step(
+            step_id=step_id,
+            rule_id=rule_id,
+            business_id=business_id,
+            **data
+        )
+        
+        logger.info(f"[SCHEDULED-MSG-API] Updated step {step_id} in rule {rule_id}")
+        
+        return jsonify({
+            'step': {
+                'id': step.id,
+                'rule_id': step.rule_id,
+                'step_index': step.step_index,
+                'message_template': step.message_template,
+                'delay_seconds': step.delay_seconds,
+                'enabled': step.enabled,
+                'updated_at': step.updated_at.isoformat()
+            },
+            'message': 'Step updated successfully'
+        })
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"[SCHEDULED-MSG-API] Error updating step: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@scheduled_messages_bp.route('/rules/<int:rule_id>/steps/<int:step_id>', methods=['DELETE'])
+@require_api_auth
+@require_page_access('scheduled_messages')
+def delete_step(rule_id: int, step_id: int):
+    """
+    Delete a step from a scheduling rule
+    
+    Returns:
+        {"message": "Step deleted successfully"}
+    """
+    try:
+        business_id = get_business_id_from_session()
+        
+        success = scheduled_messages_service.delete_rule_step(step_id)
+        
+        if not success:
+            return jsonify({'error': 'Step not found'}), 404
+        
+        logger.info(f"[SCHEDULED-MSG-API] Deleted step {step_id} from rule {rule_id}")
+        
+        return jsonify({'message': 'Step deleted successfully'})
+        
+    except Exception as e:
+        logger.error(f"[SCHEDULED-MSG-API] Error deleting step: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@scheduled_messages_bp.route('/rules/<int:rule_id>/steps/reorder', methods=['PUT'])
+@require_api_auth
+@require_page_access('scheduled_messages')
+def reorder_steps(rule_id: int):
+    """
+    Reorder steps in a scheduling rule
+    
+    Body:
+        {
+            "step_ids": [int]  # Required - ordered list of step IDs
+        }
+    
+    Returns:
+        {"message": "Steps reordered successfully"}
+    """
+    try:
+        business_id = get_business_id_from_session()
+        data = request.get_json()
+        
+        # Validate required field
+        if 'step_ids' not in data:
+            return jsonify({'error': 'step_ids is required'}), 400
+        
+        step_ids = data['step_ids']
+        
+        if not isinstance(step_ids, list):
+            return jsonify({'error': 'step_ids must be an array'}), 400
+        
+        if not step_ids:
+            return jsonify({'error': 'step_ids cannot be empty'}), 400
+        
+        # Validate all step_ids are integers
+        try:
+            step_ids = [int(sid) for sid in step_ids]
+        except (TypeError, ValueError):
+            return jsonify({'error': 'All step_ids must be valid integers'}), 400
+        
+        # Reorder steps
+        scheduled_messages_service.reorder_rule_steps(rule_id, step_ids)
+        
+        logger.info(f"[SCHEDULED-MSG-API] Reordered steps for rule {rule_id}")
+        
+        return jsonify({'message': 'Steps reordered successfully'})
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"[SCHEDULED-MSG-API] Error reordering steps: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
