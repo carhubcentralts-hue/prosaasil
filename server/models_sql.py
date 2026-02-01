@@ -2080,6 +2080,7 @@ class ScheduledMessageRule(db.Model):
     
     # Multi-step configuration (NEW)
     send_immediately_on_enter = db.Column(db.Boolean, default=False, nullable=False)  # Send message immediately on status change
+    immediate_message = db.Column(db.Text, nullable=True)  # Message to send immediately (if different from message_text)
     apply_mode = db.Column(db.String(32), default="ON_ENTER_ONLY", nullable=False)  # "ON_ENTER_ONLY" | "WHILE_IN_STATUS"
     
     # Metadata

@@ -34,6 +34,7 @@ def create_rule(
     provider: str = "baileys",
     delay_seconds: Optional[int] = None,
     send_immediately_on_enter: bool = False,
+    immediate_message: Optional[str] = None,
     apply_mode: str = "ON_ENTER_ONLY",
     steps: Optional[List[Dict]] = None
 ) -> ScheduledMessageRule:
@@ -54,6 +55,7 @@ def create_rule(
         provider: WhatsApp provider to use ("baileys" | "meta" | "auto")
         delay_seconds: Seconds to wait after status change (NEW - preferred over delay_minutes)
         send_immediately_on_enter: Send immediate message when lead enters status
+        immediate_message: Message to send immediately (if different from message_text)
         apply_mode: When to apply rule ("ON_ENTER_ONLY" | "ON_ENTER_AND_EXISTING")
         steps: Optional list of step dicts with step_index, message_template, delay_seconds
     
@@ -108,6 +110,7 @@ def create_rule(
         is_active=is_active,
         provider=provider,
         send_immediately_on_enter=send_immediately_on_enter,
+        immediate_message=immediate_message,
         apply_mode=apply_mode
     )
     
@@ -168,6 +171,7 @@ def update_rule(
     is_active: Optional[bool] = None,
     provider: Optional[str] = None,
     send_immediately_on_enter: Optional[bool] = None,
+    immediate_message: Optional[str] = None,
     apply_mode: Optional[str] = None,
     steps: Optional[List[Dict]] = None
 ) -> ScheduledMessageRule:
@@ -215,6 +219,8 @@ def update_rule(
         rule.is_active = is_active
     if send_immediately_on_enter is not None:
         rule.send_immediately_on_enter = send_immediately_on_enter
+    if immediate_message is not None:
+        rule.immediate_message = immediate_message
     if apply_mode is not None:
         rule.apply_mode = apply_mode
     
@@ -518,7 +524,7 @@ def schedule_messages_for_lead_status_change(
         db.session.rollback()
 
 
-def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
+def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Optional[datetime] = None):
     """
     Create scheduled tasks for a lead based on a rule and its steps
     
@@ -529,12 +535,13 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
     Args:
         rule_id: Rule ID
         lead_id: Lead ID
+        triggered_at: When the status change was triggered (defaults to now)
     """
     # Get rule
     rule = ScheduledMessageRule.query.get(rule_id)
     if not rule:
         logger.error(f"[SCHEDULED-MSG] Rule {rule_id} not found")
-        return
+        return 0
     
     # Get lead with business info
     lead = db.session.query(Lead).join(Business).filter(
@@ -544,7 +551,7 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
     
     if not lead:
         logger.error(f"[SCHEDULED-MSG] Lead {lead_id} not found for business {rule.business_id}")
-        return
+        return 0
     
     # Get status info
     current_status = db.session.query(LeadStatus).filter_by(
@@ -563,19 +570,23 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
                 remote_jid = f"{phone_clean}@s.whatsapp.net"
             else:
                 logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} phone_raw contains no digits - skipping")
-                return
+                return 0
         else:
             logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} has no WhatsApp JID or phone - skipping")
-            return
+            return 0
     
-    now = datetime.utcnow()
+    # Use provided triggered_at or default to now
+    now = triggered_at if triggered_at is not None else datetime.utcnow()
     created_count = 0
     
     # Create immediate message if enabled
     if rule.send_immediately_on_enter:
         try:
+            # Use immediate_message if available, otherwise fall back to message_text
+            template = rule.immediate_message if rule.immediate_message else rule.message_text
+            
             message_text = render_message_template(
-                template=rule.message_text,
+                template=template,
                 lead=lead,
                 business=lead.tenant,
                 status_name=status_name,
@@ -661,6 +672,8 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
     if created_count > 0:
         db.session.commit()
         logger.info(f"[SCHEDULED-MSG] Created {created_count} scheduled task(s) for lead {lead_id}, rule {rule_id}")
+    
+    return created_count
 
 
 def render_message_template(

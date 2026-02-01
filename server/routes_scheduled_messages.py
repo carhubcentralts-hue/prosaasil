@@ -108,6 +108,7 @@ def get_rules():
                 'send_window_start': rule.send_window_start,
                 'send_window_end': rule.send_window_end,
                 'send_immediately_on_enter': getattr(rule, 'send_immediately_on_enter', False),
+                'immediate_message': getattr(rule, 'immediate_message', None),
                 'apply_mode': getattr(rule, 'apply_mode', 'ON_ENTER_ONLY'),
                 'statuses': [
                     {
@@ -272,6 +273,7 @@ def create_rule():
             is_active=data.get('is_active', True),
             provider=provider,
             send_immediately_on_enter=data.get('send_immediately_on_enter', False),
+            immediate_message=data.get('immediate_message'),
             apply_mode=apply_mode,
             steps=steps
         )
@@ -288,6 +290,7 @@ def create_rule():
                 'delay_seconds': rule.delay_seconds,
                 'provider': rule.provider,
                 'send_immediately_on_enter': getattr(rule, 'send_immediately_on_enter', False),
+                'immediate_message': getattr(rule, 'immediate_message', None),
                 'apply_mode': getattr(rule, 'apply_mode', 'ON_ENTER_ONLY'),
                 'statuses': [
                     {
@@ -435,6 +438,7 @@ def update_rule(rule_id: int):
                 'delay_seconds': getattr(rule, 'delay_seconds', rule.delay_minutes * 60 if rule.delay_minutes else 0),
                 'provider': getattr(rule, 'provider', 'baileys'),
                 'send_immediately_on_enter': getattr(rule, 'send_immediately_on_enter', False),
+                'immediate_message': getattr(rule, 'immediate_message', None),
                 'apply_mode': getattr(rule, 'apply_mode', 'ON_ENTER_ONLY'),
                 'statuses': [
                     {
