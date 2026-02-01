@@ -2063,9 +2063,13 @@ class ScheduledMessageRule(db.Model):
     message_text = db.Column(db.Text, nullable=False)  # Message content
     
     # Timing configuration
-    delay_minutes = db.Column(db.Integer, nullable=False, default=0)  # Delay after status change
+    delay_minutes = db.Column(db.Integer, nullable=False, default=0)  # Delay after status change (LEGACY - use delay_seconds)
+    delay_seconds = db.Column(db.Integer, nullable=False, default=0)  # Delay after status change in seconds (NEW)
     send_window_start = db.Column(db.String(5))  # Optional: e.g., "09:00"
     send_window_end = db.Column(db.String(5))  # Optional: e.g., "20:00"
+    
+    # Provider selection for WhatsApp sending
+    provider = db.Column(db.String(32), default="baileys")  # "baileys" | "meta" | "auto" - WhatsApp provider choice
     
     # Metadata
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
@@ -2119,6 +2123,8 @@ class ScheduledMessagesQueue(db.Model):
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Message details
+    channel = db.Column(db.String(32), nullable=False, default='whatsapp')  # "whatsapp" - channel type
+    provider = db.Column(db.String(32), nullable=False, default='baileys')  # "baileys" | "meta" - provider to use for sending
     message_text = db.Column(db.Text, nullable=False)  # Rendered message text
     remote_jid = db.Column(db.String(255), nullable=False)  # WhatsApp JID (phone@s.whatsapp.net)
     
@@ -2136,6 +2142,7 @@ class ScheduledMessagesQueue(db.Model):
     locked_at = db.Column(db.DateTime)  # Claim timestamp (prevents double-send)
     sent_at = db.Column(db.DateTime)  # Actual send timestamp
     error_message = db.Column(db.Text)  # Error details if failed
+    attempts = db.Column(db.Integer, nullable=False, default=0)  # Number of send attempts
     
     # Deduplication key (CRITICAL for idempotency)
     dedupe_key = db.Column(db.String(255), unique=True, nullable=False, index=True)

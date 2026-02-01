@@ -984,17 +984,23 @@ def update_lead_status(lead_id):
             from server.services import scheduled_messages_service
             from server.models_sql import LeadStatus
             
-            # Find the status_id for the new status
+            # Find the status_id for the new and old statuses
             new_status_obj = LeadStatus.query.filter_by(
                 business_id=lead.tenant_id,
                 name=new_status
             ).first()
+            
+            old_status_obj = LeadStatus.query.filter_by(
+                business_id=lead.tenant_id,
+                name=old_status
+            ).first() if old_status else None
             
             if new_status_obj:
                 scheduled_messages_service.schedule_messages_for_lead_status_change(
                     business_id=lead.tenant_id,
                     lead_id=lead_id,
                     new_status_id=new_status_obj.id,
+                    old_status_id=old_status_obj.id if old_status_obj else None,
                     changed_at=datetime.utcnow()
                 )
         except Exception as e:
@@ -1209,17 +1215,23 @@ def move_lead_in_kanban(lead_id):
             from server.services import scheduled_messages_service
             from server.models_sql import LeadStatus
             
-            # Find the status_id for the new status
+            # Find the status_id for the new and old statuses
             new_status_obj = LeadStatus.query.filter_by(
                 business_id=tenant_id,
                 name=normalized_status
             ).first()
+            
+            old_status_obj = LeadStatus.query.filter_by(
+                business_id=tenant_id,
+                name=old_status
+            ).first() if old_status else None
             
             if new_status_obj:
                 scheduled_messages_service.schedule_messages_for_lead_status_change(
                     business_id=tenant_id,
                     lead_id=lead_id,
                     new_status_id=new_status_obj.id,
+                    old_status_id=old_status_obj.id if old_status_obj else None,
                     changed_at=datetime.utcnow()
                 )
         except Exception as e:

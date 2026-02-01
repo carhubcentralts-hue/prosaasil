@@ -211,7 +211,7 @@ export function ScheduledMessagesPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {(!rules || rules.length === 0) ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                       <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
                       <p className="text-lg font-medium mb-2">אין חוקי תזמון</p>
                       <p className="text-sm">צור חוק חדש כדי להתחיל לשלוח הודעות מתוזמנות</p>
@@ -236,7 +236,15 @@ export function ScheduledMessagesPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {rule.delay_minutes} דקות
+                        <div>{rule.delay_minutes} דקות</div>
+                        {rule.delay_seconds && rule.delay_minutes && rule.delay_seconds !== rule.delay_minutes * 60 && (
+                          <div className="text-xs text-gray-500">({rule.delay_seconds} שניות)</div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <Badge variant={rule.provider === 'baileys' ? 'default' : rule.provider === 'meta' ? 'secondary' : 'warning'}>
+                          {rule.provider === 'baileys' ? 'Baileys' : rule.provider === 'meta' ? 'Meta' : rule.provider || 'Baileys'}
+                        </Badge>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <button
@@ -348,6 +356,8 @@ function CreateRuleModal({
     message_text: rule?.message_text || '',
     status_ids: rule?.statuses.map(s => s.id) || [],
     delay_minutes: rule?.delay_minutes || 15,
+    delay_seconds: rule?.delay_seconds || (rule?.delay_minutes ? rule.delay_minutes * 60 : 900),
+    provider: rule?.provider || 'baileys',
     is_active: rule?.is_active ?? true
   });
   const [saving, setSaving] = useState(false);
@@ -502,6 +512,9 @@ function CreateRuleModal({
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 placeholder="הודעת WhatsApp שתישלח ללקוח..."
               />
+              <p className="text-xs text-gray-500 mt-1">
+                משתנים זמינים: {'{lead_name}'}, {'{phone}'}, {'{business_name}'}, {'{status}'}
+              </p>
             </div>
             
             <div>
@@ -513,11 +526,36 @@ function CreateRuleModal({
                 min="1"
                 max="43200"
                 value={formData.delay_minutes}
-                onChange={(e) => setFormData({ ...formData, delay_minutes: parseInt(e.target.value) || 1 })}
+                onChange={(e) => {
+                  const minutes = parseInt(e.target.value) || 1;
+                  setFormData({ 
+                    ...formData, 
+                    delay_minutes: minutes,
+                    delay_seconds: minutes * 60
+                  });
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
               <p className="text-xs text-gray-500 mt-1">
-                ההודעה תישלח {formData.delay_minutes} דקות אחרי מעבר לסטטוס
+                ההודעה תישלח {formData.delay_minutes} דקות ({formData.delay_seconds} שניות) אחרי מעבר לסטטוס
+              </p>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                ספק שליחה *
+              </label>
+              <select
+                value={formData.provider}
+                onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+              >
+                <option value="baileys">Baileys (מומלץ)</option>
+                <option value="meta">Meta / WhatsApp Cloud API</option>
+                <option value="auto">אוטומטי (Baileys עם fallback)</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                בחר דרך איזה ספק לשלוח את ההודעות
               </p>
             </div>
             
