@@ -443,6 +443,11 @@ def schedule_messages_for_lead_status_change(
     This is the TRIGGER function that should be called whenever a lead status changes.
     It finds all active rules for the new status and creates queue entries.
     
+    🆕 MULTI-STEP SUPPORT:
+    - Updates lead.status_sequence_token and status_entered_at
+    - Calls create_scheduled_tasks_for_lead for each matching rule
+    - Handles both immediate send and multi-step sequences
+    
     Args:
         business_id: Business ID for multi-tenant isolation
         lead_id: Lead that changed status
@@ -452,6 +457,20 @@ def schedule_messages_for_lead_status_change(
     """
     if changed_at is None:
         changed_at = datetime.utcnow()
+    
+    # Get lead and increment status_sequence_token
+    lead = db.session.query(Lead).filter_by(
+        id=lead_id,
+        tenant_id=business_id
+    ).first()
+    
+    if not lead:
+        logger.error(f"[SCHEDULED-MSG] Lead {lead_id} not found for business {business_id}")
+        return
+    
+    # Update lead's status tracking fields
+    lead.status_sequence_token += 1
+    lead.status_entered_at = changed_at
     
     # Find all active rules for this business and status
     rules = db.session.query(ScheduledMessageRule).join(
@@ -465,89 +484,39 @@ def schedule_messages_for_lead_status_change(
     
     if not rules:
         logger.debug(f"[SCHEDULED-MSG] No active rules found for business {business_id}, status {new_status_id}")
+        # Still commit the token update
+        db.session.commit()
         return
     
-    logger.info(f"[SCHEDULED-MSG] Found {len(rules)} active rule(s) for lead {lead_id}, status {new_status_id}")
+    logger.info(f"[SCHEDULED-MSG] Found {len(rules)} active rule(s) for lead {lead_id}, status {new_status_id}, token {lead.status_sequence_token}")
     
-    # Get lead details with business info for template rendering
-    lead = db.session.query(Lead).join(Business).filter(
-        Lead.id == lead_id, 
-        Lead.business_id == business_id
-    ).first()
-    
-    if not lead:
-        logger.error(f"[SCHEDULED-MSG] Lead {lead_id} not found for business {business_id}")
-        return
-    
-    # Get status info for template rendering
-    status = db.session.query(LeadStatus).filter_by(id=new_status_id).first()
-    status_name = status.name if status else "unknown"
-    status_label = status.label if status else "unknown"
-    
-    # Determine WhatsApp JID
-    remote_jid = lead.whatsapp_jid or lead.reply_jid
-    if not remote_jid:
-        # Try to construct from phone
-        if lead.phone_raw:
-            # Remove non-digit characters, ensure only digits
-            phone_clean = ''.join(c for c in lead.phone_raw if c.isdigit())
-            if phone_clean:
-                remote_jid = f"{phone_clean}@s.whatsapp.net"
-            else:
-                logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} phone_raw contains no digits - skipping")
-                return
-        else:
-            logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} has no WhatsApp JID or phone - skipping")
-            return
-    
-    # Create queue entries for each rule
+    # Create tasks for each matching rule
     created_count = 0
     for rule in rules:
         try:
-            # Render message template with variables
-            message_text = render_message_template(
-                template=rule.message_text,
-                lead=lead,
-                business=lead.business,
-                status_name=status_name,
-                status_label=status_label
-            )
-            
-            # Calculate scheduled_for time using delay_seconds
-            delay_seconds = rule.delay_seconds or (rule.delay_minutes * 60)
-            scheduled_for = changed_at + timedelta(seconds=delay_seconds)
-            
-            # Create dedupe key: lead_status:{lead_id}:{rule_id}:{new_status_id}:{YYYYMMDDHHMM}
-            # Using minute-level granularity for deduplication
-            dedupe_timestamp = scheduled_for.strftime("%Y%m%d%H%M")
-            dedupe_key = f"lead_status:{lead_id}:{rule.id}:{new_status_id}:{dedupe_timestamp}"
-            
-            # Determine provider (from rule or business default)
-            provider = rule.provider or "baileys"
-            
-            # Try to create queue entry (ON CONFLICT DO NOTHING via dedupe_key)
-            queue_entry = ScheduledMessagesQueue(
-                business_id=business_id,
+            # Create scheduled tasks for this rule and lead
+            tasks_created = create_scheduled_tasks_for_lead(
                 rule_id=rule.id,
                 lead_id=lead_id,
-                channel='whatsapp',
-                provider=provider,
-                message_text=message_text,
-                remote_jid=remote_jid,
-                scheduled_for=scheduled_for,
-                status='pending',
-                dedupe_key=dedupe_key,
-                attempts=0
+                triggered_at=changed_at
             )
+            created_count += tasks_created
             
-            db.session.add(queue_entry)
-            db.session.flush()  # This will raise if dedupe_key exists
-            
-            created_count += 1
-            logger.info(f"[SCHEDULED-MSG] Scheduled message {queue_entry.id} for lead {lead_id}, rule {rule.id}, send at {scheduled_for} via {provider}")
+            logger.info(f"[SCHEDULED-MSG] Created {tasks_created} task(s) for rule {rule.id} ('{rule.name}')")
             
         except Exception as e:
-            # Likely duplicate key violation - this is expected and OK
+            # Log error but continue with other rules
+            logger.error(f"[SCHEDULED-MSG] Failed to create tasks for rule {rule.id}: {e}", exc_info=True)
+            db.session.rollback()
+    
+    # Commit all changes (token update + all tasks)
+    try:
+        db.session.commit()
+        logger.info(f"[SCHEDULED-MSG] Status change trigger complete: {created_count} total task(s) created for lead {lead_id}")
+    except Exception as e:
+        logger.error(f"[SCHEDULED-MSG] Failed to commit tasks: {e}", exc_info=True)
+        db.session.rollback()
+
             if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
                 logger.debug(f"[SCHEDULED-MSG] Message already scheduled for lead {lead_id}, rule {rule.id} - skipping")
                 db.session.rollback()
@@ -821,6 +790,24 @@ def mark_failed(message_id: int, error_message: str):
         message.updated_at = datetime.utcnow()
         db.session.commit()
         logger.error(f"[SCHEDULED-MSG] Marked message {message_id} as failed (attempt {message.attempts}): {error_message}")
+
+
+def mark_cancelled(message_id: int, reason: str = None):
+    """
+    Mark a message as cancelled
+    
+    Args:
+        message_id: Message ID to cancel
+        reason: Optional cancellation reason
+    """
+    message = ScheduledMessagesQueue.query.get(message_id)
+    if message:
+        message.status = 'canceled'  # Note: DB uses 'canceled' (one 'l')
+        if reason:
+            message.error_message = f"Cancelled: {reason[:480]}"  # Leave room for prefix
+        message.updated_at = datetime.utcnow()
+        db.session.commit()
+        logger.info(f"[SCHEDULED-MSG] Marked message {message_id} as cancelled{': ' + reason if reason else ''}")
 
 
 def cancel_message(message_id: int, business_id: int) -> bool:
