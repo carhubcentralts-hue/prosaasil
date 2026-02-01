@@ -85,13 +85,24 @@ interface BusinessCalendar {
 interface CalendarForm {
   name: string;
   type_key: string;
-  provider: string;
   is_active: boolean;
   priority: number;
   default_duration_minutes: number;
   buffer_before_minutes: number;
   buffer_after_minutes: number;
   allowed_tags: string[];
+}
+
+interface AppointmentTypeConfig {
+  key: string;
+  label: string;
+  color: string;
+}
+
+interface AppointmentStatusConfig {
+  key: string;
+  label: string;
+  color: string;
 }
 
 const APPOINTMENT_TYPES: Record<string, { label: string; color: string }> = {
@@ -264,7 +275,6 @@ export function CalendarPage() {
   const [calendarFormData, setCalendarFormData] = useState<CalendarForm>({
     name: '',
     type_key: '',
-    provider: 'internal',
     is_active: true,
     priority: 0,
     default_duration_minutes: 60,
@@ -272,6 +282,10 @@ export function CalendarPage() {
     buffer_after_minutes: 0,
     allowed_tags: []
   });
+
+  // Configurable appointment types and statuses
+  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentTypeConfig[]>([]);
+  const [appointmentStatuses, setAppointmentStatuses] = useState<AppointmentStatusConfig[]>([]);
 
   // Fetch appointments using the proper HTTP client
   const fetchAppointments = async () => {
@@ -289,6 +303,8 @@ export function CalendarPage() {
 
   useEffect(() => {
     fetchAppointments();
+    fetchAppointmentTypes();
+    fetchAppointmentStatuses();
   }, []);
 
   useEffect(() => {
@@ -296,6 +312,42 @@ export function CalendarPage() {
       fetchCalendars();
     }
   }, [activeTab]);
+
+  // Fetch configurable appointment types
+  const fetchAppointmentTypes = async () => {
+    try {
+      const data = await http.get<{appointment_types: AppointmentTypeConfig[]}>('/api/calendar/config/appointment-types');
+      setAppointmentTypes(data.appointment_types || []);
+    } catch (error) {
+      console.error('שגיאה בטעינת סוגי פגישות:', error);
+      // Fallback to defaults if API fails
+      setAppointmentTypes([
+        {key: "viewing", label: "צפייה", color: "blue"},
+        {key: "meeting", label: "פגישה", color: "green"},
+        {key: "signing", label: "חתימה", color: "purple"},
+        {key: "call_followup", label: "מעקב שיחה", color: "orange"},
+        {key: "phone_call", label: "שיחה טלפונית", color: "pink"}
+      ]);
+    }
+  };
+
+  // Fetch configurable appointment statuses
+  const fetchAppointmentStatuses = async () => {
+    try {
+      const data = await http.get<{appointment_statuses: AppointmentStatusConfig[]}>('/api/calendar/config/appointment-statuses');
+      setAppointmentStatuses(data.appointment_statuses || []);
+    } catch (error) {
+      console.error('שגיאה בטעינת סטטוסי פגישות:', error);
+      // Fallback to defaults if API fails
+      setAppointmentStatuses([
+        {key: "scheduled", label: "מתוכנן", color: "yellow"},
+        {key: "confirmed", label: "מאושר", color: "green"},
+        {key: "paid", label: "שולם", color: "blue"},
+        {key: "unpaid", label: "לא שולם", color: "red"},
+        {key: "cancelled", label: "בוטל", color: "gray"}
+      ]);
+    }
+  };
 
   // Fetch calendars
   const fetchCalendars = async () => {
@@ -349,7 +401,6 @@ export function CalendarPage() {
     setCalendarFormData({
       name: '',
       type_key: '',
-      provider: 'internal',
       is_active: true,
       priority: 0,
       default_duration_minutes: 60,
@@ -366,7 +417,6 @@ export function CalendarPage() {
     setCalendarFormData({
       name: calendar.name,
       type_key: calendar.type_key || '',
-      provider: calendar.provider,
       is_active: calendar.is_active,
       priority: calendar.priority,
       default_duration_minutes: calendar.default_duration_minutes,
@@ -570,7 +620,8 @@ export function CalendarPage() {
       appointment_type: 'meeting',
       priority: 'medium',
       contact_name: '',
-      contact_phone: ''
+      contact_phone: '',
+      calendar_id: undefined
     });
     // Always fetch calendars to ensure up-to-date list
     fetchCalendars();
@@ -1455,10 +1506,9 @@ export function CalendarPage() {
                     onChange={(e) => setFormData({...formData, appointment_type: e.target.value as any})}
                     data-testid="select-appointment-type"
                   >
-                    <option value="meeting">פגישה</option>
-                    <option value="viewing">צפייה</option>
-                    <option value="signing">חתימה</option>
-                    <option value="call_followup">מעקב שיחה</option>
+                    {appointmentTypes.map(type => (
+                      <option key={type.key} value={type.key}>{type.label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1472,11 +1522,26 @@ export function CalendarPage() {
                     onChange={(e) => setFormData({...formData, status: e.target.value as any})}
                     data-testid="select-appointment-status"
                   >
-                    <option value="scheduled">מתוכנן</option>
-                    <option value="confirmed">מאושר</option>
-                    <option value="paid">שילם</option>
-                    <option value="unpaid">לא שילם</option>
-                    <option value="cancelled">בוטל</option>
+                    {appointmentStatuses.map(status => (
+                      <option key={status.key} value={status.key}>{status.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    לוח שנה
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.calendar_id || ''}
+                    onChange={(e) => setFormData({...formData, calendar_id: e.target.value ? parseInt(e.target.value) : undefined})}
+                    data-testid="select-calendar"
+                  >
+                    <option value="">ברירת מחדל</option>
+                    {calendars.filter(c => c.is_active).map(calendar => (
+                      <option key={calendar.id} value={calendar.id}>{calendar.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1642,22 +1707,6 @@ export function CalendarPage() {
                     placeholder="לדוגמה: meetings, moves"
                     data-testid="input-calendar-type-key"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-900 mb-2">
-                    ספק לוח שנה
-                  </label>
-                  <select
-                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    value={calendarFormData.provider}
-                    onChange={(e) => setCalendarFormData({...calendarFormData, provider: e.target.value})}
-                    data-testid="select-calendar-provider"
-                  >
-                    <option value="internal">פנימי</option>
-                    <option value="google">Google Calendar</option>
-                    <option value="outlook">Outlook Calendar</option>
-                  </select>
                 </div>
 
                 <div>
