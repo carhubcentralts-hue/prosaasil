@@ -495,8 +495,9 @@ export function CalendarPage() {
     
     const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
     const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
+    // Show all appointments when "all" is selected, or match specific calendar
     const matchesCalendar = filterCalendar === 'all' || 
-      (appointment.calendar_id && appointment.calendar_id === parseInt(filterCalendar));
+      (filterCalendar !== 'all' && appointment.calendar_id === parseInt(filterCalendar));
     
     // ✅ BUILD 144 + 170: Date filter - single date or date range
     let matchesDate = true;
@@ -971,9 +972,12 @@ export function CalendarPage() {
               onChange={(e) => setFilterCalendar(e.target.value)}
               data-testid="select-filter-calendar"
             >
-              <option value="all">כל הלוחות</option>
+              <option value="all">🗓️ כל הלוחות (מאוחד)</option>
               {calendars.filter(c => c.is_active).map(calendar => (
-                <option key={calendar.id} value={calendar.id.toString()}>{calendar.name}</option>
+                <option key={calendar.id} value={calendar.id.toString()}>
+                  {calendar.name}
+                  {defaultCalendarId === calendar.id ? ' ⭐' : ''}
+                </option>
               ))}
             </select>
             
@@ -1092,9 +1096,12 @@ export function CalendarPage() {
               onChange={(e) => setFilterCalendar(e.target.value)}
               data-testid="select-filter-calendar-desktop"
             >
-              <option value="all">כל הלוחות</option>
+              <option value="all">🗓️ כל הלוחות (מאוחד)</option>
               {calendars.filter(c => c.is_active).map(calendar => (
-                <option key={calendar.id} value={calendar.id.toString()}>{calendar.name}</option>
+                <option key={calendar.id} value={calendar.id.toString()}>
+                  {calendar.name}
+                  {defaultCalendarId === calendar.id ? ' ⭐' : ''}
+                </option>
               ))}
             </select>
             
