@@ -2307,6 +2307,7 @@ function AppointmentsTab({
                       onChange={(e) => setFormData({ ...formData, appointment_type: e.target.value })}
                       data-testid="select-appointment-type"
                     >
+                      {appointmentTypes.length === 0 && <option value="meeting">פגישה</option>}
                       {appointmentTypes.map(type => (
                         <option key={type.key} value={type.key}>{type.label}</option>
                       ))}
@@ -2320,6 +2321,7 @@ function AppointmentsTab({
                       onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                       data-testid="select-appointment-status"
                     >
+                      {appointmentStatuses.length === 0 && <option value="scheduled">מתוכנן</option>}
                       {appointmentStatuses.map(status => (
                         <option key={status.key} value={status.key}>{status.label}</option>
                       ))}
