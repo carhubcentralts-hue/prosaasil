@@ -53,7 +53,8 @@ def _get_function_params(func: Callable) -> tuple:
     Get function parameter names with caching.
     
     This is cached to avoid repeated inspect.signature() calls for
-    frequently enqueued jobs.
+    frequently enqueued jobs. Functions are hashable in Python by default
+    (using their memory address), so they work as cache keys.
     
     Args:
         func: Function to inspect
@@ -229,6 +230,8 @@ def enqueue(
     job_func_kwargs = dict(kwargs)
     
     # Check if job function accepts business_id/run_id parameters (with caching)
+    # Note: We only pass these if they are not None, as None typically means "not provided"
+    # rather than an intentional None value. Job functions can still have default None values.
     func_params = _get_function_params(func)
     if 'business_id' in func_params and business_id is not None:
         job_func_kwargs['business_id'] = business_id
