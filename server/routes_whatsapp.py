@@ -813,12 +813,12 @@ def baileys_webhook():
                         
                         # Try to normalize the prefix as a phone number
                         phone_raw = lid_prefix
-                        from_number_e164 = normalize_phone(lid_prefix)
+                        from_number_e164 = normalize_phone(phone_raw)
                         
                         if from_number_e164:
-                            log.info(f"[WA-LID] ✅ Extracted phone from @lid prefix: {lid_prefix} -> {from_number_e164}")
+                            log.info(f"[WA-LID] ✅ Extracted phone from @lid prefix: {phone_raw} -> {from_number_e164}")
                         else:
-                            log.info(f"[WA-LID] ⚠️ Could not normalize @lid prefix '{lid_prefix}' - using @lid as external_id only")
+                            log.info(f"[WA-LID] ⚠️ Could not normalize @lid prefix '{phone_raw}' - using @lid as external_id only")
                     
                     phone_for_ai_check = customer_external_id  # Use LID for AI state
                     
