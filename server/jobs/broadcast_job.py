@@ -166,6 +166,10 @@ def process_broadcast_job(broadcast_id: int):
                 broadcast.status = 'paused'
                 broadcast.updated_at = datetime.utcnow()
                 db.session.commit()
+                
+                # Release BulkGate lock when pausing
+                _release_bulk_gate_lock(business_id)
+                
                 return {
                     "success": True,
                     "paused": True,
