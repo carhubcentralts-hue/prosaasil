@@ -524,7 +524,7 @@ def schedule_messages_for_lead_status_change(
         db.session.rollback()
 
 
-def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
+def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Optional[datetime] = None):
     """
     Create scheduled tasks for a lead based on a rule and its steps
     
@@ -535,12 +535,13 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
     Args:
         rule_id: Rule ID
         lead_id: Lead ID
+        triggered_at: When the status change was triggered (defaults to now)
     """
     # Get rule
     rule = ScheduledMessageRule.query.get(rule_id)
     if not rule:
         logger.error(f"[SCHEDULED-MSG] Rule {rule_id} not found")
-        return
+        return 0
     
     # Get lead with business info
     lead = db.session.query(Lead).join(Business).filter(
@@ -550,7 +551,7 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
     
     if not lead:
         logger.error(f"[SCHEDULED-MSG] Lead {lead_id} not found for business {rule.business_id}")
-        return
+        return 0
     
     # Get status info
     current_status = db.session.query(LeadStatus).filter_by(
@@ -569,12 +570,13 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
                 remote_jid = f"{phone_clean}@s.whatsapp.net"
             else:
                 logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} phone_raw contains no digits - skipping")
-                return
+                return 0
         else:
             logger.warning(f"[SCHEDULED-MSG] Lead {lead_id} has no WhatsApp JID or phone - skipping")
-            return
+            return 0
     
-    now = datetime.utcnow()
+    # Use provided triggered_at or default to now
+    now = triggered_at if triggered_at is not None else datetime.utcnow()
     created_count = 0
     
     # Create immediate message if enabled
@@ -670,6 +672,8 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int):
     if created_count > 0:
         db.session.commit()
         logger.info(f"[SCHEDULED-MSG] Created {created_count} scheduled task(s) for lead {lead_id}, rule {rule_id}")
+    
+    return created_count
 
 
 def render_message_template(
