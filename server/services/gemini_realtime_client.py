@@ -113,7 +113,12 @@ def _fix_base64_padding(data):
     return data
 
 
-def gemini_inline_to_pcm_bytes(inline_data_data):
+# Base64 detection threshold: if more than this percentage of characters
+# are not valid base64 characters, treat the data as raw PCM instead of base64
+BASE64_DETECTION_THRESHOLD = 0.1  # 10%
+
+
+def gemini_inline_to_pcm_bytes(audio_data):
     """
     Convert Gemini inline_data.data to PCM bytes.
     
@@ -122,7 +127,7 @@ def gemini_inline_to_pcm_bytes(inline_data_data):
     - Return PCM bytes immediately
     - No internal function should work with base64 after this point
     
-    inline_data_data can be:
+    audio_data can be:
     - str (base64 encoded)
     - bytes (base64 ASCII or raw PCM)
     - bytearray (base64 ASCII or raw PCM)
@@ -130,17 +135,17 @@ def gemini_inline_to_pcm_bytes(inline_data_data):
     - None
     
     Args:
-        inline_data_data: Audio data from Gemini API inline_data.data field
+        audio_data: Audio data from Gemini API inline_data.data field
     
     Returns:
         bytes: Raw PCM audio data
     """
-    if inline_data_data is None:
+    if audio_data is None:
         return b""
     
     # Already raw bytes (PCM or base64)
-    if isinstance(inline_data_data, (bytes, bytearray, memoryview)):
-        b = bytes(inline_data_data)
+    if isinstance(audio_data, (bytes, bytearray, memoryview)):
+        b = bytes(audio_data)
         
         # Check if it looks like base64 ASCII
         # Base64 characters: A-Z, a-z, 0-9, +, /, =
@@ -151,8 +156,8 @@ def gemini_inline_to_pcm_bytes(inline_data_data):
             base64_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\r\n\t ')
             non_base64_chars = [c for c in s if c not in base64_chars]
             
-            # If more than 10% are non-base64 chars, it's probably raw PCM
-            if len(non_base64_chars) > len(s) * 0.1:
+            # If more than BASE64_DETECTION_THRESHOLD are non-base64 chars, it's probably raw PCM
+            if len(non_base64_chars) > len(s) * BASE64_DETECTION_THRESHOLD:
                 return b
             
             # Looks like base64, try to decode
@@ -170,15 +175,15 @@ def gemini_inline_to_pcm_bytes(inline_data_data):
             return b
     
     # str base64
-    if isinstance(inline_data_data, str):
-        s = inline_data_data.strip()
+    if isinstance(audio_data, str):
+        s = audio_data.strip()
         missing = len(s) % 4
         if missing:
             s += "=" * (4 - missing)
         return base64.b64decode(s, validate=False)
     
     # Any other type - convert to str and decode
-    s = str(inline_data_data).strip()
+    s = str(audio_data).strip()
     missing = len(s) % 4
     if missing:
         s += "=" * (4 - missing)
@@ -619,9 +624,13 @@ class GeminiRealtimeClient:
                                             # After this line, we only work with bytes - no base64/str
                                             pcm_bytes = gemini_inline_to_pcm_bytes(inline_data.data)
                                             
-                                            # Assert that we have valid PCM bytes (must be even length for 16-bit PCM)
-                                            assert isinstance(pcm_bytes, (bytes, bytearray)), f"Expected bytes, got {type(pcm_bytes)}"
-                                            assert len(pcm_bytes) % 2 == 0, f"PCM bytes must have even length for 16-bit audio, got {len(pcm_bytes)}"
+                                            # Validate that we have valid PCM bytes
+                                            if not isinstance(pcm_bytes, (bytes, bytearray)):
+                                                raise TypeError(f"Expected bytes, got {type(pcm_bytes)}")
+                                            
+                                            # PCM must have even length for 16-bit audio (2 bytes per sample)
+                                            if len(pcm_bytes) % 2 != 0:
+                                                raise ValueError(f"PCM bytes must have even length for 16-bit audio, got {len(pcm_bytes)}")
                                             
                                             event = {
                                                 'type': 'audio',
@@ -640,7 +649,7 @@ class GeminiRealtimeClient:
                                             yield event
                                         except Exception as audio_decode_error:
                                             # Skip malformed audio chunks gracefully
-                                            # Catch all exceptions (binascii.Error, ValueError, TypeError, AssertionError, etc.)
+                                            # Catch all exceptions (binascii.Error, ValueError, TypeError, etc.)
                                             # to prevent RX thread crash on a single bad message
                                             logger.warning(f"⚠️ [GEMINI_RECV] Skipping malformed audio chunk: {audio_decode_error}")
                                             # Continue processing other parts
