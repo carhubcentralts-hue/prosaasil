@@ -2,7 +2,7 @@
 Authentication API endpoints
 Based on attached instructions - creates missing auth endpoints
 """
-from flask import Blueprint, request, jsonify, session, g
+from flask import Blueprint, request, jsonify, session, g, Response
 from werkzeug.security import check_password_hash, generate_password_hash
 from server.models_sql import User, Business, db
 from server.extensions import csrf
@@ -521,7 +521,6 @@ def require_api_auth(allowed_roles=None):
         @wraps(func_to_decorate)
         def decorated_function(*args, **kwargs):
             from server.services.auth_service import AuthService
-            from flask import Response
             
             # Allow OPTIONS immediately (204) with CORS headers
             if request.method == "OPTIONS":
@@ -601,7 +600,6 @@ def require_api_auth(allowed_roles=None):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             from server.services.auth_service import AuthService
-            from flask import Response
             
             # Allow OPTIONS immediately (204) with CORS headers
             if request.method == "OPTIONS":

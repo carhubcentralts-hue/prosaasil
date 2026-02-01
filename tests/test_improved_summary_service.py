@@ -64,7 +64,7 @@ def test_wedding_invitation_summary():
         # Verify summary contains key information
         assert "שיחה" in summary or "54" in summary, "Summary should mention call duration"
         assert len(summary.split()) >= 50, "Summary should be substantial (at least 50 words)"
-        assert len(summary.split()) <= 150, "Summary should be concise (at most 150 words)"
+        assert len(summary.split()) <= 120, "Summary should be concise (at most 120 words per new spec)"
         
         # Verify the prompt was in Hebrew
         call_args = mock_client.chat.completions.create.call_args
