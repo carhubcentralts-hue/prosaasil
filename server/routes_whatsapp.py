@@ -10,6 +10,7 @@ from server.services.whatsapp_session_service import update_session_activity
 from server.agent_tools.phone_utils import normalize_phone
 from server.services.jobs import enqueue_job
 from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
+from server.services.ai_service import route_intent_hebrew  # 🔥 FIX #2: Import at top level
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1177,8 +1178,7 @@ def baileys_webhook():
                 log.info(f"[WA-AI-READY] ✅ Message passed all filters, determining routing...")
                 log.info(f"[WA-AI-READY] Parameters: business_id={business_id}, lead_id={lead.id}, from={from_number_e164}, jid={remote_jid[:30]}")
                 
-                # 🔥 FIX #2: Route based on intent
-                from server.services.ai_service import route_intent_hebrew
+                # 🔥 FIX #2: Route based on intent (route_intent_hebrew imported at top)
                 intent = route_intent_hebrew(message_text)
                 log.info(f"[WA-INTENT] Detected intent: {intent} for message: {message_text[:50]}...")
                 
@@ -1225,7 +1225,7 @@ def baileys_webhook():
                             business_id=business_id,
                             context=ai_context,
                             channel='whatsapp',
-                            customer_phone=from_number_e164,
+                            customer_phone=conversation_key,  # 🔥 FIX #3: Use conversation_key for consistency
                             customer_name=customer.name if customer else None
                         )
                     else:

@@ -998,7 +998,7 @@ class AIService:
             previous_messages = agent_context.get('previous_messages', [])
             customer_memory = agent_context.get('customer_memory', '')
             
-            # Build history context (last 10-12 messages)
+            # Build history context (last 12 messages)
             history_text = ""
             if previous_messages:
                 # Take last 12 messages for better context
