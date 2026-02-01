@@ -70,31 +70,47 @@ def send_whatsapp_message_job(
             # Send message (handles retries internally)
             result = wa_service.send_message(to=remote_jid, message=response_text, tenant_id=tenant_id)
             
-            # Create outgoing message record
-            try:
-                outgoing_msg = WhatsAppMessage(
-                    business_id=business_id,
-                    to_number=remote_jid.split('@')[0],  # Extract phone number
-                    body=response_text,
-                    direction='outbound',
-                    provider='baileys',  # Default provider for this job
-                    status='sent',
-                    message_type='text'
-                )
-                db.session.add(outgoing_msg)
-                db.session.commit()
-                logger.info(f"[WA-SEND-JOB] ✅ Outgoing message saved to DB: {outgoing_msg.id}")
-            except Exception as db_err:
-                logger.error(f"[WA-SEND-JOB] ⚠️ Failed to save outgoing message to DB: {db_err}")
-                db.session.rollback()
+            # 🔥 CRITICAL: Validate result before proceeding
+            if not result:
+                error_msg = "WhatsApp service returned None/empty result"
+                logger.error(f"[WA-SEND-JOB] ❌ {error_msg}")
+                return {
+                    'status': 'error',
+                    'error': error_msg,
+                    'remote_jid': remote_jid[:20],
+                    'duration': time.time() - send_start,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+            
+            result_status = result.get('status')
+            result_error = result.get('error')
+            
+            # Check if send was successful (result is a dict with 'status' key)
+            success = result_status in ['sent', 'queued', 'accepted']
+            
+            # Create outgoing message record only if successful
+            if success:
+                try:
+                    outgoing_msg = WhatsAppMessage(
+                        business_id=business_id,
+                        to_number=remote_jid.split('@')[0],  # Extract phone number
+                        body=response_text,
+                        direction='outbound',
+                        provider='baileys',  # Default provider for this job
+                        status='sent',
+                        message_type='text'
+                    )
+                    db.session.add(outgoing_msg)
+                    db.session.commit()
+                    logger.info(f"[WA-SEND-JOB] ✅ Outgoing message saved to DB: {outgoing_msg.id}")
+                except Exception as db_err:
+                    logger.error(f"[WA-SEND-JOB] ⚠️ Failed to save outgoing message to DB: {db_err}")
+                    db.session.rollback()
             
             send_duration = time.time() - send_start
             
-            # Check if send was successful (result is a dict with 'status' key)
-            success = result and (result.get('status') in ['sent', 'queued', 'accepted'])
-            
             if success:
-                logger.info(f"[WA-SEND-JOB] ✅ Message sent successfully in {send_duration:.2f}s")
+                logger.info(f"[WA-SEND-JOB] ✅ Message sent successfully in {send_duration:.2f}s, status={result_status}")
                 return {
                     'status': 'success',
                     'remote_jid': remote_jid[:20],
@@ -102,9 +118,11 @@ def send_whatsapp_message_job(
                     'timestamp': datetime.utcnow().isoformat()
                 }
             else:
-                logger.error(f"[WA-SEND-JOB] ❌ Message send failed after {send_duration:.2f}s")
+                error_msg = result_error or f"WhatsApp service returned status: {result_status}"
+                logger.error(f"[WA-SEND-JOB] ❌ Message send failed after {send_duration:.2f}s: {error_msg}")
                 return {
                     'status': 'failed',
+                    'error': error_msg,
                     'remote_jid': remote_jid[:20],
                     'duration': send_duration,
                     'timestamp': datetime.utcnow().isoformat()

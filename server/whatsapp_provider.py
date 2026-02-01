@@ -259,7 +259,8 @@ class BaileysProvider(Provider):
         
         # 🔥 CRITICAL: Check if tenant can send BEFORE attempting
         if not self._can_send(tenant_id):
-            logger.warning(f"⚠️ Tenant {tenant_id} cannot send - not connected or not authenticated")
+            error_msg = f"Tenant {tenant_id} cannot send - not connected or not authenticated"
+            logger.error(f"❌ {error_msg}")
             
             # Try auto-start if not connected
             if not self._check_health():
@@ -269,31 +270,37 @@ class BaileysProvider(Provider):
                         logger.info("✅ Baileys auto-restart successful!")
                         # Retry send after successful restart
                         if not self._can_send(tenant_id):
+                            error_msg = "WhatsApp service restarted but not ready to send"
+                            logger.error(f"❌ {error_msg}")
                             return {
                                 "provider": "baileys",
                                 "status": "error",
-                                "error": "WhatsApp service restarted but not ready to send"
+                                "error": error_msg
                             }
                     else:
-                        logger.error("❌ Baileys auto-restart timed out")
+                        error_msg = "WhatsApp service not connected (auto-restart timed out)"
+                        logger.error(f"❌ {error_msg}")
                         return {
                             "provider": "baileys",
                             "status": "error",
-                            "error": "WhatsApp service not connected (auto-restart failed)"
+                            "error": error_msg
                         }
                 else:
-                    logger.error("❌ Failed to trigger Baileys restart")
+                    error_msg = "WhatsApp service not connected (restart failed)"
+                    logger.error(f"❌ {error_msg}")
                     return {
                         "provider": "baileys",
                         "status": "error",
-                        "error": "WhatsApp service not connected (restart failed)"
+                        "error": error_msg
                     }
             else:
                 # Service is up but tenant not connected - QR scan needed
+                error_msg = "WhatsApp not connected - QR code scan required"
+                logger.error(f"❌ {error_msg}")
                 return {
                     "provider": "baileys",
                     "status": "error",
-                    "error": "WhatsApp not connected - QR code scan required"
+                    "error": error_msg
                 }
         
         max_attempts = 2  # 🔥 FIX: Allow 1 retry on timeout (2 total attempts)

@@ -134,13 +134,23 @@ def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
                     tenant_id=tenant_id
                 )
                 
+                # 🔥 CRITICAL: Check result status - don't assume success
+                if not result:
+                    error_msg = "WhatsApp service returned None/empty result"
+                    logger.error(f"[SEND-SCHEDULED-WA] ❌ {error_msg}")
+                    scheduled_messages_service.mark_failed(message_id, error_msg)
+                    return {'status': 'error', 'error': error_msg}
+                
+                result_status = result.get('status')
+                result_error = result.get('error')
+                
                 # Check if send was successful (result is a dict with 'status' key)
-                success = result and (result.get('status') in ['sent', 'queued', 'accepted'])
+                success = result_status in ['sent', 'queued', 'accepted']
                 
                 if success:
                     # Mark as sent
                     scheduled_messages_service.mark_sent(message_id)
-                    logger.info(f"[SEND-SCHEDULED-WA] ✅ Message {message_id} sent successfully")
+                    logger.info(f"[SEND-SCHEDULED-WA] ✅ Message {message_id} sent successfully, status={result_status}")
                     
                     # Create WhatsApp message record
                     try:
@@ -167,9 +177,9 @@ def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
                     
                     return {'status': 'success', 'message_id': message_id}
                 else:
-                    # Send failed
-                    error_msg = "WhatsApp service returned false"
-                    logger.error(f"[SEND-SCHEDULED-WA] ❌ Failed to send message {message_id}")
+                    # Send failed - log detailed error
+                    error_msg = result_error or f"WhatsApp service returned status: {result_status}"
+                    logger.error(f"[SEND-SCHEDULED-WA] ❌ Failed to send message {message_id}: {error_msg}")
                     scheduled_messages_service.mark_failed(message_id, error_msg)
                     return {'status': 'failed', 'error': error_msg}
                     

@@ -46,10 +46,12 @@ def scheduled_messages_tick_job():
                 logger.info(f"[SCHEDULED-MSG-TICK] Enqueuing message {message.id} for lead {message.lead_id}, business {message.business_id}")
                 
                 # Enqueue to RQ worker
+                # 🔥 CRITICAL FIX: Pass message_id as POSITIONAL argument, not kwarg
+                # send_scheduled_whatsapp_job expects: def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs)
                 job = enqueue(
                     'default',  # Use default queue for WhatsApp messages
                     send_scheduled_whatsapp_job,
-                    message_id=message.id,
+                    message.id,  # ✅ POSITIONAL: first positional argument (message_id)
                     business_id=message.business_id,  # Add business_id for proper tracking
                     job_id=f"scheduled_wa_{message.id}",
                     timeout=300,  # 5 minutes timeout
