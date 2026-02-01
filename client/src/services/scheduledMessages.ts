@@ -4,6 +4,16 @@
  */
 import { http } from './http';
 
+export interface RuleStep {
+  id: number;
+  step_index: number;
+  message_template: string;
+  delay_seconds: number;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ScheduledRule {
   id: number;
   name: string;
@@ -15,6 +25,10 @@ export interface ScheduledRule {
   template_name?: string;
   send_window_start?: string;
   send_window_end?: string;
+  send_immediately_on_enter?: boolean;
+  immediate_message?: string;  // NEW: Message to send immediately on entering status (if different from scheduled message)
+  apply_mode?: string;  // "ON_ENTER_ONLY" | "WHILE_IN_STATUS"
+  steps?: Array<RuleStep>;
   statuses: Array<{
     id: number;
     name: string;
@@ -66,6 +80,10 @@ export interface CreateRuleRequest {
   send_window_start?: string;
   send_window_end?: string;
   is_active?: boolean;
+  send_immediately_on_enter?: boolean;
+  immediate_message?: string;  // NEW: Message to send immediately on entering status
+  apply_mode?: string;
+  steps?: Array<{step_index: number, message_template: string, delay_seconds: number, enabled?: boolean}>;
 }
 
 export interface UpdateRuleRequest {
@@ -79,6 +97,10 @@ export interface UpdateRuleRequest {
   send_window_start?: string;
   send_window_end?: string;
   is_active?: boolean;
+  send_immediately_on_enter?: boolean;
+  immediate_message?: string;  // NEW: Message to send immediately on entering status
+  apply_mode?: string;
+  steps?: Array<{step_index: number, message_template: string, delay_seconds: number, enabled?: boolean}>;
 }
 
 export interface ManualTemplate {
@@ -153,6 +175,45 @@ export async function deleteRule(ruleId: number): Promise<void> {
 export async function cancelPendingForRule(ruleId: number): Promise<{ cancelled_count: number }> {
   const response = await http.post<any>(`/api/scheduled-messages/rules/${ruleId}/cancel-pending`);
   return response;
+}
+
+// === RULE STEPS API ===
+
+/**
+ * Add a new step to a scheduling rule
+ */
+export async function addRuleStep(
+  ruleId: number,
+  data: {step_index: number, message_template: string, delay_seconds: number, enabled?: boolean}
+): Promise<RuleStep> {
+  const response = await http.post<any>(`/api/scheduled-messages/rules/${ruleId}/steps`, data);
+  return response?.step || response;
+}
+
+/**
+ * Update an existing rule step
+ */
+export async function updateRuleStep(
+  ruleId: number,
+  stepId: number,
+  data: {message_template?: string, delay_seconds?: number, enabled?: boolean}
+): Promise<RuleStep> {
+  const response = await http.patch<any>(`/api/scheduled-messages/rules/${ruleId}/steps/${stepId}`, data);
+  return response?.step || response;
+}
+
+/**
+ * Delete a rule step
+ */
+export async function deleteRuleStep(ruleId: number, stepId: number): Promise<void> {
+  await http.delete(`/api/scheduled-messages/rules/${ruleId}/steps/${stepId}`);
+}
+
+/**
+ * Reorder rule steps
+ */
+export async function reorderRuleSteps(ruleId: number, step_ids: number[]): Promise<void> {
+  await http.put(`/api/scheduled-messages/rules/${ruleId}/steps/reorder`, { step_ids });
 }
 
 // === QUEUE API ===
