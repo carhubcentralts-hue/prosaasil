@@ -97,55 +97,59 @@ class TestBase64PaddingFix:
         assert len(decoded) == 1  # Should decode to 1 byte
     
     def test_fix_padding_bytes_input(self):
-        """Test that bytes input is handled correctly"""
+        """Test that bytes input is handled correctly and returns str"""
         # Test with bytes that need padding
         incomplete_bytes = b"SGVsbG8gV29ybGQ"  # "Hello World" missing padding
         result = _fix_base64_padding(incomplete_bytes)
-        assert result == b"SGVsbG8gV29ybGQ="
-        assert isinstance(result, bytes)
+        # 🔥 FIX: Function now always returns str, not bytes
+        assert result == "SGVsbG8gV29ybGQ="
+        assert isinstance(result, str)
         
-        # Verify it decodes successfully
-        decoded = base64.b64decode(result)
+        # Verify it decodes successfully when encoded back to bytes
+        decoded = base64.b64decode(result.encode("ascii"))
         assert decoded == b"Hello World"
     
     def test_fix_padding_bytes_correct(self):
-        """Test that correctly padded bytes are unchanged"""
+        """Test that correctly padded bytes are converted to str"""
         correct_bytes = b"SGVsbG8gV29ybGQ="  # "Hello World" with correct padding
         result = _fix_base64_padding(correct_bytes)
-        assert result == correct_bytes
-        assert isinstance(result, bytes)
+        # 🔥 FIX: Function now always returns str, not bytes
+        assert result == "SGVsbG8gV29ybGQ="
+        assert isinstance(result, str)
         
-        # Verify it decodes successfully
-        decoded = base64.b64decode(result)
+        # Verify it decodes successfully when encoded back to bytes
+        decoded = base64.b64decode(result.encode("ascii"))
         assert decoded == b"Hello World"
     
     def test_fix_padding_bytes_missing_two(self):
-        """Test bytes missing 2 padding characters"""
+        """Test bytes missing 2 padding characters returns str"""
         incomplete_bytes = b"aGVsbG8"  # "hello" without padding
         result = _fix_base64_padding(incomplete_bytes)
-        assert result == b"aGVsbG8="
-        assert isinstance(result, bytes)
+        # 🔥 FIX: Function now always returns str, not bytes
+        assert result == "aGVsbG8="
+        assert isinstance(result, str)
         
-        # Verify it decodes successfully
-        decoded = base64.b64decode(result)
+        # Verify it decodes successfully when encoded back to bytes
+        decoded = base64.b64decode(result.encode("ascii"))
         assert decoded == b"hello"
     
     def test_fix_padding_bytearray_input(self):
-        """Test that bytearray input is handled correctly"""
+        """Test that bytearray input is handled correctly and returns str"""
         incomplete_bytearray = bytearray(b"SGVsbG8gV29ybGQ")
         result = _fix_base64_padding(incomplete_bytearray)
-        # Result should be converted to bytes and have padding added
-        assert result == b"SGVsbG8gV29ybGQ="
-        assert isinstance(result, bytes)  # Should be bytes, not bytearray
+        # 🔥 FIX: Function now always returns str, not bytes
+        assert result == "SGVsbG8gV29ybGQ="
+        assert isinstance(result, str)
         
-        # Verify it decodes successfully
-        decoded = base64.b64decode(result)
+        # Verify it decodes successfully when encoded back to bytes
+        decoded = base64.b64decode(result.encode("ascii"))
         assert decoded == b"Hello World"
     
     def test_fix_padding_none_input(self):
-        """Test that None input is handled correctly"""
+        """Test that None input returns empty string"""
         result = _fix_base64_padding(None)
-        assert result is None
+        # 🔥 FIX: Function now returns "" for None instead of None
+        assert result == ""
     
     def test_gemini_api_bytes_scenario(self):
         """Test realistic Gemini API scenario with bytes audio data"""
@@ -158,8 +162,10 @@ class TestBase64PaddingFix:
         
         # Fix and decode
         fixed_b64 = _fix_base64_padding(incomplete_b64_bytes)
-        assert isinstance(fixed_b64, bytes)
-        decoded = base64.b64decode(fixed_b64)
+        # 🔥 FIX: Function now always returns str, not bytes
+        assert isinstance(fixed_b64, str)
+        # Encode back to bytes for b64decode
+        decoded = base64.b64decode(fixed_b64.encode("ascii"))
         
         # Verify we get original data back
         assert decoded == audio_bytes

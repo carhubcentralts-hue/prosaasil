@@ -79,41 +79,36 @@ def _fix_base64_padding(data):
     Fix base64 padding by adding missing padding characters.
     Base64 strings must have length divisible by 4.
     
+    🔥 CRITICAL FIX: Always returns str to prevent TypeError when concatenating padding.
+    Gemini can deliver inlineData.data as str OR bytes depending on parser/frame.
+    
     Args:
         data: Base64 encoded string or bytes (possibly missing padding)
     
     Returns:
-        Base64 string or bytes with correct padding (same type as input)
+        Base64 string with correct padding (always str, never bytes)
     """
     if data is None:
-        return data
+        return ""
     
-    # Handle bytes/bytearray consistently
+    # Gemini can deliver inlineData.data as str OR bytes depending on parser/frame
+    # Always convert to str to avoid "can't concat str to bytes" TypeError
     if isinstance(data, (bytes, bytearray)):
-        # Convert to bytes for consistent handling
-        if isinstance(data, bytearray):
-            data = bytes(data)
-        missing = len(data) % 4
-        if missing:
-            data += b'=' * (4 - missing)  # Use b'=' for bytes
-        return data
+        data = data.decode("utf-8", errors="ignore")
     
-    # Handle string
-    if isinstance(data, str):
-        # Remove any whitespace
-        data = data.strip()
-        missing = len(data) % 4
-        if missing:
-            data += '=' * (4 - missing)
-        return data
+    # Convert to string if it's some other type
+    if not isinstance(data, str):
+        data = str(data)
     
-    # Fallback: convert to string
-    s = str(data)
-    s = s.strip()
-    missing = len(s) % 4
-    if missing:
-        s += '=' * (4 - missing)
-    return s
+    # Remove any whitespace
+    data = data.strip()
+    
+    # Add padding if needed
+    missing_padding = (-len(data)) % 4
+    if missing_padding:
+        data += "=" * missing_padding
+    
+    return data
 
 
 def _sanitize_text_for_realtime(text: str, max_chars: int = 8000) -> str:
@@ -548,8 +543,9 @@ class GeminiRealtimeClient:
                                         try:
                                             # Decode base64 audio with padding fix
                                             # Fix: Gemini API sometimes sends audio with incorrect padding
+                                            # _fix_base64_padding always returns str, encode to ascii for b64decode
                                             fixed_data = _fix_base64_padding(inline_data.data)
-                                            audio_bytes = base64.b64decode(fixed_data)
+                                            audio_bytes = base64.b64decode(fixed_data.encode("ascii"), validate=False)
                                             
                                             event = {
                                                 'type': 'audio',
@@ -566,9 +562,11 @@ class GeminiRealtimeClient:
                                                 logger.debug(f"🔊 [GEMINI_RECV] audio_chunk: {len(audio_bytes)} bytes")
                                             
                                             yield event
-                                        except (binascii.Error, ValueError) as audio_decode_error:
+                                        except Exception as audio_decode_error:
                                             # Skip malformed audio chunks gracefully
-                                            logger.debug(f"⚠️ [GEMINI_RECV] Skipping malformed audio chunk: {audio_decode_error}")
+                                            # Catch all exceptions (binascii.Error, ValueError, TypeError, etc.)
+                                            # to prevent RX thread crash on a single bad message
+                                            logger.warning(f"⚠️ [GEMINI_RECV] Skipping malformed audio chunk: {audio_decode_error}")
                                             # Continue processing other parts
                                 
                                 elif hasattr(part, 'text'):
