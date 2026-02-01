@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Calendar as CalendarIcon, 
   Plus, 
@@ -309,7 +309,7 @@ export function CalendarPage() {
   const [savingStatuses, setSavingStatuses] = useState(false);
 
   // Fetch appointments using the proper HTTP client
-  const fetchAppointments = async () => {
+  const fetchAppointments = useCallback(async () => {
     try {
       setLoading(true);
       // Build query parameters
@@ -331,7 +331,7 @@ export function CalendarPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterCalendar]);
 
   useEffect(() => {
     fetchAppointments();
@@ -344,14 +344,11 @@ export function CalendarPage() {
     if (activeTab === 'calendars' || activeTab === 'appointments') {
       fetchCalendars();
     }
-  }, [activeTab]);
-
-  // Refetch appointments when calendar filter changes
-  useEffect(() => {
+    // Fetch appointments when switching to appointments tab or when calendar filter changes
     if (activeTab === 'appointments') {
       fetchAppointments();
     }
-  }, [filterCalendar]);
+  }, [activeTab, filterCalendar, fetchAppointments]);
 
   // Fetch configurable appointment types
   const fetchAppointmentTypes = async () => {
