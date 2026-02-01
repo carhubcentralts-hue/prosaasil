@@ -76,6 +76,8 @@ def _clamp_temperature(requested_temp: Optional[float]) -> float:
 
 def _fix_base64_padding(data):
     """
+    DEPRECATED: Use gemini_inline_to_pcm_bytes() instead for PCM-only pipeline.
+    
     Fix base64 padding by adding missing padding characters.
     Base64 strings must have length divisible by 4.
     
@@ -109,6 +111,78 @@ def _fix_base64_padding(data):
         data += "=" * missing_padding
     
     return data
+
+
+def gemini_inline_to_pcm_bytes(inline_data_data):
+    """
+    Convert Gemini inline_data.data to PCM bytes.
+    
+    This function implements the PCM-only pipeline principle:
+    - Receive base64 (str or bytes) from Gemini
+    - Return PCM bytes immediately
+    - No internal function should work with base64 after this point
+    
+    inline_data_data can be:
+    - str (base64 encoded)
+    - bytes (base64 ASCII or raw PCM)
+    - bytearray (base64 ASCII or raw PCM)
+    - memoryview (raw PCM)
+    - None
+    
+    Args:
+        inline_data_data: Audio data from Gemini API inline_data.data field
+    
+    Returns:
+        bytes: Raw PCM audio data
+    """
+    if inline_data_data is None:
+        return b""
+    
+    # Already raw bytes (PCM or base64)
+    if isinstance(inline_data_data, (bytes, bytearray, memoryview)):
+        b = bytes(inline_data_data)
+        
+        # Check if it looks like base64 ASCII
+        # Base64 characters: A-Z, a-z, 0-9, +, /, =
+        try:
+            # Try to decode as ASCII
+            s = b.decode("ascii")
+            # Check if it's mostly base64 characters
+            base64_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\r\n\t ')
+            non_base64_chars = [c for c in s if c not in base64_chars]
+            
+            # If more than 10% are non-base64 chars, it's probably raw PCM
+            if len(non_base64_chars) > len(s) * 0.1:
+                return b
+            
+            # Looks like base64, try to decode
+            s = s.strip()
+            missing = len(s) % 4
+            if missing:
+                s += "=" * (4 - missing)
+            try:
+                return base64.b64decode(s, validate=False)
+            except binascii.Error:
+                # Fallback: treat as raw bytes
+                return b
+        except Exception:
+            # Not ASCII decodable, must be raw PCM
+            return b
+    
+    # str base64
+    if isinstance(inline_data_data, str):
+        s = inline_data_data.strip()
+        missing = len(s) % 4
+        if missing:
+            s += "=" * (4 - missing)
+        return base64.b64decode(s, validate=False)
+    
+    # Any other type - convert to str and decode
+    s = str(inline_data_data).strip()
+    missing = len(s) % 4
+    if missing:
+        s += "=" * (4 - missing)
+    return base64.b64decode(s, validate=False)
 
 
 def _sanitize_text_for_realtime(text: str, max_chars: int = 8000) -> str:
@@ -541,30 +615,32 @@ class GeminiRealtimeClient:
                                     # Check if inline_data is not None before accessing mime_type
                                     if inline_data and hasattr(inline_data, 'mime_type') and inline_data.mime_type.startswith('audio/'):
                                         try:
-                                            # Decode base64 audio with padding fix
-                                            # Fix: Gemini API sometimes sends audio with incorrect padding
-                                            # _fix_base64_padding always returns str, encode to ascii for b64decode
-                                            fixed_data = _fix_base64_padding(inline_data.data)
-                                            audio_bytes = base64.b64decode(fixed_data.encode("ascii"), validate=False)
+                                            # 🔥 PCM-ONLY PIPELINE: Convert to PCM bytes immediately
+                                            # After this line, we only work with bytes - no base64/str
+                                            pcm_bytes = gemini_inline_to_pcm_bytes(inline_data.data)
+                                            
+                                            # Assert that we have valid PCM bytes (must be even length for 16-bit PCM)
+                                            assert isinstance(pcm_bytes, (bytes, bytearray)), f"Expected bytes, got {type(pcm_bytes)}"
+                                            assert len(pcm_bytes) % 2 == 0, f"PCM bytes must have even length for 16-bit audio, got {len(pcm_bytes)}"
                                             
                                             event = {
                                                 'type': 'audio',
-                                                'data': audio_bytes,
+                                                'data': pcm_bytes,
                                                 'mime_type': inline_data.mime_type
                                             }
                                             
                                             # Log first audio chunk in production
                                             if IS_PROD and not REALTIME_VERBOSE and not _first_audio_logged:
                                                 _first_audio_logged = True
-                                                logger.info(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(audio_bytes)} bytes")
-                                                _orig_print(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(audio_bytes)} bytes", flush=True)
+                                                logger.info(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(pcm_bytes)} bytes")
+                                                _orig_print(f"🔊 [GEMINI_RECV] audio_chunk (FIRST): {len(pcm_bytes)} bytes", flush=True)
                                             elif not IS_PROD or REALTIME_VERBOSE:
-                                                logger.debug(f"🔊 [GEMINI_RECV] audio_chunk: {len(audio_bytes)} bytes")
+                                                logger.debug(f"🔊 [GEMINI_RECV] audio_chunk: {len(pcm_bytes)} bytes")
                                             
                                             yield event
                                         except Exception as audio_decode_error:
                                             # Skip malformed audio chunks gracefully
-                                            # Catch all exceptions (binascii.Error, ValueError, TypeError, etc.)
+                                            # Catch all exceptions (binascii.Error, ValueError, TypeError, AssertionError, etc.)
                                             # to prevent RX thread crash on a single bad message
                                             logger.warning(f"⚠️ [GEMINI_RECV] Skipping malformed audio chunk: {audio_decode_error}")
                                             # Continue processing other parts
