@@ -334,7 +334,7 @@ export function CalendarPage() {
   }, [filterCalendar]);
 
   useEffect(() => {
-    fetchAppointments();
+    // Initial data fetch on mount - appointments will be fetched by the activeTab useEffect
     fetchAppointmentTypes();
     fetchAppointmentStatuses();
     fetchDefaultCalendar();
@@ -771,9 +771,14 @@ export function CalendarPage() {
   const openNewAppointmentModal = () => {
     setEditingAppointment(null);
     // Pre-select calendar based on current filter or default calendar
-    const preselectedCalendarId = filterCalendar !== 'all' 
-      ? parseInt(filterCalendar) 
-      : defaultCalendarId || undefined;
+    let preselectedCalendarId: number | undefined = undefined;
+    if (filterCalendar !== 'all') {
+      const parsed = parseInt(filterCalendar, 10);
+      preselectedCalendarId = !isNaN(parsed) ? parsed : undefined;
+    }
+    if (!preselectedCalendarId && defaultCalendarId) {
+      preselectedCalendarId = defaultCalendarId;
+    }
     
     setFormData({
       title: '',
