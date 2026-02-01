@@ -7930,6 +7930,60 @@ def apply_migrations():
         
         checkpoint("✅ Migration 124 complete: immediate_message support ready")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 125: Add conversation tracking fields to WhatsAppConversationState
+        # AgentKit Only: Enable better context tracking to prevent loops and improve responses
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 125: Adding conversation tracking fields to whatsapp_conversation_state")
+        
+        if check_table_exists('whatsapp_conversation_state'):
+            try:
+                # Add last_user_message column
+                if not check_column_exists('whatsapp_conversation_state', 'last_user_message'):
+                    checkpoint("  → Adding last_user_message to whatsapp_conversation_state...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_conversation_state 
+                        ADD COLUMN last_user_message TEXT NULL
+                    """)
+                    checkpoint("  ✅ last_user_message column added")
+                else:
+                    checkpoint("  ℹ️  last_user_message column already exists")
+                
+                # Add last_agent_message column
+                if not check_column_exists('whatsapp_conversation_state', 'last_agent_message'):
+                    checkpoint("  → Adding last_agent_message to whatsapp_conversation_state...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_conversation_state 
+                        ADD COLUMN last_agent_message TEXT NULL
+                    """)
+                    checkpoint("  ✅ last_agent_message column added")
+                else:
+                    checkpoint("  ℹ️  last_agent_message column already exists")
+                
+                # Add conversation_stage column
+                if not check_column_exists('whatsapp_conversation_state', 'conversation_stage'):
+                    checkpoint("  → Adding conversation_stage to whatsapp_conversation_state...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_conversation_state 
+                        ADD COLUMN conversation_stage VARCHAR(64) NULL
+                    """)
+                    checkpoint("  ✅ conversation_stage column added")
+                    checkpoint("     💡 Tracks current conversation stage for better context")
+                else:
+                    checkpoint("  ℹ️  conversation_stage column already exists")
+                
+                migrations_applied.append('migration_125_conversation_tracking')
+                checkpoint("  ✅ All conversation tracking fields added")
+                    
+            except Exception as e:
+                checkpoint(f"❌ Migration 125 failed: {e}")
+                logger.error(f"Migration 125 error: {e}", exc_info=True)
+                raise
+        else:
+            checkpoint("  ℹ️  whatsapp_conversation_state table does not exist - skipping Migration 125")
+        
+        checkpoint("✅ Migration 125 complete: Conversation tracking fields ready for AgentKit Only mode")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
