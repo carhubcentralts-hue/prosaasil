@@ -151,6 +151,15 @@ def get_appointments():
             except ValueError:
                 return jsonify({'error': 'Invalid lead_id format'}), 400
         
+        # Calendar filter - filter appointments by calendar_id
+        calendar_id = request.args.get('calendar_id')
+        if calendar_id and calendar_id != 'all':
+            try:
+                cal_id = int(calendar_id)
+                query = query.filter(Appointment.calendar_id == cal_id)
+            except ValueError:
+                return jsonify({'error': 'Invalid calendar_id format'}), 400
+        
         # Search filter
         if search:
             search_term = f'%{search}%'

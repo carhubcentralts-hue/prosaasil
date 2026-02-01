@@ -312,8 +312,19 @@ export function CalendarPage() {
   const fetchAppointments = async () => {
     try {
       setLoading(true);
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (filterCalendar && filterCalendar !== 'all') {
+        params.append('calendar_id', filterCalendar);
+      }
+      
+      const queryString = params.toString();
+      const url = queryString 
+        ? `/api/calendar/appointments?${queryString}` 
+        : '/api/calendar/appointments';
+      
       // ✅ משתמש בhttp service שמכיל את כל ההגדרות הנכונות
-      const data = await http.get<{appointments: Appointment[]}>('/api/calendar/appointments');
+      const data = await http.get<{appointments: Appointment[]}>(url);
       setAppointments(data.appointments || []);
     } catch (error) {
       console.error('שגיאה בטעינת פגישות:', error);
@@ -334,6 +345,13 @@ export function CalendarPage() {
       fetchCalendars();
     }
   }, [activeTab]);
+
+  // Refetch appointments when calendar filter changes
+  useEffect(() => {
+    if (activeTab === 'appointments') {
+      fetchAppointments();
+    }
+  }, [filterCalendar]);
 
   // Fetch configurable appointment types
   const fetchAppointmentTypes = async () => {
@@ -495,9 +513,7 @@ export function CalendarPage() {
     
     const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
     const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
-    // Show all appointments when "all" is selected, or match specific calendar
-    const matchesCalendar = filterCalendar === 'all' || 
-      (filterCalendar !== 'all' && appointment.calendar_id === parseInt(filterCalendar));
+    // Calendar filtering now done server-side via fetchAppointments
     
     // ✅ BUILD 144 + 170: Date filter - single date or date range
     let matchesDate = true;
@@ -525,7 +541,7 @@ export function CalendarPage() {
       matchesDate = appointmentDate.toDateString() === selectedDate.toDateString();
     }
     
-    return matchesSearch && matchesStatus && matchesType && matchesCalendar && matchesDate;
+    return matchesSearch && matchesStatus && matchesType && matchesDate;
   });
   
   // ✅ BUILD 144: Handle calendar date click - show only that day's appointments
@@ -757,6 +773,11 @@ export function CalendarPage() {
   // Open modal for new appointment
   const openNewAppointmentModal = () => {
     setEditingAppointment(null);
+    // Pre-select calendar based on current filter or default calendar
+    const preselectedCalendarId = filterCalendar !== 'all' 
+      ? parseInt(filterCalendar) 
+      : defaultCalendarId || undefined;
+    
     setFormData({
       title: '',
       description: '',
@@ -768,7 +789,7 @@ export function CalendarPage() {
       priority: 'medium',
       contact_name: '',
       contact_phone: '',
-      calendar_id: undefined
+      calendar_id: preselectedCalendarId
     });
     // Always fetch calendars to ensure up-to-date list
     fetchCalendars();
