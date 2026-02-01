@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Calendar as CalendarIcon, 
   Plus, 
@@ -309,21 +309,32 @@ export function CalendarPage() {
   const [savingStatuses, setSavingStatuses] = useState(false);
 
   // Fetch appointments using the proper HTTP client
-  const fetchAppointments = async () => {
+  const fetchAppointments = useCallback(async () => {
     try {
       setLoading(true);
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (filterCalendar && filterCalendar !== 'all') {
+        params.append('calendar_id', filterCalendar);
+      }
+      
+      const queryString = params.toString();
+      const url = queryString 
+        ? `/api/calendar/appointments?${queryString}` 
+        : '/api/calendar/appointments';
+      
       // ✅ משתמש בhttp service שמכיל את כל ההגדרות הנכונות
-      const data = await http.get<{appointments: Appointment[]}>('/api/calendar/appointments');
+      const data = await http.get<{appointments: Appointment[]}>(url);
       setAppointments(data.appointments || []);
     } catch (error) {
       console.error('שגיאה בטעינת פגישות:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterCalendar]);
 
   useEffect(() => {
-    fetchAppointments();
+    // Initial data fetch on mount - appointments will be fetched by the activeTab useEffect when switching to the appointments tab
     fetchAppointmentTypes();
     fetchAppointmentStatuses();
     fetchDefaultCalendar();
@@ -333,7 +344,11 @@ export function CalendarPage() {
     if (activeTab === 'calendars' || activeTab === 'appointments') {
       fetchCalendars();
     }
-  }, [activeTab]);
+    // Fetch appointments when switching to appointments tab or when calendar filter changes
+    if (activeTab === 'appointments') {
+      fetchAppointments();
+    }
+  }, [activeTab, filterCalendar, fetchAppointments]);
 
   // Fetch configurable appointment types
   const fetchAppointmentTypes = async () => {
@@ -495,9 +510,8 @@ export function CalendarPage() {
     
     const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
     const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
-    // Show all appointments when "all" is selected, or match specific calendar
-    const matchesCalendar = filterCalendar === 'all' || 
-      (filterCalendar !== 'all' && appointment.calendar_id === parseInt(filterCalendar));
+    // Calendar filtering now done server-side via fetchAppointments to reduce data transfer
+    // Other filters remain client-side to avoid excessive API calls for each filter combination
     
     // ✅ BUILD 144 + 170: Date filter - single date or date range
     let matchesDate = true;
@@ -525,7 +539,7 @@ export function CalendarPage() {
       matchesDate = appointmentDate.toDateString() === selectedDate.toDateString();
     }
     
-    return matchesSearch && matchesStatus && matchesType && matchesCalendar && matchesDate;
+    return matchesSearch && matchesStatus && matchesType && matchesDate;
   });
   
   // ✅ BUILD 144: Handle calendar date click - show only that day's appointments
@@ -757,6 +771,16 @@ export function CalendarPage() {
   // Open modal for new appointment
   const openNewAppointmentModal = () => {
     setEditingAppointment(null);
+    // Pre-select calendar based on current filter or default calendar
+    let preselectedCalendarId: number | undefined = undefined;
+    if (filterCalendar !== 'all') {
+      const parsed = parseInt(filterCalendar, 10);
+      preselectedCalendarId = !isNaN(parsed) ? parsed : undefined;
+    }
+    if (!preselectedCalendarId && defaultCalendarId) {
+      preselectedCalendarId = defaultCalendarId;
+    }
+    
     setFormData({
       title: '',
       description: '',
@@ -768,7 +792,7 @@ export function CalendarPage() {
       priority: 'medium',
       contact_name: '',
       contact_phone: '',
-      calendar_id: undefined
+      calendar_id: preselectedCalendarId
     });
     // Always fetch calendars to ensure up-to-date list
     fetchCalendars();
