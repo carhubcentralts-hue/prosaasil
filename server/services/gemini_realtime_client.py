@@ -298,6 +298,16 @@ class GeminiRealtimeClient:
         temp = _clamp_temperature(temperature)
         
         # Build config for Gemini Live API
+        # 🔥 P0.5: Turn Detection / VAD Configuration
+        # Gemini Live API uses server-side VAD (Voice Activity Detection) by default
+        # The API automatically detects when the user stops speaking and triggers turn completion
+        # This is similar to OpenAI Realtime's SERVER VAD mode with:
+        # - Automatic speech detection
+        # - Automatic turn completion when user stops speaking
+        # - No explicit end_of_turn signal required from client
+        # 
+        # Unlike OpenAI where we configure vad_threshold and silence_duration_ms,
+        # Gemini's VAD is pre-configured and optimized for natural conversations
         config = {
             "response_modalities": ["AUDIO"],  # Request audio output
             "generation_config": {
