@@ -1208,9 +1208,59 @@ def baileys_webhook():
                 # 🔥 BUILD 200 DEBUG: Log state before AI call
                 log.info(f"[WA-AI-START] About to call AI for jid={remote_jid[:30]}, lead_id={lead.id}, use_agent={use_agent}")
                 
+                # 🔥 COMPREHENSIVE LOGGING: Track all context for debugging bot repetition
+                try:
+                    from server.models_sql import Business
+                    business_obj = Business.query.get(business_id)
+                    prompt_source = "whatsapp_system_prompt" if (business_obj and business_obj.whatsapp_system_prompt) else "fallback"
+                    
+                    # Load conversation state to check if it exists
+                    state_found = False
+                    try:
+                        conv_state = WhatsAppConversationState.query.filter_by(
+                            business_id=business_id,
+                            phone=conversation_key
+                        ).first()
+                        state_found = bool(conv_state)
+                    except Exception as e:
+                        log.warning(f"[WA-AI-CONTEXT] Could not check conv state: {e}")
+                    
+                    log.info(f"[WA-AI-CONTEXT] 🔍 FULL CONTEXT:")
+                    log.info(f"  ├─ business_id={business_id}")
+                    log.info(f"  ├─ remote_jid={remote_jid[:30]}...")
+                    log.info(f"  ├─ conversation_key={conversation_key[:30]}...")
+                    log.info(f"  ├─ lead_id={lead.id if lead else None}")
+                    log.info(f"  ├─ history_count={len(previous_messages)}")
+                    log.info(f"  ├─ state_found={state_found}")
+                    log.info(f"  ├─ prompt_source={prompt_source}")
+                    log.info(f"  └─ intent={intent}")
+                    
+                    # Log last few messages from history for debugging
+                    if previous_messages:
+                        log.info(f"[WA-AI-CONTEXT] 📚 Last 3 messages:")
+                        for i, msg in enumerate(previous_messages[-3:]):
+                            log.info(f"    [{i+1}] {msg[:80]}...")
+                    else:
+                        log.info(f"[WA-AI-CONTEXT] 📚 No previous messages (new conversation)")
+                        
+                except Exception as e:
+                    log.error(f"[WA-AI-CONTEXT] Error logging context: {e}")
+                
                 try:
                     # Build AI context with customer memory
                     # 🔥 FIX #5: Include lead_id for tools
+                    # 🔥 FIX: Include conversation state for better context awareness
+                    
+                    # Load conversation state
+                    conv_state = None
+                    try:
+                        conv_state = WhatsAppConversationState.query.filter_by(
+                            business_id=business_id,
+                            phone=conversation_key
+                        ).first()
+                    except Exception as e:
+                        log.warning(f"[WA-CONTEXT] Could not load conv state: {e}")
+                    
                     ai_context = {
                         'phone': from_number_e164,  # E.164 for CRM
                         'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
@@ -1220,7 +1270,11 @@ def baileys_webhook():
                         'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 12 הודעות!
                         'appointment_created': appointment_created,  # ✅ BUILD 93: הפגישה נקבעה!
                         'customer_memory': customer_memory_text,  # 🆕 Unified customer memory
-                        'ask_continue_or_fresh': ask_continue_or_fresh  # 🆕 Should ask returning customer?
+                        'ask_continue_or_fresh': ask_continue_or_fresh,  # 🆕 Should ask returning customer?
+                        # 🔥 FIX: Add conversation state for context awareness
+                        'last_user_message': conv_state.last_user_message if conv_state else None,
+                        'last_agent_message': conv_state.last_agent_message if conv_state else None,
+                        'conversation_has_history': len(previous_messages) >= 2  # Flag to indicate this is not first message
                     }
                     
                     # 🔥 FIX #2: Route to appropriate AI method based on intent
@@ -1252,6 +1306,48 @@ def baileys_webhook():
                     
                     ai_duration = time.time() - ai_start
                     log.info(f"[WA-AI-SUCCESS] AI generated response in {ai_duration:.2f}s, length={len(response_text) if response_text else 0}")
+                    
+                    # 🔥 ANTI-STUCK GUARD: Prevent bot from repeating the same greeting/response
+                    # If we have history (not first message) and the new response starts with
+                    # the same pattern as a recent bot message, it's likely stuck in a loop
+                    if len(previous_messages) >= 2 and response_text:
+                        # Get last bot message from history
+                        last_bot_message = None
+                        for msg in reversed(previous_messages):
+                            if msg.startswith("עוזר:") or msg.startswith("עוזרת:"):
+                                last_bot_message = msg.split(":", 1)[1].strip() if ":" in msg else msg
+                                break
+                        
+                        if last_bot_message:
+                            # Check if the new response starts with the same pattern (first 30 chars)
+                            # This catches cases like "היי זה רמי מ..." repeating
+                            response_start = response_text[:30].strip()
+                            last_start = last_bot_message[:30].strip()
+                            
+                            if response_start and last_start and response_start == last_start:
+                                log.warning(f"[WA-ANTI-STUCK] ⚠️ Bot repeating same greeting! Last: '{last_start}...', New: '{response_start}...'")
+                                log.info(f"[WA-ANTI-STUCK] Customer said: '{message_text}' - re-prompting AI to continue conversation")
+                                
+                                # Re-prompt the AI with explicit instruction to continue, not restart
+                                try:
+                                    enhanced_context = dict(ai_context)
+                                    enhanced_context['anti_repeat_instruction'] = (
+                                        f"הלקוח ענה: '{message_text}'. "
+                                        f"זו לא השיחה הראשונה! כבר שאלת את השאלה הראשונה. "
+                                        f"עכשיו המשך לשאלה הבאה בתהליך. אל תחזור על הברכה או השאלה הקודמת."
+                                    )
+                                    
+                                    response_text = ai_service.generate_response(
+                                        message=message_text,
+                                        business_id=business_id,
+                                        context=enhanced_context,
+                                        channel='whatsapp'
+                                    )
+                                    log.info(f"[WA-ANTI-STUCK] ✅ Re-generated response: {response_text[:50]}...")
+                                except Exception as retry_err:
+                                    log.error(f"[WA-ANTI-STUCK] ❌ Re-generation failed: {retry_err}")
+                                    # Keep original response if retry fails
+                    
                 except Exception as e:
                     logger.error(f"⚠️ AI call failed: {e}")
                     import traceback
@@ -1334,6 +1430,33 @@ def baileys_webhook():
                     )
                     log.info(f"[WA-OUTGOING] ✅ Job enqueued: {job.id[:8]} for message {wa_msg.id}, target={reply_jid[:20]}")
                     log.info(f"[WA-SUCCESS] ✅✅✅ FULL FLOW COMPLETED: webhook → AgentKit → sendMessage queued ✅✅✅")
+                    
+                    # 🔥 UPDATE CONVERSATION STATE: Update state after response is generated
+                    # This ensures the bot remembers context and doesn't repeat itself
+                    try:
+                        conv_state = WhatsAppConversationState.query.filter_by(
+                            business_id=business_id,
+                            phone=conversation_key
+                        ).first()
+                        
+                        if not conv_state:
+                            conv_state = WhatsAppConversationState()
+                            conv_state.business_id = business_id
+                            conv_state.phone = conversation_key
+                            conv_state.ai_active = True
+                            db.session.add(conv_state)
+                        
+                        # Update state with latest message exchange
+                        conv_state.last_user_message = message_text
+                        conv_state.last_agent_message = response_text[:500] if response_text else None  # Store first 500 chars
+                        conv_state.updated_at = datetime.utcnow()
+                        
+                        db.session.commit()
+                        log.info(f"[WA-STATE] ✅ Updated conversation state for {conversation_key[:30]}")
+                    except Exception as state_err:
+                        log.error(f"[WA-STATE] ❌ Failed to update conversation state: {state_err}")
+                        db.session.rollback()
+                    
                 except Exception as enqueue_error:
                     log.error(f"[WA-OUTGOING] ❌ Failed to enqueue WhatsApp send: {enqueue_error}")
                     # Fall back to synchronous send if enqueue fails

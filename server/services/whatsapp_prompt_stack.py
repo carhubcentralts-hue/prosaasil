@@ -43,12 +43,19 @@ FRAMEWORK_SYSTEM_PROMPT = """אתה עוזר דיגיטלי ב-WhatsApp.
 - אם יש summary/last_state: אל תתנהג כאילו זו שיחה חדשה.
 - שאל את הלקוח: "ראיתי שעצרנו ב-X. להמשיך משם או להתחיל מחדש?"
 - השתמש בהיסטוריה כדי להבין את ההקשר, אל תחזור על מה שכבר נשאל.
+- אם הלקוח כבר ענה על שאלה - אל תשאל אותה שוב! המשך לשאלה הבאה.
 
 📱 כללי פורמט ב-WhatsApp:
 - תענה קצר - הודעה אחת בכל פעם.
 - שאלה אחת בכל תגובה.
 - אל תשלח יותר מ-2-3 שורות.
 - תהיה ישיר ולעניין.
+
+🔄 כללי התקדמות בשיחה:
+- אם יש history_count >= 2 - זו לא שיחה חדשה! אל תברך שוב.
+- אם הלקוח ענה על השאלה שלך - המשך לשאלה הבאה, אל תחזור על הברכה.
+- בדוק את ההיסטוריה לראות מה כבר נשאל ומה כבר נענה.
+- כל תגובה שלך צריכה להתקדם בתהליך, לא לחזור על מה שכבר נאמר.
 
 🛡️ כללי בטיחות ויציבות:
 - אם חסר לך מידע - שאל את הלקוח במקום להמציא.
@@ -129,6 +136,10 @@ def build_whatsapp_prompt_stack(
         if context.get('customer_name'):
             context_parts.append(f"שם לקוח: {context['customer_name']}")
         
+        # 🔥 FIX: Add conversation history indicator
+        if context.get('conversation_has_history'):
+            context_parts.append(f"⚠️ זו לא שיחה חדשה! כבר יש היסטוריה של הודעות.")
+        
         # Conversation state (if exists)
         if context.get('summary'):
             context_parts.append(f"סיכום שיחה קודמת: {context['summary']}")
@@ -138,6 +149,13 @@ def build_whatsapp_prompt_stack(
         
         if context.get('last_intent'):
             context_parts.append(f"כוונה אחרונה: {context['last_intent']}")
+        
+        # 🔥 FIX: Add last exchange information
+        if context.get('last_user_message'):
+            context_parts.append(f"הודעה אחרונה מהלקוח: {context['last_user_message'][:100]}...")
+        
+        if context.get('last_agent_message'):
+            context_parts.append(f"התשובה האחרונה שלך: {context['last_agent_message'][:100]}...")
         
         if context_parts:
             messages.append({
@@ -157,6 +175,13 @@ def build_whatsapp_prompt_stack(
                     "content": f"📜 היסטוריה אחרונה ({len(history)} הודעות):\n" + "\n".join(history)
                 })
                 logger.info(f"📜 Added {len(history)} history messages to stack")
+        
+        # 🔥 FIX: Add anti-repetition instruction if there's a history
+        if context.get('anti_repeat_instruction'):
+            messages.append({
+                "role": "system",
+                "content": f"⚠️ הוראה חשובה:\n{context['anti_repeat_instruction']}"
+            })
     
     return messages
 
