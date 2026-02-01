@@ -3,6 +3,29 @@ import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
 import './index.css'
 
+// 🛡️ CLIENT GUARD: Auto-reload on chunk load errors (deploy race condition)
+// This handles the case where user has old HTML cached pointing to non-existent chunks
+(function () {
+  const KEY = "chunk_reload_once";
+  window.addEventListener("error", (e) => {
+    // Only process ErrorEvent with a message
+    if (!(e instanceof ErrorEvent) || !e.message) return;
+    
+    const msg = e.message;
+    if (msg.includes("Failed to fetch dynamically imported module") ||
+        msg.includes("Loading chunk") ||
+        msg.includes("ChunkLoadError")) {
+      console.warn('[CHUNK-GUARD] Detected chunk load error, reloading once...', msg);
+      if (!sessionStorage.getItem(KEY)) {
+        sessionStorage.setItem(KEY, "1");
+        location.reload(); // Hard reload once only (prevents infinite loop)
+      } else {
+        console.error('[CHUNK-GUARD] Already reloaded once, not reloading again to prevent loop');
+      }
+    }
+  });
+})();
+
 // 🔔 SERVICE WORKER REGISTRATION FOR PUSH NOTIFICATIONS
 // Register SW early on app load (production/HTTPS only)
 function registerServiceWorker() {
