@@ -182,8 +182,14 @@ def create_rule():
         if not data.get('name'):
             return jsonify({'error': 'name is required'}), 400
         
-        if not data.get('message_text'):
-            return jsonify({'error': 'message_text is required'}), 400
+        # message_text is optional if steps are provided or if send_immediately_on_enter with immediate_message
+        # But at least one message source must be provided
+        has_message_text = data.get('message_text') and data.get('message_text').strip()
+        has_steps = data.get('steps') and isinstance(data.get('steps'), list) and len(data.get('steps')) > 0
+        has_immediate = data.get('send_immediately_on_enter') and data.get('immediate_message') and data.get('immediate_message').strip()
+        
+        if not has_message_text and not has_steps and not has_immediate:
+            return jsonify({'error': 'At least one message must be provided (message_text, steps, or immediate_message)'}), 400
         
         if not data.get('status_ids') or not isinstance(data['status_ids'], list):
             return jsonify({'error': 'status_ids must be a non-empty array'}), 400
@@ -262,7 +268,7 @@ def create_rule():
         rule = scheduled_messages_service.create_rule(
             business_id=business_id,
             name=data['name'],
-            message_text=data['message_text'],
+            message_text=data.get('message_text', ''),  # Default to empty string for steps-only rules
             status_ids=data['status_ids'],
             delay_minutes=delay_minutes,
             delay_seconds=delay_seconds,
