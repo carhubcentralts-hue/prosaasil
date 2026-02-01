@@ -423,7 +423,7 @@ def delete_status(status_id):
             }), 409
         else:
             # Delete related ScheduledRuleStatus records first
-            # (Note: These should CASCADE delete automatically, but we do it explicitly for clarity)
+            # Explicit deletion for better error handling and logging (CASCADE is configured in DB)
             ScheduledRuleStatus.query.filter_by(status_id=status_id).delete()
             
             # Safe to delete the status
