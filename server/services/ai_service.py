@@ -957,13 +957,44 @@ class AIService:
             if customer_name:
                 agent_context['customer_name'] = customer_name
             
-            # Run agent (runner.run is async, so we need to await it)
-            logger.info(f"[AGENTKIT] Running agent with message: '{message[:50]}...'")
+            # 🔥 CRITICAL FIX: Convert previous_messages to proper message format for OpenAI Agents SDK
+            # The SDK expects a list of message dicts with 'role' and 'content' keys
+            messages_list = []
+            if context and 'previous_messages' in context:
+                previous_messages = context['previous_messages']
+                if isinstance(previous_messages, list) and len(previous_messages) > 0:
+                    logger.info(f"[AGENTKIT] Converting {len(previous_messages)} previous messages to OpenAI format")
+                    for prev_msg in previous_messages:
+                        # Messages are formatted as "לקוח: text" or "עוזר: text"
+                        if prev_msg.startswith("לקוח:"):
+                            messages_list.append({
+                                "role": "user",
+                                "content": prev_msg.replace("לקוח:", "").strip()
+                            })
+                        elif prev_msg.startswith("עוזר:"):
+                            messages_list.append({
+                                "role": "assistant",
+                                "content": prev_msg.replace("עוזר:", "").strip()
+                            })
+                        else:
+                            # Fallback: assume it's a user message
+                            messages_list.append({
+                                "role": "user",
+                                "content": prev_msg.strip()
+                            })
+            
+            # Add the current message
+            messages_list.append({
+                "role": "user",
+                "content": message
+            })
+            
+            logger.info(f"[AGENTKIT] Running agent with {len(messages_list)} messages (including {len(messages_list)-1} history)")
             runner = Runner()
             
-            # 🔥 FIX: runner.run() is async, so we need to await it properly
-            # Create the coroutine once to avoid duplication
-            agent_coroutine = runner.run(agent, message, context=agent_context)
+            # 🔥 FIX: Pass messages_list instead of just the current message
+            # This provides full conversation context to the agent
+            agent_coroutine = runner.run(agent, messages_list, context=agent_context)
             
             # Check if we're already in an async context
             try:
