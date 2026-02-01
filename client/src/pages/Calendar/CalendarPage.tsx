@@ -623,11 +623,6 @@ export function CalendarPage() {
 
   // Status management functions
   const handleSaveStatuses = async () => {
-    if (!appointmentStatuses || appointmentStatuses.length === 0) {
-      alert('אין סטטוסים לשמור');
-      return;
-    }
-    
     try {
       setSavingStatuses(true);
       await http.put('/api/calendar/config/appointment-statuses', {
