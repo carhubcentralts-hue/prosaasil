@@ -23,6 +23,7 @@ Environment Variables:
 """
 import os
 import logging
+import secrets
 from functools import wraps
 from flask import request, abort, jsonify
 
@@ -61,8 +62,8 @@ def require_internal_secret():
             # Get provided secret from request header
             provided = (request.headers.get("X-Internal-Secret") or "").strip()
             
-            # Validate secret
-            if not provided or provided != expected:
+            # Validate secret using constant-time comparison (timing attack protection)
+            if not provided or not secrets.compare_digest(provided, expected):
                 logger.warning(
                     f"[INTERNAL-AUTH] Unauthorized access attempt to {request.path} "
                     f"from {request.remote_addr}"

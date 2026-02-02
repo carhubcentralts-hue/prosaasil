@@ -88,9 +88,10 @@ add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" alway
 ```nginx
 add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https: wss:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
 ```
-- Prevents XSS attacks
-- Blocks unauthorized resource loading
-- Balanced policy (strict but functional)
+- Prevents many XSS attacks
+- Blocks framing (clickjacking protection)
+- Balanced policy (strict but functional for React/modern frameworks)
+- Allows HTTPS resources but blocks inline data: URIs for scripts
 
 #### Cross-Origin Policies
 ```nginx
@@ -100,6 +101,14 @@ add_header Cross-Origin-Embedder-Policy "require-corp" always;
 ```
 - Isolates browsing context
 - Prevents side-channel attacks (Spectre/Meltdown)
+
+#### Permissions Policy
+```nginx
+add_header Permissions-Policy "geolocation=(), microphone=(self), camera=()" always;
+```
+- Blocks geolocation access
+- Allows microphone for self (Twilio voice calls)
+- Blocks camera access
 
 #### Additional Headers
 ```nginx
@@ -285,10 +294,27 @@ curl -H "X-Internal-Secret: your-secret" https://your-domain.com/api/jobs/health
 ## 11. Known Security Considerations
 
 ### 11.1 CSP Policy
-Current policy allows `'unsafe-inline'` for styles and scripts. This is a balanced approach for:
-- Compatibility with React and modern frameworks
-- Inline styles in component libraries
-- Future: Implement nonce-based CSP for stricter protection
+Current policy allows `'unsafe-inline'` for styles and scripts and `https:` for external sources. 
+
+**Rationale:**
+- React and modern frameworks require inline styles
+- Component libraries use inline styles
+- Third-party integrations (OpenAI, Twilio, etc.) may load resources
+
+**Current Policy:** Balanced approach - prevents many XSS attacks while maintaining functionality.
+
+**Future Enhancement:** Implement nonce-based CSP for stricter protection:
+```nginx
+# Generate nonce per request
+set $csp_nonce $request_id;
+add_header Content-Security-Policy "script-src 'nonce-$csp_nonce'";
+```
+
+**Note:** The current policy still provides significant security benefits:
+- Blocks framing (frame-ancestors 'none')
+- Restricts base-uri and form-action
+- Requires explicit protocol for external resources
+- Prevents data: URIs for scripts
 
 ### 11.2 CORS
 CORS configuration is handled in Flask application, not nginx. Review `CORS_ALLOWED_ORIGINS` for production.

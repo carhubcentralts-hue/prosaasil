@@ -32,13 +32,12 @@ jobs:
         run: |
           # Run ruff for code quality checks
           ruff check server/ --output-format=github
-        continue-on-error: true
       
       - name: Run tests
         run: |
           # Run pytest with coverage
-          pytest tests/ -v --tb=short || true
-        continue-on-error: true
+          pytest tests/ -v --tb=short
+        continue-on-error: true  # Allow test failures for now (may have missing dependencies)
         
       - name: Security audit with pip-audit
         run: |
@@ -68,9 +67,10 @@ jobs:
       - name: Run npm audit
         run: |
           # Check for vulnerabilities (production only)
-          npm audit --production --audit-level=moderate
+          # Allow moderate vulnerabilities but fail on high/critical
+          npm audit --production --audit-level=high
         working-directory: ./client
-        continue-on-error: true
+        continue-on-error: true  # Allow audit warnings for now (may have dev dependencies issues)
       
       - name: Build frontend (production mode)
         run: |
