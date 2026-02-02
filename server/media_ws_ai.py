@@ -1100,7 +1100,22 @@ logger.info(
 # Each call_sid has its own session + dispatcher state
 _sessions_registry = {}  # call_sid -> {"session": StreamingSTTSession, "utterance": {...}, "tenant": str, "ts": float}
 _registry_lock = threading.RLock()
-MAX_CONCURRENT_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "50"))
+
+# Parse MAX_CONCURRENT_CALLS with support for unlimited (0, empty, none, unlimited)
+_raw = (os.getenv("MAX_CONCURRENT_CALLS") or "").strip().lower()
+
+# 0 / empty / "none" / "unlimited" => unlimited
+if _raw in ("", "0", "none", "unlimited", "false"):
+    MAX_CONCURRENT_CALLS = 0
+else:
+    try:
+        MAX_CONCURRENT_CALLS = int(_raw)
+    except ValueError:
+        MAX_CONCURRENT_CALLS = 0  # fail-open (unlimited)
+
+def _is_over_capacity() -> bool:
+    """Check if server is over capacity. Returns False if unlimited (0)."""
+    return MAX_CONCURRENT_CALLS > 0 and len(_sessions_registry) >= MAX_CONCURRENT_CALLS
 
 # 🔥 SESSION LIFECYCLE: Handler registry for webhook-triggered close
 # Maps call_sid -> MediaStreamHandler instance for external close triggers
@@ -1110,7 +1125,7 @@ _handler_registry_lock = threading.RLock()
 def _register_session(call_sid: str, session, tenant_id=None):
     """Register a new STT session for a call (thread-safe)"""
     with _registry_lock:
-        if len(_sessions_registry) >= MAX_CONCURRENT_CALLS:
+        if _is_over_capacity():
             raise RuntimeError(f"Over capacity: {len(_sessions_registry)}/{MAX_CONCURRENT_CALLS} calls")
         _sessions_registry[call_sid] = {
             "session": session,
