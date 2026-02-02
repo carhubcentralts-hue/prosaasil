@@ -671,6 +671,13 @@ export function CalendarPage() {
         end_time: end_time_local
       };
       
+      // 🔥 DEBUG: Log data being sent to verify calendar_id is included
+      console.log('📤 Sending appointment data:', {
+        calendar_id: dataToSend.calendar_id,
+        title: dataToSend.title,
+        all_data: dataToSend
+      });
+      
       // Get CSRF token from cookie
       const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_token='))?.split('=')[1];
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
@@ -1886,7 +1893,9 @@ export function CalendarPage() {
                     onChange={(e) => {
                       const value = e.target.value;
                       const parsed = value ? parseInt(value, 10) : undefined;
-                      setFormData({...formData, calendar_id: parsed && !isNaN(parsed) ? parsed : undefined});
+                      const newCalendarId = parsed && !isNaN(parsed) ? parsed : undefined;
+                      console.log('🗓️ Calendar selected:', { value, parsed, newCalendarId });
+                      setFormData({...formData, calendar_id: newCalendarId});
                     }}
                     data-testid="select-calendar"
                   >

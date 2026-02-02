@@ -298,6 +298,9 @@ def create_appointment():
         if not data:
             return jsonify({'error': 'Missing request data'}), 400
         
+        # 🔥 DEBUG: Log incoming data to verify calendar_id is received
+        logger.info(f"📥 Creating appointment - Received calendar_id: {data.get('calendar_id')}")
+        
         # Validate required fields
         required_fields = ['title', 'start_time', 'end_time']
         for field in required_fields:
@@ -395,6 +398,8 @@ def create_appointment():
         # 🔥 FIX: Assign calendar_id - if not provided, use default calendar
         # This ensures manually created appointments are visible when filtering by calendar
         calendar_id = data.get('calendar_id')
+        logger.info(f"📋 Received calendar_id from request: {calendar_id} (type: {type(calendar_id)})")
+        
         if not calendar_id:
             # Get default calendar for business (same pattern as auto_meeting and WhatsApp handler)
             from server.models_sql import BusinessCalendar
@@ -408,8 +413,11 @@ def create_appointment():
                 logger.info(f"📅 Manual appointment assigned to default calendar '{default_calendar.name}' (id={default_calendar.id})")
             else:
                 logger.warning(f"⚠️ No active calendars found for business_id={business_id}, appointment will have NULL calendar_id")
+        else:
+            logger.info(f"✅ Using provided calendar_id={calendar_id}")
         
         appointment.calendar_id = calendar_id
+        logger.info(f"💾 Appointment.calendar_id set to: {appointment.calendar_id}")
         
         db.session.add(appointment)
         db.session.commit()
