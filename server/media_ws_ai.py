@@ -15893,8 +15893,9 @@ class MediaStreamHandler:
                 # If no valid function_calls found, simply ignore the event and continue listening
                 # Gemini will proceed with the conversation naturally
                 # NOTE: With the fix in gemini_realtime_client.py, empty events are now filtered at source
+                # This check serves as a safety fallback in case the event format changes or edge cases arise
                 if not gemini_function_calls:
-                    logger.debug(f"[GEMINI] No extractable function_calls - ignoring event and continuing")
+                    logger.debug(f"[GEMINI] No extractable function_calls (safety fallback) - ignoring event")
                     return
             
             logger.info(f"🔧 [GEMINI] Processing {len(gemini_function_calls)} function call(s)")
