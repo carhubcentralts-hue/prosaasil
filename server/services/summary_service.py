@@ -205,7 +205,7 @@ def summarize_conversation(
 
 חשוב: כתוב תמיד סיכום - גם אם השיחה קצרה מאוד!
 
-כתוב את הסיכום בעברית:
+כתוב את הסיכום בעברית:"""
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -267,7 +267,7 @@ def summarize_conversation(
 def _fallback_summary(transcription: str) -> str:
     """
     סיכום fallback פשוט (במקרה של כשל ב-AI)
-    🔥 FIX: Generate simple summary from transcript directly without mentioning AI issues
+    FIX: Generate simple summary from transcript directly without mentioning AI issues
     Note: This should RARELY be used - only when AI completely fails
     """
     words = transcription.strip().split()
