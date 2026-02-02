@@ -44,6 +44,18 @@ _STATS_LOCK = threading.Lock()
 # 🔥 Configuration: Repetitive response detection threshold
 MAX_UNIQUE_RESPONSES_THRESHOLD = 2  # If only 1-2 unique responses in last 5 turns, warn about repetition
 
+# 🔥 WHATSAPP ANTI-REPETITION RULES: Framework to prevent bot from repeating itself
+# These rules are prepended to WhatsApp prompts to explicitly instruct the AI to avoid repetition
+WHATSAPP_ANTI_REPETITION_RULES = """🔒 ANTI-REPETITION FRAMEWORK (קרא את זה בכל תגובה!):
+- אסור לחזור על אותה שאלה או תגובה פעמיים ברצף
+- אם שאלת שאלה והלקוח לא ענה - נסה גישה אחרת או המשך בשיחה
+- קרא את כל ההיסטוריה לפני שאתה עונה - אל תשכח מה נאמר
+- אם כבר שאלת משהו בהודעה הקודמת שלך - אל תשאל את זה שוב
+- תן תגובות מגוונות - אל תשתמש באותם ביטויים שוב ושוב
+- כל תגובה צריכה להתקדם בשיחה קדימה, לא לחזור לאחור
+
+"""
+
 def get_conversation_stats(conversation_id: str = None) -> Dict:
     """
     🔥 NEW: Get conversation statistics for debugging
@@ -1350,18 +1362,9 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         # Only add date context (data, not instruction) and anti-repetition framework
         if custom_instructions and custom_instructions.strip():
             # Use DB prompt with anti-repetition framework prepended
-            anti_repetition_rules = """🔒 ANTI-REPETITION FRAMEWORK (קרא את זה בכל תגובה!):
-- אסור לחזור על אותה שאלה או תגובה פעמיים ברצף
-- אם שאלת שאלה והלקוח לא ענה - נסה גישה אחרת או המשך בשיחה
-- קרא את כל ההיסטוריה לפני שאתה עונה - אל תשכח מה נאמר
-- אם כבר שאלת משהו בהודעה הקודמת שלך - אל תשאל את זה שוב
-- תן תגובות מגוונות - אל תשתמש באותם ביטויים שוב ושוב
-- כל תגובה צריכה להתקדם בשיחה קדימה, לא לחזור לאחור
-
-"""
             instructions = f"""TODAY: {today_str}
 
-{anti_repetition_rules}
+{WHATSAPP_ANTI_REPETITION_RULES}
 ---
 {custom_instructions}"""
             logger.info(f"✅ WhatsApp: Using DB prompt with anti-repetition rules ({len(custom_instructions)} chars)")
@@ -1565,16 +1568,17 @@ YOUR INSTRUCTIONS:
         
         # 🔥 BUILD 115: Dynamic max_tokens per channel
         # Phone/calls: 60 tokens (15 words) - prevents queue overflow
-        # WhatsApp: 2000 tokens (~500-600 Hebrew words) - allows full detailed responses without truncation
+        # WhatsApp: 4096 tokens (~1000-1200 Hebrew words) - MAXIMUM for comprehensive responses
+        # This ensures FULL prompt processing with NO truncation whatsoever
         # Temperature: 0.3 for varied responses while maintaining consistency
         if channel == "whatsapp":
             model_settings = ModelSettings(
                 temperature=0.3,  # 🔥 FIX: Temperature 0.3 for varied, non-repetitive responses
-                max_tokens=2000,  # 🔥 WhatsApp: 2000 tokens to prevent truncation and support full prompt processing
+                max_tokens=4096,  # 🔥 WhatsApp: 4096 tokens (4K) - maximum recommended for comprehensive responses
                 tool_choice="auto",
                 parallel_tool_calls=True
             )
-            logger.info(f"📱 WhatsApp channel: using temperature=0.3, max_tokens=2000")
+            logger.info(f"📱 WhatsApp channel: using temperature=0.3, max_tokens=4096 (4K)")
         else:
             model_settings = AGENT_MODEL_SETTINGS  # Phone: 60 tokens (global default)
             logger.info(f"📞 Phone channel: using max_tokens=60")

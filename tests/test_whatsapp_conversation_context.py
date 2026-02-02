@@ -94,7 +94,7 @@ class TestWhatsAppConversationContext:
         """
         Verify WhatsApp agent is created with correct settings:
         - temperature: 0.3 (not 0.0)
-        - max_tokens: 2000 (not 800)
+        - max_tokens: 4096 (not 800 or 2000) - MAXIMUM RECOMMENDED
         """
         from server.agent_tools.agent_factory import create_booking_agent
         from agents import ModelSettings
@@ -130,8 +130,8 @@ class TestWhatsAppConversationContext:
                     assert model_settings is not None, "model_settings should be provided"
                     assert model_settings.temperature == 0.3, \
                         f"Expected temperature=0.3 for WhatsApp, got {model_settings.temperature}"
-                    assert model_settings.max_tokens == 2000, \
-                        f"Expected max_tokens=2000 for WhatsApp, got {model_settings.max_tokens}"
+                    assert model_settings.max_tokens == 4096, \
+                        f"Expected max_tokens=4096 for WhatsApp, got {model_settings.max_tokens}"
     
     def test_anti_repetition_rules_in_prompt(self):
         """
@@ -219,8 +219,8 @@ class TestWhatsAppConversationContext:
                     assert model_settings == AGENT_MODEL_SETTINGS, \
                         "Non-WhatsApp channels should use default AGENT_MODEL_SETTINGS"
                     
-                    # Phone channel should NOT have 2000 tokens
-                    assert model_settings.max_tokens != 2000, \
+                    # Phone channel should NOT have 4096 tokens
+                    assert model_settings.max_tokens != 4096, \
                         "Phone channel should not use WhatsApp's max_tokens"
 
 
