@@ -323,11 +323,23 @@ export function CalendarPage() {
         ? `/api/calendar/appointments?${queryString}` 
         : '/api/calendar/appointments';
       
+      console.log('🔍 Fetching appointments:', { url, filterCalendar });
+      
       // ✅ משתמש בhttp service שמכיל את כל ההגדרות הנכונות
       const data = await http.get<{appointments: Appointment[]}>(url);
+      
+      console.log('✅ Appointments loaded:', { 
+        count: data.appointments?.length || 0, 
+        filterCalendar,
+        appointments: data.appointments 
+      });
+      
       setAppointments(data.appointments || []);
     } catch (error) {
-      console.error('שגיאה בטעינת פגישות:', error);
+      console.error('❌ שגיאה בטעינת פגישות:', error);
+      // Show error to user
+      alert('שגיאה בטעינת פגישות: ' + (error instanceof Error ? error.message : 'שגיאה לא ידועה'));
+      setAppointments([]); // Clear appointments on error
     } finally {
       setLoading(false);
     }
@@ -1385,6 +1397,13 @@ export function CalendarPage() {
                       {appointment.auto_generated && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                           AI
+                        </span>
+                      )}
+                      {/* 🔥 NEW: Show calendar name in unified mode */}
+                      {filterCalendar === 'all' && appointment.calendar_id && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                          <CalendarIcon className="h-3 w-3" />
+                          {calendars.find(c => c.id === appointment.calendar_id)?.name || `יומן #${appointment.calendar_id}`}
                         </span>
                       )}
                     </div>
