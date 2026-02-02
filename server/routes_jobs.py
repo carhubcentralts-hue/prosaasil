@@ -5,10 +5,14 @@ Provides visibility into RQ job system health:
 - Queue statistics (queued, started, finished, failed)
 - Scheduler health (last tick, lock status)
 - Worker status
+
+⚠️ SECURITY: All endpoints protected with require_internal_secret()
+These are operational endpoints that should not be publicly accessible.
 """
 import logging
 from flask import Blueprint, jsonify
 from server.extensions import csrf
+from server.security.internal_auth import require_internal_secret
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +20,8 @@ jobs_bp = Blueprint('jobs', __name__, url_prefix='/api/jobs')
 
 
 @jobs_bp.route('/health', methods=['GET'])
-@csrf.exempt  # Health checks don't need CSRF
+@csrf.exempt  # Internal endpoint - uses X-Internal-Secret header authentication
+@require_internal_secret()
 def jobs_health():
     """
     Get job system health information
@@ -79,7 +84,8 @@ def jobs_health():
 
 
 @jobs_bp.route('/stats', methods=['GET'])
-@csrf.exempt
+@csrf.exempt  # Internal endpoint - uses X-Internal-Secret header authentication
+@require_internal_secret()
 def jobs_stats():
     """
     Get detailed job statistics
@@ -102,7 +108,8 @@ def jobs_stats():
 
 
 @jobs_bp.route('/scheduler', methods=['GET'])
-@csrf.exempt
+@csrf.exempt  # Internal endpoint - uses X-Internal-Secret header authentication
+@require_internal_secret()
 def scheduler_status():
     """
     Get scheduler status
@@ -123,7 +130,8 @@ def scheduler_status():
 
 
 @jobs_bp.route('/worker/config', methods=['GET'])
-@csrf.exempt
+@csrf.exempt  # Internal endpoint - uses X-Internal-Secret header authentication
+@require_internal_secret()
 def worker_config():
     """
     Get worker configuration

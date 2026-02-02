@@ -10,12 +10,13 @@ import time
 import logging
 import threading
 from datetime import datetime
-from flask import Blueprint, request, current_app, make_response, Response
+from flask import Blueprint, request, current_app, make_response, Response, jsonify
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from server.stream_state import stream_registry
 from server.twilio_security import require_twilio_signature
 from server.extensions import csrf
+from server.security.internal_auth import require_internal_secret
 
 # ייבוא מראש למניעת עיכובים ב-webhooks
 from server.tasks_recording import save_call_status, enqueue_recording
@@ -53,7 +54,8 @@ twilio_bp = Blueprint("twilio", __name__)
 # Backwards-compatible alias used by pre-deploy smoke checks / older imports.
 routes_twilio_bp = twilio_bp
 
-@csrf.exempt
+@csrf.exempt  # Internal endpoint - uses X-Internal-Secret header authentication
+@require_internal_secret()
 @twilio_bp.route("/health/details", methods=["GET"])
 def health_details():
     """
