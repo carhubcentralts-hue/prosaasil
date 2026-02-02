@@ -550,8 +550,9 @@ def process_recording_async(form_data):
         realtime_transcript = None  # Will be loaded from DB if needed
         extracted_service = None
         extracted_city = None
+        extracted_customer_name = None
         extraction_confidence = None
-        
+
         # 🔥 BUILD 342: Track recording metadata to verify actual transcription from file
         audio_bytes_len = None
         audio_duration_sec = None
@@ -616,6 +617,7 @@ def process_recording_async(form_data):
                 final_transcript = None
                 extracted_service = None
                 extracted_city = None
+                extracted_customer_name = None
                 extraction_confidence = None
                 transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed
         else:
@@ -685,12 +687,17 @@ def process_recording_async(form_data):
                 except Exception:
                     pass
             
+            # 🔥 FIX: Prioritize audio_duration_sec (from actual audio file) over call_log.duration
+            # call_log.duration might be None/0 if recording callback hasn't run yet
+            # audio_duration_sec is calculated from the actual audio file at lines 569-582
+            actual_duration = audio_duration_sec or (call_log.duration if call_log else None)
+
             summary = summarize_conversation(
-                source_text_for_summary, 
-                call_sid, 
-                business_type, 
+                source_text_for_summary,
+                call_sid,
+                business_type,
                 business_name,
-                call_duration=call_log.duration if call_log else audio_duration_sec  # 🆕 Pass duration for smart summary!
+                call_duration=actual_duration
             )
             # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
             if not DEBUG:
@@ -785,18 +792,22 @@ def process_recording_async(form_data):
                             log.debug(f"[OFFLINE_EXTRACT] ✅ Extracted service from {extraction_source}: '{extracted_service}'")
                         logger.info(f"✅ [OFFLINE_EXTRACT] Service: {extracted_service}")
                     
+                    if extraction.get("customer_name"):
+                        extracted_customer_name = extraction.get("customer_name")
+                        log.info(f"[OFFLINE_EXTRACT] ✅ Extracted customer_name from {extraction_source}: '{extracted_customer_name}'")
+
                     if extraction.get("confidence") is not None:
                         extraction_confidence = extraction.get("confidence")
                         if not DEBUG:
                             log.debug(f"[OFFLINE_EXTRACT] ✅ Extraction confidence: {extraction_confidence:.2f}")
-                    
+
                     # Log final extraction result
-                    if extracted_city or extracted_service:
+                    if extracted_city or extracted_service or extracted_customer_name:
                         if not DEBUG:
-                            log.debug(f"[OFFLINE_EXTRACT] ✅ Extracted from {extraction_source}: city='{extracted_city}', service='{extracted_service}', conf={extraction_confidence}")
+                            log.debug(f"[OFFLINE_EXTRACT] ✅ Extracted from {extraction_source}: city='{extracted_city}', service='{extracted_service}', name='{extracted_customer_name}', conf={extraction_confidence}")
                     else:
                         if not DEBUG:
-                            log.debug(f"[OFFLINE_EXTRACT] ⚠️ No city/service found in {extraction_source}")
+                            log.debug(f"[OFFLINE_EXTRACT] ⚠️ No city/service/name found in {extraction_source}")
                         
                 except Exception as e:
                     logger.error(f"❌ [OFFLINE_EXTRACT] Failed to extract from {extraction_source}: {e}")
@@ -1299,7 +1310,19 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     if update_city:
                         lead.city = extracted_city
                         log.info(f"[OFFLINE_EXTRACT] ✅ Updated lead {lead.id} city: '{extracted_city}'")
-                
+
+                # 🆕 POST-CALL: Update Lead.name with AI-extracted customer name
+                if extracted_customer_name and lead:
+                    from server.services.contact_identity_service import ContactIdentityService
+                    old_name = lead.name or ''
+                    ContactIdentityService.apply_extracted_name(
+                        lead=lead,
+                        extracted_name=extracted_customer_name,
+                        source='call_ai',
+                        confidence=extraction_confidence,
+                        business_id=call_log.business_id
+                    )
+
                 # 3. ✨ סיכום חכם של השיחה (שימוש בסיכום שכבר יצרנו!)
                 # 🔥 FIX: Use final_transcript from recording (NO realtime!)
                 conversation_summary = ci.generate_conversation_summary(final_transcript if final_transcript else "")

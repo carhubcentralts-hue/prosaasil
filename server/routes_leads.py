@@ -463,6 +463,7 @@ def list_leads():
                 or_(
                     Lead.first_name.ilike(search_term),
                     Lead.last_name.ilike(search_term),
+                    Lead.name.ilike(search_term),
                     Lead.phone_e164.ilike(search_term)
                 )
             )
@@ -502,6 +503,8 @@ def list_leads():
                 "id": lead.id,
                 "first_name": lead.first_name,
                 "last_name": lead.last_name,
+                "name": lead.name,
+                "name_source": lead.name_source,
                 "full_name": lead.full_name,
                 "phone_e164": lead.phone_e164,
                 "display_phone": lead.display_phone,
@@ -780,6 +783,8 @@ def get_lead_detail(lead_id):
             "id": lead.id,
             "first_name": lead.first_name,
             "last_name": lead.last_name,
+            "name": lead.name,
+            "name_source": lead.name_source,
             "full_name": lead.full_name,
             "phone_e164": lead.phone_e164,
             "display_phone": lead.display_phone,
@@ -795,7 +800,7 @@ def get_lead_detail(lead_id):
             "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
             "last_contact_at": lead.last_contact_at.isoformat() if lead.last_contact_at else None,
             "tenant_id": lead.tenant_id,
-            
+
             "reminders": formatted_reminders,
             "activity": formatted_activities
         }
@@ -850,7 +855,16 @@ def update_lead(lead_id):
             if old_value != new_value:
                 changes[field] = {"from": old_value, "to": new_value}
                 setattr(lead, field, new_value)
-    
+
+    # Sync first_name/last_name → unified name field and mark as user_provided
+    if 'first_name' in data or 'last_name' in data:
+        parts = [lead.first_name or '', lead.last_name or '']
+        unified = ' '.join(p for p in parts if p).strip()
+        if unified:
+            lead.name = unified
+            lead.name_source = 'user_provided'
+            lead.name_updated_at = datetime.utcnow()
+
     # Update timestamp
     lead.updated_at = datetime.utcnow()
     
@@ -870,12 +884,15 @@ def update_lead(lead_id):
     
     # ✅ FIX: Return the updated lead object so frontend can update UI
     return jsonify({
-        "message": "Lead updated successfully", 
+        "message": "Lead updated successfully",
         "changes": changes,
         "lead": {
             "id": lead.id,
             "first_name": lead.first_name,
             "last_name": lead.last_name,
+            "name": lead.name,
+            "name_source": lead.name_source,
+            "full_name": lead.full_name,
             "phone_e164": lead.phone_e164,
             "email": lead.email,
             "gender": lead.gender,
@@ -2965,6 +2982,7 @@ def select_lead_ids():
                 or_(
                     Lead.first_name.ilike(search_term),
                     Lead.last_name.ilike(search_term),
+                    Lead.name.ilike(search_term),
                     Lead.phone_e164.ilike(search_term)
                 )
             )
@@ -3061,6 +3079,7 @@ def export_leads():
                 or_(
                     Lead.first_name.ilike(search_term),
                     Lead.last_name.ilike(search_term),
+                    Lead.name.ilike(search_term),
                     Lead.phone_e164.ilike(search_term)
                 )
             )

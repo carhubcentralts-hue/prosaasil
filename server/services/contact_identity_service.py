@@ -347,10 +347,11 @@ class ContactIdentityService:
             lead.name = push_name.strip()
             lead.name_source = 'whatsapp'
             lead.name_updated_at = datetime.utcnow()
+            ContactIdentityService._sync_name_to_first_last(lead, push_name.strip())
         else:
             lead.name = "ליד WhatsApp"  # Fallback name
             lead.name_source = 'whatsapp'
-        
+
         db.session.add(lead)
         db.session.flush()  # Get lead.id
         
@@ -466,10 +467,11 @@ class ContactIdentityService:
             lead.name = caller_name.strip()
             lead.name_source = 'call'
             lead.name_updated_at = datetime.utcnow()
+            ContactIdentityService._sync_name_to_first_last(lead, caller_name.strip())
         else:
             lead.name = "ליד חדש"  # Fallback name
             lead.name_source = 'call'
-        
+
         db.session.add(lead)
         db.session.flush()  # Get lead.id
         
@@ -486,51 +488,136 @@ class ContactIdentityService:
         logger.info(f"[ContactIdentity] ✅ Created new lead: lead_id={lead.id}, phone={normalized_phone}")
         return lead
     
+    # Placeholder names that should always be overwritten
+    PLACEHOLDER_NAMES = {'ליד חדש', 'ליד WhatsApp', 'ליד whatsapp', 'ללא שם', 'לקוח', ''}
+
+    @staticmethod
+    def _sync_name_to_first_last(lead: Lead, full_name: str):
+        """
+        Split a full name into first_name / last_name so the API and UI
+        see the update immediately (they render first_name + last_name).
+        """
+        if not full_name:
+            return
+        parts = full_name.strip().split(None, 1)
+        lead.first_name = parts[0]
+        lead.last_name = parts[1] if len(parts) > 1 else None
+
     @staticmethod
     def _update_lead_name(lead: Lead, new_name: Optional[str], source: str):
         """
         Update lead name intelligently - respects name_source priority.
-        
+
         Priority (highest to lowest):
         1. user_provided (manual entry) - NEVER overwrite
-        2. call / whatsapp (from actual conversation)
-        3. No name / generic name - always overwrite
-        
-        Args:
-            lead: Lead object to update
-            new_name: New name to potentially set
-            source: Source of new name ('whatsapp' or 'call')
+        2. call_ai (AI-extracted from transcript, high confidence)
+        3. call / whatsapp (from caller ID or push_name)
+        4. No name / generic name - always overwrite
+
+        Also syncs to first_name/last_name for UI display.
         """
         if not new_name or not new_name.strip():
             return
-        
+
         new_name = new_name.strip()
-        
+
         # Skip generic names
         if new_name.lower() in ['unknown', 'anonymous', 'ליד חדש', 'ליד whatsapp']:
             return
-        
+
         # Never overwrite user_provided names
         if lead.name_source == 'user_provided':
-            logger.debug(f"[ContactIdentity] Skipping name update: user_provided takes precedence")
+            logger.info(f"[LEAD-NAME] candidate=\"{new_name}\" lead_id={lead.id} old=\"{lead.name}\" action=skipped reason=user_provided source={source}")
             return
-        
-        # Always overwrite if no current name or generic name
+
         current_name = lead.name or ""
-        if not current_name or current_name in ['ליד חדש', 'ליד WhatsApp', 'ללא שם']:
-            logger.info(f"[ContactIdentity] Updating name: '{current_name}' → '{new_name}' (source: {source})")
+
+        # Always overwrite if no current name or generic placeholder
+        if not current_name or current_name in ContactIdentityService.PLACEHOLDER_NAMES:
+            logger.info(f"[LEAD-NAME] candidate=\"{new_name}\" lead_id={lead.id} old=\"{current_name}\" action=updated reason=empty_or_placeholder source={source}")
             lead.name = new_name
             lead.name_source = source
             lead.name_updated_at = datetime.utcnow()
+            ContactIdentityService._sync_name_to_first_last(lead, new_name)
             db.session.commit()
             return
-        
-        # If current name is from same or lower priority source, update
-        if lead.name_source in [source, 'whatsapp', 'call']:
-            # Check if new name is "better" (longer, more informative)
+
+        # If current name is from same or lower priority source, update if better
+        if lead.name_source in [source, 'whatsapp', 'call', 'call_ai', None]:
             if len(new_name) > len(current_name):
-                logger.info(f"[ContactIdentity] Updating name (better): '{current_name}' → '{new_name}'")
+                logger.info(f"[LEAD-NAME] candidate=\"{new_name}\" lead_id={lead.id} old=\"{current_name}\" action=updated reason=longer_name source={source}")
                 lead.name = new_name
                 lead.name_source = source
                 lead.name_updated_at = datetime.utcnow()
+                ContactIdentityService._sync_name_to_first_last(lead, new_name)
                 db.session.commit()
+                return
+
+        logger.debug(f"[LEAD-NAME] candidate=\"{new_name}\" lead_id={lead.id} old=\"{current_name}\" action=skipped reason=existing_name_ok source={source}")
+
+    @staticmethod
+    def apply_extracted_name(
+        lead: Lead,
+        extracted_name: str,
+        source: str = 'call_ai',
+        confidence: Optional[float] = None,
+        business_id: Optional[int] = None
+    ):
+        """
+        Apply an AI-extracted customer name to a lead.
+        Canonical entry point for post-call name updates.
+
+        Rules:
+        - Never overwrite user_provided names
+        - Only overwrite existing real names if confidence >= 0.85
+        - Always overwrite placeholder/empty names
+        - Syncs to first_name/last_name for UI
+        - Logs every decision for debugging
+
+        Args:
+            lead: Lead object
+            extracted_name: Name extracted by AI
+            source: 'call_ai', 'whatsapp', 'call', etc.
+            confidence: Extraction confidence (0.0-1.0)
+            business_id: For logging
+        """
+        if not extracted_name or not extracted_name.strip():
+            return
+
+        extracted_name = extracted_name.strip()
+
+        # Validate via name_utils
+        from server.utils.name_utils import normalize_name
+        normalized = normalize_name(extracted_name)
+        if not normalized:
+            logger.info(f"[LEAD-NAME] candidate=\"{extracted_name}\" lead_id={lead.id} biz={business_id} action=skipped reason=invalid_name source={source}")
+            return
+
+        # Never overwrite user_provided
+        if lead.name_source == 'user_provided':
+            logger.info(f"[LEAD-NAME] candidate=\"{normalized}\" lead_id={lead.id} biz={business_id} action=skipped reason=user_provided source={source}")
+            return
+
+        current_name = lead.name or ""
+
+        # Always overwrite placeholders or empty
+        if not current_name or current_name in ContactIdentityService.PLACEHOLDER_NAMES:
+            logger.info(f"[LEAD-NAME] candidate=\"{normalized}\" lead_id={lead.id} biz={business_id} old=\"{current_name}\" action=updated reason=empty_or_placeholder source={source}")
+            lead.name = normalized
+            lead.name_source = source
+            lead.name_updated_at = datetime.utcnow()
+            ContactIdentityService._sync_name_to_first_last(lead, normalized)
+            db.session.commit()
+            return
+
+        # Existing real name — only overwrite with high confidence
+        if confidence is not None and confidence >= 0.85:
+            logger.info(f"[LEAD-NAME] candidate=\"{normalized}\" lead_id={lead.id} biz={business_id} old=\"{current_name}\" action=updated reason=high_confidence({confidence:.2f}) source={source}")
+            lead.name = normalized
+            lead.name_source = source
+            lead.name_updated_at = datetime.utcnow()
+            ContactIdentityService._sync_name_to_first_last(lead, normalized)
+            db.session.commit()
+            return
+
+        logger.info(f"[LEAD-NAME] candidate=\"{normalized}\" lead_id={lead.id} biz={business_id} old=\"{current_name}\" action=skipped reason=low_confidence({confidence}) source={source}")

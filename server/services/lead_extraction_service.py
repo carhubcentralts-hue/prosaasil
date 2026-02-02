@@ -128,6 +128,7 @@ def extract_city_and_service_from_summary(summary_text: str) -> dict:
             "city": None,
             "raw_city": None,
             "service_category": None,
+            "customer_name": None,
             "confidence": None,
         }
     
@@ -140,9 +141,10 @@ def extract_city_and_service_from_summary(summary_text: str) -> dict:
         # Build prompt - focused on summary extraction
         system_prompt = """Extract data from Hebrew call summaries.
 
-Extract two items:
+Extract three items:
 1. CITY: Where service is needed (Hebrew)
 2. SERVICE TYPE: Type of service needed (Hebrew)
+3. CUSTOMER NAME: The customer's personal name (Hebrew or English)
 
 Rules:
 - Use only information in summary
@@ -152,12 +154,17 @@ Rules:
 - If uncertain, leave empty
 - Return canonical name (city) and raw input (raw_city)
 - For service, extract specific service mentioned
+- For customer_name: extract ONLY the customer's first name or full name
+  - Must be a real person name, NOT a phone number or business name
+  - If the summary says "שי called" or "השם שלי דני", extract the name
+  - If no name is mentioned, return null
 
 Output JSON:
 {
-  "city": "<Hebrew city name or empty>",
-  "raw_city": "<Raw city from customer or empty>",
-  "service_category": "<Hebrew service type or empty>",
+  "city": "<Hebrew city name or null>",
+  "raw_city": "<Raw city from customer or null>",
+  "service_category": "<Hebrew service type or null>",
+  "customer_name": "<Customer personal name or null>",
   "confidence": <float 0.0-1.0>
 }
 
@@ -168,14 +175,14 @@ Confidence:
 - 0.0-0.5: Weak evidence
 
 Examples:
-- "Customer needs locksmith in Tel Aviv" → {"city": "Tel Aviv", "raw_city": "Tel Aviv", "service_category": "locksmith", "confidence": 0.95}
+- "שי התקשר לגבי מנעולן בתל אביב" → {"city": "תל אביב", "raw_city": "תל אביב", "service_category": "מנעולן", "customer_name": "שי", "confidence": 0.95}
 """
-        
-        user_prompt = f"""Extract city and service from call summary (Hebrew):
+
+        user_prompt = f"""Extract city, service, and customer name from call summary (Hebrew):
 
 \"\"\"{summary_text}\"\"\"
 
-Return JSON with four fields: city, raw_city, service_category, confidence.
+Return JSON with five fields: city, raw_city, service_category, customer_name, confidence.
 """
         
         # Call OpenAI
@@ -219,26 +226,36 @@ Return JSON with four fields: city, raw_city, service_category, confidence.
         city = result.get("city", "").strip()
         raw_city = result.get("raw_city", "").strip()
         service_category = result.get("service_category", "").strip()
+        customer_name = result.get("customer_name", "").strip()
         confidence = float(result.get("confidence", 0.0))
-        
+
         # Normalize empty strings to None
         city = city if city else None
         raw_city = raw_city if raw_city else None
         service_category = service_category if service_category else None
-        
+        customer_name = customer_name if customer_name else None
+
+        # Validate customer_name: reject phone-like strings and very short names
+        if customer_name:
+            import re as _re
+            if _re.match(r'^[\d\+\-\(\)\s]+$', customer_name) or len(customer_name) < 2:
+                logger.info(f"[OFFLINE_EXTRACT] Rejected invalid customer_name: '{customer_name}'")
+                customer_name = None
+
         # Log results
-        if city or service_category:
-            logger.info(f"[OFFLINE_EXTRACT] Success from summary: city='{city}', service='{service_category}', confidence={confidence:.2f}")
+        if city or service_category or customer_name:
+            logger.info(f"[OFFLINE_EXTRACT] Success from summary: city='{city}', service='{service_category}', customer_name='{customer_name}', confidence={confidence:.2f}")
         else:
             logger.info(f"[OFFLINE_EXTRACT] No reliable data found in summary")
-        
+
         return {
             "city": city,
             "raw_city": raw_city,
             "service_category": service_category,
+            "customer_name": customer_name,
             "confidence": confidence
         }
-        
+
     except Exception as e:
         logger.error(f"[OFFLINE_EXTRACT] Summary extraction failed: {type(e).__name__}: {str(e)[:200]}")
         import traceback
@@ -247,6 +264,7 @@ Return JSON with four fields: city, raw_city, service_category, confidence.
             "city": None,
             "raw_city": None,
             "service_category": None,
+            "customer_name": None,
             "confidence": None,
         }
 
