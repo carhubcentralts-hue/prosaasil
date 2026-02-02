@@ -112,7 +112,6 @@ def test_delete_lead_with_missing_status_history_table():
                 is_undefined_table = ('undefinedtable' in err_str or 'does not exist' in err_str) and 'lead_status_history' in err_str
                 
                 if is_undefined_table:
-                    print("⚠️ LeadStatusHistory delete skipped (table does not exist)")
                     # 🔥 CRITICAL FIX: Rollback the failed transaction to allow subsequent operations
                     db.session.rollback()
                 else:
@@ -143,8 +142,6 @@ def test_delete_lead_with_missing_status_history_table():
         call_log_after = CallLog.query.filter_by(id=call_log_id).first()
         assert call_log_after is not None, "CallLog should still exist"
         assert call_log_after.lead_id is None, "CallLog.lead_id should be NULL"
-        
-        print("✅ Test passed: Lead deletion works correctly with transaction fix")
 
 
 if __name__ == '__main__':
