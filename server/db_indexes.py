@@ -199,6 +199,21 @@ INDEX_DEFS_LEADS_CRM = [
         "critical": False,
         "description": "Index on leads for leads detected topic"
     },
+    # 🔥 PERFORMANCE: Composite indexes for common query patterns
+    {
+        "name": "idx_leads_tenant_status_created",
+        "table": "leads",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_tenant_status_created ON leads(tenant_id, status, created_at DESC)",
+        "critical": False,
+        "description": "Composite index for leads list/search by tenant, status, and creation time (Claude performance fix)"
+    },
+    {
+        "name": "idx_lead_status_history_lead_created",
+        "table": "lead_status_history",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lead_status_history_lead_created ON lead_status_history(lead_id, created_at DESC)",
+        "critical": False,
+        "description": "Composite index for lead status timeline queries (Claude performance fix)"
+    },
     {
         "name": "ix_project_leads_project_id",
         "table": "project_leads",
@@ -354,6 +369,14 @@ INDEX_DEFS_CALLS = [
         "critical": False,
         "description": "Index on outbound_call_jobs for outbound call jobs project id"
     },
+    # 🔥 PERFORMANCE: Composite index for call history queries
+    {
+        "name": "idx_call_log_business_status_created",
+        "table": "call_log",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_log_business_status_created ON call_log(business_id, status, created_at DESC)",
+        "critical": False,
+        "description": "Composite index for calls history by business, status, and time (Claude performance fix)"
+    },
 ]
 
 
@@ -438,6 +461,14 @@ INDEX_DEFS_WHATSAPP = [
         "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_whatsapp_broadcast_recipients_status ON whatsapp_broadcast_recipients(status)",
         "critical": False,
         "description": "Index on whatsapp_broadcast_recipients for whatsapp broadcast recipients status"
+    },
+    # 🔥 PERFORMANCE: Composite index for WhatsApp message queries
+    {
+        "name": "idx_whatsapp_message_business_to_created",
+        "table": "whatsapp_message",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_whatsapp_message_business_to_created ON whatsapp_message(business_id, to_number, created_at DESC)",
+        "critical": False,
+        "description": "Composite index for WhatsApp message loading by business, recipient, and time (Claude performance fix)"
     },
 ]
 
