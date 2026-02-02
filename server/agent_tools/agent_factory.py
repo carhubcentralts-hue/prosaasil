@@ -24,7 +24,7 @@ from server.agent_tools.tools_summarize import summarize_thread
 from server.agent_tools.tools_crm_context import (
     find_lead_by_phone, get_lead_context, create_lead_note, update_lead_fields
 )
-from server.agent_tools.tools_status_update import update_lead_status
+# NOTE: update_lead_status imported lazily to avoid circular imports
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1241,6 +1241,9 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         
         # 🎧 CRM Context-Aware Support: Add customer service tools if enabled
         if customer_service_enabled:
+            # Lazy import to avoid circular dependency with models_sql
+            from server.agent_tools.tools_status_update import update_lead_status
+            
             tools_to_use.extend([
                 crm_find_lead_by_phone,
                 crm_get_lead_context,
