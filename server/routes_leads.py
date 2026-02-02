@@ -942,8 +942,16 @@ def delete_lead(lead_id):
         try:
             LeadStatusHistory.query.filter_by(lead_id=lead_id).delete()
         except Exception as lsh_err:
-            err_str = str(lsh_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_status_history' in err_str:
+            # Check if this is an UndefinedTable error (table doesn't exist)
+            is_undefined_table = False
+            if PSYCOPG2_AVAILABLE and isinstance(lsh_err.__cause__, psycopg2.errors.UndefinedTable):
+                is_undefined_table = True
+            else:
+                err_str = str(lsh_err).lower()
+                # Fall back to string checking: both conditions must be true
+                is_undefined_table = ('undefinedtable' in err_str or 'does not exist' in err_str) and 'lead_status_history' in err_str
+            
+            if is_undefined_table:
                 log.warning(f"⚠️ LeadStatusHistory delete skipped (table does not exist)")
             else:
                 raise
