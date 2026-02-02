@@ -1725,19 +1725,38 @@ async function startSession(tenantId, forceRelink = false) {
           return;
         }
         
-        // 🔥 LID FIX: Enhanced logging for debugging LID message flow
+        // 🔥 LID FIX: Extract participant JID from all possible sources and attach metadata
         newMessages.forEach((msg, idx) => {
           const remoteJid = msg.key?.remoteJid || '';
           const messageId = msg.key?.id || '';
-          const participant = msg.key?.participant || '';
           const fromMe = msg.key?.fromMe || false;
           const extractedText = extractText(msg.message || {});
-          
-          console.log(`[${tenantId}] 📤 Sending to Flask [${idx}]: chat_jid=${remoteJid}, message_id=${messageId}, from_me=${fromMe}, participant=${participant || 'N/A'}, text=${(extractedText || '').substring(0, 50)}...`);
-          
+          const msgObj = msg.message || {};
+
+          // Extract participant_jid from all possible locations
+          const participantJid = msg.key?.participant
+            || msg.participant
+            || msgObj.extendedTextMessage?.contextInfo?.participant
+            || msgObj.imageMessage?.contextInfo?.participant
+            || msgObj.videoMessage?.contextInfo?.participant
+            || msgObj.documentMessage?.contextInfo?.participant
+            || msgObj.audioMessage?.contextInfo?.participant
+            || msgObj.contactMessage?.contextInfo?.participant
+            || null;
+
+          // Attach _lid_metadata so Flask can use it for phone resolution
+          msg._lid_metadata = {
+            remote_jid: remoteJid,
+            participant_jid: participantJid || null,
+            resolved_jid: null, // No contacts store available in this setup
+            push_name: msg.pushName || null
+          };
+
+          console.log(`[${tenantId}] 📤 Sending to Flask [${idx}]: chat_jid=${remoteJid}, message_id=${messageId}, from_me=${fromMe}, participant_jid=${participantJid || 'N/A'}, text=${(extractedText || '').substring(0, 50)}...`);
+
           // Highlight LID messages
           if (remoteJid.endsWith('@lid')) {
-            console.log(`[${tenantId}] 🔵 LID message detected: will use ${participant || remoteJid} for replies`);
+            console.log(`[${tenantId}] [WA-LID] lid detected; participant_jid=${participantJid || 'none'}, push_name=${msg.pushName || 'none'}`);
           }
         });
         

@@ -752,33 +752,53 @@ def baileys_webhook():
                     log.info(f"[WA-SKIP] Ignoring non-private message from {remote_jid} - bot only responds to private chats")
                     continue
                 
-                # 🔥 FIX #3 & #6: Extract phone number with proper normalization and LID support
+                # 🔥 LID FIX: Extract phone number with proper normalization and LID support
                 # remoteJid can be:
                 # - Standard: 972501234567@s.whatsapp.net
-                # - LID (Android/Business): 82399031480511@lid
+                # - LID (Android/Business): 82399031480511@lid  (NOT a real phone!)
                 # - Participant (Groups): phone@s.whatsapp.net as participant
                 from_number_e164 = None
                 customer_external_id = None
                 remote_jid_alt = None  # Alternative JID for proper reply routing
                 phone_raw = None  # Raw phone for debugging
                 push_name = None  # WhatsApp display name
-                
+
                 # 🆕 Extract pushName for name saving
                 push_name = msg.get('pushName', '')
                 if push_name and push_name.lower() not in ['unknown', '']:
                     log.debug(f"[WA-INCOMING] Extracted pushName: {push_name}")
-                
+
+                # 🔥 LID FIX: Read _lid_metadata from Baileys (contains participant from all sources)
+                lid_meta = msg.get('_lid_metadata', {})
+                meta_participant_jid = lid_meta.get('participant_jid')
+                meta_resolved_jid = lid_meta.get('resolved_jid')
+
                 # 🔥 FIX #3: Check for participant (sender_pn) first - this is the preferred reply address
+                # Priority: resolved_jid > _lid_metadata.participant_jid > key.participant
                 participant = msg.get('key', {}).get('participant')
-                if participant and participant.endswith('@s.whatsapp.net'):
-                    remote_jid_alt = participant
-                    log.debug(f"[WA-LID] Found participant (sender_pn): {participant}")
-                
+
+                # Build candidate JID: first valid @s.whatsapp.net wins
+                candidate_jid = None
+                candidate_source = None
+                if meta_resolved_jid and str(meta_resolved_jid).endswith('@s.whatsapp.net'):
+                    candidate_jid = meta_resolved_jid
+                    candidate_source = 'resolved_jid'
+                elif meta_participant_jid and str(meta_participant_jid).endswith('@s.whatsapp.net'):
+                    candidate_jid = meta_participant_jid
+                    candidate_source = 'participant_jid'
+                elif participant and participant.endswith('@s.whatsapp.net'):
+                    candidate_jid = participant
+                    candidate_source = 'key_participant'
+
+                if candidate_jid:
+                    remote_jid_alt = candidate_jid
+                    log.debug(f"[WA-LID] Found candidate JID: {candidate_jid} (source={candidate_source})")
+
                 if remote_jid.endswith('@s.whatsapp.net'):
                     # Standard WhatsApp user - extract and normalize phone
                     phone_raw = remote_jid.replace('@s.whatsapp.net', '')
                     from_number_e164 = normalize_phone(phone_raw)
-                    
+
                     if from_number_e164:
                         log.debug(f"[WA-INCOMING] Standard JID - phone normalized: {phone_raw} -> {from_number_e164}")
                         phone_for_ai_check = from_number_e164
@@ -787,41 +807,44 @@ def baileys_webhook():
                         log.warning(f"[WA-INCOMING] Could not normalize phone from standard JID: {remote_jid}")
                         customer_external_id = remote_jid
                         phone_for_ai_check = remote_jid
-                        
+
                 elif remote_jid.endswith('@lid'):
-                    # 🔥 FIX: LID JID - try to extract phone from multiple sources
+                    # 🔥 LID FIX: NEVER extract phone from @lid digits - they are NOT real phones!
                     push_name = msg.get('pushName', 'Unknown')
                     log.info(f"[WA-INCOMING] @lid JID detected: {remote_jid}, pushName={push_name}")
-                    
+
                     # Store LID as external ID for this conversation
                     customer_external_id = remote_jid
-                    
-                    # 🔥 FIX: Try to extract phone from participant/sender_pn if available (PRIORITY 1)
-                    if remote_jid_alt:
-                        phone_raw = remote_jid_alt.replace('@s.whatsapp.net', '')
+
+                    # Priority 1: Use candidate_jid (resolved_jid or participant_jid from Baileys)
+                    if candidate_jid:
+                        phone_raw = candidate_jid.replace('@s.whatsapp.net', '')
                         from_number_e164 = normalize_phone(phone_raw)
                         if from_number_e164:
-                            log.info(f"[WA-LID] ✅ Extracted phone from participant: {from_number_e164}")
+                            log.info(f"[WA-LID] lid detected; extracted_phone={from_number_e164} source={candidate_source}")
                         else:
-                            log.warning(f"[WA-LID] Could not normalize phone from participant: {remote_jid_alt}")
-                    
-                    # 🔥 NEW FIX: If no participant or failed normalization, try to extract from @lid prefix (PRIORITY 2)
+                            log.warning(f"[WA-LID] Could not normalize phone from {candidate_source}: {candidate_jid}")
+
+                    # Priority 2: DB mapping lookup (ContactIdentity table)
                     if not from_number_e164:
-                        # Extract the part before @lid - this might be a phone number
-                        lid_prefix = remote_jid.split('@')[0] if '@' in remote_jid else remote_jid
-                        log.info(f"[WA-LID] Attempting to normalize @lid prefix: {lid_prefix}")
-                        
-                        # Try to normalize the prefix as a phone number
-                        phone_raw = lid_prefix
-                        from_number_e164 = normalize_phone(phone_raw)
-                        
-                        if from_number_e164:
-                            log.info(f"[WA-LID] ✅ Extracted phone from @lid prefix: {phone_raw} -> {from_number_e164}")
-                        else:
-                            log.info(f"[WA-LID] ⚠️ Could not normalize @lid prefix '{phone_raw}' - using @lid as external_id only")
-                    
+                        try:
+                            from server.services.contact_identity_service import ContactIdentityService
+                            mapped_phone = ContactIdentityService.lookup_phone_by_lid(
+                                business_id=business_id,
+                                lid_jid=remote_jid
+                            )
+                            if mapped_phone:
+                                from_number_e164 = mapped_phone
+                                log.info(f"[WA-LID] lid detected; extracted_phone={from_number_e164} source=db_mapping")
+                        except Exception as db_err:
+                            log.warning(f"[WA-LID] DB mapping lookup failed: {db_err}")
+
+                    # No phone found - leave as None, never invent from LID digits
+                    if not from_number_e164:
+                        log.info(f"[WA-LID] lid detected; extracted_phone=none source=none")
+
                     phone_for_ai_check = customer_external_id  # Use LID for AI state
-                    
+
                 else:
                     # 🔥 FIX #6: Other non-standard JID - store as external ID
                     push_name = msg.get('pushName', 'Unknown')

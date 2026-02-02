@@ -116,44 +116,107 @@ class ContactIdentityService:
     def extract_phone_from_jid(jid: str) -> Optional[str]:
         """
         Extract phone number from WhatsApp JID.
-        
+
+        IMPORTANT: @lid JIDs do NOT contain real phone numbers. The digits
+        before @lid are internal WhatsApp identifiers, not phone numbers.
+
         Examples:
         - "972525951893@s.whatsapp.net" → "+972525951893"
-        - "82399031480511@lid" → "+82399031480511" (try to normalize @lid prefix)
+        - "82399031480511@lid" → None (LID digits are NOT a phone number)
         - "status@broadcast" → None (special format)
-        
+
         Args:
             jid: WhatsApp JID
-            
+
         Returns:
             E.164 phone number or None if not extractable
         """
         if not jid:
             return None
-        
-        # Skip special JID formats (but NOT @lid - we want to try that!)
-        if '@broadcast' in jid or '@g.us' in jid or '@newsletter' in jid:
+
+        # Skip special JID formats - @lid digits are NOT real phone numbers
+        if '@broadcast' in jid or '@g.us' in jid or '@newsletter' in jid or '@lid' in jid:
             return None
-        
-        # Extract phone part (before @)
+
+        # Extract phone part (before @) - only for @s.whatsapp.net JIDs
         if '@' in jid:
             phone_part = jid.split('@')[0]
-            
+
             # Remove device suffix if present
             if ':' in phone_part:
                 phone_part = phone_part.split(':')[0]
-            
+
             # Validate it looks like a phone number (all digits, reasonable length)
-            # 🔥 NEW: Also try to normalize @lid prefixes - they might be phone numbers!
             if phone_part.isdigit() and 8 <= len(phone_part) <= 15:
                 normalized = ContactIdentityService.normalize_phone(phone_part)
                 if normalized:
-                    if '@lid' in jid:
-                        logger.info(f"[ContactIdentity] ✅ Extracted phone from @lid JID: {jid[:30]} -> {normalized}")
                     return normalized
-        
+
         return None
-    
+
+    @staticmethod
+    def lookup_phone_by_lid(business_id: int, lid_jid: str) -> Optional[str]:
+        """
+        Look up a previously stored phone_e164 for an @lid JID via the
+        ContactIdentity table. Multi-tenant safe (scoped by business_id).
+
+        Returns:
+            E.164 phone string or None
+        """
+        if not lid_jid or '@lid' not in lid_jid:
+            return None
+
+        normalized_lid = ContactIdentityService.normalize_whatsapp_jid(lid_jid)
+
+        identity = ContactIdentity.query.filter_by(
+            business_id=business_id,
+            channel='whatsapp',
+            external_id=normalized_lid
+        ).first()
+
+        if identity and identity.lead and identity.lead.phone_e164:
+            logger.info(f"[WA-LID] DB mapping found: lid={normalized_lid[:30]} -> phone={identity.lead.phone_e164}")
+            return identity.lead.phone_e164
+
+        return None
+
+    @staticmethod
+    def update_lead_phone_for_lid(business_id: int, lid_jid: str, phone_e164: str) -> bool:
+        """
+        When we later learn the real phone for an @lid user, update the
+        lead's phone_e164 and store a jid->phone mapping so future lid
+        messages resolve correctly.
+
+        Returns:
+            True if update was performed, False otherwise.
+        """
+        if not lid_jid or not phone_e164:
+            return False
+
+        normalized_lid = ContactIdentityService.normalize_whatsapp_jid(lid_jid)
+
+        identity = ContactIdentity.query.filter_by(
+            business_id=business_id,
+            channel='whatsapp',
+            external_id=normalized_lid
+        ).first()
+
+        if not identity or not identity.lead:
+            return False
+
+        lead = identity.lead
+
+        # Only update if lead currently has no phone
+        if lead.phone_e164:
+            return False
+
+        lead.phone_e164 = phone_e164
+        lead.phone_raw = phone_e164.lstrip('+')
+        db.session.commit()
+
+        logger.info(f"[WA-LID] Updated lead phone: lead_id={lead.id}, lid={normalized_lid[:30]}, phone={phone_e164}")
+        return True
+
     @staticmethod
     def get_or_create_lead_for_whatsapp(
         business_id: int,
@@ -202,14 +265,20 @@ class ContactIdentityService:
         if identity:
             logger.info(f"[ContactIdentity] ✅ Found existing lead via JID mapping: lead_id={identity.lead_id}")
             lead = identity.lead
-            
+
+            # 🔥 LID FIX: If lead has no phone but we now have one, update it
+            if not lead.phone_e164 and phone_e164_override:
+                lead.phone_e164 = phone_e164_override
+                lead.phone_raw = phone_e164_override.lstrip('+')
+                logger.info(f"[WA-LID] Late phone discovery: lead_id={lead.id}, phone={phone_e164_override}")
+
             # Update last_contact_at
             lead.last_contact_at = ts or datetime.utcnow()
             db.session.commit()
-            
+
             # Update name if appropriate
             ContactIdentityService._update_lead_name(lead, push_name, 'whatsapp')
-            
+
             return lead
         
         # Step B: Try to link by phone number
