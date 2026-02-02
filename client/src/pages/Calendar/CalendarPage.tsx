@@ -323,11 +323,23 @@ export function CalendarPage() {
         ? `/api/calendar/appointments?${queryString}` 
         : '/api/calendar/appointments';
       
+      console.log('🔍 Fetching appointments:', { url, filterCalendar });
+      
       // ✅ משתמש בhttp service שמכיל את כל ההגדרות הנכונות
       const data = await http.get<{appointments: Appointment[]}>(url);
+      
+      console.log('✅ Appointments loaded:', { 
+        count: data.appointments?.length || 0, 
+        filterCalendar,
+        appointments: data.appointments 
+      });
+      
       setAppointments(data.appointments || []);
     } catch (error) {
-      console.error('שגיאה בטעינת פגישות:', error);
+      console.error('❌ שגיאה בטעינת פגישות:', error);
+      // Show error to user
+      alert('שגיאה בטעינת פגישות: ' + (error instanceof Error ? error.message : 'שגיאה לא ידועה'));
+      setAppointments([]); // Clear appointments on error
     } finally {
       setLoading(false);
     }
@@ -503,44 +515,69 @@ export function CalendarPage() {
   };
 
   // Filter appointments based on search, filters, and date
-  const filteredAppointments = appointments.filter(appointment => {
-    const matchesSearch = !searchTerm || 
-      appointment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      appointment.contact_name?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
-    const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
-    // Calendar filtering now done server-side via fetchAppointments to reduce data transfer
-    // Other filters remain client-side to avoid excessive API calls for each filter combination
-    
-    // ✅ BUILD 144 + 170: Date filter - single date or date range
-    let matchesDate = true;
-    const appointmentDate = new Date(appointment.start_time);
-    
-    // Date range filter takes priority
-    if (filterDateFrom || filterDateTo) {
-      if (filterDateFrom && filterDateTo) {
-        const from = new Date(filterDateFrom);
-        const to = new Date(filterDateTo);
-        to.setHours(23, 59, 59, 999); // Include full day
-        matchesDate = appointmentDate >= from && appointmentDate <= to;
-      } else if (filterDateFrom) {
-        const from = new Date(filterDateFrom);
-        matchesDate = appointmentDate >= from;
-      } else if (filterDateTo) {
-        const to = new Date(filterDateTo);
-        to.setHours(23, 59, 59, 999);
-        matchesDate = appointmentDate <= to;
+  const filteredAppointments = useMemo(() => {
+    const filtered = appointments.filter(appointment => {
+      const matchesSearch = !searchTerm || 
+        appointment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        appointment.contact_name?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
+      const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
+      // Calendar filtering now done server-side via fetchAppointments to reduce data transfer
+      // Other filters remain client-side to avoid excessive API calls for each filter combination
+      
+      // ✅ BUILD 144 + 170: Date filter - single date or date range
+      let matchesDate = true;
+      const appointmentDate = new Date(appointment.start_time);
+      
+      // Date range filter takes priority
+      if (filterDateFrom || filterDateTo) {
+        if (filterDateFrom && filterDateTo) {
+          const from = new Date(filterDateFrom);
+          const to = new Date(filterDateTo);
+          to.setHours(23, 59, 59, 999); // Include full day
+          matchesDate = appointmentDate >= from && appointmentDate <= to;
+        } else if (filterDateFrom) {
+          const from = new Date(filterDateFrom);
+          matchesDate = appointmentDate >= from;
+        } else if (filterDateTo) {
+          const to = new Date(filterDateTo);
+          to.setHours(23, 59, 59, 999);
+          matchesDate = appointmentDate <= to;
+        }
+      } else if (filterDate) {
+        const filterDateObj = new Date(filterDate).toDateString();
+        matchesDate = appointmentDate.toDateString() === filterDateObj;
+      } else if (selectedDate) {
+        matchesDate = appointmentDate.toDateString() === selectedDate.toDateString();
       }
-    } else if (filterDate) {
-      const filterDateObj = new Date(filterDate).toDateString();
-      matchesDate = appointmentDate.toDateString() === filterDateObj;
-    } else if (selectedDate) {
-      matchesDate = appointmentDate.toDateString() === selectedDate.toDateString();
-    }
+      
+      return matchesSearch && matchesStatus && matchesType && matchesDate;
+    });
     
-    return matchesSearch && matchesStatus && matchesType && matchesDate;
-  });
+    console.log('🔍 Filtered appointments:', {
+      total: appointments.length,
+      filtered: filtered.length,
+      filterStatus,
+      filterType,
+      searchTerm,
+      filterDate,
+      filterDateFrom,
+      filterDateTo,
+      selectedDate
+    });
+    
+    return filtered;
+  }, [appointments, searchTerm, filterStatus, filterType, filterDate, filterDateFrom, filterDateTo, selectedDate]);
+  
+  // Create a calendar lookup map for O(1) performance
+  const calendarMap = useMemo(() => {
+    const map = new Map<number, string>();
+    calendars.forEach(calendar => {
+      map.set(calendar.id, calendar.name);
+    });
+    return map;
+  }, [calendars]);
   
   // ✅ BUILD 144: Handle calendar date click - show only that day's appointments
   const handleCalendarDateClick = (date: Date) => {
@@ -1385,6 +1422,13 @@ export function CalendarPage() {
                       {appointment.auto_generated && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                           AI
+                        </span>
+                      )}
+                      {/* 🔥 NEW: Show calendar name in unified mode */}
+                      {filterCalendar === 'all' && appointment.calendar_id && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                          <CalendarIcon className="h-3 w-3" />
+                          {calendarMap.get(appointment.calendar_id) || `יומן #${appointment.calendar_id}`}
                         </span>
                       )}
                     </div>
