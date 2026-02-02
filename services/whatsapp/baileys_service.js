@@ -1779,7 +1779,8 @@ async function startSession(tenantId, forceRelink = false) {
         }
         
         // 🔥 LID FIX: Extract participant JID from all possible sources and attach metadata
-        newMessages.forEach((msg, idx) => {
+        // 🔥 CRITICAL: For LID messages, resolve to phone number using internal endpoint
+        for (const msg of newMessages) {
           const remoteJid = msg.key?.remoteJid || '';
           const messageId = msg.key?.id || '';
           const fromMe = msg.key?.fromMe || false;
@@ -1787,7 +1788,7 @@ async function startSession(tenantId, forceRelink = false) {
           const msgObj = msg.message || {};
 
           // Extract participant_jid from all possible locations
-          const participantJid = msg.key?.participant
+          let participantJid = msg.key?.participant
             || msg.participant
             || msgObj.extendedTextMessage?.contextInfo?.participant
             || msgObj.imageMessage?.contextInfo?.participant
@@ -1797,21 +1798,50 @@ async function startSession(tenantId, forceRelink = false) {
             || msgObj.contactMessage?.contextInfo?.participant
             || null;
 
+          // 🔥 NEW: If remoteJid is LID and no participant, try to resolve it
+          let resolvedPhone = null;
+          if (remoteJid.endsWith('@lid')) {
+            try {
+              console.log(`[${tenantId}] 🔍 LID detected, attempting phone resolution for ${remoteJid}...`);
+              
+              // Call internal /resolve-jid endpoint
+              const resolveUrl = `http://localhost:${PORT}/internal/resolve-jid`;
+              const resolveResponse = await axios.post(resolveUrl, {
+                tenantId,
+                jid: remoteJid,
+                participant: participantJid,
+                pushName: msg.pushName || null
+              }, {
+                headers: { 'X-Internal-Secret': INTERNAL_SECRET },
+                timeout: 2000  // 2 second timeout for internal call
+              });
+              
+              if (resolveResponse.data?.phone_e164) {
+                resolvedPhone = resolveResponse.data.phone_e164;
+                console.log(`[${tenantId}] ✅ LID resolved: ${remoteJid} → ${resolvedPhone}`);
+              } else {
+                console.log(`[${tenantId}] ⚠️ LID resolution returned no phone: ${JSON.stringify(resolveResponse.data)}`);
+              }
+            } catch (resolveError) {
+              console.error(`[${tenantId}] ❌ LID resolution failed: ${resolveError.message}`);
+            }
+          }
+
           // Attach _lid_metadata so Flask can use it for phone resolution
           msg._lid_metadata = {
             remote_jid: remoteJid,
             participant_jid: participantJid || null,
-            resolved_jid: null, // No contacts store available in this setup
+            resolved_phone: resolvedPhone,  // 🔥 NEW: Include resolved phone
             push_name: msg.pushName || null
           };
 
-          console.log(`[${tenantId}] 📤 Sending to Flask [${idx}]: chat_jid=${remoteJid}, message_id=${messageId}, from_me=${fromMe}, participant_jid=${participantJid || 'N/A'}, text=${(extractedText || '').substring(0, 50)}...`);
+          console.log(`[${tenantId}] 📤 Sending to Flask [${newMessages.indexOf(msg)}]: chat_jid=${remoteJid}, message_id=${messageId}, from_me=${fromMe}, participant_jid=${participantJid || 'N/A'}, resolved_phone=${resolvedPhone || 'N/A'}, text=${(extractedText || '').substring(0, 50)}...`);
 
           // Highlight LID messages
           if (remoteJid.endsWith('@lid')) {
-            console.log(`[${tenantId}] [WA-LID] lid detected; participant_jid=${participantJid || 'none'}, push_name=${msg.pushName || 'none'}`);
+            console.log(`[${tenantId}] [WA-LID] lid=${remoteJid}, participant=${participantJid || 'none'}, resolved_phone=${resolvedPhone || 'FAILED'}, push_name=${msg.pushName || 'none'}`);
           }
-        });
+        }
         
         const filteredPayload = {
           ...payload,

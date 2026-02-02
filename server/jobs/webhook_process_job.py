@@ -103,35 +103,42 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                     if from_jid.endswith('@lid'):
                         logger.info(f"[WA-LID] trace_id={trace_id} LID detected: {from_jid[:30]}")
                         
-                        # STEP 1: Try to extract participant from ALL possible locations
-                        participant_jid = None
-                        
                         # Check metadata first (added by Baileys service)
                         lid_metadata = msg.get('_lid_metadata', {})
-                        if lid_metadata and lid_metadata.get('participant_jid'):
-                            participant_jid = lid_metadata['participant_jid']
-                            logger.info(f"[WA-LID-RESOLVE] source=metadata participant={participant_jid}")
                         
-                        # Fallback: check standard locations
-                        if not participant_jid:
-                            participant_jid = msg.get('key', {}).get('participant')
-                            if participant_jid:
-                                logger.info(f"[WA-LID-RESOLVE] source=key.participant participant={participant_jid}")
+                        # 🔥 NEW: STEP 0 - Check if Baileys already resolved the phone!
+                        if lid_metadata.get('resolved_phone'):
+                            phone_e164_for_lead = lid_metadata['resolved_phone']
+                            logger.info(f"[WA-LID-RESOLVE] ✅ source=baileys_resolved phone={phone_e164_for_lead}")
                         
-                        # STEP 2: If participant found, extract phone from it
-                        if participant_jid and participant_jid.endswith('@s.whatsapp.net'):
-                            # Extract phone digits from participant JID
-                            phone_raw = participant_jid.replace('@s.whatsapp.net', '').split(':')[0]
+                        # STEP 1: Try to extract participant from ALL possible locations
+                        if not phone_e164_for_lead:
+                            participant_jid = None
                             
-                            # Normalize to E.164
-                            from server.agent_tools.phone_utils import normalize_phone
-                            phone_e164_for_lead = normalize_phone(phone_raw)
+                            if lid_metadata and lid_metadata.get('participant_jid'):
+                                participant_jid = lid_metadata['participant_jid']
+                                logger.info(f"[WA-LID-RESOLVE] source=metadata participant={participant_jid}")
+                        
+                            # Fallback: check standard locations
+                            if not participant_jid:
+                                participant_jid = msg.get('key', {}).get('participant')
+                                if participant_jid:
+                                    logger.info(f"[WA-LID-RESOLVE] source=key.participant participant={participant_jid}")
                             
-                            if phone_e164_for_lead:
-                                jid = participant_jid  # Use participant as reply JID
-                                logger.info(f"[WA-LID-RESOLVE] ✅ source=participant phone={phone_e164_for_lead}")
-                            else:
-                                logger.warning(f"[WA-LID-RESOLVE] ⚠️ Failed to normalize participant phone: {phone_raw}")
+                            # STEP 2: If participant found, extract phone from it
+                            if participant_jid and participant_jid.endswith('@s.whatsapp.net'):
+                                # Extract phone digits from participant JID
+                                phone_raw = participant_jid.replace('@s.whatsapp.net', '').split(':')[0]
+                                
+                                # Normalize to E.164
+                                from server.agent_tools.phone_utils import normalize_phone
+                                phone_e164_for_lead = normalize_phone(phone_raw)
+                                
+                                if phone_e164_for_lead:
+                                    jid = participant_jid  # Use participant as reply JID
+                                    logger.info(f"[WA-LID-RESOLVE] ✅ source=participant phone={phone_e164_for_lead}")
+                                else:
+                                    logger.warning(f"[WA-LID-RESOLVE] ⚠️ Failed to normalize participant phone: {phone_raw}")
                         
                         # STEP 3: If no participant, try mapping table lookup
                         if not phone_e164_for_lead:

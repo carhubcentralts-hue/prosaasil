@@ -1166,6 +1166,13 @@ def baileys_webhook():
                         to_number=conversation_key  # 🔥 FIX #3: Use conversation_key
                     ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
                     
+                    # 🔥 DEBUG: Log how many of each direction
+                    direction_counts = {}
+                    for msg in recent_msgs:
+                        dir_key = msg.direction or 'unknown'
+                        direction_counts[dir_key] = direction_counts.get(dir_key, 0) + 1
+                    log.info(f"[WA-HISTORY] Loaded {len(recent_msgs)} messages: {direction_counts}")
+                    
                     # Format as conversation (reversed to chronological order)
                     # 🔥 BUILD 180: Handle both 'in'/'inbound' and 'out'/'outbound' for backwards compatibility
                     for msg_hist in reversed(recent_msgs):
