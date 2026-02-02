@@ -83,10 +83,12 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
         from server.models_sql import db, BackgroundJob, Lead, LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate, OutboundCallJob, LeadStatusHistory
         import psycopg2.errors
         PSYCOPG2_AVAILABLE = True
+        UndefinedTableError = psycopg2.errors.UndefinedTable
     except ImportError as e:
         # Check if only psycopg2 is missing
-        if 'psycopg2' in str(e):
+        if 'psycopg2' in str(e).lower() or (hasattr(e, 'name') and e.name == 'psycopg2'):
             PSYCOPG2_AVAILABLE = False
+            UndefinedTableError = None
             logger.warning("psycopg2 not available - some error handling may be limited")
             # Try importing without psycopg2
             try:
@@ -104,6 +106,8 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
                     "error": error_msg
                 }
         else:
+            PSYCOPG2_AVAILABLE = False  # Set default if other import fails
+            UndefinedTableError = None
             error_msg = f"Import failed: {str(e)}"
             logger.error(f"❌ JOB IMPORT ERROR: {e}")
             print(f"❌ FATAL IMPORT ERROR: {e}")
@@ -294,7 +298,7 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
                     except Exception as lsh_err:
                         # Check if this is an UndefinedTable error (table doesn't exist)
                         is_undefined_table = False
-                        if PSYCOPG2_AVAILABLE and isinstance(lsh_err.__cause__, psycopg2.errors.UndefinedTable):
+                        if PSYCOPG2_AVAILABLE and UndefinedTableError and isinstance(lsh_err.__cause__, UndefinedTableError):
                             is_undefined_table = True
                         else:
                             err_str = str(lsh_err).lower()
