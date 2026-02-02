@@ -22,7 +22,7 @@ import psycopg2
 
 logger = logging.getLogger(__name__)
 
-INACTIVITY_MINUTES = 15
+INACTIVITY_MINUTES = 5  # 🔥 FIX: Changed from 15 to 5 minutes for faster summaries
 CHECK_INTERVAL_SECONDS = 300  # Check every 5 minutes
 
 _session_processor_started = False
@@ -39,8 +39,8 @@ def get_or_create_session(
     Session Rules (BUILD 163):
     1. Session is per-customer (customer_wa_id) + per-business
     2. Session is valid only for SAME DAY - new day = new session
-    3. If 15+ minutes passed since last CUSTOMER message = close old, create new
-    4. Business messages don't reset the 15-minute inactivity timer
+    3. If 5+ minutes passed since last CUSTOMER message = close old, create new
+    4. Business messages don't reset the 5-minute inactivity timer
     
     Args:
         business_id: Business ID
@@ -117,7 +117,7 @@ def get_or_create_session(
     db.session.add(new_session)
     db.session.commit()
     
-    logger.info(f"[WA-SESSION] Created new session id={new_session.id} for customer={customer_wa_id[:8]}... lead_id={lead_id}")
+    logger.info(f"[WA-SESSION] ✨ Created NEW session id={new_session.id} for customer={customer_wa_id[:8]}... lead_id={lead_id} business_id={business_id}")
     
     return new_session, True
 
@@ -152,12 +152,13 @@ def update_session_activity(
         
         db.session.commit()
         
-        logger.debug(f"[WA-SESSION] Updated session id={session.id} last_message_at={now} direction={direction}")
+        logger.info(f"[WA-SESSION] ✅ Updated session id={session.id} last_message_at={now} direction={direction} new={is_new}")
         
         return session
     except Exception as e:
         # ✅ BUILD 170.1: Rollback on error to prevent session poisoning
-        logger.error(f"[WA-SESSION] update_session_activity failed: {e}")
+        logger.error(f"[WA-SESSION] ❌ update_session_activity FAILED: {e}")
+        logger.error(f"[WA-SESSION] ❌ Context: business_id={business_id}, customer_wa_id={customer_wa_id}, direction={direction}")
         try:
             db.session.rollback()
         except:
@@ -332,7 +333,7 @@ def get_stale_sessions(minutes: int = INACTIVITY_MINUTES) -> list:
     """Get sessions that need summary generation
     
     BUILD 163: Find sessions that need AI summary:
-    1. OPEN sessions where customer inactive > 15 min (still needs closing + summary)
+    1. OPEN sessions where customer inactive > 5 min (still needs closing + summary)
     2. CLOSED sessions without summary (closed by new session creation, needs summary)
     
     Args:
@@ -345,19 +346,25 @@ def get_stale_sessions(minutes: int = INACTIVITY_MINUTES) -> list:
     
     cutoff = datetime.utcnow() - timedelta(minutes=minutes)
     
+    logger.info(f"[WA-SESSION] 🔍 Looking for stale sessions (cutoff={cutoff}, {minutes} min ago)")
+    
     # Find sessions needing summary:
-    # 1. Open + customer inactive > 15 min + no summary yet
-    # 2. Closed + no summary yet (was closed by new session creation)
+    # 1. Open + customer inactive > 5 min + no summary yet
+    # 2. Closed + no summary yet + at least 1 min old (avoid processing too early)
     stale = WhatsAppConversation.query.filter(
         WhatsAppConversation.summary_created == False,
         or_(
             # Case 1: Open but stale
             (WhatsAppConversation.is_open == True) & 
             (WhatsAppConversation.last_customer_message_at < cutoff),
-            # Case 2: Closed without summary (closed by new session, needs summary now)
-            (WhatsAppConversation.is_open == False)
+            # Case 2: Closed without summary + at least 1 min old
+            # 🔥 FIX: Add minimum age to avoid processing sessions closed just now
+            (WhatsAppConversation.is_open == False) &
+            (WhatsAppConversation.updated_at < datetime.utcnow() - timedelta(minutes=1))
         )
     ).all()
+    
+    logger.info(f"[WA-SESSION] 🔍 Found {len(stale)} sessions needing summary")
     
     return stale
 
@@ -564,6 +571,8 @@ def get_session_messages(session: WhatsAppConversation) -> list:
 def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
     """Generate AI summary for a session
     
+    🔥 FIX: Generate summary even for short conversations (1+ messages)
+    
     Args:
         session: WhatsAppConversation object
     
@@ -573,8 +582,16 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
     import os
     
     messages = get_session_messages(session)
-    if not messages or len(messages) < 2:
-        logger.info(f"[WA-SESSION] Not enough messages for summary (session={session.id})")
+    
+    # 🔥 FIX: Require at least 1 message (was 2, too strict!)
+    if not messages or len(messages) < 1:
+        logger.info(f"[WA-SESSION] No messages for summary (session={session.id})")
+        return None
+    
+    # Count customer messages to ensure there's actual conversation
+    customer_messages = [m for m in messages if m["direction"] == "in"]
+    if not customer_messages:
+        logger.info(f"[WA-SESSION] No customer messages for summary (session={session.id})")
         return None
     
     conversation_text = ""
@@ -582,21 +599,27 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
         speaker = "לקוח" if m["direction"] == "in" else "עסק"
         conversation_text += f"{speaker}: {m['body']}\n"
     
+    # 🔥 ADD: Include conversation length context for AI
+    msg_count = len(messages)
+    customer_count = len(customer_messages)
+    context_note = f"\n\n(שיחה: {msg_count} הודעות, {customer_count} מהלקוח)\n"
+    
     prompt = f"""סכם את שיחת ה-WhatsApp הבאה בעברית.
 
 שיחה:
-{conversation_text}
+{conversation_text}{context_note}
 
 הסיכום חייב לכלול:
 1. **נושא** - מה הלקוח רצה/שאל
-2. **מה נדון** - הנקודות העיקריות
+2. **מה נדון** - הנקודות העיקריות (אם יש)
 3. **תוצאה** - מה סוכם או איך הסתיימה השיחה
 4. **המשך** - אם יש פעולה נדרשת
 
 כללים:
 - כתוב רק מה שנאמר בפועל
-- אם השיחה לא הגיעה לסיכום - ציין זאת
-- 2-4 משפטים מספיקים
+- אם השיחה קצרה/לא הגיעה לסיכום - ציין זאת בקצרה
+- 1-4 משפטים מספיקים (תלוי באורך השיחה)
+- גם שיחה של הודעה אחת צריכה סיכום (למשל: "לקוח שאל על X, טרם נענה")
 
 סיכום:"""
 
@@ -649,7 +672,7 @@ def process_stale_sessions():
     """Background job: Find and close stale sessions with AI summaries
     
     This should be called periodically (e.g., every 5 minutes) to:
-    1. Find sessions inactive for 15+ minutes
+    1. Find sessions inactive for 5+ minutes
     2. Generate AI summaries
     3. Close sessions and update leads
     
@@ -661,19 +684,32 @@ def process_stale_sessions():
         logger.debug("[WA-SESSION] No stale sessions to process")
         return 0
     
-    logger.info(f"[WA-SESSION] Processing {len(stale)} stale sessions")
+    logger.info(f"[WA-SESSION] 📱 Found {len(stale)} stale sessions to process")
     
     processed = 0
+    failed = 0
+    no_summary = 0
+    
     for session in stale:
         try:
+            logger.info(f"[WA-SESSION] Processing session {session.id} (customer={session.customer_wa_id[:8]}...)")
+            
             summary = generate_session_summary(session)
             
-            close_session(session.id, summary=summary)
-            processed += 1
+            if summary:
+                logger.info(f"[WA-SESSION] ✅ Generated summary for session {session.id}: {summary[:80]}...")
+                close_session(session.id, summary=summary)
+                processed += 1
+            else:
+                logger.warning(f"[WA-SESSION] ⚠️ No summary generated for session {session.id} (too few messages)")
+                # Still mark as processed to avoid infinite retries
+                close_session(session.id, summary=None, mark_processed=True)
+                no_summary += 1
             
         except (OperationalError, DisconnectionError) as e:
             # DB error during individual session processing - log and skip this session
-            logger.error(f"[WA-SESSION] DB error processing session {session.id}: {e}")
+            logger.error(f"[WA-SESSION] 🔴 DB error processing session {session.id}: {e}")
+            failed += 1
             try:
                 db.session.rollback()
             except:
@@ -681,13 +717,14 @@ def process_stale_sessions():
             # Don't re-raise - continue with other sessions
             
         except Exception as e:
-            logger.error(f"[WA-SESSION] Error processing session {session.id}: {e}")
+            logger.error(f"[WA-SESSION] ❌ Error processing session {session.id}: {e}")
+            failed += 1
             try:
                 db.session.rollback()
             except:
                 pass
     
-    logger.info(f"[WA-SESSION] Processed {processed}/{len(stale)} stale sessions")
+    logger.info(f"[WA-SESSION] ✅ Completed: {processed} with summary, {no_summary} without summary, {failed} failed (total {len(stale)})")
     
     return processed
 

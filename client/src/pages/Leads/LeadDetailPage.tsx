@@ -1569,7 +1569,7 @@ function MergedWhatsAppTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsAp
             <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-4" />
             <p className="text-sm text-gray-500 mb-2">אין סיכום שיחה עדיין</p>
             <p className="text-xs text-gray-400 mb-4">
-              סיכום נוצר אוטומטית אחרי 15 דקות ללא פעילות מהלקוח
+              סיכום נוצר אוטומטית אחרי 5 דקות ללא פעילות מהלקוח
             </p>
             <Button 
               onClick={onOpenWhatsApp}

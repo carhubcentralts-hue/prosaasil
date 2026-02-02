@@ -231,7 +231,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                                     provider="baileys"
                                 )
                             except Exception as e:
-                                logger.warning(f"⚠️ Session tracking failed: {e}")
+                                logger.error(f"🔴 [WA-SESSION] Session tracking FAILED: {e}", exc_info=True)
                             
                             continue
                         
@@ -374,11 +374,14 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         incoming_msg = WhatsAppMessage()
                         incoming_msg.business_id = business_id
                         incoming_msg.to_number = phone_number
+                        incoming_msg.lead_id = lead.id if lead else None  # 🔥 FIX: Add lead_id
                         incoming_msg.direction = 'in'
                         incoming_msg.body = message_text
                         incoming_msg.message_type = 'text'
                         incoming_msg.status = 'received'
                         incoming_msg.provider = 'baileys'
+                        incoming_msg.provider_message_id = message_id  # 🔥 FIX: Add for dedupe
+                        incoming_msg.lead_id = None  # Will be set by future lead link
                         db.session.add(incoming_msg)
                         
                         # Track session for incoming
@@ -390,7 +393,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                                 provider="baileys"
                             )
                         except Exception as e:
-                            logger.warning(f"⚠️ Session tracking (in) failed: {e}")
+                            logger.error(f"🔴 [WA-SESSION] Session tracking (in) FAILED: {e}", exc_info=True)
                         
                         # n8n: Send incoming message event
                         n8n_whatsapp_incoming(
@@ -406,6 +409,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                             outgoing_msg = WhatsAppMessage()
                             outgoing_msg.business_id = business_id
                             outgoing_msg.to_number = phone_number
+                            outgoing_msg.lead_id = lead.id if lead else None  # 🔥 FIX: Add lead_id for history
                             outgoing_msg.direction = 'out'
                             outgoing_msg.body = ai_response
                             outgoing_msg.message_type = 'text'
@@ -423,7 +427,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                                     provider="baileys"
                                 )
                             except Exception as e:
-                                logger.warning(f"⚠️ Session tracking (out) failed: {e}")
+                                logger.error(f"🔴 [WA-SESSION] Session tracking (out) FAILED: {e}", exc_info=True)
                             
                             # n8n: Send outgoing message event
                             n8n_whatsapp_outgoing(

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def whatsapp_sessions_cleanup_job():
     """
-    Process stale WhatsApp sessions (inactive for 15+ minutes)
+    Process stale WhatsApp sessions (inactive for 5+ minutes)
 
     This job should be scheduled to run every 5 minutes by the scheduler service.
     Generates AI summaries for sessions and marks them as processed.

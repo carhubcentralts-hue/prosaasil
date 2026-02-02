@@ -987,7 +987,7 @@ export function WhatsAppPage() {
           <div className="text-center py-6 text-slate-500">
             <MessageSquare className="h-8 w-8 mx-auto mb-2 text-slate-300" />
             <p className="text-sm">אין סיכומי שיחות עדיין</p>
-            <p className="text-xs mt-1">סיכום נוצר אוטומטית אחרי 15 דקות ללא פעילות מהלקוח</p>
+            <p className="text-xs mt-1">סיכום נוצר אוטומטית אחרי 5 דקות ללא פעילות מהלקוח</p>
           </div>
         ) : (
           <div className="space-y-3 max-h-64 overflow-y-auto">

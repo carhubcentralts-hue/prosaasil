@@ -26,7 +26,7 @@ def process_whatsapp_sessions_job(business_id: int = None):
     logger.info(f"[WA-SESSION-JOB] Starting WhatsApp session processing (business_id={business_id})")
     
     try:
-        # Process inactive sessions (15+ minutes of inactivity)
+        # Process inactive sessions (5+ minutes of inactivity)
         result = process_inactive_sessions()
         
         logger.info(f"[WA-SESSION-JOB] ✅ Processing completed: {result}")

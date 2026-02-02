@@ -730,6 +730,18 @@ def baileys_webhook():
                 from_me = msg.get('key', {}).get('fromMe', False)
                 log.info(f"[WA-INCOMING] 🔵 Incoming chat_jid={remote_jid}, message_id={message_id}, from_me={from_me}")
                 
+                # 🔥 STRONG DEDUPE: Check if already processed by (business_id, message_id, remoteJid)
+                if message_id:
+                    from server.models_sql import WhatsAppMessage
+                    existing = WhatsAppMessage.query.filter_by(
+                        business_id=business_id,
+                        provider_message_id=message_id
+                    ).first()
+                    if existing:
+                        log.info(f"[WA-DEDUPE] ⏭️ Skipping duplicate message_id={message_id[:20]}...")
+                        processed_count += 1  # Count as processed (dedupe success)
+                        continue
+                
                 # 🔥 CRITICAL FIX: Skip messages from bot itself (fromMe=true)
                 # The bot should ONLY process messages from users, not its own messages
                 if from_me:

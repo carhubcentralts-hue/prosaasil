@@ -669,6 +669,9 @@ class UnifiedLeadContextService:
         """
         Load recent WhatsApp messages (last 20)
         
+        🔥 FIX: Load by (lead_id OR phone) to include outgoing messages
+        that might not have lead_id populated yet.
+        
         Args:
             lead: Lead object
             
@@ -676,9 +679,22 @@ class UnifiedLeadContextService:
             List of WhatsApp message dictionaries
         """
         try:
+            from sqlalchemy import or_
+            
+            # Build filters: lead_id OR phone match
+            filters = [WhatsAppMessage.business_id == self.business_id]
+            
+            # Add lead_id filter
+            if lead.id:
+                filters.append(WhatsAppMessage.lead_id == lead.id)
+            
+            # Add phone filter (normalized)
+            if lead.phone_e164:
+                phone_clean = lead.phone_e164.replace('+', '').strip()
+                filters.append(WhatsAppMessage.to_number.like(f'%{phone_clean}%'))
+            
             messages = WhatsAppMessage.query.filter(
-                WhatsAppMessage.lead_id == lead.id,
-                WhatsAppMessage.business_id == self.business_id
+                or_(*filters)
             ).order_by(WhatsAppMessage.timestamp.desc()).limit(20).all()
             
             message_list = []
