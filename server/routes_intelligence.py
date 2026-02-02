@@ -13,6 +13,26 @@ from datetime import datetime, timedelta
 
 intelligence_bp = Blueprint('intelligence', __name__, url_prefix='/api/intelligence')
 
+# Helper classes for proxy objects (defined at module level for efficiency)
+class LatestLeadProxy:
+    """Proxy object for latest lead data from subquery"""
+    def __init__(self, data):
+        self.id = data.latest_lead_id
+        self.status = data.status
+        self.area = data.area
+        self.property_type = data.property_type
+        self.notes = data.notes
+        self.created_at = data.created_at
+        self.updated_at = data.updated_at
+
+class LastCallProxy:
+    """Proxy object for last call data from subquery"""
+    def __init__(self, data):
+        self.id = data.last_call_id
+        self.status = data.status
+        self.transcription = data.transcription
+        self.created_at = data.created_at
+
 @intelligence_bp.route('/customers', methods=['GET'])
 @require_api_auth(['business', 'admin', 'manager'])
 def get_intelligent_customers():
@@ -152,28 +172,11 @@ def get_intelligent_customers():
             # Construct lead object from subquery data if available
             latest_lead = None
             if latest_lead_data:
-                # Create a mock object with the necessary attributes
-                class LatestLeadProxy:
-                    def __init__(self, data):
-                        self.id = data.latest_lead_id
-                        self.status = data.status
-                        self.area = data.area
-                        self.property_type = data.property_type
-                        self.notes = data.notes
-                        self.created_at = data.created_at
-                        self.updated_at = data.updated_at
                 latest_lead = LatestLeadProxy(latest_lead_data)
             
             # Construct call object from subquery data if available
             last_call = None
             if last_call_data:
-                # Create a mock object with the necessary attributes
-                class LastCallProxy:
-                    def __init__(self, data):
-                        self.id = data.last_call_id
-                        self.status = data.status
-                        self.transcription = data.transcription
-                        self.created_at = data.created_at
                 last_call = LastCallProxy(last_call_data)
             
             last_interaction = customer.created_at

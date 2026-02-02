@@ -129,8 +129,9 @@ def test_intelligence_customers_n_plus_1_fix():
                     
                     # Assert that query count is bounded (not linear with customer count)
                     # Allow some buffer for other queries (business lookup, etc.)
-                    assert query_count['count'] < 20, \
-                        f"Query count {query_count['count']} is too high. Expected < 20 for 10 customers. " \
+                    # Expected: 5-7 queries, allowing up to 12 for safety margin
+                    assert query_count['count'] < 12, \
+                        f"Query count {query_count['count']} is too high. Expected < 12 for 10 customers. " \
                         f"N+1 pattern would be 41+ queries."
                     
                     # Verify response structure

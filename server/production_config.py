@@ -35,12 +35,32 @@ class ProductionConfig:
     # Configurable via environment variables for different deployment scenarios
     # Note: When using Supabase Pooler, these settings apply to the pooler connection
     # The pooler itself handles the actual connections to PostgreSQL
+    
+    # Parse pool configuration with error handling
+    try:
+        pool_size = int(os.getenv("DB_POOL_SIZE", "10"))
+        if pool_size < 1:
+            logger.warning(f"Invalid DB_POOL_SIZE={pool_size}, using default 10")
+            pool_size = 10
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid DB_POOL_SIZE={os.getenv('DB_POOL_SIZE')}, using default 10")
+        pool_size = 10
+    
+    try:
+        max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+        if max_overflow < 0:
+            logger.warning(f"Invalid DB_MAX_OVERFLOW={max_overflow}, using default 10")
+            max_overflow = 10
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid DB_MAX_OVERFLOW={os.getenv('DB_MAX_OVERFLOW')}, using default 10")
+        max_overflow = 10
+    
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,       # 🔥 Check connection health before use
         "pool_recycle": 180,          # 🔥 Recycle connections before Supabase pooler timeout
         "pool_timeout": 30,
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "10")),  # Default: 10 (was 5)
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_size": pool_size,
+        "max_overflow": max_overflow,
     }
     
     # Session configuration
