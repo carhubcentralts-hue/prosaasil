@@ -152,11 +152,17 @@ def get_appointments():
                 return jsonify({'error': 'Invalid lead_id format'}), 400
         
         # Calendar filter - filter appointments by calendar_id
+        # 🔥 FIX: Include appointments with NULL calendar_id when filtering by specific calendar
+        # This allows appointments without a calendar assignment to appear in all calendars
         calendar_id = request.args.get('calendar_id')
         if calendar_id and calendar_id != 'all':
             try:
                 cal_id = int(calendar_id)
-                query = query.filter(Appointment.calendar_id == cal_id)
+                # Include both appointments assigned to this calendar AND unassigned appointments (calendar_id IS NULL)
+                query = query.filter(or_(
+                    Appointment.calendar_id == cal_id,
+                    Appointment.calendar_id == None
+                ))
             except ValueError:
                 return jsonify({'error': 'Invalid calendar_id format'}), 400
         
