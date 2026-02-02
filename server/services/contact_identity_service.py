@@ -159,6 +159,7 @@ class ContactIdentityService:
         business_id: int,
         remote_jid: str,
         push_name: Optional[str] = None,
+        phone_e164_override: Optional[str] = None,
         message_text: Optional[str] = None,
         wa_message_id: Optional[str] = None,
         ts: Optional[datetime] = None
@@ -176,6 +177,7 @@ class ContactIdentityService:
             business_id: Business ID
             remote_jid: WhatsApp remoteJid
             push_name: WhatsApp display name (optional)
+            phone_e164_override: E.164 phone number extracted from participant (optional, for @lid messages)
             message_text: Message content (for context)
             wa_message_id: WhatsApp message ID (for logging)
             ts: Timestamp of message
@@ -211,7 +213,8 @@ class ContactIdentityService:
             return lead
         
         # Step B: Try to link by phone number
-        phone_e164 = ContactIdentityService.extract_phone_from_jid(normalized_jid)
+        # 🔥 FIX: Use phone_e164_override if provided (for @lid messages with participant)
+        phone_e164 = phone_e164_override or ContactIdentityService.extract_phone_from_jid(normalized_jid)
         if phone_e164:
             logger.info(f"[ContactIdentity] 📞 Extracted phone from JID: {phone_e164}")
             

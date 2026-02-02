@@ -28,7 +28,7 @@ calendar_bp = Blueprint('calendar', __name__, url_prefix='/api/calendar')
 # HELPER FUNCTIONS
 # ================================================================================
 
-def check_appointment_overlap(business_id: int, start_time: datetime, end_time: datetime, exclude_id: int = None):
+def check_appointment_overlap(business_id: int, start_time: datetime, end_time: datetime, calendar_id: int = None, exclude_id: int = None):
     """
     Check if a new appointment overlaps with existing appointments
     
@@ -36,19 +36,25 @@ def check_appointment_overlap(business_id: int, start_time: datetime, end_time: 
         business_id: Business ID to check
         start_time: Proposed start time (naive datetime in local Israel time)
         end_time: Proposed end time (naive datetime in local Israel time)
-        exclude_id: Appointment ID to exclude from check (for updates)
+        calendar_id: Calendar ID to check (optional - if provided, only checks within that calendar)
+        exclude_id: Appointment ID to exclude from check (for updates - self-exclusion)
     
     Returns:
         Existing overlapping appointment if found, None otherwise
     """
+    # 🔥 FIX: Only check active appointments (not cancelled/no_show/completed)
     query = Appointment.query.filter(
         Appointment.business_id == business_id,
         Appointment.start_time < end_time,
         Appointment.end_time > start_time,
-        Appointment.status.in_(['scheduled', 'confirmed'])
+        Appointment.status.in_(['scheduled', 'confirmed'])  # Excludes cancelled, no_show, completed
     )
     
-    # Exclude specific appointment (for updates)
+    # 🔥 FIX: Filter by calendar_id to prevent false conflicts between different calendars
+    if calendar_id is not None:
+        query = query.filter(Appointment.calendar_id == calendar_id)
+    
+    # 🔥 FIX: Exclude specific appointment (for self-exclusion during updates)
     if exclude_id:
         query = query.filter(Appointment.id != exclude_id)
     
@@ -354,8 +360,20 @@ def create_appointment():
         if end_time <= start_time:
             return jsonify({'error': 'זמן סיום חייב להיות אחרי זמן התחלה'}), 400
         
-        # 🔥 CRITICAL: Check for overlapping appointments
-        existing = check_appointment_overlap(business_id, start_time, end_time)
+        # 🔥 FIX: Get calendar_id before overlap check
+        calendar_id = data.get('calendar_id')
+        if not calendar_id:
+            # Get default calendar for business
+            from server.models_sql import BusinessCalendar
+            default_calendar = BusinessCalendar.query.filter(
+                BusinessCalendar.business_id == business_id,
+                BusinessCalendar.is_active.is_(True)
+            ).order_by(BusinessCalendar.priority.desc()).first()
+            if default_calendar:
+                calendar_id = default_calendar.id
+        
+        # 🔥 CRITICAL: Check for overlapping appointments (with calendar_id filter)
+        existing = check_appointment_overlap(business_id, start_time, end_time, calendar_id=calendar_id)
         if existing:
             # Format the conflict message
             conflict_start = tz.localize(existing.start_time) if existing.start_time.tzinfo is None else existing.start_time
@@ -395,27 +413,7 @@ def create_appointment():
         appointment.auto_generated = data.get('auto_generated', False)
         appointment.source = data.get('source', 'manual')
         
-        # 🔥 FIX: Assign calendar_id - if not provided, use default calendar
-        # This ensures manually created appointments are visible when filtering by calendar
-        calendar_id = data.get('calendar_id')
-        logger.info(f"📋 Received calendar_id from request: {calendar_id} (type: {type(calendar_id)})")
-        
-        if not calendar_id:
-            # Get default calendar for business (same pattern as auto_meeting and WhatsApp handler)
-            from server.models_sql import BusinessCalendar
-            default_calendar = BusinessCalendar.query.filter(
-                BusinessCalendar.business_id == business_id,
-                BusinessCalendar.is_active == True
-            ).order_by(BusinessCalendar.priority.desc()).first()
-            
-            if default_calendar:
-                calendar_id = default_calendar.id
-                logger.info(f"📅 Manual appointment assigned to default calendar '{default_calendar.name}' (id={default_calendar.id})")
-            else:
-                logger.warning(f"⚠️ No active calendars found for business_id={business_id}, appointment will have NULL calendar_id")
-        else:
-            logger.info(f"✅ Using provided calendar_id={calendar_id}")
-        
+        # 🔥 FIX: calendar_id was already determined above during overlap check
         appointment.calendar_id = calendar_id
         logger.info(f"💾 Appointment.calendar_id set to: {appointment.calendar_id}")
         
@@ -629,6 +627,7 @@ def update_appointment(appointment_id):
                 appointment.business_id, 
                 appointment.start_time, 
                 appointment.end_time,
+                calendar_id=appointment.calendar_id,  # 🔥 FIX: Check overlap only within same calendar
                 exclude_id=appointment_id  # Exclude current appointment from overlap check
             )
             if existing:

@@ -353,6 +353,23 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
                             logger.warning(f"⚠️ ScheduledMessagesQueue delete skipped (table does not exist)")
                         else:
                             raise
+                    
+                    # 🔥 FIX: Nullify WhatsApp broadcast recipient references (preserve broadcast history)
+                    try:
+                        from server.models_sql import WhatsAppBroadcastRecipient
+                        WhatsAppBroadcastRecipient.query.filter(
+                            WhatsAppBroadcastRecipient.lead_id.in_(actual_lead_ids)
+                        ).update(
+                            {'lead_id': None},
+                            synchronize_session=False
+                        )
+                        logger.info(f"  ✓ Nullified WhatsAppBroadcastRecipient references for {len(actual_lead_ids)} leads")
+                    except Exception as wabr_err:
+                        err_str = str(wabr_err).lower()
+                        if 'undefinedtable' in err_str or 'does not exist' in err_str or 'whatsapp_broadcast_recipients' in err_str:
+                            logger.warning(f"⚠️ WhatsAppBroadcastRecipient update skipped (table does not exist)")
+                        else:
+                            raise
                         
                     # Delete the leads themselves
                     for lead in leads:

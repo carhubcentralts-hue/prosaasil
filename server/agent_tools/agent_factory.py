@@ -210,7 +210,8 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                     if channel == "whatsapp":
                         if business and business.whatsapp_system_prompt:
                             custom_instructions = business.whatsapp_system_prompt
-                            logger.info(f"✅ Using WhatsApp prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
+                            # 🔥 FIX 3: Clear logging for prompt source verification
+                            logger.info(f"✅ [PROMPT-LOAD] WhatsApp prompt loaded from DB: business_id={business_id}, length={len(custom_instructions)} chars, updated_at={getattr(business, 'updated_at', 'N/A')}")
                         else:
                             logger.error(f"❌ MISSING_WHATSAPP_PROMPT for business={business_id}! Agent will not have instructions.")
                             custom_instructions = None
@@ -1966,74 +1967,29 @@ def warmup_all_agents():
 
 
 # ================================================================================
-# AGENT REGISTRY
+# AGENT REGISTRY - Legacy get_agent() now delegates to get_or_create_agent()
 # ================================================================================
-
-_agent_cache = {}
 
 def get_agent(agent_type: str = "booking", business_name: str = "העסק", custom_instructions: str = None, business_id: int = None, channel: str = "phone") -> Agent:
     """
-    Get or create an agent by type
+    🔥 FIX: Legacy function now delegates to get_or_create_agent()
+    This ensures all agent creation goes through the proper cache (_AGENT_CACHE)
+    and prompt updates are properly invalidated.
     
     Args:
-        agent_type: Type of agent (booking/sales/ops)
+        agent_type: Type of agent (booking/sales/ops) - only booking is supported now
         business_name: Business name for personalization
         custom_instructions: Custom instructions from database (if provided, creates new agent)
         business_id: Business ID for tool calls (required for booking agent)
         channel: Communication channel (phone/whatsapp/web)
     
     Returns:
-        Agent instance (cached unless custom_instructions provided)
+        Agent instance from get_or_create_agent()
     """
-    # 🎯 If custom instructions provided, always create fresh agent (don't cache)
-    if custom_instructions and isinstance(custom_instructions, str) and custom_instructions.strip():
-        logger.info(f"Creating fresh agent with custom instructions ({len(custom_instructions)} chars)")
-        if agent_type == "booking":
-            return create_booking_agent(business_name, custom_instructions, business_id, channel)
-        elif agent_type == "sales":
-            return create_sales_agent(business_name)
-        elif agent_type == "ops":
-            return create_ops_agent(business_name, business_id, channel)
-        else:
-            raise ValueError(f"Unknown agent type: {agent_type}")
-    
-    # Otherwise use cached agent (include channel in cache key!)
-    cache_key = f"{agent_type}:{business_name}:{business_id}:{channel}"
-    
-    if cache_key not in _agent_cache:
-        if agent_type == "booking":
-            # 🔥 CRITICAL: Load DB prompt if not provided
-            actual_instructions = custom_instructions
-            if not actual_instructions or not isinstance(actual_instructions, str) or not actual_instructions.strip():
-                try:
-                    from server.models_sql import BusinessSettings
-                    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-                    if settings and settings.ai_prompt:
-                        import json
-                        try:
-                            prompt_data = json.loads(settings.ai_prompt)
-                            if isinstance(prompt_data, dict):
-                                # Extract channel-specific prompt
-                                if channel == "whatsapp":
-                                    actual_instructions = prompt_data.get('whatsapp', '')
-                                else:
-                                    actual_instructions = prompt_data.get('calls', '')
-                            else:
-                                # Legacy single prompt
-                                actual_instructions = settings.ai_prompt
-                        except json.JSONDecodeError:
-                            # Legacy single prompt
-                            actual_instructions = settings.ai_prompt
-                except Exception as e:
-                    logger.warning(f"⚠️ Could not load DB prompt in get_agent for business={business_id}: {e}")
-                    actual_instructions = None
-            
-            _agent_cache[cache_key] = create_booking_agent(business_name, actual_instructions, business_id, channel)
-        elif agent_type == "sales":
-            _agent_cache[cache_key] = create_sales_agent(business_name)
-        elif agent_type == "ops":
-            _agent_cache[cache_key] = create_ops_agent(business_name, business_id, channel)
-        else:
-            raise ValueError(f"Unknown agent type: {agent_type}")
-    
-    return _agent_cache[cache_key]
+    # 🔥 FIX: Always delegate to get_or_create_agent() for proper caching
+    return get_or_create_agent(
+        business_id=business_id,
+        channel=channel,
+        business_name=business_name,
+        custom_instructions=custom_instructions
+    )
