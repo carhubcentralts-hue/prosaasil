@@ -41,7 +41,7 @@ def _ensure_agent_modules_loaded():
     try:
         # Try to import agent modules
         from server.agent_tools import get_agent, AGENTS_ENABLED as agents_flag
-        # Note: Runner is no longer needed - we use agent.run() directly
+        from agents import Runner
         
         AGENT_MODULES_LOADED = True
         AGENTS_ENABLED = agents_flag
@@ -990,7 +990,7 @@ class AIService:
             
             # Import agent modules (already loaded by _ensure_agent_modules_loaded)
             from server.agent_tools import get_agent
-            # Note: Runner is no longer needed - we use agent.run() directly
+            from agents import Runner  # Required for running agents synchronously
             
             # Get agent for this business
             logger.info(f"[AGENTKIT] Getting agent for business {business_id}")
@@ -1094,10 +1094,8 @@ class AIService:
                 except Exception as ctx_err:
                     logger.warning(f"[AGENTKIT] Failed to format lead context: {ctx_err}")
             
-            # 🔥 FIX: Use agent.run() instead of Runner.run() to support conversation history
-            # agent.run() accepts messages parameter for full conversation context
-            # Note: agent.run() is synchronous (see server/routes_agent_ops.py for reference implementation)
-            result = agent.run(messages=messages, context=agent_context)
+            # Run agent using Runner.run_sync() (correct API for openai-agents SDK)
+            result = Runner.run_sync(agent, input=messages, context=agent_context)
             
             # Extract response text from result
             # The OpenAI Agents SDK can return different result types:

@@ -401,7 +401,7 @@ def api_send_thread_message(thread_id):
         try:
             wa_msg = WhatsAppMessage()
             wa_msg.business_id = business_id
-            wa_msg.to_number = to_number
+            wa_msg.to_number = formatted_number
             wa_msg.body = text
             wa_msg.message_type = media_type or 'text'
             wa_msg.direction = 'out'
@@ -422,7 +422,7 @@ def api_send_thread_message(thread_id):
             try:
                 update_session_activity(
                     business_id=int(business_id),
-                    customer_wa_id=to_number,
+                    customer_wa_id=formatted_number,
                     direction="out",
                     provider=send_result.get('provider', 'baileys')
                 )
@@ -433,7 +433,7 @@ def api_send_thread_message(thread_id):
             log.error(f"[CRM-SEND] DB save failed: {db_error}")
             db.session.rollback()
         
-        log.info(f"[CRM-SEND] Message sent to {to_number} successfully")
+        log.info(f"[CRM-SEND] Message sent to {formatted_number} successfully")
         return jsonify({"success": True})
         
     except Exception as e:

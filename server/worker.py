@@ -291,6 +291,7 @@ def main():
             from server.jobs.update_leads_job import update_leads_batch_job
             from server.jobs.delete_imported_leads_job import delete_imported_leads_batch_job
             from server.jobs.enqueue_outbound_calls_job import enqueue_outbound_calls_batch_job
+            from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
             logger.info("✓ Job functions imported successfully")
             logger.info(f"  → sync_gmail_receipts_job: {sync_gmail_receipts_job}")
             logger.info(f"  → delete_receipts_batch_job: {delete_receipts_batch_job}")
@@ -299,6 +300,7 @@ def main():
             logger.info(f"  → update_leads_batch_job: {update_leads_batch_job}")
             logger.info(f"  → delete_imported_leads_batch_job: {delete_imported_leads_batch_job}")
             logger.info(f"  → enqueue_outbound_calls_batch_job: {enqueue_outbound_calls_batch_job}")
+            logger.info(f"  → send_whatsapp_message_job: {send_whatsapp_message_job}")
         except (ImportError, ModuleNotFoundError) as e:
             log_fatal_error("Importing job functions", e)
         
