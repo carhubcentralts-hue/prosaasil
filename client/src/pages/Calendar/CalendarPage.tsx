@@ -515,44 +515,61 @@ export function CalendarPage() {
   };
 
   // Filter appointments based on search, filters, and date
-  const filteredAppointments = appointments.filter(appointment => {
-    const matchesSearch = !searchTerm || 
-      appointment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      appointment.contact_name?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
-    const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
-    // Calendar filtering now done server-side via fetchAppointments to reduce data transfer
-    // Other filters remain client-side to avoid excessive API calls for each filter combination
-    
-    // ✅ BUILD 144 + 170: Date filter - single date or date range
-    let matchesDate = true;
-    const appointmentDate = new Date(appointment.start_time);
-    
-    // Date range filter takes priority
-    if (filterDateFrom || filterDateTo) {
-      if (filterDateFrom && filterDateTo) {
-        const from = new Date(filterDateFrom);
-        const to = new Date(filterDateTo);
-        to.setHours(23, 59, 59, 999); // Include full day
-        matchesDate = appointmentDate >= from && appointmentDate <= to;
-      } else if (filterDateFrom) {
-        const from = new Date(filterDateFrom);
-        matchesDate = appointmentDate >= from;
-      } else if (filterDateTo) {
-        const to = new Date(filterDateTo);
-        to.setHours(23, 59, 59, 999);
-        matchesDate = appointmentDate <= to;
+  const filteredAppointments = useMemo(() => {
+    const filtered = appointments.filter(appointment => {
+      const matchesSearch = !searchTerm || 
+        appointment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        appointment.contact_name?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
+      const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
+      // Calendar filtering now done server-side via fetchAppointments to reduce data transfer
+      // Other filters remain client-side to avoid excessive API calls for each filter combination
+      
+      // ✅ BUILD 144 + 170: Date filter - single date or date range
+      let matchesDate = true;
+      const appointmentDate = new Date(appointment.start_time);
+      
+      // Date range filter takes priority
+      if (filterDateFrom || filterDateTo) {
+        if (filterDateFrom && filterDateTo) {
+          const from = new Date(filterDateFrom);
+          const to = new Date(filterDateTo);
+          to.setHours(23, 59, 59, 999); // Include full day
+          matchesDate = appointmentDate >= from && appointmentDate <= to;
+        } else if (filterDateFrom) {
+          const from = new Date(filterDateFrom);
+          matchesDate = appointmentDate >= from;
+        } else if (filterDateTo) {
+          const to = new Date(filterDateTo);
+          to.setHours(23, 59, 59, 999);
+          matchesDate = appointmentDate <= to;
+        }
+      } else if (filterDate) {
+        const filterDateObj = new Date(filterDate).toDateString();
+        matchesDate = appointmentDate.toDateString() === filterDateObj;
+      } else if (selectedDate) {
+        matchesDate = appointmentDate.toDateString() === selectedDate.toDateString();
       }
-    } else if (filterDate) {
-      const filterDateObj = new Date(filterDate).toDateString();
-      matchesDate = appointmentDate.toDateString() === filterDateObj;
-    } else if (selectedDate) {
-      matchesDate = appointmentDate.toDateString() === selectedDate.toDateString();
-    }
+      
+      return matchesSearch && matchesStatus && matchesType && matchesDate;
+    });
     
-    return matchesSearch && matchesStatus && matchesType && matchesDate;
-  });
+    console.log('🔍 Filtered appointments:', {
+      total: appointments.length,
+      filtered: filtered.length,
+      filterCalendar,
+      filterStatus,
+      filterType,
+      searchTerm,
+      filterDate,
+      filterDateFrom,
+      filterDateTo,
+      selectedDate
+    });
+    
+    return filtered;
+  }, [appointments, searchTerm, filterStatus, filterType, filterDate, filterDateFrom, filterDateTo, selectedDate, filterCalendar]);
   
   // ✅ BUILD 144: Handle calendar date click - show only that day's appointments
   const handleCalendarDateClick = (date: Date) => {
