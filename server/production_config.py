@@ -15,6 +15,7 @@ class ProductionConfig:
     # Basic Flask settings
     # 🔒 SECURITY: No fallback for SECRET_KEY - must be provided via SECRET_KEY env var
     # This is used for Flask session signing and CSRF protection
+    # Note: Will be None if not set - validation in init_production_config() will catch this
     SECRET_KEY = os.getenv("SECRET_KEY")
     # ❌ WTF_CSRF_ENABLED הוסר - משתמשים רק בSeaSurf לפי ההנחיות
     
@@ -63,6 +64,7 @@ def init_production_config(app):
     app.config.from_object(ProductionConfig)
     
     # 🔒 SECURITY: Validate SECRET_KEY in production mode
+    # Note: Accepts PRODUCTION='1', 'true', or 'True' (consistent with app_factory.py)
     is_production = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
     if is_production and not app.config.get('SECRET_KEY'):
         raise RuntimeError(
