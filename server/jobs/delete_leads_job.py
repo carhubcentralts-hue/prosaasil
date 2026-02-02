@@ -78,20 +78,46 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
     logger.info(f"🔨 JOB PICKED: queue=maintenance function=delete_leads_batch_job job_id={job_id}")
     logger.info(f"=" * 70)
     
+    # Initialize variables before try block
+    PSYCOPG2_AVAILABLE = False
+    UndefinedTableError = None
+    
     try:
         from flask import current_app
-        from server.models_sql import db, BackgroundJob, Lead, LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate, OutboundCallJob
+        from server.models_sql import db, BackgroundJob, Lead, LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate, OutboundCallJob, LeadStatusHistory
+        import psycopg2.errors
+        PSYCOPG2_AVAILABLE = True
+        UndefinedTableError = psycopg2.errors.UndefinedTable
     except ImportError as e:
-        error_msg = f"Import failed: {str(e)}"
-        logger.error(f"❌ JOB IMPORT ERROR: {e}")
-        print(f"❌ FATAL IMPORT ERROR: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        print(traceback.format_exc())
-        return {
-            "success": False,
-            "error": error_msg
-        }
+        # Check if only psycopg2 is missing
+        if 'psycopg2' in str(e).lower() or (hasattr(e, 'name') and e.name == 'psycopg2'):
+            logger.warning("psycopg2 not available - some error handling may be limited")
+            # Try importing without psycopg2
+            try:
+                from flask import current_app
+                from server.models_sql import db, BackgroundJob, Lead, LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate, OutboundCallJob, LeadStatusHistory
+            except ImportError as e2:
+                error_msg = f"Import failed: {str(e2)}"
+                logger.error(f"❌ JOB IMPORT ERROR: {e2}")
+                print(f"❌ FATAL IMPORT ERROR: {e2}")
+                import traceback
+                logger.error(traceback.format_exc())
+                print(traceback.format_exc())
+                return {
+                    "success": False,
+                    "error": error_msg
+                }
+        else:
+            error_msg = f"Import failed: {str(e)}"
+            logger.error(f"❌ JOB IMPORT ERROR: {e}")
+            print(f"❌ FATAL IMPORT ERROR: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
+            return {
+                "success": False,
+                "error": error_msg
+            }
     except Exception as e:
         error_msg = f"Import failed: {str(e)}"
         logger.error(f"❌ JOB IMPORT ERROR: {e}")
@@ -262,6 +288,27 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
             try:
                 if actual_lead_ids:
                     # Delete related records FIRST to avoid FK constraint violations
+                    
+                    # 🔥 DELETE LeadStatusHistory records first (handle missing table gracefully)
+                    try:
+                        LeadStatusHistory.query.filter(
+                            LeadStatusHistory.lead_id.in_(actual_lead_ids)
+                        ).delete(synchronize_session=False)
+                        logger.info(f"  ✓ Deleted LeadStatusHistory records for {len(actual_lead_ids)} leads")
+                    except Exception as lsh_err:
+                        # Check if this is an UndefinedTable error (table doesn't exist)
+                        is_undefined_table = False
+                        if PSYCOPG2_AVAILABLE and UndefinedTableError and isinstance(lsh_err.__cause__, UndefinedTableError):
+                            is_undefined_table = True
+                        else:
+                            err_str = str(lsh_err).lower()
+                            # Fall back to string checking: both conditions must be true
+                            is_undefined_table = ('undefinedtable' in err_str or 'does not exist' in err_str) and 'lead_status_history' in err_str
+                        
+                        if is_undefined_table:
+                            logger.warning(f"⚠️ LeadStatusHistory delete skipped (table does not exist)")
+                        else:
+                            raise
                     
                     # 🔥 DELETE OutboundCallJob records first (FK constraint fix)
                     try:
