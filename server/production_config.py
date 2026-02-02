@@ -13,7 +13,8 @@ class ProductionConfig:
     """Production configuration settings"""
     
     # Basic Flask settings
-    SECRET_KEY = os.getenv("JWT_SECRET", "production-secret-key-change-this")
+    # 🔒 SECURITY: No fallback for SECRET_KEY - must be provided via JWT_SECRET env var
+    SECRET_KEY = os.getenv("JWT_SECRET")
     # ❌ WTF_CSRF_ENABLED הוסר - משתמשים רק בSeaSurf לפי ההנחיות
     
     # Database configuration - use single source of truth
@@ -59,6 +60,14 @@ class ProductionConfig:
 def init_production_config(app):
     """Initialize production configuration"""
     app.config.from_object(ProductionConfig)
+    
+    # 🔒 SECURITY: Validate JWT_SECRET in production mode
+    is_production = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+    if is_production and not os.getenv("JWT_SECRET"):
+        raise RuntimeError(
+            "PRODUCTION=1 requires JWT_SECRET environment variable. "
+            "Generate with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+        )
     
     # Environment validation
     required_vars = [

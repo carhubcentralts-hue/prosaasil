@@ -20,7 +20,7 @@ export default defineConfig({
     target: 'esnext',
     outDir: './dist',
     assetsDir: 'assets',
-    sourcemap: true,
+    sourcemap: process.env.NODE_ENV !== 'production',
   },
   resolve: {
     dedupe: ['react', 'react-dom'],
