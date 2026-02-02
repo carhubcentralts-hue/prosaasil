@@ -3,7 +3,7 @@ Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
 from flask import Blueprint, jsonify, request, session, g, send_file
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog, Contract, ContactIdentity, WhatsAppConversation, CallSession, CRMTask, Appointment, OutboundCallJob, WhatsAppBroadcastRecipient
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog, Contract, ContactIdentity, WhatsAppConversation, CallSession, CRMTask, Appointment, OutboundCallJob, WhatsAppBroadcastRecipient, LeadStatusHistory
 from server.db import db
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
@@ -938,7 +938,17 @@ def delete_lead(lead_id):
         # 7. Delete outbound call jobs
         OutboundCallJob.query.filter_by(lead_id=lead_id).delete()
         
-        # 8. Nullify foreign keys in related tables (instead of deleting them)
+        # 8. Delete lead status history (handle missing table gracefully)
+        try:
+            LeadStatusHistory.query.filter_by(lead_id=lead_id).delete()
+        except Exception as lsh_err:
+            err_str = str(lsh_err).lower()
+            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_status_history' in err_str:
+                log.warning(f"⚠️ LeadStatusHistory delete skipped (table does not exist)")
+            else:
+                raise
+        
+        # 9. Nullify foreign keys in related tables (instead of deleting them)
         # These records should remain even if lead is deleted
         CallLog.query.filter_by(lead_id=lead_id).update({'lead_id': None})
         Contract.query.filter_by(lead_id=lead_id).update({'lead_id': None})
@@ -947,7 +957,7 @@ def delete_lead(lead_id):
         # 🔥 FIX 1: Nullify WhatsApp broadcast recipient references (preserve broadcast history)
         WhatsAppBroadcastRecipient.query.filter_by(lead_id=lead_id).update({'lead_id': None})
         
-        # 9. Delete the lead itself
+        # 10. Delete the lead itself
         # Note: LeadNote, LeadAttachment, ScheduledMessagesQueue have CASCADE delete
         db.session.delete(lead)
         db.session.commit()

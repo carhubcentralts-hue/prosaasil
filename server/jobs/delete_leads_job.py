@@ -263,6 +263,20 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
                 if actual_lead_ids:
                     # Delete related records FIRST to avoid FK constraint violations
                     
+                    # 🔥 DELETE LeadStatusHistory records first (handle missing table gracefully)
+                    try:
+                        from server.models_sql import LeadStatusHistory
+                        LeadStatusHistory.query.filter(
+                            LeadStatusHistory.lead_id.in_(actual_lead_ids)
+                        ).delete(synchronize_session=False)
+                        logger.info(f"  ✓ Deleted LeadStatusHistory records for {len(actual_lead_ids)} leads")
+                    except Exception as lsh_err:
+                        err_str = str(lsh_err).lower()
+                        if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_status_history' in err_str:
+                            logger.warning(f"⚠️ LeadStatusHistory delete skipped (table does not exist)")
+                        else:
+                            raise
+                    
                     # 🔥 DELETE OutboundCallJob records first (FK constraint fix)
                     try:
                         OutboundCallJob.query.filter(
