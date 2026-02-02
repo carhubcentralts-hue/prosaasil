@@ -250,7 +250,7 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
           <div className="flex items-center gap-2 justify-center mt-3 sm:hidden">
             <Button 
               size="sm"
-              className="min-h-[44px] flex-1"
+              className="min-h-[44px] flex-1 max-w-[160px]"
               onClick={() => window.location.href = `tel:${lead.phone_e164 || ''}`}
               data-testid="button-call-modal"
             >
@@ -259,10 +259,10 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
             </Button>
             <Button 
               size="sm"
-              className="min-h-[44px] flex-1 bg-green-600 hover:bg-green-700"
+              className="min-h-[44px] flex-1 max-w-[160px] bg-green-600 hover:bg-green-700"
               onClick={() => {
-                if (lead.phone_e164) {
-                  const cleanPhone = lead.phone_e164.replace(/[^0-9]/g, '');
+                const cleanPhone = lead.phone_e164?.replace(/[^0-9]/g, '');
+                if (cleanPhone) {
                   window.open(`https://wa.me/${cleanPhone}`, '_blank');
                 }
               }}
