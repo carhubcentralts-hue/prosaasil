@@ -768,16 +768,24 @@ class GeminiRealtimeClient:
                             # This can happen when Gemini sends empty text (greeting trigger)
                             logger.debug(f"[GEMINI_RECV] tool_call has no function_calls attribute (likely empty greeting trigger)")
                         
-                        if not IS_PROD or REALTIME_VERBOSE:
-                            logger.info(f"[GEMINI_LIVE] Function call received: {function_calls}")
-                        
-                        event = {
-                            'type': 'function_call',
-                            'data': tool_call,
-                            'function_calls': function_calls  # Include parsed data for easier handling
-                        }
-                        
-                        yield event
+                        # 🔥 CRITICAL FIX: Only emit function_call event if there are actual function calls
+                        # Empty tool_call events (without function_calls) should be ignored
+                        # This prevents spam of "[GEMINI] No extractable function_calls" warnings
+                        if function_calls:
+                            if not IS_PROD or REALTIME_VERBOSE:
+                                logger.info(f"[GEMINI_LIVE] Function call received: {function_calls}")
+                            
+                            event = {
+                                'type': 'function_call',
+                                'data': tool_call,
+                                'function_calls': function_calls  # Include parsed data for easier handling
+                            }
+                            
+                            yield event
+                        else:
+                            # Skip empty function_call events - they don't need processing
+                            logger.debug(f"[GEMINI_RECV] Skipping empty tool_call event (no function_calls to process)")
+                            continue
                 
                 except Exception as parse_error:
                     logger.error(f"❌ [GEMINI_RECV] Error parsing message: {parse_error}")
