@@ -965,6 +965,7 @@ def baileys_webhook():
                     business_id=business_id,
                     remote_jid=remote_jid,
                     push_name=push_name,
+                    phone_e164_override=from_number_e164,
                     message_text=message_text,
                     wa_message_id=baileys_message_id,
                     ts=msg_timestamp
@@ -2423,6 +2424,7 @@ def _process_meta_ai_response(business, from_number: str, user_message: str):
             business_id=business_id,
             remote_jid=from_number,  # For Meta, remote_jid is just the phone
             push_name=None,
+            phone_e164_override=from_number_e164,
             message_text=user_message,
             wa_message_id=None,
             ts=datetime.utcnow()
