@@ -34,13 +34,15 @@ class CustomerIntelligence:
         whatsapp_jid: str = None,
         whatsapp_jid_alt: str = None,
         phone_raw: str = None,
-        push_name: str = None
+        push_name: str = None,
+        phone_e164_override: str = None  # 🔥 NEW: Pre-resolved phone for @lid
     ) -> Tuple[Customer, Lead, bool]:
         """
         זיהוי או יצירת לקוח מתוך הודעת WhatsApp
         ✅ תמיד נרמל טלפון לפני בדיקה - מונע כפילויות!
         🔥 FIX #3 & #6: Support @lid identifiers and WhatsApp JID mapping
         🆕 Name saving: Save pushName from WhatsApp with smart upsert logic
+        🔥 LID FIX: phone_e164_override allows passing resolved phone for @lid
         
         Args:
             phone_number: Phone number or external ID (may be @lid)
@@ -49,13 +51,18 @@ class CustomerIntelligence:
             whatsapp_jid_alt: Alternative WhatsApp identifier (sender_pn/participant)
             phone_raw: Original phone input before normalization
             push_name: WhatsApp pushName (display name)
+            phone_e164_override: Pre-resolved E.164 phone (for @lid messages)
         
         Returns:
             Tuple[Customer, Lead, bool]: (לקוח, ליד, האם נוצר חדש)
         """
         try:
+            # 🔥 LID FIX: Use phone_e164_override if provided (from participant extraction)
+            if phone_e164_override:
+                phone_e164 = phone_e164_override
+                log.info(f"📱 WhatsApp using phone_e164_override: {phone_e164}")
             # 🔥 FIX #6: Check if this is @lid or other non-phone identifier
-            if not phone_number or '_at_lid' in str(phone_number) or '@lid' in str(phone_number):
+            elif not phone_number or '_at_lid' in str(phone_number) or '@lid' in str(phone_number):
                 # @lid format - no real phone number available
                 # Use external_id for deduplication instead of phone_e164
                 log.info(f"📱 WhatsApp @lid identifier detected: {phone_number}")

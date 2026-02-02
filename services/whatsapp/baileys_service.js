@@ -855,6 +855,59 @@ app.post('/whatsapp/:tenantId/validate-auth', requireSecret, async (req, res) =>
   return res.json(result);
 });
 
+// 🔥 NEW: JID resolution endpoint for @lid → phone_e164 mapping
+// This endpoint attempts to resolve a WhatsApp JID to a real phone number
+app.get('/internal/resolve-jid', async (req, res) => {
+  try {
+    const { jid, tenantId } = req.query;
+    
+    if (!jid) {
+      return res.status(400).json({ error: 'Missing jid parameter' });
+    }
+    
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Missing tenantId parameter' });
+    }
+    
+    const s = sessions.get(tenantId);
+    
+    if (!s || !s.sock || !s.connected) {
+      return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
+    
+    // 🔥 Resolution strategy for @lid JIDs:
+    // 1. Check if JID is actually @s.whatsapp.net (direct phone extraction)
+    // 2. Try to get contact info from Baileys store
+    // 3. Check recent message history for participant mapping
+    // 4. Return null if cannot resolve (Flask will use mapping table)
+    
+    let phone_e164 = null;
+    
+    // Strategy 1: Direct extraction from @s.whatsapp.net
+    if (jid.endsWith('@s.whatsapp.net')) {
+      const phoneDigits = jid.split('@')[0].split(':')[0];
+      if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
+        // Format to E.164
+        phone_e164 = '+' + phoneDigits;
+        console.log(`[JID-RESOLVE] ${tenantId}: Direct extraction: ${jid} → ${phone_e164}`);
+        return res.json({ phone_e164, source: 'direct' });
+      }
+    }
+    
+    // Strategy 2: Check Baileys store/contacts
+    // Note: Baileys doesn't maintain a persistent contacts store in this configuration
+    // This is a placeholder for future enhancement if store is added
+    
+    // Strategy 3: Return null - let Flask use mapping table
+    console.log(`[JID-RESOLVE] ${tenantId}: Cannot resolve ${jid} - no store available`);
+    return res.json({ phone_e164: null, source: 'unresolvable' });
+    
+  } catch (e) {
+    console.error(`[JID-RESOLVE] Error: ${e.message}`);
+    return res.status(500).json({ error: 'resolution_failed', message: e.message });
+  }
+});
+
 // ⚡ FAST typing indicator endpoint - MULTI-TENANT SUPPORT
 app.post('/sendTyping', async (req, res) => {
   try {

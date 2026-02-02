@@ -95,20 +95,101 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                     # For Groups: remoteJid ends with @g.us
                     # For Android LID: remoteJid ends with @lid, use participant as actual JID
                     
-                    # 🔥 ANDROID FIX: Handle LID (Linked ID) from Android devices
-                    # Android uses @lid instead of @s.whatsapp.net, but we need the participant
+                    # 🔥 CRITICAL LID FIX: Extract real phone from participant field
+                    # @lid digits are NOT phone numbers - they're WhatsApp's internal identifiers
+                    # We MUST get the real phone from participant or Baileys resolution
+                    phone_e164_for_lead = None  # Will store normalized E.164 phone
+                    
                     if from_jid.endswith('@lid'):
-                        # Extract participant (the actual sender's JID)
-                        participant_jid = msg.get('key', {}).get('participant')
+                        logger.info(f"[WA-LID] trace_id={trace_id} LID detected: {from_jid[:30]}")
+                        
+                        # STEP 1: Try to extract participant from ALL possible locations
+                        participant_jid = None
+                        
+                        # Check metadata first (added by Baileys service)
+                        lid_metadata = msg.get('_lid_metadata', {})
+                        if lid_metadata and lid_metadata.get('participant_jid'):
+                            participant_jid = lid_metadata['participant_jid']
+                            logger.info(f"[WA-LID-RESOLVE] source=metadata participant={participant_jid}")
+                        
+                        # Fallback: check standard locations
+                        if not participant_jid:
+                            participant_jid = msg.get('key', {}).get('participant')
+                            if participant_jid:
+                                logger.info(f"[WA-LID-RESOLVE] source=key.participant participant={participant_jid}")
+                        
+                        # STEP 2: If participant found, extract phone from it
+                        if participant_jid and participant_jid.endswith('@s.whatsapp.net'):
+                            # Extract phone digits from participant JID
+                            phone_raw = participant_jid.replace('@s.whatsapp.net', '').split(':')[0]
+                            
+                            # Normalize to E.164
+                            from server.agent_tools.phone_utils import normalize_phone
+                            phone_e164_for_lead = normalize_phone(phone_raw)
+                            
+                            if phone_e164_for_lead:
+                                jid = participant_jid  # Use participant as reply JID
+                                logger.info(f"[WA-LID-RESOLVE] ✅ source=participant phone={phone_e164_for_lead}")
+                            else:
+                                logger.warning(f"[WA-LID-RESOLVE] ⚠️ Failed to normalize participant phone: {phone_raw}")
+                        
+                        # STEP 3: If no participant, try mapping table lookup
+                        if not phone_e164_for_lead:
+                            from server.services.contact_identity_service import ContactIdentityService
+                            phone_e164_for_lead = ContactIdentityService.lookup_phone_by_lid(
+                                business_id=business_id,
+                                lid_jid=from_jid
+                            )
+                            if phone_e164_for_lead:
+                                logger.info(f"[WA-LID-RESOLVE] ✅ source=mapping phone={phone_e164_for_lead}")
+                        
+                        # STEP 4: If still no phone, try Baileys resolution endpoint
+                        if not phone_e164_for_lead:
+                            try:
+                                import requests
+                                from server.whatsapp_provider import get_whatsapp_service
+                                
+                                # Get Baileys base URL from service
+                                wa_service = get_whatsapp_service(tenant_id=f"business_{business_id}")
+                                baileys_base_url = wa_service.base_url if hasattr(wa_service, 'base_url') else None
+                                
+                                if baileys_base_url:
+                                    resolve_url = f"{baileys_base_url}/internal/resolve-jid"
+                                    response = requests.get(
+                                        resolve_url,
+                                        params={'jid': from_jid, 'tenantId': f"business_{business_id}"},
+                                        timeout=5
+                                    )
+                                    
+                                    if response.status_code == 200:
+                                        data = response.json()
+                                        phone_e164_for_lead = data.get('phone_e164')
+                                        if phone_e164_for_lead:
+                                            logger.info(f"[WA-LID-RESOLVE] ✅ source=baileys phone={phone_e164_for_lead}")
+                            except Exception as resolve_error:
+                                logger.warning(f"[WA-LID-RESOLVE] Baileys resolution failed: {resolve_error}")
+                        
+                        # STEP 5: Set JID for reply (prefer participant if available)
                         if participant_jid:
-                            jid = participant_jid  # Use participant instead of @lid
-                            logger.info(f"📱 [ANDROID_LID] trace_id={trace_id} lid={from_jid} using_participant={jid}")
+                            jid = participant_jid
                         else:
-                            # Fallback: construct JID from phone number
-                            jid = f"{phone_number}@s.whatsapp.net"
-                            logger.warning(f"⚠️ [ANDROID_LID_FALLBACK] trace_id={trace_id} no_participant, using_phone={jid}")
+                            jid = from_jid  # Use @lid as fallback for reply routing
+                        
+                        # Log final resolution result
+                        if phone_e164_for_lead:
+                            logger.info(f"[WA-LID-RESOLVE] ✅ FINAL: phone={phone_e164_for_lead} reply_jid={jid[:30]}")
+                        else:
+                            logger.warning(f"[WA-LID-RESOLVE] ⚠️ NO PHONE RESOLVED for {from_jid[:30]} - lead will be created without phone")
+                    
                     else:
-                        jid = from_jid  # Use remoteJid directly for non-LID messages
+                        # Standard @s.whatsapp.net JID - extract phone directly
+                        jid = from_jid
+                        phone_raw = from_jid.replace('@s.whatsapp.net', '').split(':')[0]
+                        from server.agent_tools.phone_utils import normalize_phone
+                        phone_e164_for_lead = normalize_phone(phone_raw)
+                        
+                        if phone_e164_for_lead:
+                            logger.info(f"[WA-PHONE] ✅ Standard JID phone={phone_e164_for_lead}")
                     
                     # 🔥 FIX: Add verification logging to ensure no mismatch
                     logger.info(f"🎯 [JID_COMPUTED] trace_id={trace_id} computed_to={jid}")
@@ -157,10 +238,12 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         # Customer lookup
                         lookup_start = time.time()
                         logger.info(f"🔍 [LEAD_UPSERT_START] trace_id={trace_id} phone={phone_number} push_name={push_name}")
+                        # 🔥 LID FIX: Pass phone_e164_for_lead to ensure proper phone resolution
                         customer, lead, was_created = ci.find_or_create_customer_from_whatsapp(
                             phone_number, 
                             message_text,
-                            push_name=push_name
+                            push_name=push_name,
+                            phone_e164_override=phone_e164_for_lead  # 🔥 NEW: Pass resolved phone
                         )
                         action = "created" if was_created else "updated"
                         normalized_phone = lead.phone_e164 if lead else phone_number
