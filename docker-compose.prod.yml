@@ -320,7 +320,9 @@ services:
       retries: 30
       start_period: 20s
     networks:
-      - prosaas-net
+      prosaas-net:
+        aliases:
+          - backend  # Alias for nginx compatibility (nginx configs point to backend:5000)
 
   # ===========================================
   # Calls Service (WebSocket + Twilio streaming only)
