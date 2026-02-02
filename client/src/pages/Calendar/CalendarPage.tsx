@@ -330,12 +330,11 @@ export function CalendarPage() {
       
       console.log('✅ Appointments loaded:', { 
         count: data.appointments?.length || 0, 
-        filterCalendar,
-        appointments: data.appointments 
+        filterCalendar
       });
       
-      // 🔥 DEBUG: Log first appointment's calendar_id to verify data structure
-      if (data.appointments && data.appointments.length > 0) {
+      // 🔥 DEBUG: Log first appointment's calendar_id to verify data structure (only in development)
+      if (process.env.NODE_ENV === 'development' && data.appointments && data.appointments.length > 0) {
         console.log('📊 Sample appointment calendar_id:', {
           calendar_id: data.appointments[0].calendar_id,
           title: data.appointments[0].title
@@ -1891,7 +1890,7 @@ export function CalendarPage() {
                     }}
                     data-testid="select-calendar"
                   >
-                    <option value="">בחר לוח שנה (אופציונלי)</option>
+                    <option value="">🗓️ ברירת מחדל</option>
                     {calendars.filter(c => c.is_active).map(calendar => (
                       <option key={calendar.id} value={calendar.id}>
                         {calendar.name}

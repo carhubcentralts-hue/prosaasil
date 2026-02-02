@@ -135,9 +135,8 @@ def test_auto_meeting_assigns_calendar_id():
         CallLog.query.filter_by(business_id=business_id).delete()
         Business.query.filter_by(id=business_id).delete()
         db.session.commit()
-        
-        print("✅ Test passed: Auto-generated appointments have calendar_id assigned correctly")
 
 
 if __name__ == '__main__':
     test_auto_meeting_assigns_calendar_id()
+    print("✅ Test passed: Auto-generated appointments have calendar_id assigned correctly")

@@ -157,14 +157,16 @@ def get_appointments():
             try:
                 cal_id = int(calendar_id)
                 # 🔥 DEBUG: Log filtering details (helpful for diagnosing calendar filtering issues)
-                logger.info(f"🔍 Filtering appointments by calendar_id={cal_id}")
+                # Only log in debug mode to avoid performance impact
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"🔍 Filtering appointments by calendar_id={cal_id}")
+                    
+                    # Show sample calendar_id values in appointments (first 20)
+                    sample_calendar_ids = db.session.query(Appointment.calendar_id).distinct().limit(20).all()
+                    logger.debug(f"📊 Distinct calendar_id values in appointments (sample): {[cid[0] for cid in sample_calendar_ids]}")
                 
                 # Filter to show only appointments assigned to this specific calendar
                 query = query.filter(Appointment.calendar_id == cal_id)
-                
-                # 🔥 DEBUG: Show sample calendar_id values in appointments (first 20)
-                sample_calendar_ids = db.session.query(Appointment.calendar_id).distinct().limit(20).all()
-                logger.info(f"📊 Distinct calendar_id values in appointments (sample): {[cid[0] for cid in sample_calendar_ids]}")
             except ValueError:
                 return jsonify({'error': 'Invalid calendar_id format'}), 400
         
@@ -389,7 +391,25 @@ def create_appointment():
         appointment.created_by = user_data.get('id') if user_data else None
         appointment.auto_generated = data.get('auto_generated', False)
         appointment.source = data.get('source', 'manual')
-        appointment.calendar_id = data.get('calendar_id')  # 🔥 FIX: Accept calendar_id from request
+        
+        # 🔥 FIX: Assign calendar_id - if not provided, use default calendar
+        # This ensures manually created appointments are visible when filtering by calendar
+        calendar_id = data.get('calendar_id')
+        if not calendar_id:
+            # Get default calendar for business (same pattern as auto_meeting and WhatsApp handler)
+            from server.models_sql import BusinessCalendar
+            default_calendar = BusinessCalendar.query.filter(
+                BusinessCalendar.business_id == business_id,
+                BusinessCalendar.is_active == True
+            ).order_by(BusinessCalendar.priority.desc()).first()
+            
+            if default_calendar:
+                calendar_id = default_calendar.id
+                logger.info(f"📅 Manual appointment assigned to default calendar '{default_calendar.name}' (id={default_calendar.id})")
+            else:
+                logger.warning(f"⚠️ No active calendars found for business_id={business_id}, appointment will have NULL calendar_id")
+        
+        appointment.calendar_id = calendar_id
         
         db.session.add(appointment)
         db.session.commit()
