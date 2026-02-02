@@ -558,7 +558,6 @@ export function CalendarPage() {
     console.log('🔍 Filtered appointments:', {
       total: appointments.length,
       filtered: filtered.length,
-      filterCalendar,
       filterStatus,
       filterType,
       searchTerm,
@@ -569,7 +568,7 @@ export function CalendarPage() {
     });
     
     return filtered;
-  }, [appointments, searchTerm, filterStatus, filterType, filterDate, filterDateFrom, filterDateTo, selectedDate, filterCalendar]);
+  }, [appointments, searchTerm, filterStatus, filterType, filterDate, filterDateFrom, filterDateTo, selectedDate]);
   
   // ✅ BUILD 144: Handle calendar date click - show only that day's appointments
   const handleCalendarDateClick = (date: Date) => {
