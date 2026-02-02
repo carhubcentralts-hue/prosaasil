@@ -1071,8 +1071,21 @@ class AIService:
                 else:
                     logger.warning(f"[AGENTKIT] ⚠️ previous_messages is not a list, type={type(previous_messages)}")
             
-            # Add current message
-            messages.append({"role": "user", "content": message})
+            # 🔥 FIX: Only add current message if it's not already the last message in history
+            # This prevents duplicate messages when the current message was already saved to DB
+            # before loading the conversation history
+            should_add_current = True
+            if messages and len(messages) > 0:
+                last_msg = messages[-1]
+                if last_msg.get("role") == "user" and last_msg.get("content", "").strip() == message.strip():
+                    logger.info(f"[AGENTKIT] 🔄 Current message already in history, skipping duplicate")
+                    should_add_current = False
+            
+            if should_add_current:
+                messages.append({"role": "user", "content": message})
+                logger.info(f"[AGENTKIT] ➕ Added current message to conversation")
+            else:
+                logger.info(f"[AGENTKIT] ✓ Using existing message from history")
             
             # 🔥 NEW: Inject lead context as system message if available
             if context and context.get('lead_context'):
