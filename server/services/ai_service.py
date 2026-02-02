@@ -62,8 +62,9 @@ logger = logging.getLogger(__name__)
 _global_ai_service = None
 
 # 🔥 Configuration: Maximum number of previous messages to include in conversation history
-# This prevents token limit issues while maintaining sufficient context
-MAX_CONVERSATION_HISTORY_MESSAGES = 12
+# Increased to 30 to support longer conversations (50+ messages) without losing context
+# This ensures the bot maintains conversation context even after many exchanges
+MAX_CONVERSATION_HISTORY_MESSAGES = 30
 
 # 🚨 OBSOLETE: The following flags are no longer used after AgentKit Only implementation
 # All messages now use AgentKit regardless of intent
