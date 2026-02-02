@@ -334,6 +334,14 @@ export function CalendarPage() {
         appointments: data.appointments 
       });
       
+      // 🔥 DEBUG: Log first appointment's calendar_id to verify data structure
+      if (data.appointments && data.appointments.length > 0) {
+        console.log('📊 Sample appointment calendar_id:', {
+          calendar_id: data.appointments[0].calendar_id,
+          title: data.appointments[0].title
+        });
+      }
+      
       setAppointments(data.appointments || []);
     } catch (error) {
       console.error('❌ שגיאה בטעינת פגישות:', error);

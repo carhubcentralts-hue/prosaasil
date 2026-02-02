@@ -156,8 +156,15 @@ def get_appointments():
         if calendar_id and calendar_id != 'all':
             try:
                 cal_id = int(calendar_id)
+                # 🔥 DEBUG: Log filtering details (helpful for diagnosing calendar filtering issues)
+                logger.info(f"🔍 Filtering appointments by calendar_id={cal_id}")
+                
                 # Filter to show only appointments assigned to this specific calendar
                 query = query.filter(Appointment.calendar_id == cal_id)
+                
+                # 🔥 DEBUG: Show sample calendar_id values in appointments (first 20)
+                sample_calendar_ids = db.session.query(Appointment.calendar_id).distinct().limit(20).all()
+                logger.info(f"📊 Distinct calendar_id values in appointments (sample): {[cid[0] for cid in sample_calendar_ids]}")
             except ValueError:
                 return jsonify({'error': 'Invalid calendar_id format'}), 400
         
