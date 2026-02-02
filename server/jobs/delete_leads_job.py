@@ -78,6 +78,10 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
     logger.info(f"🔨 JOB PICKED: queue=maintenance function=delete_leads_batch_job job_id={job_id}")
     logger.info(f"=" * 70)
     
+    # Initialize variables before try block
+    PSYCOPG2_AVAILABLE = False
+    UndefinedTableError = None
+    
     try:
         from flask import current_app
         from server.models_sql import db, BackgroundJob, Lead, LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate, OutboundCallJob, LeadStatusHistory
@@ -87,8 +91,6 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
     except ImportError as e:
         # Check if only psycopg2 is missing
         if 'psycopg2' in str(e).lower() or (hasattr(e, 'name') and e.name == 'psycopg2'):
-            PSYCOPG2_AVAILABLE = False
-            UndefinedTableError = None
             logger.warning("psycopg2 not available - some error handling may be limited")
             # Try importing without psycopg2
             try:
@@ -106,8 +108,6 @@ def delete_leads_batch_job(job_id: int, business_id: int = None, **kwargs):
                     "error": error_msg
                 }
         else:
-            PSYCOPG2_AVAILABLE = False  # Set default if other import fails
-            UndefinedTableError = None
             error_msg = f"Import failed: {str(e)}"
             logger.error(f"❌ JOB IMPORT ERROR: {e}")
             print(f"❌ FATAL IMPORT ERROR: {e}")
