@@ -953,6 +953,8 @@ def delete_lead(lead_id):
             
             if is_undefined_table:
                 log.warning(f"⚠️ LeadStatusHistory delete skipped (table does not exist)")
+                # 🔥 CRITICAL FIX: Rollback the failed transaction to allow subsequent operations
+                db.session.rollback()
             else:
                 raise
         

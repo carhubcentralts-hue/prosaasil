@@ -8062,6 +8062,66 @@ def apply_migrations():
         
         checkpoint("✅ Migration 127 complete: Default calendar selection ready")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 128: Create lead_status_history table for status change audit
+        # Tracks all status changes on leads with full audit trail
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 128: Creating lead_status_history table")
+        
+        if not check_table_exists('lead_status_history'):
+            try:
+                checkpoint("  → Creating lead_status_history table...")
+                execute_with_retry(migrate_engine, """
+                    CREATE TABLE IF NOT EXISTS lead_status_history (
+                        id SERIAL PRIMARY KEY,
+                        lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                        tenant_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        old_status VARCHAR(64),
+                        new_status VARCHAR(64) NOT NULL,
+                        changed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        change_reason TEXT,
+                        confidence_score DOUBLE PRECISION,
+                        channel VARCHAR(32),
+                        metadata_json JSONB,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                checkpoint("  ✅ lead_status_history table created")
+                
+                # Create indexes for common queries
+                checkpoint("  → Creating indexes on lead_status_history...")
+                execute_with_retry(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_lead_status_history_lead_id 
+                    ON lead_status_history(lead_id)
+                """)
+                execute_with_retry(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_lead_status_history_tenant_id 
+                    ON lead_status_history(tenant_id)
+                """)
+                execute_with_retry(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_lead_status_history_created_at 
+                    ON lead_status_history(created_at)
+                """)
+                execute_with_retry(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_lead_status_history_lead_created 
+                    ON lead_status_history(lead_id, created_at)
+                """)
+                execute_with_retry(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_lead_status_history_tenant_created 
+                    ON lead_status_history(tenant_id, created_at)
+                """)
+                checkpoint("  ✅ Indexes created successfully")
+                checkpoint("     💡 Enables efficient audit trail queries and reporting")
+                migrations_applied.append("migration_128_lead_status_history")
+            except Exception as e:
+                checkpoint(f"  ❌ Migration 128 failed: {e}")
+                logger.error(f"Migration 128 error: {e}", exc_info=True)
+                raise
+        else:
+            checkpoint("  ℹ️  lead_status_history table already exists")
+        
+        checkpoint("✅ Migration 128 complete: Lead status history tracking ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
