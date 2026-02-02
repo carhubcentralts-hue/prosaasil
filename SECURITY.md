@@ -23,8 +23,8 @@ This document outlines security best practices for ProSaaS.
 ### Key Generation
 
 ```bash
-# Generate SECRET_KEY and JWT_SECRET_KEY
-python -c "import secrets; print(secrets.token_hex(32))"
+# Generate SECRET_KEY
+python3 -c "import secrets; print(secrets.token_hex(32))"
 
 # Generate encryption key (for Gmail)
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -314,7 +314,7 @@ npm update package-name
 ### Deployment
 - [ ] SSL/TLS certificates valid
 - [ ] Secrets in environment variables
-- [ ] Strong SECRET_KEY and JWT_SECRET_KEY
+- [ ] Strong SECRET_KEY generated and set
 - [ ] Database uses SSL
 - [ ] Firewall rules configured
 - [ ] Backups enabled and tested

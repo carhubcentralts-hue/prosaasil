@@ -77,8 +77,8 @@ DATABASE_URL_POOLER=postgresql://user:pass@host.pooler.supabase.com:5432/db
 DATABASE_URL_DIRECT=postgresql://user:pass@host.db.supabase.com:5432/db
 
 # Security
+# 🔒 Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
 SECRET_KEY=<generate-random-64-char-string>
-JWT_SECRET_KEY=<generate-random-64-char-string>
 
 # APIs
 OPENAI_API_KEY=sk-...

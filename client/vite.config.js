@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react({ jsxRuntime: 'classic' })],
   base: '/',
   server: {
@@ -20,7 +20,7 @@ export default defineConfig({
     target: 'esnext',
     outDir: './dist',
     assetsDir: 'assets',
-    sourcemap: true,
+    sourcemap: mode !== 'production',
   },
   resolve: {
     dedupe: ['react', 'react-dom'],
@@ -33,4 +33,4 @@ export default defineConfig({
   optimizeDeps: {
     include: ['react', 'react-dom']
   }
-})
+}))
