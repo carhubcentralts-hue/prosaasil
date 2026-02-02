@@ -44,6 +44,18 @@ _STATS_LOCK = threading.Lock()
 # 🔥 Configuration: Repetitive response detection threshold
 MAX_UNIQUE_RESPONSES_THRESHOLD = 2  # If only 1-2 unique responses in last 5 turns, warn about repetition
 
+# 🔥 WHATSAPP ANTI-REPETITION RULES: Framework to prevent bot from repeating itself
+# These rules are prepended to WhatsApp prompts to explicitly instruct the AI to avoid repetition
+WHATSAPP_ANTI_REPETITION_RULES = """🔒 ANTI-REPETITION FRAMEWORK (קרא את זה בכל תגובה!):
+- אסור לחזור על אותה שאלה או תגובה פעמיים ברצף
+- אם שאלת שאלה והלקוח לא ענה - נסה גישה אחרת או המשך בשיחה
+- קרא את כל ההיסטוריה לפני שאתה עונה - אל תשכח מה נאמר
+- אם כבר שאלת משהו בהודעה הקודמת שלך - אל תשאל את זה שוב
+- תן תגובות מגוונות - אל תשתמש באותם ביטויים שוב ושוב
+- כל תגובה צריכה להתקדם בשיחה קדימה, לא לחזור לאחור
+
+"""
+
 def get_conversation_stats(conversation_id: str = None) -> Dict:
     """
     🔥 NEW: Get conversation statistics for debugging
@@ -140,7 +152,7 @@ AGENT_MODEL_SETTINGS = ModelSettings(
     # 🔥 NOTE: ModelSettings is a dataclass - only accepts declared fields!
     # We'll pass the OpenAI client to Runner.run() instead
     temperature=0.3,       # 🔥 FIX: Temperature 0.3 for varied responses while maintaining consistency
-    max_tokens=150,        # 🔥 FIX: Increased to 150 tokens (~40 words in Hebrew) to prevent truncated/repetitive responses
+    max_tokens=200,        # 🔥 FIX: Increased to 200 tokens (~50 words in Hebrew) for phone calls
     tool_choice="auto",    # 🔥 FIX: Let AI decide when to use tools (was "required" - caused spam!)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
@@ -1346,15 +1358,16 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     # For WhatsApp: NO hardcoded rules or instructions
     # Everything must come from custom_instructions (DB prompt)
     if channel == "whatsapp":
-        # WhatsApp: DB prompt ONLY - no framework rules
-        # Only add date context (data, not instruction)
+        # WhatsApp: DB prompt with anti-repetition rules
+        # Only add date context (data, not instruction) and anti-repetition framework
         if custom_instructions and custom_instructions.strip():
-            # Use DB prompt directly - no prepended rules
+            # Use DB prompt with anti-repetition framework prepended
             instructions = f"""TODAY: {today_str}
 
+{WHATSAPP_ANTI_REPETITION_RULES}
 ---
 {custom_instructions}"""
-            logger.info(f"✅ WhatsApp: Using ONLY DB prompt ({len(custom_instructions)} chars)")
+            logger.info(f"✅ WhatsApp: Using DB prompt with anti-repetition rules ({len(custom_instructions)} chars)")
         else:
             # No DB prompt for WhatsApp = ERROR
             logger.error(f"❌ MISSING_WHATSAPP_PROMPT for business={business_id}! Agent cannot function without DB prompt.")
@@ -1555,15 +1568,17 @@ YOUR INSTRUCTIONS:
         
         # 🔥 BUILD 115: Dynamic max_tokens per channel
         # Phone/calls: 60 tokens (15 words) - prevents queue overflow
-        # WhatsApp: 800 tokens (~200-250 Hebrew words) - allows full detailed responses without truncation
+        # WhatsApp: 4096 tokens (~1000-1200 Hebrew words) - MAXIMUM for comprehensive responses
+        # This ensures FULL prompt processing with NO truncation whatsoever
+        # Temperature: 0.3 for varied responses while maintaining consistency
         if channel == "whatsapp":
             model_settings = ModelSettings(
-                temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic responses
-                max_tokens=800,  # 🔥 WhatsApp: 800 tokens for complete responses without mid-sentence cuts
+                temperature=0.3,  # 🔥 FIX: Temperature 0.3 for varied, non-repetitive responses
+                max_tokens=4096,  # 🔥 WhatsApp: 4096 tokens (4K) - maximum recommended for comprehensive responses
                 tool_choice="auto",
                 parallel_tool_calls=True
             )
-            logger.info(f"📱 WhatsApp channel: using max_tokens=800")
+            logger.info(f"📱 WhatsApp channel: using temperature=0.3, max_tokens=4096 (4K)")
         else:
             model_settings = AGENT_MODEL_SETTINGS  # Phone: 60 tokens (global default)
             logger.info(f"📞 Phone channel: using max_tokens=60")
