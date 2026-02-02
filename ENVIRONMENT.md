@@ -45,11 +45,10 @@ DB_PORT=5432
 
 ### Authentication & Secrets
 ```bash
-# Flask secret key (generate with: python -c "import secrets; print(secrets.token_hex(32))")
+# Flask secret key for session signing and CSRF protection
+# 🔒 CRITICAL: Generate a strong random secret in production
+# Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
 SECRET_KEY=your-64-char-random-string-here
-
-# JWT secret for API tokens
-JWT_SECRET_KEY=your-64-char-random-string-here
 
 # Session configuration
 SESSION_COOKIE_SECURE=true  # Set to false for local development
@@ -288,7 +287,6 @@ DATABASE_URL_DIRECT=postgresql://...
 
 # Security
 SECRET_KEY=<64-char-random>
-JWT_SECRET_KEY=<64-char-random>
 
 # AI
 OPENAI_API_KEY=sk-...
@@ -307,7 +305,7 @@ REDIS_URL=redis://redis:6379/0
 ⚠️ **Never commit `.env` files to version control!**
 
 - Use `.env.example` as template (without actual secrets)
-- Generate strong random keys for SECRET_KEY and JWT_SECRET_KEY
+- Generate strong random key for SECRET_KEY: `python3 -c "import secrets; print(secrets.token_hex(32))"`
 - Rotate credentials regularly
 - Use environment-specific values (dev/staging/prod)
 - Store production secrets in secure vault (AWS Secrets Manager, etc.)
