@@ -64,8 +64,7 @@ def init_production_config(app):
     
     # 🔒 SECURITY: Validate SECRET_KEY in production mode
     is_production = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
-    secret_key = os.getenv("SECRET_KEY")  # Single environment lookup
-    if is_production and not secret_key:
+    if is_production and not app.config.get('SECRET_KEY'):
         raise RuntimeError(
             "PRODUCTION=1 requires SECRET_KEY environment variable. "
             "Generate with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
