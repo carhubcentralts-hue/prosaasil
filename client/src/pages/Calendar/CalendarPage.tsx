@@ -25,12 +25,15 @@ import {
   ChevronDown,
   ChevronUp,
   Check,
-  Star
+  Star,
+  Tag
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { http } from '../../services/http';
 import { formatDate, formatDateOnly, formatTimeOnly, formatLongDate } from '../../shared/utils/format';
 import { useNavigate } from 'react-router-dom';
+import AppointmentStatusManagementModal from './components/AppointmentStatusManagementModal';
+import AppointmentTypeManagementModal from './components/AppointmentTypeManagementModal';
 
 // Calendar components and types
 interface Appointment {
@@ -307,6 +310,10 @@ export function CalendarPage() {
     color: 'gray'
   });
   const [savingStatuses, setSavingStatuses] = useState(false);
+  
+  // New modal states for appointment status and type management
+  const [showAppointmentStatusModal, setShowAppointmentStatusModal] = useState(false);
+  const [showAppointmentTypeModal, setShowAppointmentTypeModal] = useState(false);
 
   // Fetch appointments using the proper HTTP client
   const fetchAppointments = useCallback(async () => {
@@ -933,12 +940,21 @@ export function CalendarPage() {
               <>
                 <button
                   className="btn-ghost flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
-                  onClick={() => setShowStatusSettings(true)}
-                  data-testid="button-status-management"
+                  onClick={() => setShowAppointmentStatusModal(true)}
+                  data-testid="button-appointment-status-management"
+                  title="ניהול סטטוסי פגישות"
                 >
                   <Settings className="h-5 w-5 flex-shrink-0" />
-                  <span className="hidden sm:inline font-medium">ניהול סטטוסים</span>
-                  <span className="sm:hidden font-medium">סטטוסים</span>
+                  <span className="hidden sm:inline font-medium">סטטוסים</span>
+                </button>
+                <button
+                  className="btn-ghost flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
+                  onClick={() => setShowAppointmentTypeModal(true)}
+                  data-testid="button-appointment-type-management"
+                  title="ניהול סוגי פגישות"
+                >
+                  <Tag className="h-5 w-5 flex-shrink-0" />
+                  <span className="hidden sm:inline font-medium">סוגים</span>
                 </button>
                 <button
                   className="btn-primary flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
@@ -2283,6 +2299,26 @@ export function CalendarPage() {
           </div>
         </div>
       )}
+      
+      {/* Appointment Status Management Modal */}
+      <AppointmentStatusManagementModal
+        isOpen={showAppointmentStatusModal}
+        onClose={() => setShowAppointmentStatusModal(false)}
+        onStatusChange={() => {
+          fetchAppointmentConfigs();
+          fetchAppointments();
+        }}
+      />
+      
+      {/* Appointment Type Management Modal */}
+      <AppointmentTypeManagementModal
+        isOpen={showAppointmentTypeModal}
+        onClose={() => setShowAppointmentTypeModal(false)}
+        onTypeChange={() => {
+          fetchAppointmentConfigs();
+          fetchAppointments();
+        }}
+      />
     </div>
   );
 }
