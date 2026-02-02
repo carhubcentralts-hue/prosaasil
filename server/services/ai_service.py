@@ -990,7 +990,7 @@ class AIService:
             
             # Import agent modules (already loaded by _ensure_agent_modules_loaded)
             from server.agent_tools import get_agent
-            from agents import Runner
+            from agents import Runner  # Required for running agents synchronously
             
             # Get agent for this business
             logger.info(f"[AGENTKIT] Getting agent for business {business_id}")
@@ -1094,10 +1094,7 @@ class AIService:
                 except Exception as ctx_err:
                     logger.warning(f"[AGENTKIT] Failed to format lead context: {ctx_err}")
             
-            # 🔥 FIX: Use Runner.run_sync() with the agent to support conversation history
-            # The OpenAI Agents SDK requires Runner.run_sync() for synchronous execution
-            # Pass the full messages list (conversation history + current message) as input
-            # The SDK accepts either a string or a list of message objects
+            # Run agent using Runner.run_sync() (correct API for openai-agents SDK)
             result = Runner.run_sync(agent, input=messages, context=agent_context)
             
             # Extract response text from result
