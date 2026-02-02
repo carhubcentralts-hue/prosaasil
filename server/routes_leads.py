@@ -3,7 +3,7 @@ Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
 from flask import Blueprint, jsonify, request, session, g, send_file
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog, Contract, ContactIdentity, WhatsAppConversation, CallSession, CRMTask, Appointment, OutboundCallJob
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog, Contract, ContactIdentity, WhatsAppConversation, CallSession, CRMTask, Appointment, OutboundCallJob, WhatsAppBroadcastRecipient
 from server.db import db
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
@@ -942,6 +942,9 @@ def delete_lead(lead_id):
     CallLog.query.filter_by(lead_id=lead_id).update({'lead_id': None})
     Contract.query.filter_by(lead_id=lead_id).update({'lead_id': None})
     Appointment.query.filter_by(lead_id=lead_id).update({'lead_id': None})
+    
+    # 🔥 FIX: Nullify WhatsApp broadcast recipient references (preserve broadcast history)
+    WhatsAppBroadcastRecipient.query.filter_by(lead_id=lead_id).update({'lead_id': None})
     
     # 9. Delete the lead itself
     # Note: LeadNote, LeadAttachment, ScheduledMessagesQueue have CASCADE delete
