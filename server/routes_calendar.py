@@ -366,7 +366,7 @@ def create_appointment():
             from server.models_sql import BusinessCalendar
             default_calendar = BusinessCalendar.query.filter(
                 BusinessCalendar.business_id == business_id,
-                BusinessCalendar.is_active == True
+                BusinessCalendar.is_active
             ).order_by(BusinessCalendar.priority.desc()).first()
             if default_calendar:
                 calendar_id = default_calendar.id

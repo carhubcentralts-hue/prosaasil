@@ -297,7 +297,7 @@ def test_fix4_calendar_overlap_by_calendar():
         db.session.flush()
         
         # Create appointment in Calendar 1
-        now = datetime.now().replace(second=0, microsecond=0)
+        now = datetime.utcnow().replace(second=0, microsecond=0)
         start_time = now + timedelta(hours=1)
         end_time = start_time + timedelta(hours=1)
         
