@@ -570,6 +570,15 @@ export function CalendarPage() {
     return filtered;
   }, [appointments, searchTerm, filterStatus, filterType, filterDate, filterDateFrom, filterDateTo, selectedDate]);
   
+  // Create a calendar lookup map for O(1) performance
+  const calendarMap = useMemo(() => {
+    const map = new Map<number, string>();
+    calendars.forEach(calendar => {
+      map.set(calendar.id, calendar.name);
+    });
+    return map;
+  }, [calendars]);
+  
   // ✅ BUILD 144: Handle calendar date click - show only that day's appointments
   const handleCalendarDateClick = (date: Date) => {
     setSelectedDate(date);
@@ -1419,7 +1428,7 @@ export function CalendarPage() {
                       {filterCalendar === 'all' && appointment.calendar_id && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
                           <CalendarIcon className="h-3 w-3" />
-                          {calendars.find(c => c.id === appointment.calendar_id)?.name || `יומן #${appointment.calendar_id}`}
+                          {calendarMap.get(appointment.calendar_id) || `יומן #${appointment.calendar_id}`}
                         </span>
                       )}
                     </div>
