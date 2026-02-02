@@ -1096,8 +1096,9 @@ class AIService:
             
             # 🔥 FIX: Use Runner.run_sync() with the agent to support conversation history
             # The OpenAI Agents SDK requires Runner.run_sync() for synchronous execution
-            # Pass the first user message as input, and full messages as context for history
-            result = Runner.run_sync(agent, input=message, context=agent_context)
+            # Pass the full messages list (conversation history + current message) as input
+            # The SDK accepts either a string or a list of message objects
+            result = Runner.run_sync(agent, input=messages, context=agent_context)
             
             # Extract response text from result
             # The OpenAI Agents SDK can return different result types:

@@ -97,11 +97,11 @@ def agent_ops():
                 "status": "error"
             }), 503
         
-        # Prepare messages
+        # Prepare messages - full conversation history
         messages = history + [{"role": "user", "content": user_text}]
         
-        # Run agent with Runner.run_sync
-        result = Runner.run_sync(agent, input=user_text, context=ctx)
+        # Run agent with Runner.run_sync - pass messages list as input for full conversation context
+        result = Runner.run_sync(agent, input=messages, context=ctx)
         
         # Extract response
         reply = result.output_text if hasattr(result, 'output_text') else str(result)
