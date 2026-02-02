@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify, g
 from server.agent_tools.agent_factory import create_ops_agent, get_agent
 from server.models_sql import db, AgentTrace
 from datetime import datetime
+from agents import Runner
 import logging
 import time
 
@@ -99,8 +100,8 @@ def agent_ops():
         # Prepare messages
         messages = history + [{"role": "user", "content": user_text}]
         
-        # Run agent
-        result = agent.run(messages=messages, context=ctx)
+        # Run agent with Runner.run_sync
+        result = Runner.run_sync(agent, input=user_text, context=ctx)
         
         # Extract response
         reply = result.output_text if hasattr(result, 'output_text') else str(result)
