@@ -208,40 +208,69 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header - Fixed at top */}
-        <div className="flex-shrink-0 flex items-center justify-between p-4 sm:p-6 border-b bg-gray-50">
-          <div className="flex items-center gap-4">
-            <div>
-              <h2 className="text-xl font-semibold" data-testid={`text-lead-detail-name-${lead.id}`}>
-                {lead.full_name || 'ללא שם'}
-              </h2>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge className="text-xs">
-                  {getStatusLabel(lead.status, dynamicStatuses)}
-                </Badge>
-                <Badge variant="neutral" className="text-xs">
-                  {SOURCES.find(s => s.key === lead.source)?.label}
-                </Badge>
+        <div className="flex-shrink-0 p-4 sm:p-6 border-b bg-gray-50">
+          <div className="flex items-center justify-between mb-3 sm:mb-0">
+            <div className="flex items-center gap-4">
+              <div>
+                <h2 className="text-xl font-semibold" data-testid={`text-lead-detail-name-${lead.id}`}>
+                  {lead.full_name || 'ללא שם'}
+                </h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge className="text-xs">
+                    {getStatusLabel(lead.status, dynamicStatuses)}
+                  </Badge>
+                  <Badge variant="neutral" className="text-xs">
+                    {SOURCES.find(s => s.key === lead.source)?.label}
+                  </Badge>
+                </div>
               </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+                data-testid="button-toggle-edit"
+              >
+                <Edit3 className="w-4 h-4 ml-1" />
+                {isEditing ? 'ביטול' : 'עריכה'}
+              </Button>
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-gray-100 rounded-full"
+                data-testid="button-close-detail-modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
+          {/* Call and WhatsApp Buttons - Mobile */}
+          <div className="flex items-center gap-2 justify-center mt-3 sm:hidden">
+            <Button 
               size="sm"
-              onClick={() => setIsEditing(!isEditing)}
-              data-testid="button-toggle-edit"
+              className="min-h-[44px] flex-1"
+              onClick={() => window.location.href = `tel:${lead.phone_e164 || ''}`}
+              data-testid="button-call-modal"
             >
-              <Edit3 className="w-4 h-4 ml-1" />
-              {isEditing ? 'ביטול' : 'עריכה'}
+              <Phone className="w-4 h-4 ml-2" />
+              התקשר
             </Button>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-gray-100 rounded-full"
-              data-testid="button-close-detail-modal"
+            <Button 
+              size="sm"
+              className="min-h-[44px] flex-1 bg-green-600 hover:bg-green-700"
+              onClick={() => {
+                if (lead.phone_e164) {
+                  const cleanPhone = lead.phone_e164.replace(/[^0-9]/g, '');
+                  window.open(`https://wa.me/${cleanPhone}`, '_blank');
+                }
+              }}
+              data-testid="button-whatsapp-modal"
             >
-              <X className="w-5 h-5" />
-            </button>
+              <MessageSquare className="w-4 h-4 ml-2" />
+              וואטסאפ
+            </Button>
           </div>
         </div>
 

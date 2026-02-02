@@ -521,6 +521,35 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 {lead.phone_e164}
               </p>
             </div>
+            
+            {/* Mobile Action Buttons - Call and WhatsApp */}
+            <div className="flex items-center gap-2 justify-center mt-3">
+              <Button 
+                size="sm"
+                className="min-h-[44px] flex-1 max-w-[160px]"
+                onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
+                data-testid="button-call-mobile-header"
+              >
+                <Phone className="w-4 h-4 ml-2" />
+                התקשר
+              </Button>
+              <Button 
+                size="sm"
+                className="min-h-[44px] flex-1 max-w-[160px] bg-green-600 hover:bg-green-700"
+                onClick={() => {
+                  if (lead.phone_e164 || lead.phone) {
+                    const cleanPhone = (lead.phone_e164 || lead.phone || '').replace(/[^0-9]/g, '');
+                    window.open(`https://wa.me/${cleanPhone}`, '_blank');
+                  } else {
+                    setWhatsappChatOpen(true);
+                  }
+                }}
+                data-testid="button-whatsapp-mobile-header"
+              >
+                <MessageSquare className="w-4 h-4 ml-2" />
+                וואטסאפ
+              </Button>
+            </div>
           </div>
         </div>
       </div>
