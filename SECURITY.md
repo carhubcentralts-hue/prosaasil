@@ -334,6 +334,28 @@ For security issues:
 - **Disclosure Policy**: Responsible disclosure within 90 days
 - **Bug Bounty**: Contact for details
 
+## Troubleshooting
+
+### Browser Extension Errors
+
+#### "Uncaught (in promise) Error: A listener indicated an asynchronous response..."
+
+**What is it?**
+
+This is not a bug in the application code. This is a common console message caused by browser extensions (such as Copilot, code suggestions, Adblock, password managers, etc.) that listen to message channels and return `true`, causing the channel to close unexpectedly.
+
+**How to verify it's from an extension:**
+
+1. Open the site in Incognito mode with extensions disabled
+2. Or create a new browser profile without any extensions
+3. If the error disappears → it's 100% caused by browser extensions
+
+**Action required:**
+
+- No fix needed in the application
+- This is informational noise and should be ignored during debugging
+- Do **not** attempt to catch/filter these errors globally, as it may hide real application errors
+
 ## Resources
 
 - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
