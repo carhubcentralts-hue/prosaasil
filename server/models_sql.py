@@ -662,6 +662,38 @@ class LeadStatus(db.Model):
         db.Index('idx_business_order', 'business_id', 'order_index'),
     )
 
+class LeadStatusHistory(db.Model):
+    """Audit log for lead status changes"""
+    __tablename__ = "lead_status_history"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Status change details
+    old_status = db.Column(db.String(64))  # Previous status value
+    new_status = db.Column(db.String(64), nullable=False)  # New status value
+    changed_by = db.Column(db.Integer, db.ForeignKey("users.id"))  # User who made the change (None for AI/automated)
+    change_reason = db.Column(db.Text)  # Reason for the change
+    confidence_score = db.Column(db.Float)  # AI confidence score (0.0-1.0) for AI-generated changes
+    
+    # Context
+    channel = db.Column(db.String(32))  # Channel where change originated (whatsapp, call, manual, system)
+    metadata_json = db.Column(db.JSON)  # Additional metadata
+    
+    # Timestamp
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    lead = db.relationship("Lead", backref="status_history")
+    business = db.relationship("Business")
+    
+    # Indexes for common queries
+    __table_args__ = (
+        db.Index('idx_lead_status_history_lead', 'lead_id', 'created_at'),
+        db.Index('idx_lead_status_history_tenant', 'tenant_id', 'created_at'),
+    )
+
 class LeadActivity(db.Model):
     """Activity timeline for leads"""
     __tablename__ = "lead_activities"
