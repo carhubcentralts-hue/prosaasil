@@ -330,9 +330,16 @@ export function CalendarPage() {
       
       console.log('✅ Appointments loaded:', { 
         count: data.appointments?.length || 0, 
-        filterCalendar,
-        appointments: data.appointments 
+        filterCalendar
       });
+      
+      // 🔥 DEBUG: Log first appointment's calendar_id to verify data structure (only in development)
+      if (process.env.NODE_ENV === 'development' && data.appointments && data.appointments.length > 0) {
+        console.log('📊 Sample appointment calendar_id:', {
+          calendar_id: data.appointments[0].calendar_id,
+          title: data.appointments[0].title
+        });
+      }
       
       setAppointments(data.appointments || []);
     } catch (error) {
@@ -663,6 +670,13 @@ export function CalendarPage() {
         start_time: start_time_local,
         end_time: end_time_local
       };
+      
+      // 🔥 DEBUG: Log data being sent to verify calendar_id is included
+      console.log('📤 Sending appointment data:', {
+        calendar_id: dataToSend.calendar_id,
+        title: dataToSend.title,
+        all_data: dataToSend
+      });
       
       // Get CSRF token from cookie
       const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_token='))?.split('=')[1];
@@ -1879,11 +1893,13 @@ export function CalendarPage() {
                     onChange={(e) => {
                       const value = e.target.value;
                       const parsed = value ? parseInt(value, 10) : undefined;
-                      setFormData({...formData, calendar_id: parsed && !isNaN(parsed) ? parsed : undefined});
+                      const newCalendarId = parsed && !isNaN(parsed) ? parsed : undefined;
+                      console.log('🗓️ Calendar selected:', { value, parsed, newCalendarId });
+                      setFormData({...formData, calendar_id: newCalendarId});
                     }}
                     data-testid="select-calendar"
                   >
-                    <option value="">בחר לוח שנה (אופציונלי)</option>
+                    <option value="">🗓️ ברירת מחדל</option>
                     {calendars.filter(c => c.is_active).map(calendar => (
                       <option key={calendar.id} value={calendar.id}>
                         {calendar.name}

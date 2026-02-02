@@ -2,7 +2,7 @@
 Auto Meeting Scheduler - יצירת פגישות אוטומטית מתוך שיחות AI
 """
 from datetime import datetime, timedelta
-from server.models_sql import Appointment, Customer, Business, CallLog
+from server.models_sql import Appointment, Customer, Business, CallLog, BusinessCalendar
 from server.db import db
 from sqlalchemy import and_
 import re
@@ -210,6 +210,19 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         appointment.auto_generated = True
         appointment.source = 'phone_call'
         appointment.created_by = None  # נוצר על ידי המערכת
+        
+        # 🔥 FIX: Assign to default calendar - same pattern as WhatsApp handler
+        # This ensures appointments are visible when filtering by specific calendar
+        default_calendar = BusinessCalendar.query.filter(
+            BusinessCalendar.business_id == business_id,
+            BusinessCalendar.is_active == True
+        ).order_by(BusinessCalendar.priority.desc()).first()
+        
+        if default_calendar:
+            appointment.calendar_id = default_calendar.id
+            logger.info(f"📅 Auto appointment assigned to calendar '{default_calendar.name}' (id={default_calendar.id})")
+        else:
+            logger.warning(f"⚠️ No active calendars found for business_id={business_id}, appointment will have NULL calendar_id")
         
         # ✅ BUILD 144: Generate and save call summary for the appointment
         try:
