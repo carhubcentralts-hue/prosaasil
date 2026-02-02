@@ -417,6 +417,8 @@ services:
     volumes:
       # 🔥 GOOGLE STT - Mount service account JSON (read-only)
       - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
+      # 🔥 RECORDINGS: Shared volume for serving recordings to frontend
+      - recordings_data:/app/server/recordings
     depends_on:
       redis:
         condition: service_healthy

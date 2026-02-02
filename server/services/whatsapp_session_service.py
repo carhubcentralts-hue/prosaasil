@@ -582,34 +582,53 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
         speaker = "לקוח" if m["direction"] == "in" else "עסק"
         conversation_text += f"{speaker}: {m['body']}\n"
     
-    prompt = f"""סכם את השיחה הבאה ב-WhatsApp בעברית. הסיכום צריך להיות קצר (2-3 משפטים) וממוקד בנקודות העיקריות:
-- מה הלקוח רצה
-- מה סוכם/הוחלט
-- האם יש פעולות המשך נדרשות
+    prompt = f"""סכם את שיחת ה-WhatsApp הבאה בעברית.
 
 שיחה:
 {conversation_text}
 
+הסיכום חייב לכלול:
+1. **נושא** - מה הלקוח רצה/שאל
+2. **מה נדון** - הנקודות העיקריות
+3. **תוצאה** - מה סוכם או איך הסתיימה השיחה
+4. **המשך** - אם יש פעולה נדרשת
+
+כללים:
+- כתוב רק מה שנאמר בפועל
+- אם השיחה לא הגיעה לסיכום - ציין זאת
+- 2-4 משפטים מספיקים
+
 סיכום:"""
-    
+
     try:
         import openai
-        
+
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             logger.error("[WA-SESSION] No OpenAI API key for summary generation")
             return None
-        
+
         client = openai.OpenAI(api_key=api_key)
-        
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Summarize WhatsApp conversations in Hebrew. Keep summaries short and focused."},
+                {"role": "system", "content": """אתה מסכם שיחות WhatsApp עסקיות בעברית.
+
+הסיכום שלך חייב להיות:
+- מדויק - רק מה שנאמר בפועל
+- שימושי - מה קרה ומה הצעד הבא
+- כן - אם לא הגיעו לסיכום, כתוב את זה
+
+דוגמאות:
+✓ "לקוח שאל על מחירי שירות. קיבל הצעת מחיר. ביקש לחשוב על זה."
+✓ "בירור על זמינות. לא נמצא תאריך מתאים. הלקוח יחזור בשבוע הבא."
+✓ "לקוח התעניין בשירות אך לא השיב להודעות ההמשך."
+"""},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=150,
-            temperature=0.0  # 🔥 FIX: Temperature 0.0 for maximum accuracy
+            max_tokens=200,
+            temperature=0.0
         )
         
         content = response.choices[0].message.content
