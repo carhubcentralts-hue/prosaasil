@@ -29,12 +29,18 @@ class ProductionConfig:
         # Fallback for edge cases (e.g., during import before env is set)
         SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///./agentlocator.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
+    # 🔥 PERFORMANCE: Connection pool configuration (Claude performance fix)
+    # Increased from 5 to 10 for better concurrency under load
+    # Configurable via environment variables for different deployment scenarios
+    # Note: When using Supabase Pooler, these settings apply to the pooler connection
+    # The pooler itself handles the actual connections to PostgreSQL
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,       # 🔥 Check connection health before use
         "pool_recycle": 180,          # 🔥 Recycle connections before Supabase pooler timeout
         "pool_timeout": 30,
-        "pool_size": 5,
-        "max_overflow": 10,
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "10")),  # Default: 10 (was 5)
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
     }
     
     # Session configuration

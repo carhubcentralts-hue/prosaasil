@@ -7,7 +7,8 @@ from server.extensions import csrf
 from server.auth_api import require_api_auth
 from server.models_sql import Customer, Lead, CallLog, Business
 from server.db import db
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, case
+from sqlalchemy.orm import aliased
 from datetime import datetime, timedelta
 
 intelligence_bp = Blueprint('intelligence', __name__, url_prefix='/api/intelligence')
@@ -55,27 +56,125 @@ def get_intelligent_customers():
         
         customers = query.limit(50).all()
         
+        # 🔥 PERFORMANCE FIX: Single aggregated query instead of N+1 (4 queries per customer)
+        # Build aggregated data for all customers in ONE query using subqueries
+        customer_phones = [c.phone_e164 for c in customers if c.phone_e164]
+        
+        # Subquery 1: Count leads per phone
+        leads_counts_subq = db.session.query(
+            Lead.phone_e164,
+            func.count(Lead.id).label('leads_count')
+        ).filter(
+            Lead.tenant_id == business_id,
+            Lead.phone_e164.in_(customer_phones)
+        ).group_by(Lead.phone_e164).subquery()
+        
+        # Subquery 2: Count calls per phone
+        calls_counts_subq = db.session.query(
+            CallLog.from_number,
+            func.count(CallLog.id).label('calls_count')
+        ).filter(
+            CallLog.business_id == business_id,
+            CallLog.from_number.in_(customer_phones)
+        ).group_by(CallLog.from_number).subquery()
+        
+        # Subquery 3: Get latest lead per phone (using window function for efficiency)
+        from sqlalchemy import select
+        latest_lead_subq = db.session.query(
+            Lead.phone_e164,
+            Lead.id.label('latest_lead_id'),
+            Lead.status,
+            Lead.area,
+            Lead.property_type,
+            Lead.notes,
+            Lead.created_at,
+            Lead.updated_at,
+            func.row_number().over(
+                partition_by=Lead.phone_e164,
+                order_by=desc(Lead.created_at)
+            ).label('rn')
+        ).filter(
+            Lead.tenant_id == business_id,
+            Lead.phone_e164.in_(customer_phones)
+        ).subquery()
+        
+        # Filter to get only the latest lead (rn = 1)
+        latest_leads_filtered = db.session.query(
+            latest_lead_subq
+        ).filter(
+            latest_lead_subq.c.rn == 1
+        ).subquery()
+        
+        # Subquery 4: Get last call per phone (using window function)
+        last_call_subq = db.session.query(
+            CallLog.from_number,
+            CallLog.id.label('last_call_id'),
+            CallLog.status,
+            CallLog.transcription,
+            CallLog.created_at,
+            func.row_number().over(
+                partition_by=CallLog.from_number,
+                order_by=desc(CallLog.created_at)
+            ).label('rn')
+        ).filter(
+            CallLog.business_id == business_id,
+            CallLog.from_number.in_(customer_phones)
+        ).subquery()
+        
+        # Filter to get only the last call (rn = 1)
+        last_calls_filtered = db.session.query(
+            last_call_subq
+        ).filter(
+            last_call_subq.c.rn == 1
+        ).subquery()
+        
+        # Execute all subqueries and build lookup dictionaries
+        leads_counts = {row.phone_e164: row.leads_count 
+                       for row in db.session.query(leads_counts_subq).all()}
+        calls_counts = {row.from_number: row.calls_count 
+                       for row in db.session.query(calls_counts_subq).all()}
+        latest_leads_map = {row.phone_e164: row 
+                           for row in db.session.query(latest_leads_filtered).all()}
+        last_calls_map = {row.from_number: row 
+                         for row in db.session.query(last_calls_filtered).all()}
+        
         # בניית תגובה עם נתונים מורחבים
         result = []
         for customer in customers:
-            # ספירת פעילויות (מותאם למבנה המודל הקיים)
-            leads_count = Lead.query.filter_by(tenant_id=business_id).filter(
-                Lead.phone_e164 == customer.phone_e164
-            ).count() if hasattr(Lead, 'phone_e164') else 0
+            phone = customer.phone_e164
             
-            calls_count = CallLog.query.filter_by(business_id=business_id).filter(
-                CallLog.from_number == customer.phone_e164
-            ).count() if hasattr(CallLog, 'from_number') else 0
+            # Get aggregated data from lookup dictionaries (O(1) lookups)
+            leads_count = leads_counts.get(phone, 0)
+            calls_count = calls_counts.get(phone, 0)
+            latest_lead_data = latest_leads_map.get(phone)
+            last_call_data = last_calls_map.get(phone)
             
-            # ליד אחרון
-            latest_lead = Lead.query.filter_by(tenant_id=business_id).filter(
-                Lead.phone_e164 == customer.phone_e164
-            ).order_by(desc(Lead.created_at)).first() if hasattr(Lead, 'phone_e164') else None
+            # Construct lead object from subquery data if available
+            latest_lead = None
+            if latest_lead_data:
+                # Create a mock object with the necessary attributes
+                class LatestLeadProxy:
+                    def __init__(self, data):
+                        self.id = data.latest_lead_id
+                        self.status = data.status
+                        self.area = data.area
+                        self.property_type = data.property_type
+                        self.notes = data.notes
+                        self.created_at = data.created_at
+                        self.updated_at = data.updated_at
+                latest_lead = LatestLeadProxy(latest_lead_data)
             
-            # פעילות אחרונה  
-            last_call = CallLog.query.filter_by(business_id=business_id).filter(
-                CallLog.from_number == customer.phone_e164
-            ).order_by(desc(CallLog.created_at)).first() if hasattr(CallLog, 'from_number') else None
+            # Construct call object from subquery data if available
+            last_call = None
+            if last_call_data:
+                # Create a mock object with the necessary attributes
+                class LastCallProxy:
+                    def __init__(self, data):
+                        self.id = data.last_call_id
+                        self.status = data.status
+                        self.transcription = data.transcription
+                        self.created_at = data.created_at
+                last_call = LastCallProxy(last_call_data)
             
             last_interaction = customer.created_at
             if last_call and last_call.created_at > last_interaction:
