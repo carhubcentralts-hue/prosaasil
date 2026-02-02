@@ -210,7 +210,8 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                     if channel == "whatsapp":
                         if business and business.whatsapp_system_prompt:
                             custom_instructions = business.whatsapp_system_prompt
-                            logger.info(f"✅ Using WhatsApp prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
+                            # 🔥 FIX 3: Clear logging for prompt source verification
+                            logger.info(f"✅ [PROMPT-LOAD] WhatsApp prompt loaded from DB: business_id={business_id}, length={len(custom_instructions)} chars, updated_at={getattr(business, 'updated_at', 'N/A')}")
                         else:
                             logger.error(f"❌ MISSING_WHATSAPP_PROMPT for business={business_id}! Agent will not have instructions.")
                             custom_instructions = None

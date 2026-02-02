@@ -911,47 +911,52 @@ def delete_lead(lead_id):
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
     
-    # Delete all related records to prevent foreign key constraint violations
-    # Order matters: delete children before parents
-    
-    # 1. Delete activities and reminders (already existed)
-    LeadActivity.query.filter_by(lead_id=lead_id).delete()
-    LeadReminder.query.filter_by(lead_id=lead_id).delete()
-    
-    # 2. Delete contact identities (already existed)
-    ContactIdentity.query.filter_by(lead_id=lead_id).delete()
-    
-    # 3. Delete WhatsApp conversations (FIX: Foreign key constraint violation)
-    WhatsAppConversation.query.filter_by(lead_id=lead_id).delete()
-    
-    # 4. Delete call sessions
-    CallSession.query.filter_by(lead_id=lead_id).delete()
-    
-    # 5. Delete CRM tasks
-    CRMTask.query.filter_by(lead_id=lead_id).delete()
-    
-    # 6. Delete lead merge candidates (both as source and duplicate)
-    LeadMergeCandidate.query.filter_by(lead_id=lead_id).delete()
-    LeadMergeCandidate.query.filter_by(duplicate_lead_id=lead_id).delete()
-    
-    # 7. Delete outbound call jobs
-    OutboundCallJob.query.filter_by(lead_id=lead_id).delete()
-    
-    # 8. Nullify foreign keys in related tables (instead of deleting them)
-    # These records should remain even if lead is deleted
-    CallLog.query.filter_by(lead_id=lead_id).update({'lead_id': None})
-    Contract.query.filter_by(lead_id=lead_id).update({'lead_id': None})
-    Appointment.query.filter_by(lead_id=lead_id).update({'lead_id': None})
-    
-    # 🔥 FIX: Nullify WhatsApp broadcast recipient references (preserve broadcast history)
-    WhatsAppBroadcastRecipient.query.filter_by(lead_id=lead_id).update({'lead_id': None})
-    
-    # 9. Delete the lead itself
-    # Note: LeadNote, LeadAttachment, ScheduledMessagesQueue have CASCADE delete
-    db.session.delete(lead)
-    db.session.commit()
-    
-    log.info(f"✅ Lead {lead_id} deleted by {user.get('role')} user {user.get('email')}")
+    try:
+        # Delete all related records to prevent foreign key constraint violations
+        # Order matters: delete children before parents
+        
+        # 1. Delete activities and reminders (already existed)
+        LeadActivity.query.filter_by(lead_id=lead_id).delete()
+        LeadReminder.query.filter_by(lead_id=lead_id).delete()
+        
+        # 2. Delete contact identities (already existed)
+        ContactIdentity.query.filter_by(lead_id=lead_id).delete()
+        
+        # 3. Delete WhatsApp conversations (FIX: Foreign key constraint violation)
+        WhatsAppConversation.query.filter_by(lead_id=lead_id).delete()
+        
+        # 4. Delete call sessions
+        CallSession.query.filter_by(lead_id=lead_id).delete()
+        
+        # 5. Delete CRM tasks
+        CRMTask.query.filter_by(lead_id=lead_id).delete()
+        
+        # 6. Delete lead merge candidates (both as source and duplicate)
+        LeadMergeCandidate.query.filter_by(lead_id=lead_id).delete()
+        LeadMergeCandidate.query.filter_by(duplicate_lead_id=lead_id).delete()
+        
+        # 7. Delete outbound call jobs
+        OutboundCallJob.query.filter_by(lead_id=lead_id).delete()
+        
+        # 8. Nullify foreign keys in related tables (instead of deleting them)
+        # These records should remain even if lead is deleted
+        CallLog.query.filter_by(lead_id=lead_id).update({'lead_id': None})
+        Contract.query.filter_by(lead_id=lead_id).update({'lead_id': None})
+        Appointment.query.filter_by(lead_id=lead_id).update({'lead_id': None})
+        
+        # 🔥 FIX 1: Nullify WhatsApp broadcast recipient references (preserve broadcast history)
+        WhatsAppBroadcastRecipient.query.filter_by(lead_id=lead_id).update({'lead_id': None})
+        
+        # 9. Delete the lead itself
+        # Note: LeadNote, LeadAttachment, ScheduledMessagesQueue have CASCADE delete
+        db.session.delete(lead)
+        db.session.commit()
+        
+        log.info(f"✅ Lead {lead_id} deleted by {user.get('role')} user {user.get('email')}")
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"❌ Failed to delete lead {lead_id}: {str(e)}")
+        return jsonify({"error": f"Failed to delete lead: {str(e)}"}), 500
     
     return jsonify({"message": "Lead deleted successfully"}), 200
 

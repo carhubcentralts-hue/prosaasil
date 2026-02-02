@@ -37,23 +37,24 @@ def check_appointment_overlap(business_id: int, start_time: datetime, end_time: 
         start_time: Proposed start time (naive datetime in local Israel time)
         end_time: Proposed end time (naive datetime in local Israel time)
         calendar_id: Calendar ID to check (optional - if provided, only checks within that calendar)
-        exclude_id: Appointment ID to exclude from check (for updates)
+        exclude_id: Appointment ID to exclude from check (for updates - self-exclusion)
     
     Returns:
         Existing overlapping appointment if found, None otherwise
     """
+    # 🔥 FIX: Only check active appointments (not cancelled/no_show/completed)
     query = Appointment.query.filter(
         Appointment.business_id == business_id,
         Appointment.start_time < end_time,
         Appointment.end_time > start_time,
-        Appointment.status.in_(['scheduled', 'confirmed'])
+        Appointment.status.in_(['scheduled', 'confirmed'])  # Excludes cancelled, no_show, completed
     )
     
     # 🔥 FIX: Filter by calendar_id to prevent false conflicts between different calendars
     if calendar_id is not None:
         query = query.filter(Appointment.calendar_id == calendar_id)
     
-    # Exclude specific appointment (for updates)
+    # 🔥 FIX: Exclude specific appointment (for self-exclusion during updates)
     if exclude_id:
         query = query.filter(Appointment.id != exclude_id)
     

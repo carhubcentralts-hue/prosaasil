@@ -960,12 +960,13 @@ def baileys_webhook():
                 else:
                     msg_timestamp = datetime.utcnow()
                 
-                # Get or create lead using unified contact identity service
+                # 🔥 FIX 2: Get or create lead with phone_e164_override (Baileys handler)
+                # For @lid messages, phone extracted from participant (from_number_e164) overrides JID extraction
                 lead = ContactIdentityService.get_or_create_lead_for_whatsapp(
                     business_id=business_id,
                     remote_jid=remote_jid,
                     push_name=push_name,
-                    phone_e164_override=from_number_e164,
+                    phone_e164_override=from_number_e164,  # Ensures phone is saved even for @lid JIDs
                     message_text=message_text,
                     wa_message_id=baileys_message_id,
                     ts=msg_timestamp
@@ -2418,13 +2419,14 @@ def _process_meta_ai_response(business, from_number: str, user_message: str):
         
         log.info(f"[META-WA-AI] 🔵 AgentKit processing for {conversation_key[:30]}")
         
-        # Get or create lead
+        # 🔥 FIX 2: Get or create lead with phone_e164_override (Meta WhatsApp Cloud API handler)
+        # For Meta API, from_number is already E.164 format, so we pass it as override
         from server.services.contact_identity_service import ContactIdentityService
         lead = ContactIdentityService.get_or_create_lead_for_whatsapp(
             business_id=business_id,
-            remote_jid=from_number,  # For Meta, remote_jid is just the phone
-            push_name=None,
-            phone_e164_override=from_number_e164,
+            remote_jid=from_number,  # For Meta, remote_jid is the phone number
+            push_name=None,  # Meta API doesn't provide push_name in this flow
+            phone_e164_override=from_number_e164,  # Pass normalized phone to ensure it's saved
             message_text=user_message,
             wa_message_id=None,
             ts=datetime.utcnow()
