@@ -79,7 +79,7 @@ const AVAILABLE_VARIABLES = [
 const TIMING_PRESETS = [
   { id: 'immediate', type: 'immediate' as const, minutes: undefined, label: 'מיידי' },
   { id: 'day_before', type: 'before' as const, minutes: 1440, label: 'יום לפני' },
-  { id: 'same_day', type: 'before' as const, minutes: 540, label: 'באותו יום (בוקר - 9:00)' },
+  { id: 'same_day', type: 'before' as const, minutes: 180, label: 'באותו יום (3 שעות לפני)' },
 ];
 
 function formatTimingLabel(offset: { type: string; minutes?: number }): string {
