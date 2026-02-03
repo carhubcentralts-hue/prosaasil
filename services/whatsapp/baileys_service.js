@@ -1709,6 +1709,10 @@ async function startSession(tenantId, forceRelink = false) {
           // 🔥 FIX #3: Log LID vs standard JID for debugging
           if (remoteJid.endsWith('@lid')) {
             console.log(`[${tenantId}] Message ${idx}: ⚠️ LID detected: ${remoteJid}, senderPn=${senderPn || 'N/A'}`);
+            // 🔥 DEBUG: Log ENTIRE message structure to find phone number
+            console.log(`[${tenantId}] [DEBUG-LID] ===== FULL MESSAGE DUMP =====`);
+            console.log(`[${tenantId}] [DEBUG-LID] Full msg:`, JSON.stringify(msg, null, 2));
+            console.log(`[${tenantId}] [DEBUG-LID] ===== END MESSAGE DUMP =====`);
           }
           
           const messageKeys = Object.keys(msg.message || {});
@@ -1858,42 +1862,36 @@ async function startSession(tenantId, forceRelink = false) {
             || msgObj.contactMessage?.contextInfo?.participant
             || null;
 
-          // 🔥 LID FIX: If remoteJid is LID, try to resolve it to phone number
+          // 🔥 LID FIX: If remoteJid is LID, extract phone directly from LID itself!
           let resolvedPhone = null;
           let resolvedPushName = msg.pushName || null;
           
           if (remoteJid.endsWith('@lid')) {
-            try {
-              // If we have participant with @s.whatsapp.net, extract phone immediately
-              if (participantJid && participantJid.endsWith('@s.whatsapp.net')) {
-                const phoneDigits = participantJid.split('@')[0].split(':')[0];
-                if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
-                  resolvedPhone = '+' + phoneDigits;
-                }
-              }
-              
-              // Try internal resolution endpoint
-              if (!resolvedPhone) {
-                const resolveUrl = `http://localhost:${PORT}/internal/resolve-jid`;
-                const resolveResponse = await axios.post(resolveUrl, {
-                  tenantId,
-                  jid: remoteJid,
-                  participant: participantJid,
-                  pushName: resolvedPushName
-                }, {
-                  headers: { 'X-Internal-Secret': INTERNAL_SECRET },
-                  timeout: 2000
-                });
-                
-                if (resolveResponse.data?.phone_e164) {
-                  resolvedPhone = resolveResponse.data.phone_e164;
-                }
-                if (resolveResponse.data?.push_name) {
-                  resolvedPushName = resolveResponse.data.push_name;
-                }
-              }
-            } catch (resolveError) {
-              console.error(`[${tenantId}] ❌ LID resolution failed: ${resolveError.message}`);
+            // 🎯 PRIORITY #1: Extract phone DIRECTLY from LID (e.g., 87621728518253@lid → +87621728518253)
+            const lidDigits = remoteJid.split('@')[0];
+            if (lidDigits && /^\d{10,15}$/.test(lidDigits)) {
+              resolvedPhone = '+' + lidDigits;
+              console.log(`[${tenantId}] ✅ Phone extracted from LID: ${remoteJid} → ${resolvedPhone}`);
+            } else {
+              console.warn(`[${tenantId}] ⚠️ LID does not contain valid phone digits: ${remoteJid}`);
+            }
+          }
+          
+          // 🎯 PRIORITY #2: Extract from participant if present (for group messages or quoted replies)
+          if (!resolvedPhone && participantJid && participantJid.endsWith('@s.whatsapp.net')) {
+            const phoneDigits = participantJid.split('@')[0].split(':')[0];
+            if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
+              resolvedPhone = '+' + phoneDigits;
+              console.log(`[${tenantId}] ✅ Phone extracted from participant: ${participantJid} → ${resolvedPhone}`);
+            }
+          }
+          
+          // 🎯 PRIORITY #3: Extract from remoteJid if it's a regular JID (iPhone/standard)
+          if (!resolvedPhone && remoteJid.endsWith('@s.whatsapp.net')) {
+            const phoneDigits = remoteJid.split('@')[0].split(':')[0];
+            if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
+              resolvedPhone = '+' + phoneDigits;
+              console.log(`[${tenantId}] ✅ Phone extracted from remoteJid: ${remoteJid} → ${resolvedPhone}`);
             }
           }
 
