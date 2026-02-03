@@ -352,15 +352,15 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         upcoming = Appointment.query.filter(
             Appointment.lead_id == input.lead_id,
             Appointment.business_id == input.business_id,
-            Appointment.start_datetime >= now
-        ).order_by(Appointment.start_datetime.asc()).limit(3).all()
+            Appointment.start_time >= now
+        ).order_by(Appointment.start_time.asc()).limit(3).all()
         
         for apt in upcoming:
             appointments_list.append(LeadContextAppointment(
                 id=apt.id,
                 title=apt.treatment_type or apt.title,
-                start_datetime=apt.start_datetime.isoformat() if apt.start_datetime else "",
-                end_datetime=apt.end_datetime.isoformat() if apt.end_datetime else "",
+                start_datetime=apt.start_time.isoformat() if apt.start_time else "",
+                end_datetime=apt.end_time.isoformat() if apt.end_time else "",
                 status=apt.status or 'scheduled',
                 notes=apt.notes[:200] if apt.notes else None
             ))
@@ -369,15 +369,15 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         past = Appointment.query.filter(
             Appointment.lead_id == input.lead_id,
             Appointment.business_id == input.business_id,
-            Appointment.start_datetime < now
-        ).order_by(Appointment.start_datetime.desc()).limit(3).all()
+            Appointment.start_time < now
+        ).order_by(Appointment.start_time.desc()).limit(3).all()
         
         for apt in past:
             appointments_list.append(LeadContextAppointment(
                 id=apt.id,
                 title=apt.treatment_type or apt.title,
-                start_datetime=apt.start_datetime.isoformat() if apt.start_datetime else "",
-                end_datetime=apt.end_datetime.isoformat() if apt.end_datetime else "",
+                start_datetime=apt.start_time.isoformat() if apt.start_time else "",
+                end_datetime=apt.end_time.isoformat() if apt.end_time else "",
                 status=apt.status or 'completed',
                 notes=apt.notes[:200] if apt.notes else None
             ))
