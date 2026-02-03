@@ -1112,12 +1112,28 @@ class AIService:
             # 🔥 CRITICAL: Log complete payload before LLM call (Hebrew labels requirement)
             # This ensures we can verify that all labels are in Hebrew as required
             try:
-                # Helper function to mask sensitive data for logging
+                # Configuration for logging
+                MAX_SUMMARY_LENGTH = 100  # For summaries and notes
+                MAX_TEXT_LENGTH = 150  # For general text truncation
+                
+                # Helper functions to mask sensitive data for logging
                 def mask_phone(phone: str) -> str:
-                    """Mask phone number for privacy: +972501234567 → +972***4567"""
-                    if not phone or len(phone) < 8:
+                    """
+                    Mask phone number for privacy with robust handling
+                    Examples:
+                        +972501234567 → +972***4567
+                        050123456 → 050***456
+                        123 → 123 (too short, return as-is)
+                    """
+                    if not phone:
                         return phone
-                    return phone[:5] + "***" + phone[-4:]
+                    phone_str = str(phone).strip()
+                    if len(phone_str) < 6:  # Too short to mask meaningfully
+                        return phone_str
+                    # Mask middle portion, keep prefix and suffix
+                    prefix_len = min(4, len(phone_str) // 3)
+                    suffix_len = min(4, len(phone_str) // 3)
+                    return phone_str[:prefix_len] + "***" + phone_str[-suffix_len:]
                 
                 def mask_email(email: str) -> str:
                     """Mask email for privacy: user@example.com → u***@example.com"""
@@ -1127,8 +1143,8 @@ class AIService:
                     masked_local = local[0] + '***' if len(local) > 1 else local
                     return f"{masked_local}@{domain}"
                 
-                def truncate_text(text: str, max_length: int = 150) -> str:
-                    """Truncate text for logging"""
+                def truncate_text(text: str, max_length: int) -> str:
+                    """Truncate text for logging (explicit max_length required)"""
                     if not text:
                         return text
                     if len(text) <= max_length:
@@ -1161,7 +1177,7 @@ class AIService:
                         "current_status": lead_ctx_dict.get('current_status'),
                         "lead_source": lead_ctx_dict.get('lead_source'),
                         "tags": lead_ctx_dict.get('tags'),
-                        "summary": truncate_text(lead_ctx_dict.get('summary'), 100) if lead_ctx_dict.get('summary') else None
+                        "summary": truncate_text(lead_ctx_dict.get('summary'), MAX_SUMMARY_LENGTH) if lead_ctx_dict.get('summary') else None
                     }
                     payload_debug["lead_status"] = {
                         "current_status": lead_ctx_dict.get('current_status'),
@@ -1181,8 +1197,8 @@ class AIService:
                     }
                     payload_debug["notes"] = {
                         "recent_notes_count": len(lead_ctx_dict.get('recent_notes', [])),
-                        "last_call_summary": truncate_text(lead_ctx_dict.get('last_call_summary'), 100) if lead_ctx_dict.get('last_call_summary') else None,
-                        "last_whatsapp_summary": truncate_text(lead_ctx_dict.get('last_whatsapp_summary'), 100) if lead_ctx_dict.get('last_whatsapp_summary') else None
+                        "last_call_summary": truncate_text(lead_ctx_dict.get('last_call_summary'), MAX_SUMMARY_LENGTH) if lead_ctx_dict.get('last_call_summary') else None,
+                        "last_whatsapp_summary": truncate_text(lead_ctx_dict.get('last_whatsapp_summary'), MAX_SUMMARY_LENGTH) if lead_ctx_dict.get('last_whatsapp_summary') else None
                     }
                     payload_debug["tags"] = lead_ctx_dict.get('tags', [])
                     

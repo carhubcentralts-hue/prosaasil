@@ -189,18 +189,21 @@ class HebrewLabelService:
     
     def format_custom_fields(self, custom_fields: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Format custom fields with Hebrew labels
+        Format custom fields with labels (⚠️ TEMPORARY ENGLISH FALLBACK)
+        
+        IMPORTANT: This function currently returns English labels, NOT Hebrew.
+        Hebrew labels require a CustomFieldDefinition table or custom_fields_schema.
         
         Args:
             custom_fields: Dict of custom field key-value pairs
             
         Returns:
-            List of dicts with field_key, field_label_he, and value
+            List of dicts with field_key, field_label (English fallback), and value
         
-        Note:
-            Currently uses English title-case conversion as a temporary fallback.
-            TODO: Implement proper Hebrew labels from CustomFieldDefinition table or BusinessSettings.custom_fields_schema.
-            The field_label currently contains English as a stopgap - consumers should be aware.
+        TODO: Implement proper Hebrew labels from DB sources:
+            1. BusinessSettings.custom_fields_schema
+            2. CustomFieldDefinition table  
+            3. Hard-coded mapping for common fields
         """
         if not custom_fields:
             return []

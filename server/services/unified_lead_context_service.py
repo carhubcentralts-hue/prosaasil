@@ -29,6 +29,9 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# Configuration constants
+MAX_CUSTOM_FIELDS_PER_PAST_APPOINTMENT = 2  # Limit custom fields displayed for past appointments
+
 
 # ================================================================================
 # UNIFIED LEAD CONTEXT PAYLOAD - SAME FOR WHATSAPP AND CALLS
@@ -907,7 +910,7 @@ class UnifiedLeadContextService:
                 
                 # Include custom fields if present
                 if apt.get('custom_fields'):
-                    for field in apt['custom_fields'][:2]:  # Show max 2 custom fields per appointment
+                    for field in apt['custom_fields'][:MAX_CUSTOM_FIELDS_PER_PAST_APPOINTMENT]:  # Show max 2 custom fields per appointment
                         parts.append(f"      {field['field_label']}: {field['value']}")
         
         # Open tasks
