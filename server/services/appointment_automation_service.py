@@ -152,6 +152,11 @@ def schedule_automation_jobs(
             logger.warning(f"Appointment {appointment_id} not found for business {business_id}")
             return {'error': 'Appointment not found', 'scheduled': 0}
         
+        # Validate appointment has valid ID before creating runs
+        if not appointment.id:
+            logger.error(f"Appointment has no ID - skipping automation scheduling")
+            return {'error': 'Invalid appointment ID', 'scheduled': 0}
+        
         # Get active automations for this appointment's status
         automations = get_active_automations(business_id, appointment.status)
         

@@ -253,13 +253,13 @@ def send_appointment_confirmation(run_id: int, business_id: int) -> Dict[str, An
         send_result = send_message(
             business_id=business_id,
             to_phone=phone,
-            message=message,
-            provider='baileys',  # Default to baileys, could be made configurable
-            lead_id=appointment.lead_id,
+            text=message,
             context='appointment_confirmation'
         )
         
-        if send_result.get('success'):
+        # Check if message was sent successfully
+        # send_message returns: {"status": "sent|queued|accepted|error", ...}
+        if send_result.get('status') in ['sent', 'queued', 'accepted']:
             # Mark as sent
             run.status = 'sent'
             run.sent_at = datetime.utcnow()
