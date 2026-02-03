@@ -697,7 +697,8 @@ def process_recording_async(form_data):
                 call_sid,
                 business_type,
                 business_name,
-                call_duration=actual_duration
+                call_duration=actual_duration,
+                business_id=call_log.business_id if call_log else None
             )
             # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
             if not DEBUG:

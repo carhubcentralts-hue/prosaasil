@@ -128,9 +128,10 @@ class UnifiedStatusService:
             # This is the SINGLE SOURCE OF TRUTH requirement
             ALLOWED_SUMMARY_CHANNELS = ['whatsapp_summary', 'call_summary', 'phone_summary']
             ALLOWED_MANUAL_CHANNELS = ['manual', 'system', 'api']  # For admin/system overrides
+            ALL_ALLOWED_CHANNELS = ALLOWED_SUMMARY_CHANNELS + ALLOWED_MANUAL_CHANNELS
             
-            # If the channel is not a summary or manual override, reject the update
-            if request.channel not in ALLOWED_SUMMARY_CHANNELS and request.channel not in ALLOWED_MANUAL_CHANNELS:
+            # If the channel is not allowed, reject the update
+            if request.channel not in ALL_ALLOWED_CHANNELS:
                 logger.warning(f"[UnifiedStatus] 🚫 REJECTED status change from non-summary channel: {request.channel}")
                 logger.warning(f"[UnifiedStatus]    - Lead ID: {request.lead_id}, Business: {self.business_id}")
                 logger.warning(f"[UnifiedStatus]    - Attempted Status: {request.new_status}")

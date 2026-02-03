@@ -230,10 +230,15 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                     
                     # Get messages for transcript-like analysis
                     messages = get_session_messages(session)
-                    transcript_text = "\n".join([
-                        f"{'Customer' if m.direction == 'inbound' else 'Business'}: {m.message_text or ''}"
-                        for m in messages if m.message_text
-                    ])
+                    
+                    # Build transcript from messages
+                    transcript_lines = []
+                    for m in messages:
+                        if m.message_text:
+                            sender = 'Customer' if m.direction == 'inbound' else 'Business'
+                            transcript_lines.append(f"{sender}: {m.message_text}")
+                    
+                    transcript_text = "\n".join(transcript_lines)
                     
                     # Use the same auto-status logic as calls
                     suggested_status = suggest_lead_status_from_call(
@@ -678,24 +683,58 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
     customer_count = len(customer_messages)
     context_note = f"\n\n(שיחה: {msg_count} הודעות, {customer_count} מהלקוח)\n"
     
+    # 🔥 DYNAMIC STATUSES: Fetch business-specific statuses for intelligent recommendation
+    status_context = ""
+    if session.business_id:
+        try:
+            from server.models_sql import LeadStatus
+            statuses = LeadStatus.query.filter_by(
+                business_id=session.business_id,
+                is_active=True
+            ).all()
+            
+            if statuses:
+                # Build list with Hebrew labels
+                status_list = []
+                for s in statuses:
+                    hebrew_label = s.display_name or s.name
+                    status_list.append(f"- {s.name} ({hebrew_label})")
+                
+                status_context = f"""
+
+🎯 **סטטוסים זמינים בעסק זה**:
+{chr(10).join(status_list)}
+
+⚠️ חשוב: 
+- המלץ רק על סטטוס מהרשימה!
+- השתמש בשם הפנימי (לפני הסוגריים)
+- הבן את המשמעות מהתווית בעברית (בסוגריים)"""
+                
+                logger.info(f"[WA-SESSION] Loaded {len(statuses)} statuses for business {session.business_id}")
+            else:
+                logger.warning(f"[WA-SESSION] No statuses found for business {session.business_id}")
+        except Exception as e:
+            logger.error(f"[WA-SESSION] Failed to load statuses: {e}")
+    
     prompt = f"""סכם את שיחת ה-WhatsApp הבאה בעברית.
 
 שיחה:
-{conversation_text}{context_note}
+{conversation_text}{context_note}{status_context}
 
 הסיכום חייב לכלול:
 1. **נושא** - מה הלקוח רצה/שאל
 2. **מה נדון** - הנקודות העיקריות (אם יש)
 3. **תוצאה** - מה סוכם או איך הסתיימה השיחה
 4. **המשך** - אם יש פעולה נדרשת
-5. **המלצת סטטוס** - המלצה לסטטוס חדש של הליד על סמך השיחה
+5. **המלצת סטטוס** - המלצה חכמה לסטטוס מהרשימה למעלה
 
 כללים:
 - כתוב רק מה שנאמר בפועל
 - אם השיחה קצרה/לא הגיעה לסיכום - ציין זאת בקצרה
 - 1-4 משפטים מספיקים (תלוי באורך השיחה)
 - גם שיחה של הודעה אחת צריכה סיכום (למשל: "לקוח שאל על X, טרם נענה")
-- הוסף המלצת סטטוס בפורמט [המלצה: <סטטוס>]
+- הוסף המלצת סטטוס בפורמט [המלצה: <שם_סטטוס>]
+- הסטטוס חייב להיות מהרשימה שקיבלת!
 
 סיכום:"""
 
@@ -718,22 +757,22 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
 - מדויק - רק מה שנאמר בפועל
 - שימושי - מה קרה ומה הצעד הבא
 - כן - אם לא הגיעו לסיכום, כתוב את זה
-- מלא - כולל המלצה לסטטוס חדש בהתאם לתוכן השיחה
+- מלא - כולל המלצה חכמה לסטטוס
 
-סטטוסים אפשריים להמלצה:
-- מעוניין (לקוח הביע עניין)
-- לא_מעוניין / לא_רלוונטי (לקוח לא מעוניין)
-- נקבע_פגישה / פגישה_מאושרת (נקבעה פגישה)
-- חזרה_נדרשת (צריך לחזור ללקוח)
-- נוצר_קשר (השיחה התבצעה אך ללא תוצאה ברורה)
-- ממתין_תשובה (לקוח ביקש זמן לחשוב)
+המלצת סטטוס:
+⚠️ תקבל רשימת סטטוסים ספציפית לעסק בפרומפט
+⚠️ כל סטטוס מופיע בפורמט: שם_פנימי (תווית בעברית)
+⚠️ השתמש בשם הפנימי בהמלצה שלך
+⚠️ הבן את המשמעות מהתווית בעברית
+⚠️ בחר את הסטטוס המתאים ביותר לתוכן השיחה
 
 דוגמאות:
-✓ "לקוח שאל על מחירי שירות. קיבל הצעת מחיר. ביקש לחשוב על זה. [המלצה: ממתין_תשובה]"
-✓ "בירור על זמינות. לא נמצא תאריך מתאים. הלקוח יחזור בשבוע הבא. [המלצה: חזרה_נדרשת]"
-✓ "לקוח התעניין בשירות אך לא השיב להודעות ההמשך. [המלצה: נוצר_קשר]"
-✓ "לקוח ביקש פגישה - נקבעה לתאריך 15/3 בשעה 10:00. [המלצה: פגישה_מאושרת]"
-"""},
+✓ "לקוח שאל על מחירי שירות. קיבל הצעת מחיר. ביקש לחשוב על זה. [המלצה: <שם_מהרשימה>]"
+✓ "בירור על זמינות. לא נמצא תאריך מתאים. הלקוח יחזור בשבוע הבא. [המלצה: <שם_מהרשימה>]"
+✓ "לקוח התעניין בשירות אך לא השיב להודעות ההמשך. [המלצה: <שם_מהרשימה>]"
+✓ "לקוח ביקש פגישה - נקבעה לתאריך 15/3 בשעה 10:00. [המלצה: <שם_מהרשימה>]"
+
+זכור: השתמש רק בשמות הפנימיים מהרשימה שקיבלת!"""},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=200,
