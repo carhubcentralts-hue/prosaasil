@@ -279,10 +279,6 @@ def update_status(status_id):
         if not business_id:
             business_id = status.business_id
             
-        # ✅ System status protection
-        if status.is_system:
-            return jsonify({'error': 'Cannot modify system status'}), 403
-            
         data = request.get_json()
         if not data:
             return jsonify({'error': 'JSON data required'}), 400
@@ -300,7 +296,7 @@ def update_status(status_id):
             status.description = data['description'].strip()
         
         # ✅ Exactly one default enforcement for PUT
-        if 'is_default' in data and not status.is_system:
+        if 'is_default' in data:
             new_is_default = data['is_default']
             
             # Get current default status
@@ -387,13 +383,6 @@ def delete_status(status_id):
         if not business_id:
             business_id = status.business_id
             
-        # ✅ System status protection - cannot delete system statuses (won, lost, unqualified)
-        if status.is_system:
-            return jsonify({
-                'error': 'Cannot delete system status. System statuses (won, lost, unqualified) are protected.',
-                'is_system': True
-            }), 403
-        
         # ✅ Default status protection - cannot delete if it's the only default or no other default exists
         if status.is_default:
             other_defaults = LeadStatus.query.filter(

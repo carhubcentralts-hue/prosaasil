@@ -1,18 +1,18 @@
 """
 Test status deletion with all constraints and protections
 Verifies that status deletion properly handles:
-- System status protection (cannot delete)
 - Default status protection (cannot delete if only default)
 - Lead usage protection (cannot delete if leads use it)
 - ScheduledRuleStatus cleanup
+Note: System status protection has been removed - all statuses can now be edited and deleted.
 """
 import pytest
 import os
 from datetime import datetime, timedelta
 
 
-def test_cannot_delete_system_status():
-    """Test that system statuses (won, lost, unqualified) cannot be deleted"""
+def test_can_delete_system_status():
+    """Test that system statuses (won, lost, unqualified) CAN now be deleted (protection removed)"""
     os.environ['MIGRATION_MODE'] = '1'
     os.environ['TESTING'] = '1'
     
@@ -45,31 +45,32 @@ def test_cannot_delete_system_status():
         db.session.commit()
         
         status_id = system_status.id
+        business_id = business.id
         
-        # Try to delete using the delete_status logic
-        # Should fail because it's a system status
-        from server.routes_status_management import status_management_bp
+        # Verify the status exists and is a system status
+        status = LeadStatus.query.filter_by(id=status_id).first()
+        assert status is not None, "Status should exist"
+        assert status.is_system is True, "Status should be marked as system status"
+        
+        # Call the actual delete_status function to test the endpoint logic
+        from server.routes_status_management import delete_status
         from flask import g
         
-        with app.test_request_context():
-            g.tenant = business.id
+        with app.test_request_context(method='DELETE'):
+            g.tenant = business_id
             g.role = 'owner'
             
-            # Simulate deletion logic
-            status = LeadStatus.query.filter_by(id=status_id).first()
-            assert status is not None
-            assert status.is_system is True
+            # This should now succeed (no 403 Forbidden for system status)
+            response, status_code = delete_status(status_id)
             
-            # Check if it's a system status - should prevent deletion
-            if status.is_system:
-                # This should happen - system status deletion is blocked
-                assert True, "System status deletion correctly blocked"
-            else:
-                assert False, "System status should have been blocked from deletion"
+            # Should get 200 OK with success message (not 403 Forbidden)
+            assert status_code == 200, f"Expected 200 OK, got {status_code}: {response.json}"
+            assert response.json['action'] == 'deleted', "Status should be deleted"
         
-        # Verify status still exists
+        # Verify status was actually deleted from database
         status_after = LeadStatus.query.filter_by(id=status_id).first()
-        assert status_after is not None, "System status should not be deleted"
+        assert status_after is None, "System status should be deleted from database"
+
 
 
 def test_cannot_delete_only_default_status():
