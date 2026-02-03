@@ -92,6 +92,14 @@ def update_lead_status(input: UpdateLeadStatusInput) -> UpdateLeadStatusOutput:
         elif hasattr(g, 'call_sid'):
             channel = "call"
         
+        # 🔥 LOG: AI is using the status update tool!
+        logger.info(f"[STATUS-UPDATE] 🤖 AI requesting status change:")
+        logger.info(f"   • Business: {input.business_id}, Lead: {input.lead_id}")
+        logger.info(f"   • New Status: {input.status}")
+        logger.info(f"   • Reason: {input.reason}")
+        logger.info(f"   • Confidence: {input.confidence or 'N/A'}")
+        logger.info(f"   • Channel: {channel}")
+        
         # Call unified service
         result = update_lead_status_unified(
             business_id=input.business_id,
@@ -105,6 +113,14 @@ def update_lead_status(input: UpdateLeadStatusInput) -> UpdateLeadStatusOutput:
                 'ai_generated': True
             }
         )
+        
+        # 🔥 LOG: Status update result
+        if result.success:
+            logger.info(f"[STATUS-UPDATE] ✅ Status changed: {result.old_status} → {result.new_status}")
+        elif result.skipped:
+            logger.info(f"[STATUS-UPDATE] ⏭️ Status update skipped: {result.message}")
+        else:
+            logger.warning(f"[STATUS-UPDATE] ❌ Status update failed: {result.message}")
         
         return UpdateLeadStatusOutput(
             success=result.success,

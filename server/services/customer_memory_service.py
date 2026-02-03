@@ -36,8 +36,15 @@ def get_customer_memory(lead_id: int, business_id: int, max_notes: int = 5) -> D
         ).first()
         
         if not lead:
-            logger.warning(f"[MEMORY] Lead {lead_id} not found for business {business_id}")
+            logger.warning(f"[MEMORY] ⚠️ Lead {lead_id} not found for business {business_id}")
             return {}
+        
+        logger.info(f"[MEMORY] 📂 Loading unified memory for lead {lead_id}:")
+        logger.info(f"   • Name: {lead.full_name or 'N/A'}")
+        logger.info(f"   • Phone: {lead.phone_e164 or lead.mobile_phone or 'N/A'}")
+        logger.info(f"   • Status: {lead.status or 'N/A'}")
+        logger.info(f"   • Last Channel: {lead.last_channel or 'N/A'}")
+        logger.info(f"   • Last Interaction: {lead.last_interaction_at.isoformat() if lead.last_interaction_at else 'Never'}")
         
         # Build memory dict
         memory = {
@@ -74,8 +81,15 @@ def get_customer_memory(lead_id: int, business_id: int, max_notes: int = 5) -> D
         
         memory['recent_notes'] = recent_notes
         
-        logger.info(f"[MEMORY] Loaded memory for lead {lead_id}: profile={bool(memory['customer_profile'])}, "
-                   f"summary={bool(memory['last_summary'])}, notes={len(recent_notes)}")
+        # 🔥 LOG: Summary of loaded memory
+        profile_fields = len(memory['customer_profile']) if memory['customer_profile'] else 0
+        logger.info(f"[MEMORY] ✅ Memory loaded successfully:")
+        logger.info(f"   • Profile Fields: {profile_fields}")
+        logger.info(f"   • Last Summary: {'Yes' if memory['last_summary'] else 'No'} ({len(memory['last_summary'] or '')} chars)")
+        logger.info(f"   • Recent Notes: {len(recent_notes)} (call_summary + manual)")
+        if recent_notes:
+            for i, note in enumerate(recent_notes[:3], 1):  # Show first 3
+                logger.info(f"      [{i}] {note['type']}: {note['content'][:60]}...")
         
         return memory
         

@@ -458,7 +458,16 @@ def create_lead_note(input: CreateLeadNoteInput) -> CreateLeadNoteOutput:
         db.session.add(note)
         db.session.commit()
         
-        logger.info(f"Created {note_type} note #{note.id} for lead {input.lead_id}")
+        # 🔥 LOG: Detailed note creation
+        logger.info(f"[CRM-NOTE] 📝 Created {note_type} note for lead {input.lead_id}:")
+        logger.info(f"   • Note ID: {note.id}")
+        logger.info(f"   • Type: {note_type}")
+        logger.info(f"   • Content Length: {len(redacted_content)} chars")
+        logger.info(f"   • Content Preview: {redacted_content[:100]}...")
+        if input.structured_data:
+            logger.info(f"   • Structured Data: {input.structured_data.model_dump()}")
+        if input.call_id:
+            logger.info(f"   • Linked to Call: {input.call_id}")
         
         return CreateLeadNoteOutput(
             success=True,

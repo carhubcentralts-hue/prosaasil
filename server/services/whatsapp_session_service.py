@@ -198,6 +198,13 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
         if session.lead_id:
             lead = Lead.query.get(session.lead_id)
             if lead:
+                # 🔥 LOG: Detailed summary creation
+                logger.info(f"[WA-SUMMARY] 📝 Creating summary for lead {lead.id}:")
+                logger.info(f"   • Lead Name: {lead.full_name or 'N/A'}")
+                logger.info(f"   • Phone: {lead.phone_e164 or lead.mobile_phone or 'N/A'}")
+                logger.info(f"   • Current Status: {lead.status or 'N/A'}")
+                logger.info(f"   • Summary: {summary[:100]}...")
+                
                 # Update legacy WhatsApp-specific fields
                 lead.whatsapp_last_summary = summary
                 lead.whatsapp_last_summary_at = datetime.utcnow()
@@ -209,11 +216,17 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                 lead.last_interaction_at = session.last_message_at or datetime.utcnow()
                 lead.last_channel = 'whatsapp'
                 
+                logger.info(f"[WA-SUMMARY] ✅ Updated unified customer memory for lead {lead.id}")
+                
                 # Try to extract memory patches from conversation
                 try:
                     messages = get_session_messages(session)
+                    logger.info(f"[WA-MEMORY] 🔍 Extracting memory patches from {len(messages)} messages")
+                    
                     memory_patch = extract_memory_patch_from_messages(messages, lead)
                     if memory_patch:
+                        logger.info(f"[WA-MEMORY] 📦 Extracted memory patch with {len(memory_patch)} fields: {list(memory_patch.keys())}")
+                        
                         # Merge memory_patch into customer_profile_json
                         if not lead.customer_profile_json:
                             lead.customer_profile_json = {}
@@ -221,9 +234,11 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                             lead.customer_profile_json, 
                             memory_patch
                         )
-                        logger.info(f"[WA-SESSION] Updated customer profile for lead {lead.id}")
+                        logger.info(f"[WA-MEMORY] ✅ Updated customer profile for lead {lead.id} - total fields: {len(lead.customer_profile_json)}")
+                    else:
+                        logger.info(f"[WA-MEMORY] ℹ️ No memory patches extracted from conversation")
                 except Exception as e:
-                    logger.warning(f"[WA-SESSION] Could not extract memory patch: {e}")
+                    logger.warning(f"[WA-MEMORY] ⚠️ Could not extract memory patch: {e}", exc_info=True)
                 
                 logger.info(f"[WA-SESSION] Updated lead {lead.id} with unified customer memory")
     else:

@@ -636,6 +636,16 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             # Success
             if hasattr(result, "appointment_id"):
                 appt_id = result.appointment_id
+                
+                # 🔥 LOG: Detailed appointment creation
+                logger.info(f"[APPOINTMENT] 📅 WhatsApp appointment created successfully:")
+                logger.info(f"   • Appointment ID: {appt_id}")
+                logger.info(f"   • Business: {business_id}, Customer: {name}")
+                logger.info(f"   • Phone: {wa_from or 'Not collected (policy optional)'}")
+                logger.info(f"   • Date: {date_display_he} ({weekday_he}) at {chosen_time}")
+                logger.info(f"   • Service: {service or 'Meeting'}")
+                logger.info(f"   • Duration: {requested_dt.isoformat()} → {end_dt.isoformat()}")
+                
                 logger.info(f"WHATSAPP_APPT tool=schedule_appointment success=true error_code= appointment_id={appt_id}")
                 return {
                     "success": True,
@@ -1231,6 +1241,11 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
         # Realtime phone calls use media_ws_ai.py with separate tool policy
         # WhatsApp MUST use check_availability/schedule_appointment (not calendar_* tools)
+        
+        # 🔥 ALWAYS ADD STATUS UPDATE TOOL - regardless of customer service mode
+        # This allows AI to intelligently update lead status based on conversation
+        from server.agent_tools.tools_status_update import update_lead_status
+        
         if channel == "whatsapp":
             tools_to_use = [
                 check_availability,
@@ -1239,6 +1254,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 leads_search,
                 whatsapp_send,
                 business_get_info,
+                update_lead_status  # 🔥 Always available for smart status updates
             ]
         else:
             tools_to_use = [
@@ -1249,22 +1265,21 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 leads_upsert_wrapped,
                 leads_search,
                 whatsapp_send,
-                business_get_info
+                business_get_info,
+                update_lead_status  # 🔥 Always available for smart status updates
             ]
+        
+        logger.info(f"🎯 Status update tool ENABLED for business {business_id} (all channels)")
         
         # 🎧 CRM Context-Aware Support: Add customer service tools if enabled
         if customer_service_enabled:
-            # Lazy import to avoid circular dependency with models_sql
-            from server.agent_tools.tools_status_update import update_lead_status
-            
             tools_to_use.extend([
                 crm_find_lead_by_phone,
                 crm_get_lead_context,
                 crm_create_note,
                 crm_create_call_summary,
-                update_lead_status  # 🔥 NEW: Unified status update tool
             ])
-            logger.info(f"🎧 Customer service mode ENABLED for business {business_id} - CRM tools + status update added")
+            logger.info(f"🎧 Customer service mode ENABLED for business {business_id} - CRM tools added")
         
         # 📦 Assets Library: Add assets tools if enabled for this business
         try:
@@ -1549,8 +1564,78 @@ YOUR INSTRUCTIONS:
 - outcome: התוצאה (למשל: "info_provided", "appointment_set", "issue_resolved", "callback_needed")
 - next_step: מה צריך לקרות הלאה (למשל: "חזרה ללקוח מחר", "בדיקת מלאי", "החזר כספי")
 
+⚠️ חשוב: זה השדה היחיד שאתה יכול לעדכן בליד - רק סיכומים ופגישות!
+אל תנסה לעדכן שדות אחרים כמו שם, טלפון, מייל וכו'.
+
 🚫 לא להשתמש בכלי CRM כשאנחנו מתקשרים/שולחים הודעה ללקוח (outbound)!
 """
+
+    # 🔥 ALWAYS ADD STATUS UPDATE INSTRUCTIONS (works for all channels!)
+    status_update_instructions = """
+
+🎯 שינוי סטטוס אוטומטי חכם (פעיל תמיד):
+==========================================
+יש לך כלי update_lead_status() שמאפשר לך לעדכן סטטוס של ליד באופן חכם.
+השתמש בו ONLY כשיש אינדיקציה ברורה מהשיחה/שיחה שהסטטוס צריך להשתנות!
+
+⚠️ כללים חשובים - אל תתעלם מהם!:
+==================================
+1. עדכן סטטוס רק כשיש אינדיקציה ברורה ומפורשת מהלקוח
+2. אל תנחש! אל תשנה סטטוס בלי סיבה טובה
+3. תמיד ספק סיבה ברורה למה שינית את הסטטוס
+
+✅ מתי לעדכן סטטוס (דוגמאות):
+================================
+1️⃣ פגישה נקבעה → status="appointment_scheduled"
+   לקוח: "בסדר, אני אגיע ביום ראשון בשעה 10"
+   אתה: [קורא update_lead_status(lead_id, "appointment_scheduled", "לקוח נקבע פגישה ליום ראשון 10:00", confidence=1.0)]
+
+2️⃣ לקוח מבקש חזרה → status="callback_requested"
+   לקוח: "אני עסוק עכשיו, תתקשרו אליי מחר אחה"צ"
+   אתה: [קורא update_lead_status(lead_id, "callback_requested", "לקוח ביקש שנחזור אליו מחר אחה״צ", confidence=1.0)]
+
+3️⃣ לא רלוונטי → status="not_relevant"
+   לקוח: "טעיתם במספר, אני לא מעוניין בכלל"
+   אתה: [קורא update_lead_status(lead_id, "not_relevant", "לקוח אמר שטעינו במספר ואינו מעוניין", confidence=1.0)]
+
+4️⃣ מעוניין → status="interested"
+   לקוח: "כן, נשמע מעניין! ספר לי עוד על המחירים"
+   אתה: [קורא update_lead_status(lead_id, "interested", "לקוח הביע עניין ושאל על מחירים", confidence=0.9)]
+
+5️⃣ עסקה סגורה → status="closed_won"
+   לקוח: "מעולה, אני קונה! איך משלמים?"
+   אתה: [קורא update_lead_status(lead_id, "closed_won", "לקוח אישר רכישה ושאל על תשלום", confidence=1.0)]
+
+6️⃣ סטטוסים נוספים (בהתאם לעסק):
+   - "qualified": ליד מתאים וכדאי להמשיך איתו
+   - "proposal_sent": שלחנו הצעת מחיר
+   - "follow_up_needed": צריך מעקב
+   - "negotiating": במשא ומתן
+   - "pending": ממתין למשהו (מידע, אישור וכו')
+
+❌ מתי לא לעדכן סטטוס:
+======================
+1. הלקוח רק ענה לשיחה - זה לא סיבה לשינוי סטטוס
+2. שאל שאלה כללית - לא מספיק
+3. אמר "אני אחשוב על זה" - זה לא החלטה, אל תשנה
+4. לא ברור מה הכוונה שלו - אל תנחש!
+
+💡 Confidence Level (רמת ביטחון):
+==================================
+- 1.0 = לקוח אמר משהו מפורש ("כן אני מתעניין", "קבע לי פגישה")
+- 0.8-0.9 = ברור מההקשר אבל לא מפורש ("נשמע טוב", "כמה זה עולה?")
+- 0.7 = יש רמז אבל לא בטוח
+- פחות מ-0.7 = אל תעדכן! לא מספיק ברור
+
+🎯 העיקרון: תהיה שמרן! עדכן רק כשבטוח שצריך!
+"""
+
+    # Add status update instructions to ALL agents (not just customer service)
+    instructions = instructions + status_update_instructions
+    logger.info(f"🎯 Added auto status update instructions for business {business_id}")
+    
+    # Add customer service instructions if enabled
+    if customer_service_enabled:
         instructions = instructions + customer_service_instructions
         logger.info(f"🎧 Added customer service instructions for business {business_id}")
 

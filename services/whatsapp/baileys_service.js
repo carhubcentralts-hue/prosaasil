@@ -857,9 +857,9 @@ app.post('/whatsapp/:tenantId/validate-auth', requireSecret, async (req, res) =>
 
 // 🔥 NEW: JID resolution endpoint for @lid → phone_e164 mapping
 // This endpoint attempts to resolve a WhatsApp JID to a real phone number
-app.get('/internal/resolve-jid', async (req, res) => {
+app.post('/internal/resolve-jid', async (req, res) => {
   try {
-    const { jid, tenantId } = req.query;
+    const { jid, tenantId, participant, pushName } = req.body;
     
     if (!jid) {
       return res.status(400).json({ error: 'Missing jid parameter' });

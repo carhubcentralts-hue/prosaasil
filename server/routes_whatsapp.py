@@ -1203,7 +1203,9 @@ def baileys_webhook():
                     
                     # Only load memory if customer service is enabled
                     if is_customer_service_enabled(business_id):
-                        log.info(f"[CUSTOMER-MEMORY] Customer service enabled - loading memory for lead {lead.id}")
+                        log.info(f"[CUSTOMER-MEMORY] 🎧 Customer service ENABLED for business {business_id}")
+                        log.info(f"[CUSTOMER-MEMORY]    Lead: {lead.id}, Status: {lead.status}, Phone: {lead.phone_e164 or 'N/A'}")
+                        log.info(f"[CUSTOMER-MEMORY]    AI has access to: update_lead_status tool (auto status changes)")
                         
                         # Load full customer memory (profile + summary + last 5 notes)
                         customer_memory = get_customer_memory(lead.id, business_id, max_notes=5)

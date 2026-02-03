@@ -72,9 +72,11 @@ def send_whatsapp_message_job(
             
             # Create outgoing message record
             try:
+                # 🔥 CRITICAL FIX: Store FULL JID (including @lid/@s.whatsapp.net) so history can find it!
+                # Previously stored only: remote_jid.split('@')[0] which broke history matching
                 outgoing_msg = WhatsAppMessage(
                     business_id=business_id,
-                    to_number=remote_jid.split('@')[0],  # Extract phone number
+                    to_number=remote_jid,  # 🔥 FIX: Store FULL JID for history matching
                     body=response_text,
                     direction='outbound',
                     provider='baileys',  # Default provider for this job
