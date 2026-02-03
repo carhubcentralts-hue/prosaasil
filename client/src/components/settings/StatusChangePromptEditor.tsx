@@ -67,14 +67,28 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         return;
       }
       
-      // ✅ FIX: Extract error message from new format
-      const errorMsg = err.response?.data?.details || 
-                       err.response?.data?.error || 
-                       'שגיאה בטעינת הפרומפט';
+      // ✅ FIX: Extract error message from new format and provide context
+      let errorMsg = err.response?.data?.details || 
+                     err.response?.data?.error || 
+                     'שגיאה בטעינת הפרומפט';
+      
+      // Add more context for common errors
+      if (errorCode === 400 && errorMsg.includes('לא נמצא')) {
+        errorMsg = 'לא נמצא מזהה עסק. נא להתחבר מחדש או לרענן את הדף.';
+      } else if (errorCode === 401 || errorCode === 403) {
+        errorMsg = 'אין הרשאה לצפות בפרומפט. נא לוודא שאתה מחובר כמנהל.';
+      } else if (errorCode === 500) {
+        errorMsg = `שגיאת שרת: ${errorMsg}. אנא נסה שוב או פנה לתמיכה.`;
+      }
       
       setError(errorMsg);
       setLoading(false);
-      console.error('Error loading status change prompt:', err);
+      console.error('[StatusPrompt] Error loading prompt:', {
+        status: errorCode,
+        message: errorMsg,
+        details: err.response?.data,
+        fullError: err
+      });
     }
   };
 
@@ -163,14 +177,34 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
           setError(data?.details || 'גרסה התיישנה. אנא רענן את הדף.');
         }
       } else {
-        // Other errors
-        const errorMsg = err.response?.data?.details || 
-                         err.response?.data?.error || 
-                         'שגיאה בשמירת הפרומפט';
+        // Other errors - provide more context
+        let errorMsg = err.response?.data?.details || 
+                       err.response?.data?.error || 
+                       'שגיאה בשמירת הפרומפט';
+        
+        // Add context for common errors
+        if (errorCode === 400) {
+          if (errorMsg.includes('EMPTY_PROMPT')) {
+            errorMsg = 'טקסט הפרומפט לא יכול להיות ריק';
+          } else if (errorMsg.includes('PROMPT_TOO_LONG')) {
+            errorMsg = 'הפרומפט ארוך מדי (מקסימום 5000 תווים)';
+          } else if (errorMsg.includes('BUSINESS_CONTEXT_REQUIRED')) {
+            errorMsg = 'לא נמצא מזהה עסק. נא להתחבר מחדש.';
+          }
+        } else if (errorCode === 401 || errorCode === 403) {
+          errorMsg = 'אין הרשאה לשמור פרומפט. נא לוודא שאתה מחובר כמנהל.';
+        } else if (errorCode === 500) {
+          errorMsg = `שגיאת שרת: ${errorMsg}. אנא נסה שוב או פנה לתמיכה.`;
+        }
+        
         setError(errorMsg);
       }
       
-      console.error('Error saving status change prompt:', err);
+      console.error('[StatusPrompt] Error saving prompt:', {
+        status: errorCode,
+        data: err.response?.data,
+        fullError: err
+      });
     } finally {
       setSaving(false);
     }

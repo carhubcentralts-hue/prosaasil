@@ -701,10 +701,13 @@ def get_status_change_prompt():
     try:
         business_id = _get_business_id()
         if not business_id:
+            # Enhanced error with session debugging info
+            from flask import g
+            logger.error(f"[GET_STATUS_PROMPT] Failed to get business_id. g.tenant={g.get('tenant')}, session.keys={list(session.keys())}")
             return jsonify({
                 "ok": False,
                 "error": "BUSINESS_CONTEXT_REQUIRED",
-                "details": "לא נמצא עסק"
+                "details": "לא נמצא מזהה עסק. נא להתחבר מחדש."
             }), 400
         
         logger.info(f"[GET_STATUS_PROMPT] business_id={business_id}")
@@ -795,10 +798,19 @@ def get_status_change_prompt():
         
     except Exception as e:
         logger.exception(f"[GET_STATUS_PROMPT] Error: {e}")
+        # Provide more detailed error info in dev/staging
+        error_details = str(e)
+        if "business_id" in error_details.lower():
+            error_details = "שגיאה בזיהוי העסק. נא להתחבר מחדש."
+        elif "database" in error_details.lower() or "query" in error_details.lower():
+            error_details = "שגיאת מסד נתונים. נא לנסות שוב או לפנות לתמיכה."
+        elif "promptrevisions" in error_details.lower():
+            error_details = "שגיאה בטעינת גרסאות הפרומפט. נא לפנות לתמיכה."
+        
         return jsonify({
             "ok": False,
             "error": "PROMPT_LOAD_FAILED",
-            "details": str(e)
+            "details": error_details
         }), 500
 
 
@@ -843,10 +855,13 @@ def save_status_change_prompt():
         # Get business ID
         business_id = _get_business_id()
         if not business_id:
+            # Enhanced error with session debugging info
+            from flask import g
+            logger.error(f"[SAVE_STATUS_PROMPT] Failed to get business_id. g.tenant={g.get('tenant')}, session.keys={list(session.keys())}")
             return jsonify({
                 "ok": False,
                 "error": "BUSINESS_CONTEXT_REQUIRED",
-                "details": "לא נמצא עסק"
+                "details": "לא נמצא מזהה עסק. נא להתחבר מחדש."
             }), 400
         
         business = Business.query.filter_by(id=business_id).first()
@@ -977,8 +992,20 @@ def save_status_change_prompt():
     except Exception as e:
         db.session.rollback()
         logger.exception(f"[SAVE_STATUS_PROMPT] Error: {e}")
+        
+        # Provide more detailed error info
+        error_details = str(e)
+        if "business_id" in error_details.lower() or "tenant" in error_details.lower():
+            error_details = "שגיאה בזיהוי העסק. נא להתחבר מחדש."
+        elif "database" in error_details.lower() or "query" in error_details.lower():
+            error_details = "שגיאת מסד נתונים. נא לנסות שוב."
+        elif "constraint" in error_details.lower():
+            error_details = "שגיאה בשמירת הנתונים. נא לנסות שוב."
+        else:
+            error_details = "שגיאה בשמירת הפרומפט. נא לנסות שוב או לפנות לתמיכה."
+        
         return jsonify({
             "ok": False,
             "error": "SAVE_FAILED",
-            "details": "שגיאה בשמירת הפרומפט"
+            "details": error_details
         }), 500
