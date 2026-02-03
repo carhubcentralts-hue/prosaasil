@@ -8,15 +8,15 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy package manifests only
-COPY services/whatsapp/package.json services/whatsapp/package-lock.json ./
+# Copy package.json only (package-lock will be generated during build)
+COPY services/whatsapp/package.json ./
 
-# Single npm ci install - must work reliably
+# Install dependencies with npm install (not ci) to generate fresh lock for Baileys v7
 # Note: strict-ssl temporarily disabled due to SELF_SIGNED_CERT_IN_CHAIN errors in some build environments
 # This is a known issue with corporate proxies/firewalls during Docker builds
 # SSL is re-enabled immediately after install for security
 RUN npm config set strict-ssl false && \
-    npm ci --omit=dev --no-audit --no-fund && \
+    npm install --omit=dev --no-audit --no-fund && \
     npm config set strict-ssl true
 
 # Copy application code

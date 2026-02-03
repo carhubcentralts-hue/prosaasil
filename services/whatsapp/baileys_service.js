@@ -7,25 +7,26 @@ const fs = require('fs');
 const path = require('path');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
-// 🔥 FIX #2: Version validation - Fail-fast if Baileys version mismatch
-const EXPECTED_BAILEYS_VERSION = '7.0.0-rc.9';
+// 🔥 Baileys v7 version validation - v7 fixes LID/JID handling
+const EXPECTED_BAILEYS_MAJOR = 7;
 try {
   const packageJson = require('./package.json');
   const actualVersion = packageJson.dependencies['@whiskeysockets/baileys'];
-  console.log(`[BOOT] 🔍 Baileys version check: expected=${EXPECTED_BAILEYS_VERSION}, package.json=${actualVersion}`);
+  console.log(`[BOOT] 🔍 Baileys version check: expected=v${EXPECTED_BAILEYS_MAJOR}.x, package.json=${actualVersion}`);
   
-  // Strip ^ or ~ if present
+  // Strip ^ or ~ if present and get major version
   const cleanVersion = actualVersion.replace(/[\^~]/, '');
-  if (cleanVersion !== EXPECTED_BAILEYS_VERSION) {
+  const majorVersion = parseInt(cleanVersion.split('.')[0]);
+  
+  if (majorVersion !== EXPECTED_BAILEYS_MAJOR) {
     console.error(`[FATAL] ❌ Baileys version mismatch!`);
-    console.error(`[FATAL] Expected: ${EXPECTED_BAILEYS_VERSION}`);
+    console.error(`[FATAL] Expected: v${EXPECTED_BAILEYS_MAJOR}.x`);
     console.error(`[FATAL] Found in package.json: ${actualVersion}`);
-    console.error(`[FATAL] This will cause shouldSyncHistoryMessage and other API errors.`);
-    console.error(`[FATAL] Fix: Update package.json to exactly "${EXPECTED_BAILEYS_VERSION}" (no ^ or ~)`);
-    console.error(`[FATAL] Then run: npm install`);
+    console.error(`[FATAL] Baileys v7 is required for proper LID/JID handling, state management, and reconnection logic.`);
+    console.error(`[FATAL] Fix: Update package.json to "^7.0.0" and run: npm install`);
     process.exit(1);
   }
-  console.log(`[BOOT] ✅ Baileys version validated: ${EXPECTED_BAILEYS_VERSION}`);
+  console.log(`[BOOT] ✅ Baileys version validated: v${EXPECTED_BAILEYS_MAJOR}.x (${cleanVersion})`);
 } catch (e) {
   console.error(`[FATAL] Failed to validate Baileys version:`, e.message);
   process.exit(1);
