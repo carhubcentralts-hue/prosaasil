@@ -56,6 +56,7 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         throw new Error(data.details || data.error || 'Unknown error');
       }
     } catch (err: any) {
+      // Note: err.status is from our http client, err.response?.status is for raw fetch errors
       const errorCode = err.status || err.response?.status;
       const isNetworkError = !errorCode || errorCode === 502 || errorCode === 504 || errorCode === 0;
       
@@ -149,6 +150,7 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         throw new Error(data.details || data.error || 'Unknown error');
       }
     } catch (err: any) {
+      // Note: err.status is from our http client, err.response?.status is for raw fetch errors
       const errorCode = err.status || err.response?.status;
       
       // ✅ FIX: Handle 409 Conflict (someone saved before us)
