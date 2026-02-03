@@ -191,7 +191,7 @@ def send_appointment_confirmation(run_id: int, business_id: int) -> Dict[str, An
         if appointment.lead_id:
             lead = Lead.query.get(appointment.lead_id)
             if lead:
-                phone = lead.phone_whatsapp or lead.phone_raw
+                phone = lead.phone_e164 or lead.phone_raw
                 first_name = lead.first_name or lead.name
         
         # Try to get from linked customer
