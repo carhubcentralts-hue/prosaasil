@@ -203,7 +203,17 @@ def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
         
         # Send text message (with timeout protection)
         try:
-            result = wa_service.send_message(to=recipient_phone, message=input.message)
+            # 🔥 FIX: Use correct parameter name based on service type
+            # - Baileys WhatsAppService uses message=
+            # - Unified send_message() uses text=
+            if hasattr(wa_service, 'tenant_id'):
+                # This is WhatsAppService (Baileys) - uses message=
+                result = wa_service.send_message(to=recipient_phone, message=input.message)
+            else:
+                # This is the unified send_message function - uses text=
+                result = send_message(business_id=g.agent_context['business_id'], 
+                                    to_phone=recipient_phone, 
+                                    text=input.message)
         except Exception as send_error:
             logger.error(f"❌ WhatsApp send failed: {send_error}")
             return SendWhatsAppOutput(

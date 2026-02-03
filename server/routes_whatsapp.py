@@ -822,6 +822,13 @@ def baileys_webhook():
                     remote_jid_alt = candidate_jid
                     log.debug(f"[WA-LID] Found candidate JID: {candidate_jid} (source={candidate_source})")
 
+                # 🔥 CANONICAL JID: Establish single source of truth for JID
+                # For @lid messages: remoteJidAlt (if available) is the canonical JID for phone extraction
+                # For regular messages: remoteJid is the canonical JID
+                canonical_jid = remote_jid_alt if (remote_jid and remote_jid.endswith('@lid') and remote_jid_alt) else remote_jid
+                if canonical_jid != remote_jid:
+                    log.info(f"[WA-CANONICAL] Using canonical_jid={canonical_jid[:30]} (remoteJidAlt) instead of remoteJid={remote_jid[:30]}")
+
                 if remote_jid.endswith('@s.whatsapp.net'):
                     # Standard WhatsApp user - extract and normalize phone
                     phone_raw = remote_jid.replace('@s.whatsapp.net', '')
