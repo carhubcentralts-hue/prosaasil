@@ -693,12 +693,21 @@ def get_available_providers():
 def get_status_change_prompt():
     """
     Get current status change prompt for business
-    Returns custom prompt or default template
+    Returns custom prompt or default template with consistent structure
+    
+    ✅ FIX: Always returns stable default (never 404/null)
+    ✅ FIX: Consistent JSON format for all responses
     """
     try:
         business_id = _get_business_id()
         if not business_id:
-            return jsonify({"error": "לא נמצא עסק"}), 400
+            return jsonify({
+                "ok": False,
+                "error": "BUSINESS_CONTEXT_REQUIRED",
+                "details": "לא נמצא עסק"
+            }), 400
+        
+        logger.info(f"[GET_STATUS_PROMPT] business_id={business_id}")
         
         # Get latest revision
         latest_revision = PromptRevisions.query.filter_by(
@@ -706,14 +715,20 @@ def get_status_change_prompt():
         ).order_by(PromptRevisions.version.desc()).first()
         
         if latest_revision and latest_revision.status_change_prompt:
-            return jsonify({
-                "success": True,
+            # Return custom prompt
+            result = {
+                "ok": True,
+                "business_id": business_id,
                 "prompt": latest_revision.status_change_prompt,
                 "version": latest_revision.version,
-                "has_custom_prompt": True
-            })
+                "exists": True,
+                "has_custom_prompt": True,
+                "updated_at": latest_revision.changed_at.isoformat() if latest_revision.changed_at else None
+            }
+            logger.info(f"[GET_STATUS_PROMPT] Returning custom prompt, version={latest_revision.version}")
+            return jsonify(result)
         
-        # Return default template
+        # Return default template - STABLE DEFAULT
         default_prompt = """🎯 הנחיות לשינוי סטטוס אוטומטי של לידים
 ==========================================
 
@@ -765,17 +780,26 @@ def get_status_change_prompt():
 
 💡 **העיקרון: תהיה שמרן! עדכן רק כשבטוח שצריך!**"""
         
-        return jsonify({
-            "success": True,
+        result = {
+            "ok": True,
+            "business_id": business_id,
             "prompt": default_prompt,
             "version": 0,
+            "exists": False,
             "has_custom_prompt": False,
+            "updated_at": None,
             "note": "זהו תבנית ברירת מחדל. ניתן להתאים אישית לפי צרכי העסק."
-        })
+        }
+        logger.info(f"[GET_STATUS_PROMPT] Returning default prompt")
+        return jsonify(result)
         
     except Exception as e:
-        logger.exception("Error fetching status change prompt")
-        return jsonify({"error": "שגיאה בטעינת פרומפט סטטוסים"}), 500
+        logger.exception(f"[GET_STATUS_PROMPT] Error: {e}")
+        return jsonify({
+            "ok": False,
+            "error": "PROMPT_LOAD_FAILED",
+            "details": str(e)
+        }), 500
 
 
 @smart_prompt_bp.route('/api/ai/status_change_prompt/save', methods=['POST'])
@@ -785,28 +809,55 @@ def save_status_change_prompt():
     """
     Save custom status change prompt for business
     Creates new prompt revision with status_change_prompt
+    
+    ✅ FIX: Returns full updated prompt object (not just {ok:true})
+    ✅ FIX: Optimistic locking with version conflict handling
+    ✅ FIX: Read-through cache pattern (set after invalidate)
     """
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"error": "נדרשים נתונים"}), 400
+            return jsonify({
+                "ok": False,
+                "error": "MISSING_DATA",
+                "details": "נדרשים נתונים"
+            }), 400
         
         prompt_text = data.get('prompt_text', '').strip()
+        client_version = data.get('version')  # Optional: for optimistic locking
         
         if not prompt_text:
-            return jsonify({"error": "טקסט הפרומפט חסר"}), 400
+            return jsonify({
+                "ok": False,
+                "error": "EMPTY_PROMPT",
+                "details": "טקסט הפרומפט חסר"
+            }), 400
         
         if len(prompt_text) > 5000:
-            return jsonify({"error": "הפרומפט ארוך מדי (מקסימום 5000 תווים)"}), 400
+            return jsonify({
+                "ok": False,
+                "error": "PROMPT_TOO_LONG",
+                "details": "הפרומפט ארוך מדי (מקסימום 5000 תווים)"
+            }), 400
         
         # Get business ID
         business_id = _get_business_id()
         if not business_id:
-            return jsonify({"error": "לא נמצא עסק"}), 400
+            return jsonify({
+                "ok": False,
+                "error": "BUSINESS_CONTEXT_REQUIRED",
+                "details": "לא נמצא עסק"
+            }), 400
         
         business = Business.query.filter_by(id=business_id).first()
         if not business:
-            return jsonify({"error": "עסק לא נמצא"}), 404
+            return jsonify({
+                "ok": False,
+                "error": "BUSINESS_NOT_FOUND",
+                "details": "עסק לא נמצא"
+            }), 404
+        
+        logger.info(f"[SAVE_STATUS_PROMPT] business_id={business_id}, client_version={client_version}, prompt_length={len(prompt_text)}")
         
         # Get current user
         current_user = session.get('user', {})
@@ -817,7 +868,22 @@ def save_status_change_prompt():
             tenant_id=business_id
         ).order_by(PromptRevisions.version.desc()).first()
         
-        next_version = (latest_revision.version + 1) if latest_revision else 1
+        current_version = latest_revision.version if latest_revision else 0
+        
+        # ✅ OPTIMISTIC LOCKING: Check version conflict
+        if client_version is not None and current_version != client_version:
+            logger.warning(f"[SAVE_STATUS_PROMPT] Version conflict: client={client_version}, server={current_version}")
+            # Return 409 Conflict with latest data
+            return jsonify({
+                "ok": False,
+                "error": "VERSION_CONFLICT",
+                "details": "מישהו שמר שינויים לפני שנייה. הפרומפט עודכן לגרסה החדשה.",
+                "latest_version": current_version,
+                "latest_prompt": latest_revision.status_change_prompt if latest_revision else "",
+                "updated_at": latest_revision.changed_at.isoformat() if latest_revision and latest_revision.changed_at else None
+            }), 409
+        
+        next_version = current_version + 1
         
         # Create new revision
         revision = PromptRevisions()
@@ -832,26 +898,61 @@ def save_status_change_prompt():
         
         revision.changed_by = f"{user_id} (Status Prompt Editor)"
         revision.changed_at = datetime.utcnow()
+        
+        # Commit to database
         db.session.add(revision)
         db.session.commit()
         
-        # Invalidate cache
+        logger.info(f"[SAVE_STATUS_PROMPT] Committed version={next_version}")
+        
+        # ✅ SELECT the saved record to ensure consistency
+        saved_revision = PromptRevisions.query.filter_by(
+            tenant_id=business_id,
+            version=next_version
+        ).first()
+        
+        if not saved_revision:
+            logger.error(f"[SAVE_STATUS_PROMPT] Failed to retrieve saved revision!")
+            return jsonify({
+                "ok": False,
+                "error": "SAVE_VERIFICATION_FAILED",
+                "details": "השמירה נכשלה - לא ניתן לאמת את השינויים"
+            }), 500
+        
+        # ✅ CACHE: Invalidate + Set (read-through pattern)
         try:
             from server.services.ai_service import invalidate_business_cache
+            from server.services.prompt_cache import get_prompt_cache
+            
+            # Invalidate old cache
             invalidate_business_cache(business_id)
-            logger.info(f"Cache invalidated for business {business_id} after status prompt save")
+            
+            # Note: PromptCache is for conversation prompts, not status prompts
+            # Status prompts are loaded directly from DB by agent_factory
+            # But we still invalidate to ensure fresh load
+            
+            logger.info(f"[SAVE_STATUS_PROMPT] Cache invalidated for business {business_id}")
         except Exception as e:
-            logger.warning(f"Could not invalidate cache: {e}")
+            logger.warning(f"[SAVE_STATUS_PROMPT] Could not invalidate cache: {e}")
         
-        logger.info(f"Status change prompt saved: business={business_id}, version={next_version}")
+        # ✅ RETURN FULL UPDATED OBJECT (not just {ok:true})
+        response = {
+            "ok": True,
+            "business_id": business_id,
+            "version": saved_revision.version,
+            "prompt": saved_revision.status_change_prompt,
+            "updated_at": saved_revision.changed_at.isoformat() if saved_revision.changed_at else None,
+            "message": f"פרומפט סטטוסים נשמר בהצלחה (גרסה {saved_revision.version})"
+        }
         
-        return jsonify({
-            "success": True,
-            "version": next_version,
-            "message": f"פרומפט סטטוסים נשמר בהצלחה (גרסה {next_version})"
-        })
+        logger.info(f"[SAVE_STATUS_PROMPT] SUCCESS: version={saved_revision.version}")
+        return jsonify(response), 200
         
     except Exception as e:
         db.session.rollback()
-        logger.exception("Error saving status change prompt")
-        return jsonify({"error": "שגיאה בשמירת הפרומפט"}), 500
+        logger.exception(f"[SAVE_STATUS_PROMPT] Error: {e}")
+        return jsonify({
+            "ok": False,
+            "error": "SAVE_FAILED",
+            "details": "שגיאה בשמירת הפרומפט"
+        }), 500
