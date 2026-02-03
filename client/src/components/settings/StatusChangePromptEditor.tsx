@@ -1,6 +1,10 @@
 /**
  * StatusChangePromptEditor - Custom Status Change Behavior Manager
  * Allows businesses to define how AI should change lead statuses
+ * 
+ * ✅ FIX: Proper state management (loading/loaded/error)
+ * ✅ FIX: Update UI from save response
+ * ✅ FIX: Retry on network errors
  */
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle, Loader2, Save, RotateCcw } from 'lucide-react';
@@ -30,22 +34,44 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
     setIsDirty(promptText !== originalPrompt);
   }, [promptText, originalPrompt]);
 
-  const loadPrompt = async () => {
-    setLoading(true);
+  const loadPrompt = async (retryCount = 0) => {
+    // ✅ FIX: Reset error before load
     setError('');
+    setLoading(true);
+    
     try {
       const response = await http.get('/api/ai/status_change_prompt/get');
-      if (response.data.success) {
-        setPromptText(response.data.prompt);
-        setOriginalPrompt(response.data.prompt);
-        setHasCustomPrompt(response.data.has_custom_prompt);
-        setVersion(response.data.version);
+      
+      // ✅ FIX: Handle both "ok" and "success" fields for compatibility
+      const data = response.data;
+      if (data.ok || data.success) {
+        setPromptText(data.prompt || '');
+        setOriginalPrompt(data.prompt || '');
+        setHasCustomPrompt(data.has_custom_prompt || data.exists || false);
+        setVersion(data.version || 0);
+        setLoading(false);
+      } else {
+        throw new Error(data.details || data.error || 'Unknown error');
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה בטעינת הפרומפט');
-      console.error('Error loading status change prompt:', err);
-    } finally {
+      const errorCode = err.response?.status;
+      const isNetworkError = !errorCode || errorCode === 502 || errorCode === 504 || errorCode === 0;
+      
+      // ✅ FIX: Retry once on network errors (mobile support)
+      if (isNetworkError && retryCount === 0) {
+        console.log('[StatusPrompt] Network error, retrying in 500ms...');
+        setTimeout(() => loadPrompt(1), 500);
+        return;
+      }
+      
+      // ✅ FIX: Extract error message from new format
+      const errorMsg = err.response?.data?.details || 
+                       err.response?.data?.error || 
+                       'שגיאה בטעינת הפרומפט';
+      
+      setError(errorMsg);
       setLoading(false);
+      console.error('Error loading status change prompt:', err);
     }
   };
 
@@ -61,25 +87,64 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
 
     try {
       const response = await http.post('/api/ai/status_change_prompt/save', {
-        prompt_text: promptText
+        prompt_text: promptText,
+        version: version  // ✅ FIX: Send version for optimistic locking
       });
 
-      if (response.data.success) {
-        setSuccess(response.data.message);
-        setVersion(response.data.version);
-        setOriginalPrompt(promptText);
+      const data = response.data;
+      
+      // ✅ FIX: Update UI from response (not assumptions)
+      if (data.ok || data.success) {
+        // Update state with response data
+        const newVersion = data.version;
+        const newPrompt = data.prompt || promptText;
+        const updatedAt = data.updated_at;
+        
+        setVersion(newVersion);
+        setPromptText(newPrompt);
+        setOriginalPrompt(newPrompt);
         setHasCustomPrompt(true);
         setIsDirty(false);
+        setSuccess(data.message || `פרומפט נשמר בהצלחה (גרסה ${newVersion})`);
 
         if (onSave) {
-          onSave(response.data.version);
+          onSave(newVersion);
         }
 
         // Clear success message after 3 seconds
         setTimeout(() => setSuccess(''), 3000);
+      } else {
+        throw new Error(data.details || data.error || 'Unknown error');
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה בשמירת הפרומפט');
+      const errorCode = err.response?.status;
+      
+      // ✅ FIX: Handle 409 Conflict (someone saved before us)
+      if (errorCode === 409) {
+        const data = err.response?.data;
+        const latestPrompt = data?.latest_prompt;
+        const latestVersion = data?.latest_version;
+        
+        if (latestPrompt && latestVersion !== undefined) {
+          // Update to latest version
+          setPromptText(latestPrompt);
+          setOriginalPrompt(latestPrompt);
+          setVersion(latestVersion);
+          setHasCustomPrompt(true);
+          setIsDirty(false);
+          
+          setError('מישהו שמר שינויים לפני רגע. הפרומפט עודכן לגרסה החדשה ביותר.');
+        } else {
+          setError(data?.details || 'גרסה התיישנה. אנא רענן את הדף.');
+        }
+      } else {
+        // Other errors
+        const errorMsg = err.response?.data?.details || 
+                         err.response?.data?.error || 
+                         'שגיאה בשמירת הפרומפט';
+        setError(errorMsg);
+      }
+      
       console.error('Error saving status change prompt:', err);
     } finally {
       setSaving(false);
