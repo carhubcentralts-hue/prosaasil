@@ -420,6 +420,18 @@ def create_appointment():
         db.session.add(appointment)
         db.session.commit()
         
+        # 🤖 Schedule automation jobs for new appointment
+        try:
+            from server.services.appointment_automation_service import schedule_automation_jobs
+            schedule_result = schedule_automation_jobs(
+                appointment_id=appointment.id,
+                business_id=business_id
+            )
+            logger.info(f"Scheduled {schedule_result.get('scheduled', 0)} automation jobs for appointment {appointment.id}")
+        except Exception as automation_error:
+            logger.warning(f"Failed to schedule automation jobs: {automation_error}")
+            # Don't fail the request if automation scheduling fails
+        
         # 🔔 Send notification for new appointment (in-app bell + push)
         try:
             created_by_user_id = user_data.get('id') if user_data else None
@@ -571,6 +583,10 @@ def update_appointment(appointment_id):
         if not appointment:
             return jsonify({'error': 'פגישה לא נמצאה'}), 404
         
+        # Store old status for automation triggers
+        old_status = appointment.status
+        old_start_time = appointment.start_time
+        
         data = request.get_json()
         if not data:
             return jsonify({'error': 'Missing request data'}), 400
@@ -645,6 +661,35 @@ def update_appointment(appointment_id):
         appointment.updated_at = datetime.utcnow()
         
         db.session.commit()
+        
+        # 🤖 Handle automation triggers after successful update
+        try:
+            from server.services.appointment_automation_service import (
+                process_appointment_status_change,
+                schedule_automation_jobs
+            )
+            
+            # If status changed, process status change triggers
+            if old_status != appointment.status:
+                status_result = process_appointment_status_change(
+                    appointment_id=appointment.id,
+                    business_id=appointment.business_id,
+                    old_status=old_status,
+                    new_status=appointment.status
+                )
+                logger.info(f"Status change automation: canceled {status_result.get('canceled', 0)}, scheduled {status_result.get('scheduled', 0)}")
+            
+            # If start_time changed, reschedule existing jobs
+            elif old_start_time != appointment.start_time:
+                reschedule_result = schedule_automation_jobs(
+                    appointment_id=appointment.id,
+                    business_id=appointment.business_id,
+                    force_reschedule=True
+                )
+                logger.info(f"Time change automation: updated {reschedule_result.get('updated', 0)} jobs")
+        except Exception as automation_error:
+            logger.warning(f"Failed to process automation triggers: {automation_error}")
+            # Don't fail the request if automation processing fails
         
         return jsonify({
             'success': True,
