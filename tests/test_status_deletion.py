@@ -47,36 +47,30 @@ def test_can_delete_system_status():
         status_id = system_status.id
         business_id = business.id
         
-        # Try to delete using the delete_status logic
-        # Should now succeed because system status protection has been removed
-        from server.routes_status_management import status_management_bp
+        # Verify the status exists and is a system status
+        status = LeadStatus.query.filter_by(id=status_id).first()
+        assert status is not None, "Status should exist"
+        assert status.is_system is True, "Status should be marked as system status"
+        
+        # Call the actual delete_status function to test the endpoint logic
+        from server.routes_status_management import delete_status
         from flask import g
         
-        with app.test_request_context():
-            g.tenant = business.id
+        with app.test_request_context(method='DELETE'):
+            g.tenant = business_id
             g.role = 'owner'
             
-            # Simulate deletion logic
-            status = LeadStatus.query.filter_by(id=status_id).first()
-            assert status is not None
-            assert status.is_system is True
+            # This should now succeed (no 403 Forbidden for system status)
+            response, status_code = delete_status(status_id)
             
-            # Check if it's a system status - should now allow deletion
-            # (The protection has been removed)
-            if status.is_system:
-                # This is now allowed - system status can be deleted
-                # Only verify it's not the only default and not used by leads
-                pass
+            # Should get 200 OK with success message (not 403 Forbidden)
+            assert status_code == 200, f"Expected 200 OK, got {status_code}: {response.json}"
+            assert response.json['action'] == 'deleted', "Status should be deleted"
         
-        # Now actually delete it
-        status_to_delete = LeadStatus.query.filter_by(id=status_id).first()
-        if status_to_delete:
-            db.session.delete(status_to_delete)
-            db.session.commit()
-        
-        # Verify status is deleted
+        # Verify status was actually deleted from database
         status_after = LeadStatus.query.filter_by(id=status_id).first()
-        assert status_after is None, "System status should now be deletable"
+        assert status_after is None, "System status should be deleted from database"
+
 
 
 def test_cannot_delete_only_default_status():
