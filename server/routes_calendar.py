@@ -669,8 +669,11 @@ def update_appointment(appointment_id):
                 schedule_automation_jobs
             )
             
+            status_changed = old_status != appointment.status
+            time_changed = old_start_time != appointment.start_time
+            
             # If status changed, process status change triggers
-            if old_status != appointment.status:
+            if status_changed:
                 status_result = process_appointment_status_change(
                     appointment_id=appointment.id,
                     business_id=appointment.business_id,
@@ -679,8 +682,8 @@ def update_appointment(appointment_id):
                 )
                 logger.info(f"Status change automation: canceled {status_result.get('canceled', 0)}, scheduled {status_result.get('scheduled', 0)}")
             
-            # If start_time changed, reschedule existing jobs
-            elif old_start_time != appointment.start_time:
+            # If start_time changed, reschedule existing jobs (independent of status change)
+            if time_changed:
                 reschedule_result = schedule_automation_jobs(
                     appointment_id=appointment.id,
                     business_id=appointment.business_id,

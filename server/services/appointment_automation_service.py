@@ -54,7 +54,7 @@ def get_active_automations(business_id: int, status_value: str) -> List[Appointm
     try:
         automations = AppointmentAutomation.query.filter(
             AppointmentAutomation.business_id == business_id,
-            AppointmentAutomation.enabled == True
+            AppointmentAutomation.enabled.is_(True)
         ).all()
         
         # Filter by trigger_status_ids (JSON array contains status)

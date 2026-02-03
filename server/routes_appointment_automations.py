@@ -328,8 +328,8 @@ def get_automation_runs(automation_id):
         if status:
             query = query.filter_by(status=status)
         
-        # Limit results
-        limit = int(request.args.get('limit', 100))
+        # Limit results with validation
+        limit = min(int(request.args.get('limit', 100)), 1000)  # Max 1000 to prevent abuse
         runs = query.order_by(AppointmentAutomationRun.created_at.desc()).limit(limit).all()
         
         # Format response

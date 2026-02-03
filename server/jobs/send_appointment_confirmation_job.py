@@ -79,16 +79,16 @@ def format_hebrew_date(dt: datetime) -> str:
         Formatted date string (e.g., "יום שני, 15 ינואר 2024")
     """
     try:
-        # Hebrew day names
+        # Hebrew day names (Sunday = index 0)
         hebrew_days = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
-        # Hebrew month names
+        # Hebrew month names (January = index 0, so use month-1 for indexing)
         hebrew_months = [
             'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
             'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
         ]
         
         day_name = hebrew_days[dt.weekday()]
-        month_name = hebrew_months[dt.month - 1]
+        month_name = hebrew_months[dt.month - 1]  # month is 1-12, array is 0-11
         
         return f"יום {day_name}, {dt.day} {month_name} {dt.year}"
         
