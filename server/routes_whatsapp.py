@@ -843,12 +843,13 @@ def baileys_webhook():
                     # Store LID as external ID for this conversation
                     customer_external_id = remote_jid
 
-                    # 🔥 Priority 0: Check if Baileys already resolved the phone (HIGHEST PRIORITY!)
+                    # 🔥 NEW: Enhanced LID resolution with multiple strategies
+                    # Strategy 0: Check if Baileys already resolved the phone (HIGHEST PRIORITY!)
                     if not from_number_e164 and meta_resolved_phone:
                         from_number_e164 = meta_resolved_phone
                         log.info(f"[WA-LID] ✅ Using pre-resolved phone from Baileys metadata: {from_number_e164}")
 
-                    # Priority 1: Use candidate_jid (resolved_jid or participant_jid from Baileys)
+                    # Strategy 1: Use candidate_jid (resolved_jid or participant_jid from Baileys)
                     if not from_number_e164 and candidate_jid:
                         phone_raw = candidate_jid.replace('@s.whatsapp.net', '')
                         from_number_e164 = normalize_phone(phone_raw)
@@ -857,7 +858,36 @@ def baileys_webhook():
                         else:
                             log.warning(f"[WA-LID] Could not normalize phone from {candidate_source}: {candidate_jid}")
 
-                    # Priority 2: DB mapping lookup (ContactIdentity table)
+                    # Strategy 2: Try enhanced Baileys resolver (with WhatsApp queries)
+                    if not from_number_e164:
+                        try:
+                            # Call enhanced resolver with more strategies
+                            import requests
+                            resolver_url = f"{BAILEYS_BASE}/internal/resolve-jid"
+                            resolver_response = requests.post(resolver_url, 
+                                json={
+                                    'tenantId': f'business_{business_id}',
+                                    'jid': remote_jid,
+                                    'participant': candidate_jid,
+                                    'pushName': push_name
+                                },
+                                headers={'X-Internal-Secret': INT_SECRET},
+                                timeout=5.0
+                            )
+                            
+                            if resolver_response.status_code == 200:
+                                resolver_data = resolver_response.json()
+                                if resolver_data.get('phone_e164'):
+                                    from_number_e164 = resolver_data['phone_e164']
+                                    log.info(f"[WA-LID] ✅ Enhanced resolver success: {from_number_e164} (source: {resolver_data.get('source')})")
+                                elif resolver_data.get('push_name') and resolver_data['push_name'] != '.':
+                                    # Update push_name if resolver found a better one
+                                    push_name = resolver_data['push_name']
+                                    log.info(f"[WA-LID] Enhanced resolver found better push_name: {push_name}")
+                        except Exception as resolver_err:
+                            log.warning(f"[WA-LID] Enhanced resolver failed: {resolver_err}")
+
+                    # Strategy 3: DB mapping lookup (ContactIdentity table)
                     if not from_number_e164:
                         try:
                             from server.services.contact_identity_service import ContactIdentityService
@@ -870,6 +900,20 @@ def baileys_webhook():
                                 log.info(f"[WA-LID] lid detected; extracted_phone={from_number_e164} source=db_mapping")
                         except Exception as db_err:
                             log.warning(f"[WA-LID] DB mapping lookup failed: {db_err}")
+
+                    # Strategy 4: 🔥 NEW - Store LID→Phone mapping when we do resolve one
+                    if from_number_e164:
+                        try:
+                            from server.services.contact_identity_service import ContactIdentityService
+                            ContactIdentityService.store_lid_phone_mapping(
+                                business_id=business_id,
+                                lid_jid=remote_jid,
+                                phone_e164=from_number_e164,
+                                source='whatsapp_resolved'
+                            )
+                            log.info(f"[WA-LID] ✅ Stored LID→Phone mapping: {remote_jid} → {from_number_e164}")
+                        except Exception as store_err:
+                            log.warning(f"[WA-LID] Failed to store LID mapping: {store_err}")
 
                     # No phone found - leave as None, never invent from LID digits
                     if not from_number_e164:

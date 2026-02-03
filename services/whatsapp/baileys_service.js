@@ -909,18 +909,52 @@ app.post('/internal/resolve-jid', async (req, res) => {
       }
     }
     
-    // Strategy 2: For @lid - try to fetch contact from store
-    if (jid.endsWith('@lid') && s.sock && s.sock.store) {
+    // Strategy 2: For @lid - try multiple resolution approaches
+    if (jid.endsWith('@lid') && s.sock) {
       try {
-        // Try to get contact from store
-        const contact = await s.sock.store.fetchContact(jid);
-        if (contact && contact.notify) {
-          console.log(`[JID-RESOLVE] ${tenantId}: Found contact name from store: ${contact.notify}`);
-          // We have push name but still no phone - return with push_name
-          return res.json({ phone_e164: null, source: 'store_no_phone', push_name: contact.notify });
+        // Strategy 2A: Try to get contact from store
+        if (s.sock.store) {
+          const contact = await s.sock.store.fetchContact(jid);
+          if (contact && contact.notify && contact.notify !== '.') {
+            console.log(`[JID-RESOLVE] ${tenantId}: Found contact name from store: ${contact.notify}`);
+            // We have push name but still no phone - return with push_name
+            return res.json({ phone_e164: null, source: 'store_no_phone', push_name: contact.notify });
+          }
         }
-      } catch (storeError) {
-        console.log(`[JID-RESOLVE] ${tenantId}: Store lookup failed: ${storeError.message}`);
+
+        // Strategy 2B: 🔥 NEW - Try onWhatsApp query to convert LID to real JID
+        console.log(`[JID-RESOLVE] ${tenantId}: Attempting WhatsApp onWhatsApp query for LID ${jid.substring(0,20)}...`);
+        const contactsOnWhatsapp = await s.sock.onWhatsApp(jid);
+        if (contactsOnWhatsapp && contactsOnWhatsapp.length > 0) {
+          const contactInfo = contactsOnWhatsapp[0];
+          console.log(`[JID-RESOLVE] ${tenantId}: onWhatsApp response:`, JSON.stringify(contactInfo));
+          
+          // Check if we got a real JID back
+          if (contactInfo.jid && contactInfo.jid.endsWith('@s.whatsapp.net')) {
+            const phoneDigits = contactInfo.jid.split('@')[0].split(':')[0];
+            if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
+              phone_e164 = '+' + phoneDigits;
+              source = 'whatsapp_query';
+              console.log(`[JID-RESOLVE] ${tenantId}: ✅ WhatsApp query success: ${jid.substring(0,20)}... → ${phone_e164}`);
+              return res.json({ phone_e164, source, push_name: pushName || null });
+            }
+          }
+        }
+
+        // Strategy 2C: 🔥 NEW - Check if we can get profile from WhatsApp
+        try {
+          const profilePicUrl = await s.sock.profilePictureUrl(jid, 'image');
+          if (profilePicUrl) {
+            console.log(`[JID-RESOLVE] ${tenantId}: Contact has profile picture - valid WhatsApp number`);
+            // Valid contact but no phone extracted - return with indication
+            return res.json({ phone_e164: null, source: 'valid_contact_no_phone', push_name: pushName || null });
+          }
+        } catch (profileError) {
+          console.log(`[JID-RESOLVE] ${tenantId}: No profile picture available: ${profileError.message}`);
+        }
+        
+      } catch (lidError) {
+        console.log(`[JID-RESOLVE] ${tenantId}: LID resolution strategies failed: ${lidError.message}`);
       }
     }
     

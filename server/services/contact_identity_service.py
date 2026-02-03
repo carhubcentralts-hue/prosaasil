@@ -621,3 +621,107 @@ class ContactIdentityService:
             return
 
         logger.info(f"[LEAD-NAME] candidate=\"{normalized}\" lead_id={lead.id} biz={business_id} old=\"{current_name}\" action=skipped reason=low_confidence({confidence}) source={source}")
+    
+    @staticmethod
+    def lookup_phone_by_lid(business_id: int, lid_jid: str) -> Optional[str]:
+        """
+        Look up phone number for a given LID JID using stored mappings.
+        
+        Args:
+            business_id: Business ID
+            lid_jid: LID JID (e.g., "87621728518253@lid")
+            
+        Returns:
+            Phone number in E.164 format if found, None otherwise
+        """
+        try:
+            # Look for existing LID→phone mapping
+            identity = ContactIdentity.query.filter_by(
+                business_id=business_id,
+                channel='whatsapp',
+                external_id=lid_jid
+            ).first()
+            
+            if identity and identity.lead:
+                phone = identity.lead.phone_e164
+                if phone:
+                    logger.info(f"[LID-LOOKUP] Found mapping: {lid_jid[:20]}... → {phone}")
+                    return phone
+                    
+            logger.debug(f"[LID-LOOKUP] No phone mapping found for LID: {lid_jid[:20]}...")
+            return None
+            
+        except Exception as e:
+            logger.error(f"[LID-LOOKUP] Database error: {e}")
+            return None
+    
+    @staticmethod 
+    def store_lid_phone_mapping(business_id: int, lid_jid: str, phone_e164: str, source: str = 'resolved') -> None:
+        """
+        Store a LID→phone mapping for future use.
+        
+        This creates or updates a contact identity mapping so we can resolve 
+        the same LID to the same phone in future messages.
+        
+        Args:
+            business_id: Business ID
+            lid_jid: LID JID (e.g., "87621728518253@lid") 
+            phone_e164: Phone in E.164 format (e.g., "+972525951893")
+            source: Source of the mapping (e.g., 'whatsapp_resolved', 'user_provided')
+        """
+        try:
+            # First, find or create a lead for this phone
+            from server.models_sql import Lead
+            
+            # Look for existing lead with this phone
+            lead = Lead.query.filter_by(
+                business_id=business_id,
+                phone_e164=phone_e164
+            ).first()
+            
+            if not lead:
+                # Create new lead with the phone number
+                lead = Lead()
+                lead.business_id = business_id
+                lead.phone_e164 = phone_e164
+                lead.status = 'new'
+                lead.created_at = datetime.utcnow()
+                db.session.add(lead)
+                db.session.flush()  # Get lead.id
+                logger.info(f"[LID-STORE] Created new lead {lead.id} for phone {phone_e164}")
+            
+            # Now create or update the LID→lead mapping
+            identity = ContactIdentity.query.filter_by(
+                business_id=business_id,
+                channel='whatsapp',
+                external_id=lid_jid
+            ).first()
+            
+            if not identity:
+                # Create new mapping
+                identity = ContactIdentity()
+                identity.business_id = business_id
+                identity.channel = 'whatsapp'
+                identity.external_id = lid_jid
+                identity.lead_id = lead.id
+                identity.created_at = datetime.utcnow()
+                db.session.add(identity)
+                logger.info(f"[LID-STORE] Created new mapping: {lid_jid[:20]}... → lead {lead.id} ({phone_e164})")
+            else:
+                # Update existing mapping
+                if identity.lead_id != lead.id:
+                    old_lead_id = identity.lead_id
+                    identity.lead_id = lead.id
+                    logger.info(f"[LID-STORE] Updated mapping: {lid_jid[:20]}... → lead {lead.id} (was {old_lead_id})")
+            
+            # Update source info
+            identity.source = source
+            identity.updated_at = datetime.utcnow()
+            
+            db.session.commit()
+            logger.info(f"[LID-STORE] ✅ Stored LID mapping successfully")
+            
+        except Exception as e:
+            logger.error(f"[LID-STORE] Failed to store mapping: {e}")
+            db.session.rollback()
+            raise
