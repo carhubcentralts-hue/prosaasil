@@ -77,18 +77,26 @@ const AVAILABLE_VARIABLES = [
 ];
 
 const TIMING_PRESETS = [
-  { type: 'immediate' as const, label: 'מיידי' },
-  { type: 'before' as const, minutes: 60, label: 'שעה לפני' },
-  { type: 'before' as const, minutes: 120, label: 'שעתיים לפני' },
-  { type: 'before' as const, minutes: 1440, label: 'יום לפני' },
-  { type: 'before' as const, minutes: 2880, label: 'יומיים לפני' },
-  { type: 'after' as const, minutes: 1440, label: 'יום אחרי' },
+  { id: 'immediate', type: 'immediate' as const, minutes: undefined, label: 'מיידי' },
+  { id: 'day_before', type: 'before' as const, minutes: 1440, label: 'יום לפני' },
+  { id: 'same_day', type: 'before' as const, minutes: 540, label: 'באותו יום (בוקר - 9:00)' },
 ];
 
 function formatTimingLabel(offset: { type: string; minutes?: number }): string {
   if (offset.type === 'immediate') return 'מיידי';
   
   const minutes = offset.minutes || 0;
+  
+  // Check if it matches a preset
+  const preset = TIMING_PRESETS.find(p => 
+    p.type === offset.type && p.minutes === offset.minutes
+  );
+  
+  if (preset) {
+    return preset.label;
+  }
+  
+  // Fallback to dynamic formatting (for legacy data)
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
   
@@ -99,6 +107,13 @@ function formatTimingLabel(offset: { type: string; minutes?: number }): string {
   } else {
     return `${minutes} דקות ${offset.type === 'before' ? 'לפני' : 'אחרי'}`;
   }
+}
+
+function getPresetIdFromOffset(offset: { type: string; minutes?: number }): string {
+  const preset = TIMING_PRESETS.find(p => 
+    p.type === offset.type && p.minutes === offset.minutes
+  );
+  return preset?.id || 'immediate';
 }
 
 export default function AppointmentAutomationModal({
@@ -258,11 +273,13 @@ export default function AppointmentAutomationModal({
   };
 
   const addTimingOffset = () => {
+    // Add a new timing with the first preset (immediate)
+    const firstPreset = TIMING_PRESETS[0];
     setFormData({
       ...formData,
       schedule_offsets: [
         ...formData.schedule_offsets,
-        { type: 'before', minutes: 60 }
+        { type: firstPreset.type, minutes: firstPreset.minutes }
       ]
     });
   };
@@ -398,37 +415,24 @@ export default function AppointmentAutomationModal({
                   {formData.schedule_offsets.map((offset, index) => (
                     <div key={index} className="flex items-center gap-2">
                       <select
-                        value={offset.type}
+                        value={getPresetIdFromOffset(offset)}
                         onChange={(e) => {
-                          const newType = e.target.value as 'immediate' | 'before' | 'after';
-                          updateTimingOffset(index, {
-                            type: newType,
-                            minutes: newType === 'immediate' ? undefined : (offset.minutes || 60)
-                          });
+                          const selectedPreset = TIMING_PRESETS.find(p => p.id === e.target.value);
+                          if (selectedPreset) {
+                            updateTimingOffset(index, {
+                              type: selectedPreset.type,
+                              minutes: selectedPreset.minutes
+                            });
+                          }
                         }}
-                        className="border border-slate-300 rounded-lg px-3 py-2"
+                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2"
                       >
-                        <option value="immediate">{TEXTS.immediate}</option>
-                        <option value="before">{TEXTS.before}</option>
-                        <option value="after">{TEXTS.after}</option>
+                        {TIMING_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
                       </select>
-                      
-                      {offset.type !== 'immediate' && (
-                        <input
-                          type="number"
-                          value={offset.minutes || 60}
-                          onChange={(e) => updateTimingOffset(index, {
-                            ...offset,
-                            minutes: parseInt(e.target.value) || 60
-                          })}
-                          className="border border-slate-300 rounded-lg px-3 py-2 w-24"
-                          min="1"
-                        />
-                      )}
-                      
-                      {offset.type !== 'immediate' && (
-                        <span className="text-sm text-slate-600">{TEXTS.minutes}</span>
-                      )}
                       
                       <Button
                         variant="ghost"
