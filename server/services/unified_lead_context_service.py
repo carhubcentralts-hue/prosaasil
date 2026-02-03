@@ -50,8 +50,10 @@ class UnifiedLeadContextPayload(BaseModel):
     lead_email: Optional[str] = None
     lead_source: Optional[str] = None
     
-    # Status and pipeline
-    current_status: Optional[str] = None
+    # Status and pipeline (with Hebrew labels)
+    current_status: Optional[str] = None  # Status code (e.g., "active")
+    current_status_id: Optional[int] = None  # Status ID
+    current_status_label_he: Optional[str] = None  # Hebrew label (e.g., "פעיל")
     pipeline_stage: Optional[str] = None
     status_history: List[Dict[str, Any]] = []  # Last N status changes
     
@@ -236,6 +238,13 @@ class UnifiedLeadContextService:
         try:
             logger.info(f"[UnifiedContext] Building context for lead #{lead.id} via {channel}")
             
+            # 🔥 NEW: Get Hebrew label service
+            from server.services.hebrew_label_service import get_hebrew_label_service
+            hebrew_label_service = get_hebrew_label_service(self.business_id)
+            
+            # 🔥 NEW: Get Hebrew label for lead status
+            status_info = hebrew_label_service.get_lead_status_label(lead.status)
+            
             # Basic lead info
             payload = UnifiedLeadContextPayload(
                 found=True,
@@ -247,6 +256,8 @@ class UnifiedLeadContextService:
                 lead_email=lead.email,
                 lead_source=lead.source,
                 current_status=lead.status,
+                current_status_id=status_info.get('status_id'),
+                current_status_label_he=status_info.get('status_label_he'),
                 pipeline_stage=lead.pipeline_stage if hasattr(lead, 'pipeline_stage') else None,
                 tags=lead.tags or [],
                 service_type=lead.service_type,
@@ -292,13 +303,24 @@ class UnifiedLeadContextService:
             ).order_by(Appointment.start_datetime.asc()).first()
             
             if next_apt:
+                # 🔥 NEW: Get Hebrew label for appointment status
+                apt_status_info = hebrew_label_service.get_appointment_status_label(next_apt.status or 'scheduled')
+                
+                # 🔥 NEW: Include custom fields with Hebrew labels
+                custom_fields_formatted = []
+                if next_apt.custom_fields:
+                    custom_fields_formatted = hebrew_label_service.format_custom_fields(next_apt.custom_fields)
+                
                 payload.next_appointment = {
                     'id': next_apt.id,
                     'title': next_apt.treatment_type or next_apt.title,
                     'start': next_apt.start_datetime.isoformat() if next_apt.start_datetime else "",
                     'end': next_apt.end_datetime.isoformat() if next_apt.end_datetime else "",
                     'status': next_apt.status or 'scheduled',
-                    'notes': next_apt.notes[:200] if next_apt.notes else None
+                    'calendar_status_id': apt_status_info.get('calendar_status_id'),
+                    'calendar_status_label_he': apt_status_info.get('calendar_status_label_he'),
+                    'notes': next_apt.notes[:200] if next_apt.notes else None,
+                    'custom_fields': custom_fields_formatted
                 }
             
             # Past appointments (last 3)
@@ -310,13 +332,24 @@ class UnifiedLeadContextService:
             
             payload.past_appointments = []
             for apt in past_apts:
+                # 🔥 NEW: Get Hebrew label for appointment status
+                apt_status_info = hebrew_label_service.get_appointment_status_label(apt.status or 'completed')
+                
+                # 🔥 NEW: Include custom fields with Hebrew labels
+                custom_fields_formatted = []
+                if apt.custom_fields:
+                    custom_fields_formatted = hebrew_label_service.format_custom_fields(apt.custom_fields)
+                
                 payload.past_appointments.append({
                     'id': apt.id,
                     'title': apt.treatment_type or apt.title,
                     'start': apt.start_datetime.isoformat() if apt.start_datetime else "",
                     'end': apt.end_datetime.isoformat() if apt.end_datetime else "",
                     'status': apt.status or 'completed',
-                    'notes': apt.notes[:200] if apt.notes else None
+                    'calendar_status_id': apt_status_info.get('calendar_status_id'),
+                    'calendar_status_label_he': apt_status_info.get('calendar_status_label_he'),
+                    'notes': apt.notes[:200] if apt.notes else None,
+                    'custom_fields': custom_fields_formatted
                 })
             
             # Load last call summary
@@ -819,9 +852,11 @@ class UnifiedLeadContextService:
         if context.owner_name:
             parts.append(f"👤 מטפל: {context.owner_name}")
         
-        # Status
+        # 🔥 NEW: Status with Hebrew label
         if context.current_status:
-            parts.append(f"📊 סטטוס: {context.current_status}")
+            # Use Hebrew label if available, otherwise fallback to status code
+            status_display = context.current_status_label_he or context.current_status
+            parts.append(f"📊 סטטוס ליד: {status_display}")
         
         # Service type and location
         if context.service_type:
@@ -844,19 +879,36 @@ class UnifiedLeadContextService:
             if len(context.available_calendars) > 1:
                 parts.append("  ⚠️ יש מספר לוחות שנה - ודא בחירת הלוח הנכון לפי סוג הפגישה!")
         
-        # Next appointment
+        # 🔥 NEW: Next appointment with Hebrew status label and custom fields
         if context.next_appointment:
             apt = context.next_appointment
             parts.append(f"\n📅 פגישה הבאה: {apt['title']} ב-{apt['start']}")
-            if apt.get('status') and apt['status'] != 'scheduled':
+            
+            # Use Hebrew label for appointment status if available
+            if apt.get('calendar_status_label_he'):
+                parts.append(f"  סטטוס פגישה: {apt['calendar_status_label_he']}")
+            elif apt.get('status') and apt['status'] != 'scheduled':
                 parts.append(f"  סטטוס: {apt['status']}")
+            
+            # 🔥 NEW: Include custom fields if present
+            if apt.get('custom_fields'):
+                parts.append(f"  שדות נוספים:")
+                for field in apt['custom_fields']:
+                    parts.append(f"    - {field['field_label_he']}: {field['value']}")
         
-        # Past appointments
+        # 🔥 NEW: Past appointments with Hebrew status labels and custom fields
         if context.past_appointments:
             parts.append(f"\n📅 פגישות קודמות ({len(context.past_appointments)}):")
             for apt in context.past_appointments[:3]:
                 apt_date = apt['start'][:10] if apt.get('start') else ''
-                parts.append(f"  - [{apt_date}] {apt['title']} - {apt.get('status', 'completed')}")
+                # Use Hebrew label for status if available
+                status_display = apt.get('calendar_status_label_he') or apt.get('status', 'completed')
+                parts.append(f"  - [{apt_date}] {apt['title']} - {status_display}")
+                
+                # Include custom fields if present
+                if apt.get('custom_fields'):
+                    for field in apt['custom_fields'][:2]:  # Show max 2 custom fields per appointment
+                        parts.append(f"      {field['field_label_he']}: {field['value']}")
         
         # Open tasks
         if context.open_tasks:

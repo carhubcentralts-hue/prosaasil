@@ -9,6 +9,7 @@ import logging
 import time
 import re
 import asyncio
+import json
 from typing import Dict, Any, Optional, List, Literal
 from openai import OpenAI
 from server.models_sql import BusinessSettings, PromptRevisions, Business, AgentTrace
@@ -1107,6 +1108,61 @@ class AIService:
                             logger.info(f"[AGENTKIT] 🎧 Prepended lead context to conversation ({len(context_text)} chars)")
                 except Exception as ctx_err:
                     logger.warning(f"[AGENTKIT] Failed to format lead context: {ctx_err}")
+            
+            # 🔥 CRITICAL: Log complete payload before LLM call (Hebrew labels requirement)
+            # This ensures we can verify that all labels are in Hebrew as required
+            try:
+                payload_debug = {
+                    "business_id": business_id,
+                    "channel": channel,
+                    "conversation_id": conversation_id,
+                    "messages_count": len(messages),
+                    "agent_context_keys": list(agent_context.keys()) if agent_context else [],
+                    "lead_context": None,
+                    "appointments": None,
+                    "lead_status": None,
+                    "calendar_status": None,
+                    "notes": None,
+                    "tags": None,
+                    "last_messages": None,
+                    "custom_fields": None
+                }
+                
+                # Extract lead context for logging if available
+                if context and context.get('lead_context'):
+                    lead_ctx_dict = context['lead_context']
+                    payload_debug["lead_context"] = {
+                        "lead_id": lead_ctx_dict.get('lead_id'),
+                        "lead_name": lead_ctx_dict.get('lead_name'),
+                        "lead_phone": lead_ctx_dict.get('lead_phone'),
+                        "current_status": lead_ctx_dict.get('current_status'),
+                        "lead_source": lead_ctx_dict.get('lead_source'),
+                        "tags": lead_ctx_dict.get('tags'),
+                        "summary": lead_ctx_dict.get('summary', '')[:100] if lead_ctx_dict.get('summary') else None
+                    }
+                    payload_debug["lead_status"] = {
+                        "current_status": lead_ctx_dict.get('current_status'),
+                        "pipeline_stage": lead_ctx_dict.get('pipeline_stage'),
+                        "status_history_count": len(lead_ctx_dict.get('status_history', []))
+                    }
+                    payload_debug["appointments"] = {
+                        "next_appointment": lead_ctx_dict.get('next_appointment'),
+                        "past_appointments_count": len(lead_ctx_dict.get('past_appointments', []))
+                    }
+                    payload_debug["notes"] = {
+                        "recent_notes_count": len(lead_ctx_dict.get('recent_notes', [])),
+                        "last_call_summary": lead_ctx_dict.get('last_call_summary', '')[:100] if lead_ctx_dict.get('last_call_summary') else None,
+                        "last_whatsapp_summary": lead_ctx_dict.get('last_whatsapp_summary', '')[:100] if lead_ctx_dict.get('last_whatsapp_summary') else None
+                    }
+                    payload_debug["tags"] = lead_ctx_dict.get('tags', [])
+                    payload_debug["custom_fields"] = "Not yet implemented"
+                
+                # Log as pretty JSON
+                logger.info(f"🔍 [PAYLOAD_DEBUG] Complete payload before LLM call:")
+                logger.info(f"{json.dumps(payload_debug, ensure_ascii=False, indent=2)}")
+                
+            except Exception as log_err:
+                logger.error(f"❌ Failed to log payload debug info: {log_err}")
             
             # Run agent using Runner.run_sync() (correct API for openai-agents SDK)
             result = Runner.run_sync(agent, input=messages, context=agent_context)
