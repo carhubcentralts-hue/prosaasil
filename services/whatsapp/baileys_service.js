@@ -778,7 +778,7 @@ app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
       connect_timeout_ms: SOCKET_CONNECT_TIMEOUT,
       query_timeout_ms: SOCKET_QUERY_TIMEOUT,
       qr_lock_timeout_ms: 180000,  // 🔥 ANDROID FIX: 3 minutes
-      browser_string: 'Baileys default (not overridden)'  // 🔥 FIX #1: Using Baileys default browser
+      browser_string: 'Safari/macOS 10.15.7 (forces JID instead of LID)'  // 🔥 LID→JID FIX
     },
     server: {
       port: PORT,
@@ -1290,6 +1290,10 @@ async function startSession(tenantId, forceRelink = false) {
     const sock = makeWASocket({
       version,
       auth: state,
+      // 🔥 LID→JID FIX: Use Safari/macOS browser to force JID instead of LID
+      // This makes WhatsApp treat us like iPhone instead of Android
+      // iPhone uses JID (phone number), Android uses LID (encrypted ID)
+      browser: ['Safari', 'macOS', '10.15.7'],
       printQRInTerminal: false,
       markOnlineOnConnect: false,
       syncFullHistory: false,
@@ -1319,7 +1323,7 @@ async function startSession(tenantId, forceRelink = false) {
       canSend: false    // 🔥 CORRECTED: Will be set to true after first successful send
     };
     sessions.set(tenantId, s);
-    console.log(`[${tenantId}] 💾 Session stored in memory with Baileys default browser`);
+    console.log(`[${tenantId}] 💾 Session stored with Safari/macOS browser (forces JID instead of LID)`);
 
     // 🔥 ANDROID FIX C: Mutex for BOTH creds and keys operations
     // This prevents concurrent writes that corrupt auth state
@@ -1862,23 +1866,12 @@ async function startSession(tenantId, forceRelink = false) {
             || msgObj.contactMessage?.contextInfo?.participant
             || null;
 
-          // 🔥 LID FIX: If remoteJid is LID, extract phone directly from LID itself!
+          // 🔥 PHONE EXTRACTION: Extract phone from JID/LID
           let resolvedPhone = null;
           let resolvedPushName = msg.pushName || null;
           
-          if (remoteJid.endsWith('@lid')) {
-            // 🎯 PRIORITY #1: Extract phone DIRECTLY from LID (e.g., 87621728518253@lid → +87621728518253)
-            const lidDigits = remoteJid.split('@')[0];
-            if (lidDigits && /^\d{10,15}$/.test(lidDigits)) {
-              resolvedPhone = '+' + lidDigits;
-              console.log(`[${tenantId}] ✅ Phone extracted from LID: ${remoteJid} → ${resolvedPhone}`);
-            } else {
-              console.warn(`[${tenantId}] ⚠️ LID does not contain valid phone digits: ${remoteJid}`);
-            }
-          }
-          
-          // 🎯 PRIORITY #2: Extract from participant if present (for group messages or quoted replies)
-          if (!resolvedPhone && participantJid && participantJid.endsWith('@s.whatsapp.net')) {
+          // 🎯 PRIORITY #1: Extract from participant if present (for group messages or quoted replies)
+          if (participantJid && participantJid.endsWith('@s.whatsapp.net')) {
             const phoneDigits = participantJid.split('@')[0].split(':')[0];
             if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
               resolvedPhone = '+' + phoneDigits;
@@ -1886,13 +1879,21 @@ async function startSession(tenantId, forceRelink = false) {
             }
           }
           
-          // 🎯 PRIORITY #3: Extract from remoteJid if it's a regular JID (iPhone/standard)
+          // 🎯 PRIORITY #2: Extract from remoteJid if it's a regular JID (iPhone/standard)
           if (!resolvedPhone && remoteJid.endsWith('@s.whatsapp.net')) {
             const phoneDigits = remoteJid.split('@')[0].split(':')[0];
             if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
               resolvedPhone = '+' + phoneDigits;
-              console.log(`[${tenantId}] ✅ Phone extracted from remoteJid: ${remoteJid} → ${resolvedPhone}`);
+              console.log(`[${tenantId}] ✅ Phone extracted from remoteJid (JID): ${remoteJid} → ${resolvedPhone}`);
             }
+          }
+          
+          // 🎯 PRIORITY #3: For LID - Cannot extract phone, Flask MUST use DB mapping
+          if (!resolvedPhone && remoteJid.endsWith('@lid')) {
+            console.log(`[${tenantId}] ⚠️ LID detected: ${remoteJid} - phone resolution required via Flask DB mapping`);
+            // LID is an encrypted identifier for Android users - WhatsApp doesn't expose the real phone
+            // Flask must maintain a mapping table: lid_phone_map(lid, phone_e164, tenant_id)
+            // The mapping is created when customer initiates conversation (we know their phone from CRM)
           }
 
           // Attach _lid_metadata so Flask can use it for phone resolution
