@@ -116,6 +116,9 @@ class TestLeadContextLoading:
     def test_lead_context_added_to_ai_context(self):
         """ai_context should include lead_context when lead_id is available"""
         
+        # Import before patching for clarity
+        from server.services.unified_lead_context_service import get_unified_context_for_lead
+        
         # Simulate the logic from routes_whatsapp.py
         lead_id = 123
         business_id = 456
@@ -128,9 +131,6 @@ class TestLeadContextLoading:
         
         with patch('server.services.unified_lead_context_service.get_unified_context_for_lead') as mock_get_context:
             mock_get_context.return_value = mock_lead_context
-            
-            # Build ai_context as done in routes_whatsapp.py
-            from server.services.unified_lead_context_service import get_unified_context_for_lead
             
             lead_context_payload = None
             if lead_id:

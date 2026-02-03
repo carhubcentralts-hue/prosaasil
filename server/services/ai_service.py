@@ -1035,10 +1035,11 @@ class AIService:
                 
                 # 🔥 CRITICAL FIX: Extract phone_e164 from lead_context if available
                 # This ensures tools get the actual E.164 phone number, not @lid JID
+                # NOTE: Assumes UnifiedLeadContextService returns properly formatted E.164 numbers
                 phone_e164 = None
                 if context and context.get('lead_context'):
                     lead_ctx = context['lead_context']
-                    phone_e164 = lead_ctx.get('lead_phone')  # E.164 format from lead
+                    phone_e164 = lead_ctx.get('lead_phone')  # E.164 format from lead (trusted source)
                 
                 # Fallback to context['phone'] if available (should also be E.164)
                 if not phone_e164 and context:
