@@ -197,8 +197,8 @@ def enqueue(
     if not trace_id:
         trace_id = str(uuid.uuid4())
     
-    # Get function name safely
-    func_name = getattr(func, "__name__", None) or str(func)
+    # Get function name safely with fallback chain: __name__ -> __qualname__ -> str(func)
+    func_name = getattr(func, "__name__", None) or getattr(func, "__qualname__", None) or str(func)
     job_desc = description or func_name
     
     # Create job metadata
