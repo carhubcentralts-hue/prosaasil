@@ -40,10 +40,13 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
     setLoading(true);
     
     try {
+      console.log('[StatusPrompt] Loading prompt...');
       const response = await http.get('/api/ai/status_change_prompt/get');
       
       // ✅ FIX: Handle both "ok" and "success" fields for compatibility
       const data = response.data;
+      console.log(`[StatusPrompt] Loaded: version=${data.version}, has_custom=${data.has_custom_prompt || data.exists}`);
+      
       if (data.ok || data.success) {
         setPromptText(data.prompt || '');
         setOriginalPrompt(data.prompt || '');
@@ -81,11 +84,24 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
       return;
     }
 
+    // 🔥 DEFENSIVE CHECK: If we have a custom prompt but version is 0, reload first
+    if (hasCustomPrompt && version === 0) {
+      console.warn('[StatusPrompt] Has custom prompt but version is 0. Reloading...');
+      setError('טוען גרסה עדכנית...');
+      await loadPrompt();
+      setTimeout(() => {
+        setError('');
+        handleSave();  // Retry save after reload
+      }, 500);
+      return;
+    }
+
     setSaving(true);
     setError('');
     setSuccess('');
 
     try {
+      console.log(`[StatusPrompt] Saving with version=${version}`);
       const response = await http.post('/api/ai/status_change_prompt/save', {
         prompt_text: promptText,
         version: version  // ✅ FIX: Send version for optimistic locking
@@ -99,6 +115,8 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         const newVersion = data.version;
         const newPrompt = data.prompt || promptText;
         const updatedAt = data.updated_at;
+        
+        console.log(`[StatusPrompt] Save successful! New version=${newVersion}`);
         
         setVersion(newVersion);
         setPromptText(newPrompt);
@@ -124,6 +142,8 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         const data = err.response?.data;
         const latestPrompt = data?.latest_prompt;
         const latestVersion = data?.latest_version;
+        
+        console.warn(`[StatusPrompt] Version conflict! Server version=${latestVersion}, our version was=${version}`);
         
         if (latestPrompt && latestVersion !== undefined) {
           // Update to latest version

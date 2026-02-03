@@ -871,17 +871,43 @@ def save_status_change_prompt():
         current_version = latest_revision.version if latest_revision else 0
         
         # ✅ OPTIMISTIC LOCKING: Check version conflict
-        if client_version is not None and current_version != client_version:
-            logger.warning(f"[SAVE_STATUS_PROMPT] Version conflict: client={client_version}, server={current_version}")
-            # Return 409 Conflict with latest data
-            return jsonify({
-                "ok": False,
-                "error": "VERSION_CONFLICT",
-                "details": "מישהו שמר שינויים לפני שנייה. הפרומפט עודכן לגרסה החדשה.",
-                "latest_version": current_version,
-                "latest_prompt": latest_revision.status_change_prompt if latest_revision else "",
-                "updated_at": latest_revision.changed_at.isoformat() if latest_revision and latest_revision.changed_at else None
-            }), 409
+        # Handle cases per requirements:
+        # 1. If client_version is None/missing: warn but allow (backward compatibility)
+        # 2. If client_version=0 and current_version=0: first save, allow
+        # 3. If client_version=0 and current_version>0: likely bug, return conflict with data
+        # 4. If client_version != current_version: return conflict with data
+        
+        if client_version is not None:
+            if client_version == 0 and current_version > 0:
+                # Client is sending version=0 but server has a newer version
+                # This indicates the client didn't load the current version properly
+                logger.warning(f"[SAVE_STATUS_PROMPT] Client sent version=0 but server has version={current_version}. Likely client state issue.")
+                return jsonify({
+                    "ok": False,
+                    "error": "VERSION_CONFLICT",
+                    "details": "הפרומפט שלך אינו מעודכן. נא לרענן את הדף ולנסות שוב.",
+                    "latest_version": current_version,
+                    "latest_prompt": latest_revision.status_change_prompt if latest_revision else "",
+                    "updated_at": latest_revision.changed_at.isoformat() if latest_revision and latest_revision.changed_at else None
+                }), 409
+            elif client_version != current_version:
+                # Normal version conflict (concurrent edit)
+                logger.warning(f"[SAVE_STATUS_PROMPT] Version conflict: client={client_version}, server={current_version}")
+                return jsonify({
+                    "ok": False,
+                    "error": "VERSION_CONFLICT",
+                    "details": "מישהו שמר שינויים לפני שנייה. הפרומפט עודכן לגרסה החדשה.",
+                    "latest_version": current_version,
+                    "latest_prompt": latest_revision.status_change_prompt if latest_revision else "",
+                    "updated_at": latest_revision.changed_at.isoformat() if latest_revision and latest_revision.changed_at else None
+                }), 409
+        else:
+            # client_version is None/missing - log warning but allow save
+            # This handles backward compatibility and cases where version wasn't sent
+            if current_version > 0:
+                logger.warning(f"[SAVE_STATUS_PROMPT] Client didn't send version. Server version={current_version}. Allowing save (backward compat).")
+            else:
+                logger.info(f"[SAVE_STATUS_PROMPT] First save, no version sent (acceptable).")
         
         next_version = current_version + 1
         
