@@ -1876,7 +1876,19 @@ async function startSession(tenantId, forceRelink = false) {
             }
           }
           
-          // 🎯 PRIORITY #2: Extract from remoteJid if it's a regular JID (iPhone/standard)
+          // 🎯 PRIORITY #2: For LID (Android users) - Use remoteJidAlt (Baileys v7 feature)
+          if (!resolvedPhone && msg.key?.addressingMode === 'lid' && msg.key?.remoteJidAlt) {
+            const remoteJidAlt = msg.key.remoteJidAlt;
+            if (remoteJidAlt.endsWith('@s.whatsapp.net')) {
+              const phoneDigits = remoteJidAlt.split('@')[0].split(':')[0];
+              if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
+                resolvedPhone = '+' + phoneDigits;
+                console.log(`[${tenantId}] ✅ Phone extracted from remoteJidAlt (LID→JID): ${remoteJid} → ${remoteJidAlt} → ${resolvedPhone}`);
+              }
+            }
+          }
+          
+          // 🎯 PRIORITY #3: Extract from remoteJid if it's a regular JID (iPhone/standard)
           if (!resolvedPhone && remoteJid.endsWith('@s.whatsapp.net')) {
             const phoneDigits = remoteJid.split('@')[0].split(':')[0];
             if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
@@ -1885,12 +1897,10 @@ async function startSession(tenantId, forceRelink = false) {
             }
           }
           
-          // 🎯 PRIORITY #3: For LID - Cannot extract phone, Flask MUST use DB mapping
+          // 🎯 PRIORITY #4: For LID without remoteJidAlt - Cannot extract phone
           if (!resolvedPhone && remoteJid.endsWith('@lid')) {
-            console.log(`[${tenantId}] ⚠️ LID detected: ${remoteJid} - phone resolution required via Flask DB mapping`);
-            // LID is an encrypted identifier for Android users - WhatsApp doesn't expose the real phone
-            // Flask must maintain a mapping table: lid_phone_map(lid, phone_e164, tenant_id)
-            // The mapping is created when customer initiates conversation (we know their phone from CRM)
+            console.log(`[${tenantId}] ⚠️ LID detected: ${remoteJid} - no remoteJidAlt available, phone resolution failed`);
+            // This should not happen with Baileys v7, but log for debugging
           }
 
           // Attach _lid_metadata so Flask can use it for phone resolution
