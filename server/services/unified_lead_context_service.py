@@ -302,8 +302,8 @@ class UnifiedLeadContextService:
             next_apt = Appointment.query.filter(
                 Appointment.lead_id == lead.id,
                 Appointment.business_id == self.business_id,
-                Appointment.start_datetime >= now
-            ).order_by(Appointment.start_datetime.asc()).first()
+                Appointment.start_time >= now
+            ).order_by(Appointment.start_time.asc()).first()
             
             if next_apt:
                 # 🔥 NEW: Get Hebrew label for appointment status
@@ -317,8 +317,8 @@ class UnifiedLeadContextService:
                 payload.next_appointment = {
                     'id': next_apt.id,
                     'title': next_apt.treatment_type or next_apt.title,
-                    'start': next_apt.start_datetime.isoformat() if next_apt.start_datetime else "",
-                    'end': next_apt.end_datetime.isoformat() if next_apt.end_datetime else "",
+                    'start': next_apt.start_time.isoformat() if next_apt.start_time else "",
+                    'end': next_apt.end_time.isoformat() if next_apt.end_time else "",
                     'status': next_apt.status or 'scheduled',
                     'calendar_status_id': apt_status_info.get('calendar_status_id'),
                     'calendar_status_label_he': apt_status_info.get('calendar_status_label_he'),
@@ -330,8 +330,8 @@ class UnifiedLeadContextService:
             past_apts = Appointment.query.filter(
                 Appointment.lead_id == lead.id,
                 Appointment.business_id == self.business_id,
-                Appointment.start_datetime < now
-            ).order_by(Appointment.start_datetime.desc()).limit(3).all()
+                Appointment.start_time < now
+            ).order_by(Appointment.start_time.desc()).limit(3).all()
             
             payload.past_appointments = []
             for apt in past_apts:
@@ -346,8 +346,8 @@ class UnifiedLeadContextService:
                 payload.past_appointments.append({
                     'id': apt.id,
                     'title': apt.treatment_type or apt.title,
-                    'start': apt.start_datetime.isoformat() if apt.start_datetime else "",
-                    'end': apt.end_datetime.isoformat() if apt.end_datetime else "",
+                    'start': apt.start_time.isoformat() if apt.start_time else "",
+                    'end': apt.end_time.isoformat() if apt.end_time else "",
                     'status': apt.status or 'completed',
                     'calendar_status_id': apt_status_info.get('calendar_status_id'),
                     'calendar_status_label_he': apt_status_info.get('calendar_status_label_he'),
