@@ -784,6 +784,21 @@ def baileys_webhook():
                 lid_meta = msg.get('_lid_metadata', {})
                 meta_participant_jid = lid_meta.get('participant_jid')
                 meta_resolved_jid = lid_meta.get('resolved_jid')
+                meta_resolved_phone = lid_meta.get('resolved_phone')  # 🔥 NEW: Phone extracted by Baileys
+                meta_push_name = lid_meta.get('push_name')  # 🔥 NEW: Push name from Baileys
+                
+                # 🔥 DEBUG: Log full metadata for LID messages
+                if remote_jid and remote_jid.endswith('@lid'):
+                    log.info(f"[WA-LID-META] Full _lid_metadata: {lid_meta}")
+                
+                # 🔥 CRITICAL: If Baileys already resolved the phone, use it immediately!
+                if meta_resolved_phone:
+                    from_number_e164 = meta_resolved_phone
+                    log.info(f"[WA-LID] ✅ Using pre-resolved phone from Baileys: {meta_resolved_phone}")
+                
+                # Use push_name from metadata if available
+                if meta_push_name:
+                    push_name = meta_push_name
 
                 # 🔥 FIX #3: Check for participant (sender_pn) first - this is the preferred reply address
                 # Priority: resolved_jid > _lid_metadata.participant_jid > key.participant
@@ -828,8 +843,13 @@ def baileys_webhook():
                     # Store LID as external ID for this conversation
                     customer_external_id = remote_jid
 
+                    # 🔥 Priority 0: Check if Baileys already resolved the phone (HIGHEST PRIORITY!)
+                    if not from_number_e164 and meta_resolved_phone:
+                        from_number_e164 = meta_resolved_phone
+                        log.info(f"[WA-LID] ✅ Using pre-resolved phone from Baileys metadata: {from_number_e164}")
+
                     # Priority 1: Use candidate_jid (resolved_jid or participant_jid from Baileys)
-                    if candidate_jid:
+                    if not from_number_e164 and candidate_jid:
                         phone_raw = candidate_jid.replace('@s.whatsapp.net', '')
                         from_number_e164 = normalize_phone(phone_raw)
                         if from_number_e164:
@@ -975,10 +995,15 @@ def baileys_webhook():
                 
                 # 🔥 LID FIX: Log clear message for LID handling
                 if remote_jid.endswith('@lid'):
+                    phone_status = f"✅ {from_number_e164}" if from_number_e164 else "❌ NO PHONE"
+                    name_status = f"name='{push_name}'" if push_name else "no name"
+                    
                     if reply_jid != remote_jid:
                         log.info(f"[WA-LID] ✅ LID message: incoming={remote_jid}, reply_to={reply_jid} (using participant)")
                     else:
                         log.info(f"[WA-LID] ⚠️ LID message: incoming={remote_jid}, reply_to={reply_jid} (no participant available)")
+                    
+                    log.info(f"[WA-LID] 📋 Phone: {phone_status}, Push Name: {name_status}")
                 
                 # ✅ BUILD 200: Use ContactIdentityService for unified lead management
                 # This prevents duplicates across WhatsApp and Phone channels
@@ -1007,7 +1032,10 @@ def baileys_webhook():
                     ts=msg_timestamp
                 )
                 
-                log.info(f"✅ Lead resolved: lead_id={lead.id}, phone={lead.phone_e164 or 'N/A'}, jid={remote_jid[:30]}...")
+                # 🔥 FIX: Show lead details including name for LID tracking
+                lead_phone = lead.phone_e164 or 'N/A'
+                lead_name = lead.name or push_name or 'N/A'
+                log.info(f"✅ Lead resolved: lead_id={lead.id}, phone={lead_phone}, name={lead_name}, jid={remote_jid[:30]}...")
                 
                 # Get customer for backwards compatibility (if exists)
                 from server.models_sql import Customer

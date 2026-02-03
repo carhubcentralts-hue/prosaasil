@@ -876,12 +876,26 @@ app.post('/internal/resolve-jid', async (req, res) => {
     }
     
     // 🔥 Resolution strategy for @lid JIDs:
-    // 1. Check if JID is actually @s.whatsapp.net (direct phone extraction)
-    // 2. Try to get contact info from Baileys store
-    // 3. Check recent message history for participant mapping
+    // 1. Check if participant is provided and extract phone from it
+    // 2. Check if JID is actually @s.whatsapp.net (direct phone extraction)
+    // 3. Try to get contact info from Baileys store
     // 4. Return null if cannot resolve (Flask will use mapping table)
     
     let phone_e164 = null;
+    let source = 'unresolvable';
+    
+    // Strategy 0: 🔥 NEW - Extract phone from participant field (HIGHEST PRIORITY for @lid)
+    // participant contains the actual sender JID when message comes from LID
+    if (participant && participant.endsWith('@s.whatsapp.net')) {
+      const phoneDigits = participant.split('@')[0].split(':')[0];
+      if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
+        // Format to E.164
+        phone_e164 = '+' + phoneDigits;
+        source = 'participant';
+        console.log(`[JID-RESOLVE] ${tenantId}: ✅ Extracted from participant: ${participant} → ${phone_e164}`);
+        return res.json({ phone_e164, source, push_name: pushName || null });
+      }
+    }
     
     // Strategy 1: Direct extraction from @s.whatsapp.net
     if (jid.endsWith('@s.whatsapp.net')) {
@@ -889,18 +903,30 @@ app.post('/internal/resolve-jid', async (req, res) => {
       if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
         // Format to E.164
         phone_e164 = '+' + phoneDigits;
+        source = 'direct';
         console.log(`[JID-RESOLVE] ${tenantId}: Direct extraction: ${jid} → ${phone_e164}`);
-        return res.json({ phone_e164, source: 'direct' });
+        return res.json({ phone_e164, source, push_name: pushName || null });
       }
     }
     
-    // Strategy 2: Check Baileys store/contacts
-    // Note: Baileys doesn't maintain a persistent contacts store in this configuration
-    // This is a placeholder for future enhancement if store is added
+    // Strategy 2: For @lid - try to fetch contact from store
+    if (jid.endsWith('@lid') && s.sock && s.sock.store) {
+      try {
+        // Try to get contact from store
+        const contact = await s.sock.store.fetchContact(jid);
+        if (contact && contact.notify) {
+          console.log(`[JID-RESOLVE] ${tenantId}: Found contact name from store: ${contact.notify}`);
+          // We have push name but still no phone - return with push_name
+          return res.json({ phone_e164: null, source: 'store_no_phone', push_name: contact.notify });
+        }
+      } catch (storeError) {
+        console.log(`[JID-RESOLVE] ${tenantId}: Store lookup failed: ${storeError.message}`);
+      }
+    }
     
-    // Strategy 3: Return null - let Flask use mapping table
-    console.log(`[JID-RESOLVE] ${tenantId}: Cannot resolve ${jid} - no store available`);
-    return res.json({ phone_e164: null, source: 'unresolvable' });
+    // Strategy 3: Return null with push_name if available - let Flask use mapping table
+    console.log(`[JID-RESOLVE] ${tenantId}: Cannot resolve ${jid} - returning push_name: ${pushName || 'N/A'}`);
+    return res.json({ phone_e164: null, source: 'unresolvable', push_name: pushName || null });
     
   } catch (e) {
     console.error(`[JID-RESOLVE] Error: ${e.message}`);
@@ -1649,6 +1675,30 @@ async function startSession(tenantId, forceRelink = false) {
           // 🔥 FIX #3: Log LID vs standard JID for debugging
           if (remoteJid.endsWith('@lid')) {
             console.log(`[${tenantId}] Message ${idx}: ⚠️ LID detected: ${remoteJid}, senderPn=${senderPn || 'N/A'}`);
+            
+            // 🔥 DEEP DEBUG: Log full message structure for LID messages
+            console.log(`[${tenantId}] [LID-DEBUG] Full msg.key:`, JSON.stringify(msg.key || {}, null, 2));
+            console.log(`[${tenantId}] [LID-DEBUG] pushName: ${msg.pushName || 'N/A'}`);
+            console.log(`[${tenantId}] [LID-DEBUG] verifiedBizName: ${msg.verifiedBizName || 'N/A'}`);
+            
+            // Check for contextInfo in all message types
+            const contextInfo = msgObj.conversation ? null :
+                               msgObj.extendedTextMessage?.contextInfo ||
+                               msgObj.imageMessage?.contextInfo ||
+                               msgObj.videoMessage?.contextInfo ||
+                               msgObj.documentMessage?.contextInfo ||
+                               msgObj.audioMessage?.contextInfo ||
+                               null;
+            
+            if (contextInfo) {
+              console.log(`[${tenantId}] [LID-DEBUG] contextInfo.participant: ${contextInfo.participant || 'N/A'}`);
+              console.log(`[${tenantId}] [LID-DEBUG] contextInfo keys:`, Object.keys(contextInfo));
+            }
+            
+            // Check messageStubParameters (sometimes contains phone info)
+            if (msg.messageStubParameters) {
+              console.log(`[${tenantId}] [LID-DEBUG] messageStubParameters:`, msg.messageStubParameters);
+            }
           }
           
           const messageKeys = Object.keys(msg.message || {});
@@ -1787,8 +1837,35 @@ async function startSession(tenantId, forceRelink = false) {
           const extractedText = extractText(msg.message || {});
           const msgObj = msg.message || {};
 
+          // 🔥 CRITICAL: Extract phone from ALL possible locations in message
+          // Log EVERYTHING for LID debugging
+          let participantJid = null;
+          let phoneNumber = null;
+          
+          if (remoteJid.endsWith('@lid')) {
+            console.log(`[${tenantId}] 🔍 LID DETECTED - FULL MESSAGE DUMP:`);
+            console.log(`[${tenantId}] ├─ msg.key:`, JSON.stringify(msg.key, null, 2));
+            console.log(`[${tenantId}] ├─ msg.pushName: ${msg.pushName || 'N/A'}`);
+            console.log(`[${tenantId}] ├─ msg.verifiedBizName: ${msg.verifiedBizName || 'N/A'}`);
+            console.log(`[${tenantId}] ├─ msg.participant: ${msg.participant || 'N/A'}`);
+            console.log(`[${tenantId}] ├─ msg.messageStubType: ${msg.messageStubType || 'N/A'}`);
+            console.log(`[${tenantId}] ├─ msg.messageStubParameters:`, msg.messageStubParameters || 'N/A');
+            
+            // Check ALL message types for contextInfo
+            const msgTypes = Object.keys(msgObj);
+            console.log(`[${tenantId}] ├─ Message types present: ${msgTypes.join(', ')}`);
+            
+            msgTypes.forEach(type => {
+              if (msgObj[type] && typeof msgObj[type] === 'object') {
+                if (msgObj[type].contextInfo) {
+                  console.log(`[${tenantId}] ├─ ${type}.contextInfo:`, JSON.stringify(msgObj[type].contextInfo, null, 2));
+                }
+              }
+            });
+          }
+          
           // Extract participant_jid from all possible locations
-          let participantJid = msg.key?.participant
+          participantJid = msg.key?.participant
             || msg.participant
             || msgObj.extendedTextMessage?.contextInfo?.participant
             || msgObj.imageMessage?.contextInfo?.participant
@@ -1798,28 +1875,78 @@ async function startSession(tenantId, forceRelink = false) {
             || msgObj.contactMessage?.contextInfo?.participant
             || null;
 
-          // 🔥 NEW: If remoteJid is LID and no participant, try to resolve it
+          // 🔥 NEW: Search for ANY field containing @s.whatsapp.net in the entire message
+          const findPhoneInObject = (obj, path = '') => {
+            if (!obj || typeof obj !== 'object') return null;
+            
+            for (const [key, value] of Object.entries(obj)) {
+              const currentPath = path ? `${path}.${key}` : key;
+              
+              if (typeof value === 'string' && value.includes('@s.whatsapp.net')) {
+                console.log(`[${tenantId}] 🎯 Found @s.whatsapp.net in ${currentPath}: ${value}`);
+                return value;
+              }
+              
+              if (typeof value === 'object' && value !== null) {
+                const found = findPhoneInObject(value, currentPath);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+
+          // Search entire message for phone-containing JID
+          if (remoteJid.endsWith('@lid') && !participantJid) {
+            console.log(`[${tenantId}] 🔍 No participant in standard fields, searching entire message object...`);
+            const foundJid = findPhoneInObject(msg);
+            if (foundJid) {
+              participantJid = foundJid;
+              console.log(`[${tenantId}] ✅ Found phone JID via deep search: ${foundJid}`);
+            }
+          }
+
+          // 🔥 NEW: If remoteJid is LID, try to resolve it
           let resolvedPhone = null;
+          let resolvedPushName = msg.pushName || null;
+          
           if (remoteJid.endsWith('@lid')) {
             try {
               console.log(`[${tenantId}] 🔍 LID detected, attempting phone resolution for ${remoteJid}...`);
+              console.log(`[${tenantId}] 🔍 participantJid found: ${participantJid || 'NONE'}`);
               
-              // Call internal /resolve-jid endpoint
+              // 🔥 PRIORITY 1: If we already have participant with @s.whatsapp.net, extract phone IMMEDIATELY
+              if (participantJid && participantJid.endsWith('@s.whatsapp.net')) {
+                const phoneDigits = participantJid.split('@')[0].split(':')[0];
+                if (phoneDigits && /^\d{10,15}$/.test(phoneDigits)) {
+                  resolvedPhone = '+' + phoneDigits;
+                  console.log(`[${tenantId}] ✅ IMMEDIATE EXTRACTION from participant: ${participantJid} → ${resolvedPhone}`);
+                  
+                  // Still call endpoint for consistency and additional metadata
+                }
+              }
+              
+              // Call internal /resolve-jid endpoint (will use participant if provided)
               const resolveUrl = `http://localhost:${PORT}/internal/resolve-jid`;
               const resolveResponse = await axios.post(resolveUrl, {
                 tenantId,
                 jid: remoteJid,
                 participant: participantJid,
-                pushName: msg.pushName || null
+                pushName: resolvedPushName
               }, {
                 headers: { 'X-Internal-Secret': INTERNAL_SECRET },
                 timeout: 2000  // 2 second timeout for internal call
               });
               
-              if (resolveResponse.data?.phone_e164) {
+              if (resolveResponse.data?.phone_e164 && !resolvedPhone) {
                 resolvedPhone = resolveResponse.data.phone_e164;
-                console.log(`[${tenantId}] ✅ LID resolved: ${remoteJid} → ${resolvedPhone}`);
-              } else {
+                console.log(`[${tenantId}] ✅ LID resolved via endpoint: ${remoteJid} → ${resolvedPhone}`);
+              }
+              
+              if (resolveResponse.data?.push_name) {
+                resolvedPushName = resolveResponse.data.push_name;
+              }
+              
+              if (!resolvedPhone) {
                 console.log(`[${tenantId}] ⚠️ LID resolution returned no phone: ${JSON.stringify(resolveResponse.data)}`);
               }
             } catch (resolveError) {
@@ -1832,14 +1959,21 @@ async function startSession(tenantId, forceRelink = false) {
             remote_jid: remoteJid,
             participant_jid: participantJid || null,
             resolved_phone: resolvedPhone,  // 🔥 NEW: Include resolved phone
-            push_name: msg.pushName || null
+            push_name: resolvedPushName || msg.pushName || null,  // 🔥 Use resolved or original
+            resolved_jid: participantJid || null  // 🔥 Add for Flask backward compat
           };
 
-          console.log(`[${tenantId}] 📤 Sending to Flask [${newMessages.indexOf(msg)}]: chat_jid=${remoteJid}, message_id=${messageId}, from_me=${fromMe}, participant_jid=${participantJid || 'N/A'}, resolved_phone=${resolvedPhone || 'N/A'}, text=${(extractedText || '').substring(0, 50)}...`);
+          console.log(`[${tenantId}] 📤 Sending to Flask [${newMessages.indexOf(msg)}]: chat_jid=${remoteJid}, message_id=${messageId}, from_me=${fromMe}, participant_jid=${participantJid || 'N/A'}, resolved_phone=${resolvedPhone || 'N/A'}, push_name=${resolvedPushName || 'N/A'}, text=${(extractedText || '').substring(0, 50)}...`);
 
-          // Highlight LID messages
+          // Highlight LID messages with full details
           if (remoteJid.endsWith('@lid')) {
-            console.log(`[${tenantId}] [WA-LID] lid=${remoteJid}, participant=${participantJid || 'none'}, resolved_phone=${resolvedPhone || 'FAILED'}, push_name=${msg.pushName || 'none'}`);
+            const phoneStatus = resolvedPhone ? `✅ RESOLVED: ${resolvedPhone}` : '❌ NOT RESOLVED';
+            const nameStatus = resolvedPushName ? `name="${resolvedPushName}"` : 'no name';
+            console.log(`[${tenantId}] [WA-LID] 📋 SUMMARY:`);
+            console.log(`[${tenantId}] [WA-LID]   ├─ LID: ${remoteJid}`);
+            console.log(`[${tenantId}] [WA-LID]   ├─ Participant: ${participantJid || 'NONE'}`);
+            console.log(`[${tenantId}] [WA-LID]   ├─ Phone: ${phoneStatus}`);
+            console.log(`[${tenantId}] [WA-LID]   └─ Push Name: ${nameStatus}`);
           }
         }
         
