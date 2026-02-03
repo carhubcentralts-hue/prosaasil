@@ -1171,7 +1171,7 @@ class AppointmentAutomationRun(db.Model):
     __tablename__ = "appointment_automation_runs"
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
-    appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id"), nullable=False, index=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id", ondelete="CASCADE"), nullable=False, index=True)
     automation_id = db.Column(db.Integer, db.ForeignKey("appointment_automations.id"), nullable=False, index=True)
     
     # Offset signature for deduplication (e.g., "before_1440", "after_1440", "immediate")

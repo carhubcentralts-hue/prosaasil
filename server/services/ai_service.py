@@ -1032,16 +1032,35 @@ class AIService:
             # Set flask.g.agent_context so tools like whatsapp_send work properly
             try:
                 from flask import g
+                
+                # 🔥 CRITICAL FIX: Extract phone_e164 from lead_context if available
+                # This ensures tools get the actual E.164 phone number, not @lid JID
+                # NOTE: Assumes UnifiedLeadContextService returns properly formatted E.164 numbers
+                phone_e164 = None
+                if context and context.get('lead_context'):
+                    lead_ctx = context['lead_context']
+                    phone_e164 = lead_ctx.get('lead_phone')  # E.164 format from lead (trusted source)
+                
+                # Fallback to context['phone'] if available (should also be E.164)
+                if not phone_e164 and context:
+                    phone_e164 = context.get('phone')
+                
+                # Last resort: use customer_phone (may be @lid, but better than nothing)
+                if not phone_e164:
+                    phone_e164 = customer_phone
+                
                 g.agent_context = {
-                    "customer_phone": customer_phone,
-                    "whatsapp_from": customer_phone,
-                    "remote_jid": agent_context.get('remote_jid'),
+                    "phone": phone_e164,  # 🔥 FIX: Use E.164 phone, not @lid
+                    "phone_e164": phone_e164,  # Explicit E.164 field for tools
+                    "customer_phone": customer_phone,  # Original for reference
+                    "whatsapp_from": customer_phone,  # WhatsApp conversation key
+                    "remote_jid": agent_context.get('remote_jid'),  # JID for replies
                     "business_id": business_id,
                     "lead_id": agent_context.get('lead_id'),
                     "conversation_key": customer_phone,
                     "channel": channel
                 }
-                logger.info(f"[AGENTKIT] ✅ Set g.agent_context for tools: phone={customer_phone}, jid={agent_context.get('remote_jid', 'N/A')[:30]}")
+                logger.info(f"[AGENTKIT] ✅ Set g.agent_context for tools: phone_e164={phone_e164}, jid={agent_context.get('remote_jid', 'N/A')[:30]}")
             except Exception as g_err:
                 logger.warning(f"[AGENTKIT] ⚠️ Could not set g.agent_context (tools may fail): {g_err}")
             
@@ -1090,6 +1109,12 @@ class AIService:
                 logger.info(f"[AGENTKIT] ✓ Using existing message from history")
             
             # 🔥 NEW: Inject lead context as system message if available
+            # 🔥 CRITICAL CHECK: Validate lead_context is loaded when lead_id exists
+            if context and context.get('lead_id'):
+                if not context.get('lead_context'):
+                    logger.error(f"[CONTEXT] ❌ CRITICAL: lead_id={context.get('lead_id')} exists but lead_context is None! "
+                               f"This breaks single source of truth. Check UnifiedLeadContextService.")
+            
             if context and context.get('lead_context'):
                 try:
                     lead_ctx_dict = context['lead_context']

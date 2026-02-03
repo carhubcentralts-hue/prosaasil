@@ -11,6 +11,7 @@ from server.utils.whatsapp_utils import normalize_conversation_key
 from server.agent_tools.phone_utils import normalize_phone
 from server.services.jobs import enqueue_job
 from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
+from server.services.unified_lead_context_service import get_unified_context_for_lead
 import logging
 
 logger = logging.getLogger(__name__)
@@ -821,6 +822,13 @@ def baileys_webhook():
                     remote_jid_alt = candidate_jid
                     log.debug(f"[WA-LID] Found candidate JID: {candidate_jid} (source={candidate_source})")
 
+                # 🔥 CANONICAL JID: Establish single source of truth for JID
+                # For @lid messages: remoteJidAlt (if available) is the canonical JID for phone extraction
+                # For regular messages: remoteJid is the canonical JID
+                canonical_jid = remote_jid_alt if (remote_jid and remote_jid.endswith('@lid') and remote_jid_alt) else remote_jid
+                if canonical_jid != remote_jid:
+                    log.info(f"[WA-CANONICAL] Using canonical_jid={canonical_jid[:30]} (remoteJidAlt) instead of remoteJid={remote_jid[:30]}")
+
                 if remote_jid.endswith('@s.whatsapp.net'):
                     # Standard WhatsApp user - extract and normalize phone
                     phone_raw = remote_jid.replace('@s.whatsapp.net', '')
@@ -1374,6 +1382,24 @@ def baileys_webhook():
                         except Exception as e:
                             log.warning(f"[WA-CONTEXT] Could not load conv state: {e}")
                     
+                    # 🔥 CRITICAL FIX: Load unified lead context (single source of truth)
+                    lead_context_payload = None
+                    if lead and lead.id:
+                        try:
+                            lead_context_payload = get_unified_context_for_lead(
+                                business_id=business_id,
+                                lead_id=lead.id,
+                                channel='whatsapp'
+                            )
+                            if lead_context_payload and lead_context_payload.found:
+                                log.info(f"[WA-CONTEXT] ✅ Loaded unified lead context: lead_id={lead.id}, appointments={len(lead_context_payload.past_appointments)}")
+                            else:
+                                log.warning(f"[WA-CONTEXT] ⚠️ Lead context returned empty for lead_id={lead.id}")
+                                lead_context_payload = None
+                        except Exception as ctx_err:
+                            log.error(f"[WA-CONTEXT] ❌ Failed to load lead context for lead_id={lead.id}: {ctx_err}")
+                            lead_context_payload = None
+                    
                     ai_context = {
                         'phone': from_number_e164,  # E.164 for CRM
                         'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
@@ -1388,7 +1414,9 @@ def baileys_webhook():
                         'last_user_message': conv_state.last_user_message if conv_state else None,
                         'last_agent_message': conv_state.last_agent_message if conv_state else None,
                         'conversation_stage': conv_state.conversation_stage if conv_state else None,
-                        'conversation_has_history': len(previous_messages) >= 2
+                        'conversation_has_history': len(previous_messages) >= 2,
+                        # 🔥 CRITICAL FIX: Include unified lead context (single source of truth)
+                        'lead_context': lead_context_payload.dict() if lead_context_payload else None
                     }
                     
                     # 🔥 AgentKit Only: ALWAYS use AgentKit - no routing
@@ -2600,6 +2628,24 @@ def _process_meta_ai_response(business, from_number: str, user_message: str):
         except Exception as e:
             log.warning(f"[META-WA-AI] ⚠️ Could not load state: {e}")
         
+        # 🔥 CRITICAL FIX: Load unified lead context (single source of truth)
+        lead_context_payload = None
+        if lead and lead.id:
+            try:
+                lead_context_payload = get_unified_context_for_lead(
+                    business_id=business_id,
+                    lead_id=lead.id,
+                    channel='whatsapp'
+                )
+                if lead_context_payload and lead_context_payload.found:
+                    log.info(f"[META-WA-AI] ✅ Loaded unified lead context: lead_id={lead.id}")
+                else:
+                    log.warning(f"[META-WA-AI] ⚠️ Lead context returned empty for lead_id={lead.id}")
+                    lead_context_payload = None
+            except Exception as ctx_err:
+                log.error(f"[META-WA-AI] ❌ Failed to load lead context for lead_id={lead.id}: {ctx_err}")
+                lead_context_payload = None
+        
         # Build AI context
         ai_context = {
             'phone': from_number_e164,
@@ -2613,7 +2659,9 @@ def _process_meta_ai_response(business, from_number: str, user_message: str):
             'last_user_message': conv_state.last_user_message if conv_state else None,
             'last_agent_message': conv_state.last_agent_message if conv_state else None,
             'conversation_stage': conv_state.conversation_stage if conv_state else None,
-            'conversation_has_history': len(previous_messages) >= 2
+            'conversation_has_history': len(previous_messages) >= 2,
+            # 🔥 CRITICAL FIX: Include unified lead context (single source of truth)
+            'lead_context': lead_context_payload.dict() if lead_context_payload else None
         }
         
         # Generate response using AgentKit

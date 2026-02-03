@@ -1230,12 +1230,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         
         # Check if customer service mode is enabled for this business
         customer_service_enabled = False
+        calendar_scheduling_enabled = True  # Default to True for backwards compatibility
         try:
             from server.models_sql import BusinessSettings
             settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
             customer_service_enabled = getattr(settings, 'enable_customer_service', False) if settings else False
+            calendar_scheduling_enabled = getattr(settings, 'enable_calendar_scheduling', True) if settings else True
         except Exception as e:
-            logger.warning(f"Could not check customer service setting: {e}")
+            logger.warning(f"Could not check business settings: {e}")
         
         # ✅ RESTORED: AgentKit tools for non-realtime flows (WhatsApp, backend tasks, post-call)
         # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
@@ -1246,30 +1248,47 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         # This allows AI to intelligently update lead status based on conversation
         from server.agent_tools.tools_status_update import update_lead_status
         
+        # 🔥 FEATURE FLAG: Only add calendar tools if calendar scheduling is enabled
         if channel == "whatsapp":
+            # Base tools always available
             tools_to_use = [
-                check_availability,
-                schedule_appointment,
                 leads_upsert_wrapped,
                 leads_search,
                 whatsapp_send,
                 business_get_info,
                 update_lead_status  # 🔥 Always available for smart status updates
             ]
+            
+            # Add calendar tools only if enabled
+            if calendar_scheduling_enabled:
+                tools_to_use.extend([
+                    check_availability,
+                    schedule_appointment,
+                ])
+                logger.info(f"📅 Calendar scheduling ENABLED for business {business_id} (WhatsApp channel)")
+            else:
+                logger.info(f"📅 Calendar scheduling DISABLED for business {business_id} (WhatsApp channel)")
         else:
+            # Base tools always available
             tools_to_use = [
-                calendar_find_slots_wrapped,
-                calendar_create_appointment_wrapped,
-                calendar_list_wrapped,
-                calendar_resolve_target_wrapped,
                 leads_upsert_wrapped,
                 leads_search,
                 whatsapp_send,
                 business_get_info,
                 update_lead_status  # 🔥 Always available for smart status updates
             ]
-        
-        logger.info(f"🎯 Status update tool ENABLED for business {business_id} (all channels)")
+            
+            # Add calendar tools only if enabled
+            if calendar_scheduling_enabled:
+                tools_to_use.extend([
+                    calendar_find_slots_wrapped,
+                    calendar_create_appointment_wrapped,
+                    calendar_list_wrapped,
+                    calendar_resolve_target_wrapped,
+                ])
+                logger.info(f"📅 Calendar scheduling ENABLED for business {business_id} (non-WhatsApp channel)")
+            else:
+                logger.info(f"📅 Calendar scheduling DISABLED for business {business_id} (non-WhatsApp channel)")
         
         # 🎧 CRM Context-Aware Support: Add customer service tools if enabled
         if customer_service_enabled:

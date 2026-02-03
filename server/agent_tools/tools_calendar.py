@@ -770,6 +770,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             try:
                 from server.whatsapp_provider import get_whatsapp_service
                 wa_service = get_whatsapp_service()
+                # WhatsAppService uses message= parameter
                 result = wa_service.send_message(to=phone, message=wa_message)
                 wa_latency = (time.time() - wa_start) * 1000
                 
