@@ -853,9 +853,9 @@ class UnifiedLeadContextService:
             parts.append(f"👤 מטפל: {context.owner_name}")
         
         # 🔥 NEW: Status with Hebrew label
-        if context.current_status:
-            # Use Hebrew label if available, otherwise fallback to status code
-            status_display = context.current_status_label_he or context.current_status
+        if context.current_status or context.current_status_label_he:
+            # Use Hebrew label if available, otherwise fallback to status code, or "לא ידוע" if neither exists
+            status_display = context.current_status_label_he or context.current_status or "לא ידוע"
             parts.append(f"📊 סטטוס ליד: {status_display}")
         
         # Service type and location

@@ -152,6 +152,10 @@ class HebrewLabelService:
             
         Returns:
             List of dicts with field_key, field_label_he, and value
+        
+        Note:
+            Currently uses English title-case conversion as a temporary fallback.
+            In the future, could query a CustomFieldDefinition table for proper Hebrew labels.
         """
         if not custom_fields:
             return []
@@ -160,13 +164,13 @@ class HebrewLabelService:
             formatted_fields = []
             
             for field_key, field_value in custom_fields.items():
-                # For now, use the key as label (in future, could query a CustomFieldDefinition table)
-                # Convert snake_case to Hebrew-friendly format
+                # TODO: In future, query CustomFieldDefinition table for proper Hebrew labels
+                # For now, use the key as label (English title-case format)
                 field_label = field_key.replace('_', ' ').title()
                 
                 formatted_fields.append({
                     "field_key": field_key,
-                    "field_label_he": field_label,
+                    "field_label_he": field_label,  # Temporary English fallback
                     "value": field_value
                 })
             

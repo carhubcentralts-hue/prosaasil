@@ -1142,11 +1142,18 @@ class AIService:
                     }
                     payload_debug["lead_status"] = {
                         "current_status": lead_ctx_dict.get('current_status'),
+                        "current_status_id": lead_ctx_dict.get('current_status_id'),
+                        "current_status_label_he": lead_ctx_dict.get('current_status_label_he'),
                         "pipeline_stage": lead_ctx_dict.get('pipeline_stage'),
                         "status_history_count": len(lead_ctx_dict.get('status_history', []))
                     }
                     payload_debug["appointments"] = {
-                        "next_appointment": lead_ctx_dict.get('next_appointment'),
+                        "next_appointment": {
+                            "title": next_apt.get('title') if (next_apt := lead_ctx_dict.get('next_appointment')) else None,
+                            "status": next_apt.get('status') if next_apt else None,
+                            "calendar_status_label_he": next_apt.get('calendar_status_label_he') if next_apt else None,
+                            "start": next_apt.get('start', '')[:19] if next_apt else None
+                        } if lead_ctx_dict.get('next_appointment') else None,
                         "past_appointments_count": len(lead_ctx_dict.get('past_appointments', []))
                     }
                     payload_debug["notes"] = {
@@ -1155,7 +1162,25 @@ class AIService:
                         "last_whatsapp_summary": lead_ctx_dict.get('last_whatsapp_summary', '')[:100] if lead_ctx_dict.get('last_whatsapp_summary') else None
                     }
                     payload_debug["tags"] = lead_ctx_dict.get('tags', [])
-                    payload_debug["custom_fields"] = "Not yet implemented"
+                    
+                    # 🔥 Extract custom fields from appointments
+                    custom_fields_found = []
+                    next_apt = lead_ctx_dict.get('next_appointment')
+                    if next_apt and next_apt.get('custom_fields'):
+                        custom_fields_found.append({
+                            "appointment": "next",
+                            "fields": next_apt['custom_fields']
+                        })
+                    
+                    past_apts = lead_ctx_dict.get('past_appointments', [])
+                    for idx, apt in enumerate(past_apts[:2]):  # First 2 past appointments
+                        if apt.get('custom_fields'):
+                            custom_fields_found.append({
+                                "appointment": f"past_{idx}",
+                                "fields": apt['custom_fields']
+                            })
+                    
+                    payload_debug["custom_fields"] = custom_fields_found if custom_fields_found else None
                 
                 # Log as pretty JSON
                 logger.info(f"🔍 [PAYLOAD_DEBUG] Complete payload before LLM call:")
