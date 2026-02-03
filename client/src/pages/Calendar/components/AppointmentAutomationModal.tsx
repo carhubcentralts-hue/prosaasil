@@ -113,6 +113,11 @@ function getPresetIdFromOffset(offset: { type: string; minutes?: number }): stri
   const preset = TIMING_PRESETS.find(p => 
     p.type === offset.type && p.minutes === offset.minutes
   );
+  
+  if (!preset) {
+    console.warn('[AppointmentAutomationModal] No preset found for offset:', offset, 'defaulting to immediate');
+  }
+  
   return preset?.id || 'immediate';
 }
 
