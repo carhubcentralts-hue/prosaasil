@@ -24,6 +24,7 @@ from server.models_sql import (
     Invoice, Payment, Contract, BusinessCalendar, User
 )
 from server.agent_tools.phone_utils import normalize_il_phone
+from server.services.hebrew_label_service import get_hebrew_label_service
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -239,7 +240,6 @@ class UnifiedLeadContextService:
             logger.info(f"[UnifiedContext] Building context for lead #{lead.id} via {channel}")
             
             # 🔥 NEW: Get Hebrew label service
-            from server.services.hebrew_label_service import get_hebrew_label_service
             hebrew_label_service = get_hebrew_label_service(self.business_id)
             
             # 🔥 NEW: Get Hebrew label for lead status
@@ -894,7 +894,7 @@ class UnifiedLeadContextService:
             if apt.get('custom_fields'):
                 parts.append(f"  שדות נוספים:")
                 for field in apt['custom_fields']:
-                    parts.append(f"    - {field['field_label_he']}: {field['value']}")
+                    parts.append(f"    - {field['field_label']}: {field['value']}")
         
         # 🔥 NEW: Past appointments with Hebrew status labels and custom fields
         if context.past_appointments:
@@ -908,7 +908,7 @@ class UnifiedLeadContextService:
                 # Include custom fields if present
                 if apt.get('custom_fields'):
                     for field in apt['custom_fields'][:2]:  # Show max 2 custom fields per appointment
-                        parts.append(f"      {field['field_label_he']}: {field['value']}")
+                        parts.append(f"      {field['field_label']}: {field['value']}")
         
         # Open tasks
         if context.open_tasks:

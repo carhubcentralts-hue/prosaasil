@@ -1112,6 +1112,29 @@ class AIService:
             # 🔥 CRITICAL: Log complete payload before LLM call (Hebrew labels requirement)
             # This ensures we can verify that all labels are in Hebrew as required
             try:
+                # Helper function to mask sensitive data for logging
+                def mask_phone(phone: str) -> str:
+                    """Mask phone number for privacy: +972501234567 → +972***4567"""
+                    if not phone or len(phone) < 8:
+                        return phone
+                    return phone[:5] + "***" + phone[-4:]
+                
+                def mask_email(email: str) -> str:
+                    """Mask email for privacy: user@example.com → u***@example.com"""
+                    if not email or '@' not in email:
+                        return email
+                    local, domain = email.split('@', 1)
+                    masked_local = local[0] + '***' if len(local) > 1 else local
+                    return f"{masked_local}@{domain}"
+                
+                def truncate_text(text: str, max_length: int = 150) -> str:
+                    """Truncate text for logging"""
+                    if not text:
+                        return text
+                    if len(text) <= max_length:
+                        return text
+                    return text[:max_length] + "..."
+                
                 payload_debug = {
                     "business_id": business_id,
                     "channel": channel,
@@ -1133,17 +1156,17 @@ class AIService:
                     lead_ctx_dict = context['lead_context']
                     payload_debug["lead_context"] = {
                         "lead_id": lead_ctx_dict.get('lead_id'),
-                        "lead_name": lead_ctx_dict.get('lead_name'),
-                        "lead_phone": lead_ctx_dict.get('lead_phone'),
+                        "lead_name": lead_ctx_dict.get('lead_name'),  # Names are okay to log
+                        "lead_phone": mask_phone(lead_ctx_dict.get('lead_phone')) if lead_ctx_dict.get('lead_phone') else None,
                         "current_status": lead_ctx_dict.get('current_status'),
                         "lead_source": lead_ctx_dict.get('lead_source'),
                         "tags": lead_ctx_dict.get('tags'),
-                        "summary": lead_ctx_dict.get('summary', '')[:100] if lead_ctx_dict.get('summary') else None
+                        "summary": truncate_text(lead_ctx_dict.get('summary'), 100) if lead_ctx_dict.get('summary') else None
                     }
                     payload_debug["lead_status"] = {
                         "current_status": lead_ctx_dict.get('current_status'),
                         "current_status_id": lead_ctx_dict.get('current_status_id'),
-                        "current_status_label_he": lead_ctx_dict.get('current_status_label_he'),
+                        "current_status_label_he": lead_ctx_dict.get('current_status_label_he'),  # 🔥 KEY: Verify Hebrew label
                         "pipeline_stage": lead_ctx_dict.get('pipeline_stage'),
                         "status_history_count": len(lead_ctx_dict.get('status_history', []))
                     }
@@ -1151,15 +1174,15 @@ class AIService:
                         "next_appointment": {
                             "title": next_apt.get('title') if (next_apt := lead_ctx_dict.get('next_appointment')) else None,
                             "status": next_apt.get('status') if next_apt else None,
-                            "calendar_status_label_he": next_apt.get('calendar_status_label_he') if next_apt else None,
+                            "calendar_status_label_he": next_apt.get('calendar_status_label_he') if next_apt else None,  # 🔥 KEY: Verify Hebrew label
                             "start": next_apt.get('start', '')[:19] if next_apt else None
                         } if lead_ctx_dict.get('next_appointment') else None,
                         "past_appointments_count": len(lead_ctx_dict.get('past_appointments', []))
                     }
                     payload_debug["notes"] = {
                         "recent_notes_count": len(lead_ctx_dict.get('recent_notes', [])),
-                        "last_call_summary": lead_ctx_dict.get('last_call_summary', '')[:100] if lead_ctx_dict.get('last_call_summary') else None,
-                        "last_whatsapp_summary": lead_ctx_dict.get('last_whatsapp_summary', '')[:100] if lead_ctx_dict.get('last_whatsapp_summary') else None
+                        "last_call_summary": truncate_text(lead_ctx_dict.get('last_call_summary'), 100) if lead_ctx_dict.get('last_call_summary') else None,
+                        "last_whatsapp_summary": truncate_text(lead_ctx_dict.get('last_whatsapp_summary'), 100) if lead_ctx_dict.get('last_whatsapp_summary') else None
                     }
                     payload_debug["tags"] = lead_ctx_dict.get('tags', [])
                     

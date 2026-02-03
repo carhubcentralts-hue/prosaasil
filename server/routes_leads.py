@@ -38,6 +38,9 @@ if not ZONEINFO_AVAILABLE and not PYTZ_AVAILABLE:
 # Import status webhook service
 from server.services.status_webhook_service import dispatch_lead_status_webhook
 
+# Import cache invalidation
+from server.services.ai_service import invalidate_business_cache
+
 # Import push notification dispatcher
 from server.services.notifications.dispatcher import dispatch_push_for_reminder
 
@@ -1080,6 +1083,14 @@ def update_lead_status(lead_id):
         except Exception as e:
             # Log error but don't fail the status update
             logger.error(f"Failed to schedule messages for status change: {e}", exc_info=True)
+        
+        # 🔥 NEW: Invalidate cache when lead status changes
+        # This ensures fresh Hebrew labels are loaded for this lead's context
+        try:
+            invalidate_business_cache(lead.tenant_id)
+            logger.info(f"✅ Cache invalidated for business {lead.tenant_id} after lead {lead_id} status change: {old_status} → {new_status}")
+        except Exception as cache_err:
+            logger.warning(f"⚠️ Failed to invalidate cache after lead status change: {cache_err}")
         
         # Check if webhook should be dispatched
         # Client will handle user preference (always/never/ask) and call webhook dispatch endpoint

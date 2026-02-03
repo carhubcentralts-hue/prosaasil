@@ -34,6 +34,11 @@ class HebrewLabelService:
         """
         Get Hebrew label for lead status code
         
+        Priority order:
+        1. Query LeadStatus table for this business (primary source)
+        2. If not found, use default English → Hebrew mapping
+        3. If still not found, return fallback with WARNING
+        
         Args:
             status_code: Status code/name (e.g., "new", "contacted", "active")
             
@@ -41,7 +46,7 @@ class HebrewLabelService:
             Dict with status_id, status_code, and status_label_he
         """
         if not status_code:
-            logger.warning(f"[HebrewLabel] get_lead_status_label called with empty status_code")
+            logger.warning(f"⚠️ [HebrewLabel] get_lead_status_label called with empty status_code")
             return {
                 "status_id": None,
                 "status_code": None,
@@ -49,7 +54,7 @@ class HebrewLabelService:
             }
         
         try:
-            # Query LeadStatus table for this business
+            # Priority 1: Query LeadStatus table for this business
             lead_status = LeadStatus.query.filter_by(
                 business_id=self.business_id,
                 name=status_code
@@ -61,14 +66,40 @@ class HebrewLabelService:
                     "status_code": status_code,
                     "status_label_he": lead_status.label or status_code
                 }
-            else:
-                # Fallback: status not found in LeadStatus table
-                logger.warning(f"⚠️ [HebrewLabel] Lead status '{status_code}' not found in LeadStatus table for business {self.business_id}")
+            
+            # Priority 2: Use default English → Hebrew mapping
+            default_mappings = {
+                "new": "חדש",
+                "attempting": "בניסיון קשר",
+                "no_answer": "לא ענה",
+                "contacted": "נוצר קשר",
+                "interested": "מעוניין",
+                "follow_up": "חזרה",
+                "not_relevant": "לא רלוונטי",
+                "qualified": "מוכשר",
+                "won": "זכיה",
+                "lost": "אובדן",
+                "unqualified": "לא מוכשר",
+                "active": "פעיל",
+                "lead": "ליד",
+                "customer": "לקוח"
+            }
+            
+            if status_code in default_mappings:
+                logger.info(f"ℹ️ [HebrewLabel] Using default mapping for status '{status_code}' → '{default_mappings[status_code]}'")
                 return {
                     "status_id": None,
                     "status_code": status_code,
-                    "status_label_he": f"לא ידוע (status={status_code})"
+                    "status_label_he": default_mappings[status_code]
                 }
+            
+            # Priority 3: Fallback with WARNING
+            logger.warning(f"⚠️ [HebrewLabel] Lead status '{status_code}' not found in LeadStatus table or defaults for business {self.business_id}")
+            return {
+                "status_id": None,
+                "status_code": status_code,
+                "status_label_he": f"לא ידוע (status={status_code})"
+            }
         
         except Exception as e:
             logger.error(f"❌ [HebrewLabel] Error getting lead status label: {e}")
@@ -82,6 +113,11 @@ class HebrewLabelService:
         """
         Get Hebrew label for appointment/calendar status code
         
+        Priority order:
+        1. Query BusinessSettings.appointment_statuses_json (primary source)
+        2. If not found, use default English → Hebrew mapping
+        3. If still not found, return fallback with WARNING
+        
         Args:
             status_code: Status code (e.g., "scheduled", "confirmed", "completed")
             
@@ -89,7 +125,7 @@ class HebrewLabelService:
             Dict with calendar_status_id, calendar_status_code, and calendar_status_label_he
         """
         if not status_code:
-            logger.warning(f"[HebrewLabel] get_appointment_status_label called with empty status_code")
+            logger.warning(f"⚠️ [HebrewLabel] get_appointment_status_label called with empty status_code")
             return {
                 "calendar_status_id": None,
                 "calendar_status_code": None,
@@ -97,7 +133,7 @@ class HebrewLabelService:
             }
         
         try:
-            # Query BusinessSettings for appointment_statuses_json
+            # Priority 1: Query BusinessSettings for appointment_statuses_json
             settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
             
             if settings and settings.appointment_statuses_json:
@@ -113,26 +149,34 @@ class HebrewLabelService:
                                 "calendar_status_label_he": status_def.get('label') or status_code
                             }
             
-            # Fallback: Use default mappings if not in BusinessSettings
+            # Priority 2: Use default English → Hebrew mappings
             default_mappings = {
                 "scheduled": "נקבע",
                 "confirmed": "מאושר/ת",
                 "completed": "הושלם",
                 "cancelled": "בוטל",
+                "canceled": "בוטל",  # Alternative spelling
                 "pending": "ממתין",
                 "rescheduled": "נדחה",
-                "no_show": "לא הגיע"
+                "no_show": "לא הגיע",
+                "in_progress": "בתהליך"
             }
             
-            hebrew_label = default_mappings.get(status_code, status_code)
+            if status_code in default_mappings:
+                logger.info(f"ℹ️ [HebrewLabel] Using default mapping for appointment status '{status_code}' → '{default_mappings[status_code]}'")
+                return {
+                    "calendar_status_id": None,
+                    "calendar_status_code": status_code,
+                    "calendar_status_label_he": default_mappings[status_code]
+                }
             
-            if status_code not in default_mappings:
-                logger.warning(f"⚠️ [HebrewLabel] Appointment status '{status_code}' not found in BusinessSettings or defaults for business {self.business_id}")
+            # Priority 3: Fallback with WARNING
+            logger.warning(f"⚠️ [HebrewLabel] Appointment status '{status_code}' not found in BusinessSettings or defaults for business {self.business_id}")
             
             return {
                 "calendar_status_id": None,
                 "calendar_status_code": status_code,
-                "calendar_status_label_he": hebrew_label
+                "calendar_status_label_he": f"לא ידוע (status={status_code})"
             }
         
         except Exception as e:
@@ -155,7 +199,8 @@ class HebrewLabelService:
         
         Note:
             Currently uses English title-case conversion as a temporary fallback.
-            In the future, could query a CustomFieldDefinition table for proper Hebrew labels.
+            TODO: Implement proper Hebrew labels from CustomFieldDefinition table or BusinessSettings.custom_fields_schema.
+            The field_label currently contains English as a stopgap - consumers should be aware.
         """
         if not custom_fields:
             return []
@@ -164,13 +209,19 @@ class HebrewLabelService:
             formatted_fields = []
             
             for field_key, field_value in custom_fields.items():
-                # TODO: In future, query CustomFieldDefinition table for proper Hebrew labels
-                # For now, use the key as label (English title-case format)
+                # TODO: Implement proper Hebrew labels from DB
+                # Potential sources:
+                # 1. BusinessSettings.custom_fields_schema: {"treatment_duration": {"label_he": "משך טיפול"}}
+                # 2. CustomFieldDefinition table with business_id, field_key, label_he
+                # 3. Hard-coded mapping for common fields
+                
+                # Temporary: Use English title-case as fallback
                 field_label = field_key.replace('_', ' ').title()
+                logger.warning(f"⚠️ [HebrewLabel] Using English fallback label for custom field '{field_key}' - implement CustomFieldDefinition for Hebrew")
                 
                 formatted_fields.append({
                     "field_key": field_key,
-                    "field_label_he": field_label,  # Temporary English fallback
+                    "field_label": field_label,  # Currently English fallback - NOT Hebrew
                     "value": field_value
                 })
             
