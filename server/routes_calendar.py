@@ -1510,6 +1510,14 @@ def update_appointment_statuses():
         settings.appointment_statuses_json = statuses
         db.session.commit()
         
+        # 🔥 NEW: Invalidate cache when appointment status labels change
+        try:
+            from server.services.ai_service import invalidate_business_cache
+            invalidate_business_cache(business_id)
+            logger.info(f"✅ Cache invalidated for business {business_id} after appointment statuses update")
+        except Exception as cache_err:
+            logger.warning(f"⚠️ Failed to invalidate cache after appointment statuses update: {cache_err}")
+        
         logger.info(f"✅ Updated appointment statuses for business_id={business_id}")
         
         return jsonify({

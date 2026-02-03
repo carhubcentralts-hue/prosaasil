@@ -9,6 +9,7 @@ import logging
 import time
 import re
 import asyncio
+import json
 from typing import Dict, Any, Optional, List, Literal
 from openai import OpenAI
 from server.models_sql import BusinessSettings, PromptRevisions, Business, AgentTrace
@@ -1107,6 +1108,125 @@ class AIService:
                             logger.info(f"[AGENTKIT] 🎧 Prepended lead context to conversation ({len(context_text)} chars)")
                 except Exception as ctx_err:
                     logger.warning(f"[AGENTKIT] Failed to format lead context: {ctx_err}")
+            
+            # 🔥 CRITICAL: Log complete payload before LLM call (Hebrew labels requirement)
+            # This ensures we can verify that all labels are in Hebrew as required
+            try:
+                # Configuration for logging
+                MAX_SUMMARY_LENGTH = 100  # For summaries and notes
+                MAX_TEXT_LENGTH = 150  # For general text truncation
+                
+                # Helper functions to mask sensitive data for logging
+                def mask_phone(phone: str) -> str:
+                    """
+                    Mask phone number for privacy with robust handling
+                    Examples:
+                        +972501234567 → +972***4567
+                        050123456 → 050***456
+                        123 → 123 (too short, return as-is)
+                    """
+                    if not phone:
+                        return phone
+                    phone_str = str(phone).strip()
+                    if len(phone_str) < 6:  # Too short to mask meaningfully
+                        return phone_str
+                    # Mask middle portion, keep prefix and suffix
+                    prefix_len = min(4, len(phone_str) // 3)
+                    suffix_len = min(4, len(phone_str) // 3)
+                    return phone_str[:prefix_len] + "***" + phone_str[-suffix_len:]
+                
+                def mask_email(email: str) -> str:
+                    """Mask email for privacy: user@example.com → u***@example.com"""
+                    if not email or '@' not in email:
+                        return email
+                    local, domain = email.split('@', 1)
+                    masked_local = local[0] + '***' if len(local) > 1 else local
+                    return f"{masked_local}@{domain}"
+                
+                def truncate_text(text: str, max_length: int) -> str:
+                    """Truncate text for logging (explicit max_length required)"""
+                    if not text:
+                        return text
+                    if len(text) <= max_length:
+                        return text
+                    return text[:max_length] + "..."
+                
+                payload_debug = {
+                    "business_id": business_id,
+                    "channel": channel,
+                    "conversation_id": conversation_id,
+                    "messages_count": len(messages),
+                    "agent_context_keys": list(agent_context.keys()) if agent_context else [],
+                    "lead_context": None,
+                    "appointments": None,
+                    "lead_status": None,
+                    "calendar_status": None,
+                    "notes": None,
+                    "tags": None,
+                    "last_messages": None,
+                    "custom_fields": None
+                }
+                
+                # Extract lead context for logging if available
+                if context and context.get('lead_context'):
+                    lead_ctx_dict = context['lead_context']
+                    payload_debug["lead_context"] = {
+                        "lead_id": lead_ctx_dict.get('lead_id'),
+                        "lead_name": lead_ctx_dict.get('lead_name'),  # Names are okay to log
+                        "lead_phone": mask_phone(lead_ctx_dict.get('lead_phone')) if lead_ctx_dict.get('lead_phone') else None,
+                        "current_status": lead_ctx_dict.get('current_status'),
+                        "lead_source": lead_ctx_dict.get('lead_source'),
+                        "tags": lead_ctx_dict.get('tags'),
+                        "summary": truncate_text(lead_ctx_dict.get('summary'), MAX_SUMMARY_LENGTH) if lead_ctx_dict.get('summary') else None
+                    }
+                    payload_debug["lead_status"] = {
+                        "current_status": lead_ctx_dict.get('current_status'),
+                        "current_status_id": lead_ctx_dict.get('current_status_id'),
+                        "current_status_label_he": lead_ctx_dict.get('current_status_label_he'),  # 🔥 KEY: Verify Hebrew label
+                        "pipeline_stage": lead_ctx_dict.get('pipeline_stage'),
+                        "status_history_count": len(lead_ctx_dict.get('status_history', []))
+                    }
+                    payload_debug["appointments"] = {
+                        "next_appointment": {
+                            "title": next_apt.get('title') if (next_apt := lead_ctx_dict.get('next_appointment')) else None,
+                            "status": next_apt.get('status') if next_apt else None,
+                            "calendar_status_label_he": next_apt.get('calendar_status_label_he') if next_apt else None,  # 🔥 KEY: Verify Hebrew label
+                            "start": next_apt.get('start', '')[:19] if next_apt else None
+                        } if lead_ctx_dict.get('next_appointment') else None,
+                        "past_appointments_count": len(lead_ctx_dict.get('past_appointments', []))
+                    }
+                    payload_debug["notes"] = {
+                        "recent_notes_count": len(lead_ctx_dict.get('recent_notes', [])),
+                        "last_call_summary": truncate_text(lead_ctx_dict.get('last_call_summary'), MAX_SUMMARY_LENGTH) if lead_ctx_dict.get('last_call_summary') else None,
+                        "last_whatsapp_summary": truncate_text(lead_ctx_dict.get('last_whatsapp_summary'), MAX_SUMMARY_LENGTH) if lead_ctx_dict.get('last_whatsapp_summary') else None
+                    }
+                    payload_debug["tags"] = lead_ctx_dict.get('tags', [])
+                    
+                    # 🔥 Extract custom fields from appointments
+                    custom_fields_found = []
+                    next_apt = lead_ctx_dict.get('next_appointment')
+                    if next_apt and next_apt.get('custom_fields'):
+                        custom_fields_found.append({
+                            "appointment": "next",
+                            "fields": next_apt['custom_fields']
+                        })
+                    
+                    past_apts = lead_ctx_dict.get('past_appointments', [])
+                    for idx, apt in enumerate(past_apts[:2]):  # First 2 past appointments
+                        if apt.get('custom_fields'):
+                            custom_fields_found.append({
+                                "appointment": f"past_{idx}",
+                                "fields": apt['custom_fields']
+                            })
+                    
+                    payload_debug["custom_fields"] = custom_fields_found if custom_fields_found else None
+                
+                # Log as pretty JSON
+                logger.info(f"🔍 [PAYLOAD_DEBUG] Complete payload before LLM call:")
+                logger.info(f"{json.dumps(payload_debug, ensure_ascii=False, indent=2)}")
+                
+            except Exception as log_err:
+                logger.error(f"❌ Failed to log payload debug info: {log_err}")
             
             # Run agent using Runner.run_sync() (correct API for openai-agents SDK)
             result = Runner.run_sync(agent, input=messages, context=agent_context)
