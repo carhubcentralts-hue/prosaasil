@@ -40,10 +40,13 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
     setLoading(true);
     
     try {
+      console.log('[StatusPrompt] Loading prompt...');
       const response = await http.get('/api/ai/status_change_prompt/get');
       
       // ✅ FIX: Handle both "ok" and "success" fields for compatibility
       const data = response.data;
+      console.log(`[StatusPrompt] Loaded: version=${data.version}, has_custom=${data.has_custom_prompt || data.exists}`);
+      
       if (data.ok || data.success) {
         setPromptText(data.prompt || '');
         setOriginalPrompt(data.prompt || '');
@@ -64,20 +67,51 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         return;
       }
       
-      // ✅ FIX: Extract error message from new format
-      const errorMsg = err.response?.data?.details || 
-                       err.response?.data?.error || 
-                       'שגיאה בטעינת הפרומפט';
+      // ✅ FIX: Extract error message from new format and provide context
+      let errorMsg = err.response?.data?.details || 
+                     err.response?.data?.error || 
+                     'שגיאה בטעינת הפרומפט';
+      
+      // Add more context for common errors
+      if (errorCode === 400 && errorMsg.includes('לא נמצא')) {
+        errorMsg = 'לא נמצא מזהה עסק. נא להתחבר מחדש או לרענן את הדף.';
+      } else if (errorCode === 401 || errorCode === 403) {
+        errorMsg = 'אין הרשאה לצפות בפרומפט. נא לוודא שאתה מחובר כמנהל.';
+      } else if (errorCode === 500) {
+        errorMsg = `שגיאת שרת: ${errorMsg}. אנא נסה שוב או פנה לתמיכה.`;
+      }
       
       setError(errorMsg);
       setLoading(false);
-      console.error('Error loading status change prompt:', err);
+      console.error('[StatusPrompt] Error loading prompt:', {
+        status: errorCode,
+        message: errorMsg,
+        details: err.response?.data,
+        fullError: err
+      });
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (isRetry = false) => {
     if (!promptText.trim()) {
       setError('טקסט הפרומפט לא יכול להיות ריק');
+      return;
+    }
+
+    // 🔥 DEFENSIVE CHECK: If we have a custom prompt but version is 0, reload first
+    // Only do this check on the first attempt, not on retry, to prevent infinite loops
+    if (!isRetry && hasCustomPrompt && version === 0) {
+      console.warn('[StatusPrompt] Has custom prompt but version is 0. Reloading...');
+      setError('טוען גרסה עדכנית...');
+      try {
+        await loadPrompt();
+        setError('');
+        // Retry save after reload completes
+        await handleSave(true);
+      } catch (err) {
+        console.error('[StatusPrompt] Failed to reload:', err);
+        setError('שגיאה בטעינת הגרסה העדכנית. אנא רענן את הדף.');
+      }
       return;
     }
 
@@ -86,6 +120,7 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
     setSuccess('');
 
     try {
+      console.log(`[StatusPrompt] Saving with version=${version}${isRetry ? ' (retry)' : ''}`);
       const response = await http.post('/api/ai/status_change_prompt/save', {
         prompt_text: promptText,
         version: version  // ✅ FIX: Send version for optimistic locking
@@ -99,6 +134,8 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         const newVersion = data.version;
         const newPrompt = data.prompt || promptText;
         const updatedAt = data.updated_at;
+        
+        console.log(`[StatusPrompt] Save successful! New version=${newVersion}`);
         
         setVersion(newVersion);
         setPromptText(newPrompt);
@@ -125,6 +162,8 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         const latestPrompt = data?.latest_prompt;
         const latestVersion = data?.latest_version;
         
+        console.warn(`[StatusPrompt] Version conflict! Server version=${latestVersion}, our version was=${version}`);
+        
         if (latestPrompt && latestVersion !== undefined) {
           // Update to latest version
           setPromptText(latestPrompt);
@@ -138,14 +177,34 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
           setError(data?.details || 'גרסה התיישנה. אנא רענן את הדף.');
         }
       } else {
-        // Other errors
-        const errorMsg = err.response?.data?.details || 
-                         err.response?.data?.error || 
-                         'שגיאה בשמירת הפרומפט';
+        // Other errors - provide more context
+        let errorMsg = err.response?.data?.details || 
+                       err.response?.data?.error || 
+                       'שגיאה בשמירת הפרומפט';
+        
+        // Add context for common errors
+        if (errorCode === 400) {
+          if (errorMsg.includes('EMPTY_PROMPT')) {
+            errorMsg = 'טקסט הפרומפט לא יכול להיות ריק';
+          } else if (errorMsg.includes('PROMPT_TOO_LONG')) {
+            errorMsg = 'הפרומפט ארוך מדי (מקסימום 5000 תווים)';
+          } else if (errorMsg.includes('BUSINESS_CONTEXT_REQUIRED')) {
+            errorMsg = 'לא נמצא מזהה עסק. נא להתחבר מחדש.';
+          }
+        } else if (errorCode === 401 || errorCode === 403) {
+          errorMsg = 'אין הרשאה לשמור פרומפט. נא לוודא שאתה מחובר כמנהל.';
+        } else if (errorCode === 500) {
+          errorMsg = `שגיאת שרת: ${errorMsg}. אנא נסה שוב או פנה לתמיכה.`;
+        }
+        
         setError(errorMsg);
       }
       
-      console.error('Error saving status change prompt:', err);
+      console.error('[StatusPrompt] Error saving prompt:', {
+        status: errorCode,
+        data: err.response?.data,
+        fullError: err
+      });
     } finally {
       setSaving(false);
     }
