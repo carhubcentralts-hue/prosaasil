@@ -11,7 +11,7 @@ Key Principles:
 - ✅ LLM serves as conversation architect, not copywriter
 - ✅ Every prompt includes: identity, goal, rules, flow, stop conditions, limitations
 """
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, g
 from server.auth_api import require_api_auth
 from server.extensions import csrf
 from server.models_sql import Business, BusinessSettings, PromptRevisions, db
@@ -129,8 +129,6 @@ GENERATOR_SYSTEM_PROMPT = """אתה מחולל SYSTEM PROMPTS לסוכני AI ק
 
 def _get_business_id():
     """Get current business ID from session"""
-    from flask import g
-    
     user_session = session.get('user') or {}
     tenant_id = g.get('tenant') or session.get('impersonated_tenant_id')
     
@@ -702,7 +700,6 @@ def get_status_change_prompt():
         business_id = _get_business_id()
         if not business_id:
             # Enhanced error with session debugging info
-            from flask import g
             logger.error(f"[GET_STATUS_PROMPT] Failed to get business_id. g.tenant={g.get('tenant')}, session.keys={list(session.keys())}")
             return jsonify({
                 "ok": False,
@@ -856,7 +853,6 @@ def save_status_change_prompt():
         business_id = _get_business_id()
         if not business_id:
             # Enhanced error with session debugging info
-            from flask import g
             logger.error(f"[SAVE_STATUS_PROMPT] Failed to get business_id. g.tenant={g.get('tenant')}, session.keys={list(session.keys())}")
             return jsonify({
                 "ok": False,
