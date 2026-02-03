@@ -340,6 +340,14 @@ def update_status(status_id):
         status.updated_at = datetime.utcnow()
         db.session.commit()
         
+        # 🔥 NEW: Invalidate cache when status labels change
+        try:
+            from server.services.ai_service import invalidate_business_cache
+            invalidate_business_cache(business_id)
+            logging.info(f"✅ Cache invalidated for business {business_id} after status update")
+        except Exception as cache_err:
+            logging.warning(f"⚠️ Failed to invalidate cache after status update: {cache_err}")
+        
         return jsonify({
             'message': 'Status updated successfully',
             'status': {
