@@ -439,3 +439,123 @@ def test_automation_preview(automation_id):
     except Exception as e:
         logger.error(f"Error testing automation {automation_id}: {e}", exc_info=True)
         return jsonify({'error': 'Failed to preview automation'}), 500
+
+
+@appointment_automations_bp.route('/appointments/templates', methods=['GET'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def list_default_templates():
+    """Get list of available default automation templates"""
+    try:
+        from server.services.appointment_automation_templates import list_templates
+        templates = list_templates()
+        
+        return jsonify({
+            'success': True,
+            'templates': templates
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing templates: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to list templates'}), 500
+
+
+@appointment_automations_bp.route('/appointments/templates/<template_key>', methods=['POST'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def create_from_template(template_key):
+    """
+    Create an automation from a default template.
+    
+    Request body (optional):
+        - name: Override template name
+        - enabled: Override enabled status (default: false)
+    """
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        from server.services.appointment_automation_templates import get_template
+        template = get_template(template_key)
+        
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        data = request.get_json() or {}
+        
+        # Get current user
+        user_data = session.get('user') or session.get('al_user')
+        user_id = user_data.get('id') if user_data else None
+        
+        # Create automation from template
+        automation = AppointmentAutomation(
+            business_id=business_id,
+            name=data.get('name', template['name']),
+            enabled=data.get('enabled', False),  # Disabled by default
+            trigger_status_ids=template['trigger_statuses'],
+            schedule_offsets=template['schedule_offsets'],
+            channel='whatsapp',
+            message_template=template['message'],
+            send_once_per_offset=True,
+            cancel_on_status_exit=True,
+            created_by=user_id
+        )
+        
+        db.session.add(automation)
+        db.session.commit()
+        
+        logger.info(f"Created automation from template {template_key} for business {business_id}")
+        
+        return jsonify({
+            'success': True,
+            'automation_id': automation.id,
+            'message': f'אוטומציה "{automation.name}" נוצרה מתבנית'
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating from template: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to create from template'}), 500
+
+
+@appointment_automations_bp.route('/appointments/setup-defaults', methods=['POST'])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calendar')
+def setup_default_automations():
+    """Create all default automation templates for the business (disabled by default)"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business ID required'}), 400
+        
+        # Check if automations already exist
+        existing_count = AppointmentAutomation.query.filter_by(business_id=business_id).count()
+        
+        if existing_count > 0:
+            return jsonify({
+                'error': 'Automations already exist for this business',
+                'existing_count': existing_count
+            }), 400
+        
+        # Get current user
+        user_data = session.get('user') or session.get('al_user')
+        user_id = user_data.get('id') if user_data else None
+        
+        # Create default automations
+        from server.services.appointment_automation_templates import create_default_automations
+        automations = create_default_automations(business_id, created_by=user_id)
+        
+        logger.info(f"Created {len(automations)} default automations for business {business_id}")
+        
+        return jsonify({
+            'success': True,
+            'created_count': len(automations),
+            'message': f'{len(automations)} תבניות אוטומציה נוצרו בהצלחה'
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating default automations: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to create default automations'}), 500
+
