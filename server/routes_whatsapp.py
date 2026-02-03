@@ -1032,10 +1032,7 @@ def baileys_webhook():
                     ts=msg_timestamp
                 )
                 
-                # 🔥 FIX: Show lead details including name for LID tracking
-                lead_phone = lead.phone_e164 or 'N/A'
-                lead_name = lead.name or push_name or 'N/A'
-                log.info(f"✅ Lead resolved: lead_id={lead.id}, phone={lead_phone}, name={lead_name}, jid={remote_jid[:30]}...")
+                log.info(f"✅ Lead resolved: lead_id={lead.id}, phone={lead.phone_e164 or 'N/A'}, name={lead.name or push_name or 'N/A'}, jid={remote_jid[:30]}...")
                 
                 # Get customer for backwards compatibility (if exists)
                 from server.models_sql import Customer
