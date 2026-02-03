@@ -1119,6 +1119,91 @@ class CalendarRoutingRule(db.Model):
         db.Index('idx_calendar_routing_calendar', 'calendar_id'),
     )
 
+class AppointmentAutomation(db.Model):
+    """
+    Appointment confirmation automation rules
+    Allows businesses to send automated WhatsApp messages based on appointment status changes
+    """
+    __tablename__ = "appointment_automations"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Automation identification
+    name = db.Column(db.String(255), nullable=False)  # "אישור הגעה – סטטוס 'נקבע'"
+    enabled = db.Column(db.Boolean, default=True, index=True)
+    
+    # Trigger configuration
+    trigger_status_ids = db.Column(db.JSON, nullable=False, default=list)  # Array of status strings: ["scheduled", "confirmed"]
+    
+    # Schedule offsets (when to send messages relative to appointment time)
+    # Format: [{"type":"before","minutes":1440},{"type":"after","minutes":1440},{"type":"immediate"}]
+    schedule_offsets = db.Column(db.JSON, nullable=False, default=list)
+    
+    # Message configuration
+    channel = db.Column(db.String(32), default="whatsapp", nullable=False)  # Currently only "whatsapp"
+    message_template = db.Column(db.Text, nullable=False)  # Template with placeholders: {first_name}, {business_name}, etc.
+    
+    # Behavior settings
+    send_once_per_offset = db.Column(db.Boolean, default=True)  # Prevent duplicate sends for same offset
+    dedupe_key_mode = db.Column(db.String(64), default="business+appointment+offset")  # Deduplication strategy
+    
+    # Cancel if status changes
+    cancel_on_status_exit = db.Column(db.Boolean, default=True)  # Cancel scheduled jobs if appointment status changes out
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("appointment_automations", lazy="dynamic"))
+    
+    # Indexes
+    __table_args__ = (
+        db.Index('idx_appointment_automations_business_enabled', 'business_id', 'enabled'),
+    )
+
+class AppointmentAutomationRun(db.Model):
+    """
+    Tracks individual automation execution runs
+    Records when automations were scheduled, sent, or failed
+    """
+    __tablename__ = "appointment_automation_runs"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id"), nullable=False, index=True)
+    automation_id = db.Column(db.Integer, db.ForeignKey("appointment_automations.id"), nullable=False, index=True)
+    
+    # Offset signature for deduplication (e.g., "before_1440", "after_1440", "immediate")
+    offset_signature = db.Column(db.String(64), nullable=False, index=True)
+    
+    # Scheduling information
+    scheduled_for = db.Column(db.DateTime, nullable=False, index=True)  # When to send the message
+    
+    # Execution status
+    status = db.Column(db.String(32), default="pending", nullable=False, index=True)  # pending/sent/failed/canceled
+    attempts = db.Column(db.Integer, default=0)
+    last_error = db.Column(db.Text)
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    sent_at = db.Column(db.DateTime)
+    canceled_at = db.Column(db.DateTime)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("appointment_automation_runs", lazy="dynamic"))
+    appointment = db.relationship("Appointment", backref=db.backref("automation_runs", lazy="dynamic"))
+    automation = db.relationship("AppointmentAutomation", backref=db.backref("runs", lazy="dynamic"))
+    
+    # Indexes and constraints
+    __table_args__ = (
+        db.Index('idx_appointment_automation_runs_scheduled', 'business_id', 'status', 'scheduled_for'),
+        db.Index('idx_appointment_automation_runs_appointment', 'appointment_id', 'status'),
+        # Unique constraint for deduplication
+        db.UniqueConstraint('business_id', 'appointment_id', 'automation_id', 'offset_signature', 
+                          name='uq_appointment_automation_run_dedupe'),
+    )
+
 class CRMTask(db.Model):
     """משימות CRM - ניהול משימות לעסקים"""
     __tablename__ = "crm_task"

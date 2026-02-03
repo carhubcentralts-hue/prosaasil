@@ -8173,6 +8173,81 @@ def apply_migrations():
         
         checkpoint("✅ Migration 129 complete: Per-business prompt customization ready")
         
+        # Migration 130: Add appointment confirmation automation tables
+        # 🔥 Automated WhatsApp confirmations based on appointment status changes
+        # Allows businesses to create automation rules that send WhatsApp messages
+        # when appointments enter specific statuses at configured time offsets
+        checkpoint("Migration 130: Creating appointment automation tables")
+        
+        try:
+            changes_made = False
+            
+            # Step 1: Create appointment_automations table
+            if not check_table_exists('appointment_automations'):
+                checkpoint("  → Creating appointment_automations table...")
+                execute_with_retry(migrate_engine, """
+                    CREATE TABLE IF NOT EXISTS appointment_automations (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                        trigger_status_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        schedule_offsets JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        channel VARCHAR(32) NOT NULL DEFAULT 'whatsapp',
+                        message_template TEXT NOT NULL,
+                        send_once_per_offset BOOLEAN NOT NULL DEFAULT TRUE,
+                        dedupe_key_mode VARCHAR(64) NOT NULL DEFAULT 'business+appointment+offset',
+                        cancel_on_status_exit BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+                    )
+                """)
+                checkpoint("  ✅ appointment_automations table created")
+                changes_made = True
+            else:
+                checkpoint("  ℹ️  appointment_automations table already exists")
+            
+            # Step 2: Create appointment_automation_runs table
+            if not check_table_exists('appointment_automation_runs'):
+                checkpoint("  → Creating appointment_automation_runs table...")
+                execute_with_retry(migrate_engine, """
+                    CREATE TABLE IF NOT EXISTS appointment_automation_runs (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        appointment_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+                        automation_id INTEGER NOT NULL REFERENCES appointment_automations(id) ON DELETE CASCADE,
+                        offset_signature VARCHAR(64) NOT NULL,
+                        scheduled_for TIMESTAMP NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        last_error TEXT,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        sent_at TIMESTAMP,
+                        canceled_at TIMESTAMP,
+                        CONSTRAINT uq_appointment_automation_run_dedupe 
+                            UNIQUE (business_id, appointment_id, automation_id, offset_signature)
+                    )
+                """)
+                checkpoint("  ✅ appointment_automation_runs table created with deduplication constraint")
+                changes_made = True
+            else:
+                checkpoint("  ℹ️  appointment_automation_runs table already exists")
+            
+            if changes_made:
+                migrations_applied.append("migration_130_appointment_automations")
+                checkpoint("  ✅ Appointment automation tables created successfully")
+                checkpoint("     💡 Businesses can now create automated WhatsApp confirmations")
+                checkpoint("     💡 Status-based triggers with flexible time offsets")
+                checkpoint("     💡 Built-in deduplication and cancellation logic")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 130 failed: {e}")
+            logger.error(f"Migration 130 error: {e}", exc_info=True)
+            raise
+        
+        checkpoint("✅ Migration 130 complete: Appointment automation system ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
