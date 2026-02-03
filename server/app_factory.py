@@ -839,6 +839,15 @@ def create_app():
             traceback.print_exc()
             raise RuntimeError(f"Critical blueprint 'routes_calendar' failed to register: {e}")
         
+        # Register appointment automations blueprint
+        try:
+            from server.routes_appointment_automations import appointment_automations_bp
+            app.register_blueprint(appointment_automations_bp)
+            app.logger.info("✅ Appointment automations blueprint registered")
+        except Exception as e:
+            app.logger.warning(f"⚠️ Failed to register appointment automations blueprint: {e}")
+            # Don't fail app startup if automation blueprint fails
+        
         # Register additional API blueprints
         from server.routes_user_management import user_mgmt_api
         app.register_blueprint(user_mgmt_api)
