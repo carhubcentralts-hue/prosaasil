@@ -675,14 +675,14 @@ class ContactIdentityService:
             
             # Look for existing lead with this phone
             lead = Lead.query.filter_by(
-                business_id=business_id,
+                tenant_id=business_id,
                 phone_e164=phone_e164
             ).first()
             
             if not lead:
                 # Create new lead with the phone number
                 lead = Lead()
-                lead.business_id = business_id
+                lead.tenant_id = business_id
                 lead.phone_e164 = phone_e164
                 lead.status = 'new'
                 lead.created_at = datetime.utcnow()
