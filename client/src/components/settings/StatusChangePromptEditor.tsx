@@ -78,21 +78,26 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (isRetry = false) => {
     if (!promptText.trim()) {
       setError('טקסט הפרומפט לא יכול להיות ריק');
       return;
     }
 
     // 🔥 DEFENSIVE CHECK: If we have a custom prompt but version is 0, reload first
-    if (hasCustomPrompt && version === 0) {
+    // Only do this check on the first attempt, not on retry, to prevent infinite loops
+    if (!isRetry && hasCustomPrompt && version === 0) {
       console.warn('[StatusPrompt] Has custom prompt but version is 0. Reloading...');
       setError('טוען גרסה עדכנית...');
-      await loadPrompt();
-      setTimeout(() => {
+      try {
+        await loadPrompt();
         setError('');
-        handleSave();  // Retry save after reload
-      }, 500);
+        // Retry save after reload completes
+        await handleSave(true);
+      } catch (err) {
+        console.error('[StatusPrompt] Failed to reload:', err);
+        setError('שגיאה בטעינת הגרסה העדכנית. אנא רענן את הדף.');
+      }
       return;
     }
 
@@ -101,7 +106,7 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
     setSuccess('');
 
     try {
-      console.log(`[StatusPrompt] Saving with version=${version}`);
+      console.log(`[StatusPrompt] Saving with version=${version}${isRetry ? ' (retry)' : ''}`);
       const response = await http.post('/api/ai/status_change_prompt/save', {
         prompt_text: promptText,
         version: version  // ✅ FIX: Send version for optimistic locking
