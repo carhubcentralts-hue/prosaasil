@@ -36,6 +36,7 @@ from server.models_sql import (
     Customer
 )
 from server.services.jobs import enqueue
+from server.jobs.send_appointment_confirmation_job import send_appointment_confirmation
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +214,7 @@ def schedule_automation_jobs(
                 if offset_config.get('type') == 'immediate':
                     enqueue(
                         'default',
-                        'server.jobs.send_appointment_confirmation_job.send_appointment_confirmation',
+                        send_appointment_confirmation,
                         run_id=run.id,
                         business_id=business_id
                     )
@@ -221,7 +222,7 @@ def schedule_automation_jobs(
                     # Schedule for future execution
                     enqueue(
                         'default',
-                        'server.jobs.send_appointment_confirmation_job.send_appointment_confirmation',
+                        send_appointment_confirmation,
                         run_id=run.id,
                         business_id=business_id,
                         scheduled_for=scheduled_for
