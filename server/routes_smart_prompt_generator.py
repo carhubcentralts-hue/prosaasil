@@ -12,7 +12,7 @@ Key Principles:
 - ✅ Every prompt includes: identity, goal, rules, flow, stop conditions, limitations
 """
 from flask import Blueprint, request, jsonify, session
-from server.routes_admin import require_api_auth
+from server.auth_api import require_api_auth
 from server.extensions import csrf
 from server.models_sql import Business, BusinessSettings, PromptRevisions, db
 import logging
