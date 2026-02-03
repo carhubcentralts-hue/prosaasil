@@ -8,7 +8,7 @@ const path = require('path');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
 // 🔥 FIX #2: Version validation - Fail-fast if Baileys version mismatch
-const EXPECTED_BAILEYS_VERSION = '6.7.5';
+const EXPECTED_BAILEYS_VERSION = '7.0.0-rc.9';
 try {
   const packageJson = require('./package.json');
   const actualVersion = packageJson.dependencies['@whiskeysockets/baileys'];
