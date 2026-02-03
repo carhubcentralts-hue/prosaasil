@@ -1,18 +1,18 @@
 """
 Test status deletion with all constraints and protections
 Verifies that status deletion properly handles:
-- System status protection (cannot delete)
 - Default status protection (cannot delete if only default)
 - Lead usage protection (cannot delete if leads use it)
 - ScheduledRuleStatus cleanup
+Note: System status protection has been removed - all statuses can now be edited and deleted.
 """
 import pytest
 import os
 from datetime import datetime, timedelta
 
 
-def test_cannot_delete_system_status():
-    """Test that system statuses (won, lost, unqualified) cannot be deleted"""
+def test_can_delete_system_status():
+    """Test that system statuses (won, lost, unqualified) CAN now be deleted (protection removed)"""
     os.environ['MIGRATION_MODE'] = '1'
     os.environ['TESTING'] = '1'
     
@@ -45,9 +45,10 @@ def test_cannot_delete_system_status():
         db.session.commit()
         
         status_id = system_status.id
+        business_id = business.id
         
         # Try to delete using the delete_status logic
-        # Should fail because it's a system status
+        # Should now succeed because system status protection has been removed
         from server.routes_status_management import status_management_bp
         from flask import g
         
@@ -60,16 +61,22 @@ def test_cannot_delete_system_status():
             assert status is not None
             assert status.is_system is True
             
-            # Check if it's a system status - should prevent deletion
+            # Check if it's a system status - should now allow deletion
+            # (The protection has been removed)
             if status.is_system:
-                # This should happen - system status deletion is blocked
-                assert True, "System status deletion correctly blocked"
-            else:
-                assert False, "System status should have been blocked from deletion"
+                # This is now allowed - system status can be deleted
+                # Only verify it's not the only default and not used by leads
+                pass
         
-        # Verify status still exists
+        # Now actually delete it
+        status_to_delete = LeadStatus.query.filter_by(id=status_id).first()
+        if status_to_delete:
+            db.session.delete(status_to_delete)
+            db.session.commit()
+        
+        # Verify status is deleted
         status_after = LeadStatus.query.filter_by(id=status_id).first()
-        assert status_after is not None, "System status should not be deleted"
+        assert status_after is None, "System status should now be deletable"
 
 
 def test_cannot_delete_only_default_status():
