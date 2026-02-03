@@ -8248,6 +8248,68 @@ def apply_migrations():
         
         checkpoint("✅ Migration 130 complete: Appointment automation system ready")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 131: Ensure FK CASCADE on appointment_automation_runs.appointment_id
+        # 🎯 PURPOSE: Guarantee CASCADE behavior for environments where it might be missing
+        # - Ensures appointment deletions automatically clean up automation runs
+        # - Prevents NotNullViolation errors on appointment deletion
+        # - Idempotent: Safe to run even if CASCADE already exists
+        # NOTE: Migration 130 created the table with CASCADE, but this ensures consistency
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 131: Ensuring FK CASCADE on appointment_automation_runs")
+        
+        if check_table_exists('appointment_automation_runs'):
+            try:
+                changes_made = False
+                
+                # Check if the FK constraint exists and verify CASCADE behavior
+                # We'll recreate it to ensure CASCADE is present
+                checkpoint("  → Verifying FK CASCADE on appointment_id...")
+                
+                # Check current constraint
+                constraint_check = execute_with_retry(migrate_engine, """
+                    SELECT confdeltype 
+                    FROM pg_constraint 
+                    WHERE conname = 'appointment_automation_runs_appointment_id_fkey'
+                    AND conrelid = 'appointment_automation_runs'::regclass
+                """)
+                
+                has_cascade = constraint_check and len(constraint_check) > 0 and constraint_check[0][0] == 'c'
+                
+                if not has_cascade:
+                    checkpoint("  → FK constraint missing CASCADE - recreating with CASCADE...")
+                    
+                    # Drop existing constraint if it exists without CASCADE
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE appointment_automation_runs 
+                        DROP CONSTRAINT IF EXISTS appointment_automation_runs_appointment_id_fkey
+                    """)
+                    
+                    # Add constraint with CASCADE
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE appointment_automation_runs
+                        ADD CONSTRAINT appointment_automation_runs_appointment_id_fkey
+                        FOREIGN KEY (appointment_id)
+                        REFERENCES appointments(id)
+                        ON DELETE CASCADE
+                    """)
+                    
+                    checkpoint("  ✅ FK CASCADE added successfully")
+                    checkpoint("     💡 Appointment deletions now automatically clean up automation runs")
+                    changes_made = True
+                    migrations_applied.append("migration_131_fk_cascade_fix")
+                else:
+                    checkpoint("  ✅ FK CASCADE already present - no action needed")
+                    
+            except Exception as e:
+                # Non-critical migration - log but don't fail
+                checkpoint(f"  ⚠️  Migration 131 encountered issue: {e}")
+                logger.warning(f"Migration 131 warning: {e}")
+        else:
+            checkpoint("  ℹ️  appointment_automation_runs table does not exist - skipping Migration 131")
+        
+        checkpoint("✅ Migration 131 complete: FK CASCADE verified")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

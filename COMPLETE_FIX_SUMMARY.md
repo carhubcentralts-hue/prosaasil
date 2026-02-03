@@ -148,12 +148,12 @@ else:
 
 ---
 
-### 7. FK CASCADE Fix ✅
+### 6. FK CASCADE Fix ✅
 **Files**:
 - `server/models_sql.py`
-- `server/scripts/fix_appointment_automation_runs_cascade.sql`
+- `server/db_migrate.py` (Migration 131)
 
-**Issue**: Deleting appointments caused NotNullViolation on appointment_automation_runs
+**Issue**: Deleting appointments could cause NotNullViolation on appointment_automation_runs
 
 **Fix**: 
 1. Updated model:
@@ -163,14 +163,11 @@ appointment_id = db.Column(db.Integer,
     nullable=False, index=True)
 ```
 
-2. SQL migration:
-```sql
-ALTER TABLE appointment_automation_runs 
-DROP CONSTRAINT appointment_automation_runs_appointment_id_fkey;
-
-ALTER TABLE appointment_automation_runs
-ADD CONSTRAINT appointment_automation_runs_appointment_id_fkey
-FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE;
+2. Added Migration 131 to ensure CASCADE:
+```python
+# Verifies FK has CASCADE behavior
+# Recreates constraint if CASCADE is missing
+# Idempotent and safe to run multiple times
 ```
 
 **Impact**: Deleting appointments automatically deletes automation runs
@@ -277,14 +274,14 @@ Per problem statement "Definition of Done":
 4. `server/agent_tools/tools_whatsapp.py` - signature documentation
 5. `server/agent_tools/tools_calendar.py` - signature documentation
 6. `server/agent_tools/agent_factory.py` - feature flags
-7. `server/models_sql.py` - FK CASCADE
-8. `server/scripts/fix_appointment_automation_runs_cascade.sql` - SQL migration
+7. `server/models_sql.py` - FK CASCADE in model
+8. `server/db_migrate.py` - Migration 131 for FK CASCADE
 9. `tests/test_lead_context_fix.py` - test suite
-10. `LEAD_CONTEXT_FIX.md` - documentation
+10. `LEAD_CONTEXT_FIX.md` + `COMPLETE_FIX_SUMMARY.md` - documentation
 
 ## Total Changes
-- **10 files modified/created**
-- **~520 lines added/modified**
+- **10 files modified**
+- **~580 lines added/modified**
 - **All surgical, focused changes**
 
 ## Expected Log Output
@@ -310,7 +307,10 @@ NotNullViolation: null value in appointment_id
 
 ## Deployment Notes
 
-1. **SQL Migration Required**: Run `fix_appointment_automation_runs_cascade.sql`
+1. **Database Migration**: Run `python server/db_migrate.py` to apply Migration 131
+   - Migration 131 ensures FK CASCADE on appointment_automation_runs
+   - Idempotent: Safe to run even if CASCADE already exists
+   - Non-breaking: Existing data is preserved
 2. **No Breaking Changes**: All changes are backwards compatible
 3. **Feature Flags**: Calendar tools disabled only if explicitly configured
 4. **Testing**: Verify LID message handling and appointment deletions
