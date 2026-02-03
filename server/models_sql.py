@@ -413,6 +413,8 @@ class PromptRevisions(db.Model):
     tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False)
     version = db.Column(db.Integer, nullable=False)  # auto-increment per tenant
     prompt = db.Column(db.Text)
+    status_change_prompt = db.Column(db.Text)  # 🔥 NEW: Instructions for AI on how to change lead statuses
+    whatsapp_system_prompt = db.Column(db.Text)  # 🔥 NEW: WhatsApp-specific system prompt
     changed_by = db.Column(db.String(255))
     changed_at = db.Column(db.DateTime, default=datetime.utcnow)
     

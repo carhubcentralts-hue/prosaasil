@@ -681,3 +681,177 @@ def get_available_providers():
         "default_provider": "openai",
         "note": "Smart Prompt Generator uses OpenAI exclusively"
     })
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 🔥 NEW: Status Change Prompt Management
+# Allows businesses to customize how AI changes lead statuses
+# ═══════════════════════════════════════════════════════════════════════════
+
+@smart_prompt_bp.route('/api/ai/status_change_prompt/get', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def get_status_change_prompt():
+    """
+    Get current status change prompt for business
+    Returns custom prompt or default template
+    """
+    try:
+        business_id = _get_business_id()
+        if not business_id:
+            return jsonify({"error": "לא נמצא עסק"}), 400
+        
+        # Get latest revision
+        latest_revision = PromptRevisions.query.filter_by(
+            tenant_id=business_id
+        ).order_by(PromptRevisions.version.desc()).first()
+        
+        if latest_revision and latest_revision.status_change_prompt:
+            return jsonify({
+                "success": True,
+                "prompt": latest_revision.status_change_prompt,
+                "version": latest_revision.version,
+                "has_custom_prompt": True
+            })
+        
+        # Return default template
+        default_prompt = """🎯 הנחיות לשינוי סטטוס אוטומטי של לידים
+==========================================
+
+**עקרונות כלליים:**
+- שנה סטטוס רק כאשר יש אינדיקציה ברורה מהלקוח
+- תעדכן את הסטטוס בזמן אמת במהלך השיחה/צ'אט
+- תמיד ספק סיבה ברורה לשינוי הסטטוס
+
+**מתי לעדכן סטטוסים (דוגמאות לפי סטטוסים רלוונטיים):**
+
+📌 מעוניין (interested):
+- לקוח שואל שאלות על השירות/מוצר
+- לקוח מבקש פרטים נוספים
+- לקוח מראה עניין אקטיבי
+דוגמה: "לקוח שאל על מחירים ושירותים - מראה עניין אקטיבי"
+
+📌 נקבעה פגישה (appointment_scheduled):
+- לקוח אישר פגישה בתאריך ושעה ספציפיים
+- נקבעה פגישה דרך הסוכן
+דוגמה: "נקבעה פגישה ליום ראשון 10:00"
+
+📌 מחכה לחזרה (callback_requested):
+- לקוח ביקש שנחזור אליו במועד מסוים
+- לקוח עסוק כרגע ומבקש ליצור קשר מאוחר יותר
+דוגמה: "לקוח ביקש שנחזור אליו מחר אחה״צ"
+
+📌 נשלחה הצעה (proposal_sent):
+- נשלחה הצעת מחיר ללקוח
+- לקוח ביקש הצעת מחיר בכתב
+דוגמה: "נשלחה הצעת מחיר למייל הלקוח"
+
+📌 לא רלוונטי (not_relevant):
+- לקוח אמר במפורש שהוא לא מעוניין
+- טעינו במספר / לקוח לא בקבוצת היעד
+דוגמה: "לקוח אמר שטעינו במספר ואינו מעוניין"
+
+**מגבלות חשובות:**
+❌ אל תשנה סטטוס אם:
+- הלקוח רק ענה לשיחה (זה לא סיבה לשינוי)
+- שאל שאלה כללית מאוד
+- אמר "אני אחשוב על זה" (זה לא החלטה)
+- לא ברור מה הכוונה שלו
+
+**רמת ביטחון (confidence):**
+- 1.0 = לקוח אמר משהו מפורש ("כן אני מתעניין", "קבע לי פגישה")
+- 0.8-0.9 = ברור מההקשר אבל לא מפורש ("נשמע טוב", "כמה זה עולה?")
+- 0.7 = יש רמז אבל לא בטוח
+- פחות מ-0.7 = אל תעדכן!
+
+💡 **העיקרון: תהיה שמרן! עדכן רק כשבטוח שצריך!**"""
+        
+        return jsonify({
+            "success": True,
+            "prompt": default_prompt,
+            "version": 0,
+            "has_custom_prompt": False,
+            "note": "זהו תבנית ברירת מחדל. ניתן להתאים אישית לפי צרכי העסק."
+        })
+        
+    except Exception as e:
+        logger.exception("Error fetching status change prompt")
+        return jsonify({"error": "שגיאה בטעינת פרומפט סטטוסים"}), 500
+
+
+@smart_prompt_bp.route('/api/ai/status_change_prompt/save', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def save_status_change_prompt():
+    """
+    Save custom status change prompt for business
+    Creates new prompt revision with status_change_prompt
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "נדרשים נתונים"}), 400
+        
+        prompt_text = data.get('prompt_text', '').strip()
+        
+        if not prompt_text:
+            return jsonify({"error": "טקסט הפרומפט חסר"}), 400
+        
+        if len(prompt_text) > 5000:
+            return jsonify({"error": "הפרומפט ארוך מדי (מקסימום 5000 תווים)"}), 400
+        
+        # Get business ID
+        business_id = _get_business_id()
+        if not business_id:
+            return jsonify({"error": "לא נמצא עסק"}), 400
+        
+        business = Business.query.filter_by(id=business_id).first()
+        if not business:
+            return jsonify({"error": "עסק לא נמצא"}), 404
+        
+        # Get current user
+        current_user = session.get('user', {})
+        user_id = current_user.get('email', 'system')
+        
+        # Get latest revision to preserve other fields
+        latest_revision = PromptRevisions.query.filter_by(
+            tenant_id=business_id
+        ).order_by(PromptRevisions.version.desc()).first()
+        
+        next_version = (latest_revision.version + 1) if latest_revision else 1
+        
+        # Create new revision
+        revision = PromptRevisions()
+        revision.tenant_id = business_id
+        revision.version = next_version
+        revision.status_change_prompt = prompt_text
+        
+        # Preserve existing prompts from latest revision
+        if latest_revision:
+            revision.prompt = latest_revision.prompt
+            revision.whatsapp_system_prompt = latest_revision.whatsapp_system_prompt
+        
+        revision.changed_by = f"{user_id} (Status Prompt Editor)"
+        revision.changed_at = datetime.utcnow()
+        db.session.add(revision)
+        db.session.commit()
+        
+        # Invalidate cache
+        try:
+            from server.services.ai_service import invalidate_business_cache
+            invalidate_business_cache(business_id)
+            logger.info(f"Cache invalidated for business {business_id} after status prompt save")
+        except Exception as e:
+            logger.warning(f"Could not invalidate cache: {e}")
+        
+        logger.info(f"Status change prompt saved: business={business_id}, version={next_version}")
+        
+        return jsonify({
+            "success": True,
+            "version": next_version,
+            "message": f"פרומפט סטטוסים נשמר בהצלחה (גרסה {next_version})"
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Error saving status change prompt")
+        return jsonify({"error": "שגיאה בשמירת הפרומפט"}), 500

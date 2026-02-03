@@ -1571,7 +1571,26 @@ YOUR INSTRUCTIONS:
 """
 
     # 🔥 ALWAYS ADD STATUS UPDATE INSTRUCTIONS (works for all channels!)
-    status_update_instructions = """
+    # Load custom status change prompt from database if available
+    status_update_instructions = ""
+    try:
+        from server.models_sql import PromptRevisions
+        latest_revision = PromptRevisions.query.filter_by(
+            tenant_id=business_id
+        ).order_by(PromptRevisions.version.desc()).first()
+        
+        if latest_revision and latest_revision.status_change_prompt:
+            # Use custom business-specific status change prompt
+            status_update_instructions = f"""
+
+🎯 שינוי סטטוס אוטומטי חכם (מותאם אישית לעסק):
+==========================================
+{latest_revision.status_change_prompt}
+"""
+            logger.info(f"✅ Using custom status change prompt for business {business_id} (version {latest_revision.version})")
+        else:
+            # Use default status change instructions
+            status_update_instructions = """
 
 🎯 שינוי סטטוס אוטומטי חכם (פעיל תמיד):
 ==========================================
@@ -1629,6 +1648,17 @@ YOUR INSTRUCTIONS:
 
 🎯 העיקרון: תהיה שמרן! עדכן רק כשבטוח שצריך!
 """
+            logger.info(f"Using default status change instructions for business {business_id}")
+    except Exception as e:
+        # Fallback to default if database query fails
+        logger.warning(f"Failed to load custom status change prompt for business {business_id}: {e}")
+        status_update_instructions = """
+
+🎯 שינוי סטטוס אוטומטי חכם (פעיל תמיד):
+==========================================
+יש לך כלי update_lead_status() שמאפשר לך לעדכן סטטוס של ליד באופן חכם.
+השתמש בו רק כשיש אינדיקציה ברורה מהלקוח שהסטטוס צריך להשתנות!
+תמיד ספק סיבה ברורה למה שינית את הסטטוס."""
 
     # Add status update instructions to ALL agents (not just customer service)
     instructions = instructions + status_update_instructions

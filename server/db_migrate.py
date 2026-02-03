@@ -8122,6 +8122,57 @@ def apply_migrations():
         
         checkpoint("✅ Migration 128 complete: Lead status history tracking ready")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 129: Add status_change_prompt and whatsapp_system_prompt to prompt_revisions
+        # 🎯 PURPOSE: Enable per-business customization of status change behavior
+        # - status_change_prompt: Custom instructions for AI on when/how to change lead statuses
+        # - whatsapp_system_prompt: WhatsApp-specific system prompt (separate from phone calls)
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 129: Adding status_change_prompt and whatsapp_system_prompt to prompt_revisions")
+        
+        if check_table_exists('prompt_revisions'):
+            try:
+                changes_made = False
+                
+                # Add status_change_prompt column
+                if not check_column_exists('prompt_revisions', 'status_change_prompt'):
+                    checkpoint("  → Adding status_change_prompt to prompt_revisions...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE prompt_revisions 
+                        ADD COLUMN status_change_prompt TEXT NULL
+                    """)
+                    checkpoint("  ✅ status_change_prompt column added")
+                    checkpoint("     💡 Enables per-business customization of automatic status changes")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  status_change_prompt column already exists")
+                
+                # Add whatsapp_system_prompt column
+                if not check_column_exists('prompt_revisions', 'whatsapp_system_prompt'):
+                    checkpoint("  → Adding whatsapp_system_prompt to prompt_revisions...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE prompt_revisions 
+                        ADD COLUMN whatsapp_system_prompt TEXT NULL
+                    """)
+                    checkpoint("  ✅ whatsapp_system_prompt column added")
+                    checkpoint("     💡 Allows separate WhatsApp prompt from phone call prompt")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  whatsapp_system_prompt column already exists")
+                
+                if changes_made:
+                    migrations_applied.append("migration_129_prompt_customization")
+                    checkpoint("  ✅ Prompt customization columns added successfully")
+                    
+            except Exception as e:
+                checkpoint(f"  ❌ Migration 129 failed: {e}")
+                logger.error(f"Migration 129 error: {e}", exc_info=True)
+                raise
+        else:
+            checkpoint("  ℹ️  prompt_revisions table does not exist - skipping Migration 129")
+        
+        checkpoint("✅ Migration 129 complete: Per-business prompt customization ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
