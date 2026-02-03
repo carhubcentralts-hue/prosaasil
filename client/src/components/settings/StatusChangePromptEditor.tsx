@@ -41,10 +41,9 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
     
     try {
       console.log('[StatusPrompt] Loading prompt...');
-      const response = await http.get('/api/ai/status_change_prompt/get');
+      const data = await http.get<any>('/api/ai/status_change_prompt/get');
       
       // ✅ FIX: Handle both "ok" and "success" fields for compatibility
-      const data = response.data;
       console.log(`[StatusPrompt] Loaded: version=${data.version}, has_custom=${data.has_custom_prompt || data.exists}`);
       
       if (data.ok || data.success) {
@@ -57,7 +56,8 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         throw new Error(data.details || data.error || 'Unknown error');
       }
     } catch (err: any) {
-      const errorCode = err.response?.status;
+      // Note: err.status is from our http client, err.response?.status is for raw fetch errors
+      const errorCode = err.status || err.response?.status;
       const isNetworkError = !errorCode || errorCode === 502 || errorCode === 504 || errorCode === 0;
       
       // ✅ FIX: Retry once on network errors (mobile support)
@@ -68,9 +68,7 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
       }
       
       // ✅ FIX: Extract error message from new format and provide context
-      let errorMsg = err.response?.data?.details || 
-                     err.response?.data?.error || 
-                     'שגיאה בטעינת הפרומפט';
+      let errorMsg = err.error || err.message || 'שגיאה בטעינת הפרומפט';
       
       // Add more context for common errors
       if (errorCode === 400 && errorMsg.includes('לא נמצא')) {
@@ -86,7 +84,7 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
       console.error('[StatusPrompt] Error loading prompt:', {
         status: errorCode,
         message: errorMsg,
-        details: err.response?.data,
+        details: err.error,
         fullError: err
       });
     }
@@ -121,12 +119,10 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
 
     try {
       console.log(`[StatusPrompt] Saving with version=${version}${isRetry ? ' (retry)' : ''}`);
-      const response = await http.post('/api/ai/status_change_prompt/save', {
+      const data = await http.post<any>('/api/ai/status_change_prompt/save', {
         prompt_text: promptText,
         version: version  // ✅ FIX: Send version for optimistic locking
       });
-
-      const data = response.data;
       
       // ✅ FIX: Update UI from response (not assumptions)
       if (data.ok || data.success) {
@@ -154,33 +150,24 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         throw new Error(data.details || data.error || 'Unknown error');
       }
     } catch (err: any) {
-      const errorCode = err.response?.status;
+      // Note: err.status is from our http client, err.response?.status is for raw fetch errors
+      const errorCode = err.status || err.response?.status;
       
       // ✅ FIX: Handle 409 Conflict (someone saved before us)
       if (errorCode === 409) {
-        const data = err.response?.data;
-        const latestPrompt = data?.latest_prompt;
-        const latestVersion = data?.latest_version;
+        console.warn(`[StatusPrompt] Version conflict! Server has newer version. Reloading...`);
         
-        console.warn(`[StatusPrompt] Version conflict! Server version=${latestVersion}, our version was=${version}`);
-        
-        if (latestPrompt && latestVersion !== undefined) {
-          // Update to latest version
-          setPromptText(latestPrompt);
-          setOriginalPrompt(latestPrompt);
-          setVersion(latestVersion);
-          setHasCustomPrompt(true);
-          setIsDirty(false);
-          
+        // On conflict, reload the latest prompt from server
+        try {
+          await loadPrompt();
           setError('מישהו שמר שינויים לפני רגע. הפרומפט עודכן לגרסה החדשה ביותר.');
-        } else {
-          setError(data?.details || 'גרסה התיישנה. אנא רענן את הדף.');
+        } catch (reloadErr) {
+          console.error('[StatusPrompt] Failed to reload after conflict:', reloadErr);
+          setError('גרסה התיישנה. אנא רענן את הדף.');
         }
       } else {
         // Other errors - provide more context
-        let errorMsg = err.response?.data?.details || 
-                       err.response?.data?.error || 
-                       'שגיאה בשמירת הפרומפט';
+        let errorMsg = err.error || err.message || 'שגיאה בשמירת הפרומפט';
         
         // Add context for common errors
         if (errorCode === 400) {
@@ -202,7 +189,7 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
       
       console.error('[StatusPrompt] Error saving prompt:', {
         status: errorCode,
-        data: err.response?.data,
+        error: err.error,
         fullError: err
       });
     } finally {
