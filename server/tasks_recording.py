@@ -697,7 +697,8 @@ def process_recording_async(form_data):
                 call_sid,
                 business_type,
                 business_name,
-                call_duration=actual_duration
+                call_duration=actual_duration,
+                business_id=call_log.business_id if call_log else None
             )
             # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
             if not DEBUG:
@@ -1532,35 +1533,33 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 log.info(f"[AutoStatus] 🎯 Decision: should_change={should_change}, reason='{change_reason}'")
                 
                 if should_change and suggested_status:
-                    # Extra safety: validate status exists for this business
-                    from server.models_sql import LeadStatus
-                    valid_status = LeadStatus.query.filter_by(
-                        business_id=call_log.business_id,
-                        name=suggested_status,
-                        is_active=True
-                    ).first()
+                    # 🔥 USE UNIFIED STATUS SERVICE - Single source of truth
+                    from server.services.unified_status_service import update_lead_status_unified
                     
-                    if valid_status:
-                        lead.status = suggested_status
-                        
-                        # Create activity for auto status change
-                        from server.models_sql import LeadActivity
-                        activity = LeadActivity()
-                        activity.lead_id = lead.id
-                        activity.type = "status_change"
-                        activity.payload = {
-                            "from": old_status,
-                            "to": suggested_status,
-                            "source": f"auto_{call_direction}",
-                            "call_sid": call_sid,
-                            "reason": change_reason  # 🆕 Log why we changed
+                    log.info(f"[AutoStatus] 📝 Calling unified status service for lead {lead.id}")
+                    
+                    result = update_lead_status_unified(
+                        business_id=call_log.business_id,
+                        lead_id=lead.id,
+                        new_status=suggested_status,
+                        reason=change_reason or f"Auto-updated from {call_direction} call summary",
+                        confidence=0.8,  # AI-generated from summary
+                        channel='call_summary',  # 🔥 CRITICAL: Mark as summary-based change
+                        metadata={
+                            'call_sid': call_sid,
+                            'old_status': old_status,
+                            'source': f'auto_{call_direction}',
+                            'has_summary': bool(summary),
+                            'call_duration': call_log.duration
                         }
-                        activity.at = datetime.utcnow()
-                        db.session.add(activity)
-                        
-                        log.info(f"[AutoStatus] ✅ Updated lead {lead.id} status: {old_status} → {suggested_status} (reason: {change_reason})")
+                    )
+                    
+                    if result.success:
+                        log.info(f"[AutoStatus] ✅ Updated lead {lead.id} status via unified service: {old_status} → {suggested_status}")
+                    elif result.skipped:
+                        log.info(f"[AutoStatus] ⏭️ Status update skipped: {result.message}")
                     else:
-                        log.warning(f"[AutoStatus] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id} - skipping status change")
+                        log.warning(f"[AutoStatus] ⚠️ Status update failed: {result.message}")
                 elif suggested_status:
                     # We have a suggested status but decided not to change
                     log.info(f"[AutoStatus] ⏭️  Keeping lead {lead.id} at status '{old_status}' (suggested '{suggested_status}' but {change_reason})")
@@ -1820,34 +1819,34 @@ def _handle_failed_call(call_log, call_status, db):
         
         # 4. Apply status change with validation
         if should_change and suggested_status:
-            # Validate status exists for this business
-            valid_status = LeadStatus.query.filter_by(
-                business_id=call_log.business_id,
-                name=suggested_status,
-                is_active=True
-            ).first()
+            # 🔥 USE UNIFIED STATUS SERVICE - Single source of truth
+            from server.services.unified_status_service import update_lead_status_unified
             
-            if valid_status:
-                lead.status = suggested_status
-                
-                # Create activity for auto status change
-                activity = LeadActivity()
-                activity.lead_id = lead.id
-                activity.type = "status_change"
-                activity.payload = {
-                    "from": old_status,
-                    "to": suggested_status,
-                    "source": f"auto_{call_status}_{call_log.direction or 'unknown'}",
-                    "call_sid": call_log.call_sid,
-                    "reason": f"Failed call: {call_status} - {change_reason}"  # 🆕 Include change reason
+            log.info(f"[FAILED_CALL] 📝 Calling unified status service for lead {lead.id}")
+            
+            result = update_lead_status_unified(
+                business_id=call_log.business_id,
+                lead_id=lead.id,
+                new_status=suggested_status,
+                reason=f"Failed call: {call_status} - {change_reason}",
+                confidence=0.9,  # High confidence for failed calls
+                channel='call_summary',  # 🔥 CRITICAL: Mark as summary-based change
+                metadata={
+                    'call_sid': call_log.call_sid,
+                    'old_status': old_status,
+                    'source': f'auto_{call_status}_{call_log.direction or "unknown"}',
+                    'call_status': call_status,
+                    'call_duration': call_log.duration or 0
                 }
-                activity.at = datetime.utcnow()
-                db.session.add(activity)
-                
+            )
+            
+            if result.success:
                 db.session.commit()
-                log.info(f"[FAILED_CALL] ✅ SUCCESS! Updated lead {lead.id} status: {old_status} → {suggested_status} (reason: {change_reason})")
+                log.info(f"[FAILED_CALL] ✅ SUCCESS! Updated lead {lead.id} status via unified service: {old_status} → {suggested_status}")
+            elif result.skipped:
+                log.info(f"[FAILED_CALL] ⏭️ Status update skipped: {result.message}")
             else:
-                log.warning(f"[FAILED_CALL] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id} - summary created but status not updated")
+                log.warning(f"[FAILED_CALL] ⚠️ Status update failed: {result.message}")
         elif suggested_status:
             # We have a suggested status but decided not to change
             log.info(f"[FAILED_CALL] ⏭️  Keeping lead {lead.id} at status '{old_status}' (suggested '{suggested_status}' but {change_reason})")

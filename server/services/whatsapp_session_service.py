@@ -218,6 +218,70 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                 
                 logger.info(f"[WA-SUMMARY] ✅ Updated unified customer memory for lead {lead.id}")
                 
+                # 🔥 NEW: Trigger auto-status update from WhatsApp summary
+                # This ensures WhatsApp summaries can change status just like call summaries
+                try:
+                    from server.services.lead_auto_status_service import suggest_lead_status_from_call
+                    from server.services.unified_status_service import update_lead_status_unified
+                    
+                    logger.info(f"[WA-STATUS] 🔍 Checking if status update needed for lead {lead.id}")
+                    logger.info(f"[WA-STATUS]    - Current status: {lead.status}")
+                    logger.info(f"[WA-STATUS]    - Summary: {summary[:150]}...")
+                    
+                    # Get messages for transcript-like analysis
+                    messages = get_session_messages(session)
+                    
+                    # Build transcript from messages
+                    transcript_lines = []
+                    for m in messages:
+                        if m.message_text:
+                            sender = 'Customer' if m.direction == 'inbound' else 'Business'
+                            transcript_lines.append(f"{sender}: {m.message_text}")
+                    
+                    transcript_text = "\n".join(transcript_lines)
+                    
+                    # Use the same auto-status logic as calls
+                    suggested_status = suggest_lead_status_from_call(
+                        tenant_id=session.business_id,
+                        lead_id=lead.id,
+                        call_direction='inbound',  # WhatsApp is typically inbound
+                        call_summary=summary,
+                        call_transcript=transcript_text,
+                        call_duration=None  # Not applicable for WhatsApp
+                    )
+                    
+                    if suggested_status:
+                        logger.info(f"[WA-STATUS] 🤖 Suggested status: '{suggested_status}'")
+                        
+                        # Use unified status service with whatsapp_summary channel
+                        result = update_lead_status_unified(
+                            business_id=session.business_id,
+                            lead_id=lead.id,
+                            new_status=suggested_status,
+                            reason=f"Auto-updated from WhatsApp conversation summary",
+                            confidence=0.8,  # AI-generated from summary
+                            channel='whatsapp_summary',  # 🔥 CRITICAL: Mark as summary-based change
+                            metadata={
+                                'session_id': session_id,
+                                'old_status': lead.status,
+                                'source': 'whatsapp_session',
+                                'message_count': len(messages)
+                            }
+                        )
+                        
+                        if result.success:
+                            logger.info(f"[WA-STATUS] ✅ Updated lead {lead.id} status: {lead.status} → {suggested_status}")
+                        elif result.skipped:
+                            logger.info(f"[WA-STATUS] ⏭️ Status update skipped: {result.message}")
+                        else:
+                            logger.warning(f"[WA-STATUS] ⚠️ Status update failed: {result.message}")
+                    else:
+                        logger.info(f"[WA-STATUS] ℹ️ No confident status match - keeping status as '{lead.status}'")
+                        
+                except Exception as e:
+                    logger.error(f"[WA-STATUS] ❌ Error updating status from WhatsApp summary: {e}", exc_info=True)
+                    # Don't fail the whole summary creation if status update fails
+                
                 # Try to extract memory patches from conversation
                 try:
                     messages = get_session_messages(session)
@@ -619,22 +683,58 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
     customer_count = len(customer_messages)
     context_note = f"\n\n(שיחה: {msg_count} הודעות, {customer_count} מהלקוח)\n"
     
+    # 🔥 DYNAMIC STATUSES: Fetch business-specific statuses for intelligent recommendation
+    status_context = ""
+    if session.business_id:
+        try:
+            from server.models_sql import LeadStatus
+            statuses = LeadStatus.query.filter_by(
+                business_id=session.business_id,
+                is_active=True
+            ).all()
+            
+            if statuses:
+                # Build list with Hebrew labels
+                status_list = []
+                for s in statuses:
+                    hebrew_label = s.display_name or s.name
+                    status_list.append(f"- {s.name} ({hebrew_label})")
+                
+                status_context = f"""
+
+🎯 **סטטוסים זמינים בעסק זה**:
+{chr(10).join(status_list)}
+
+⚠️ חשוב: 
+- המלץ רק על סטטוס מהרשימה!
+- השתמש בשם הפנימי (לפני הסוגריים)
+- הבן את המשמעות מהתווית בעברית (בסוגריים)"""
+                
+                logger.info(f"[WA-SESSION] Loaded {len(statuses)} statuses for business {session.business_id}")
+            else:
+                logger.warning(f"[WA-SESSION] No statuses found for business {session.business_id}")
+        except Exception as e:
+            logger.error(f"[WA-SESSION] Failed to load statuses: {e}")
+    
     prompt = f"""סכם את שיחת ה-WhatsApp הבאה בעברית.
 
 שיחה:
-{conversation_text}{context_note}
+{conversation_text}{context_note}{status_context}
 
 הסיכום חייב לכלול:
 1. **נושא** - מה הלקוח רצה/שאל
 2. **מה נדון** - הנקודות העיקריות (אם יש)
 3. **תוצאה** - מה סוכם או איך הסתיימה השיחה
 4. **המשך** - אם יש פעולה נדרשת
+5. **המלצת סטטוס** - המלצה חכמה לסטטוס מהרשימה למעלה
 
 כללים:
 - כתוב רק מה שנאמר בפועל
 - אם השיחה קצרה/לא הגיעה לסיכום - ציין זאת בקצרה
 - 1-4 משפטים מספיקים (תלוי באורך השיחה)
 - גם שיחה של הודעה אחת צריכה סיכום (למשל: "לקוח שאל על X, טרם נענה")
+- הוסף המלצת סטטוס בפורמט [המלצה: <שם_סטטוס>]
+- הסטטוס חייב להיות מהרשימה שקיבלת!
 
 סיכום:"""
 
@@ -657,12 +757,22 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
 - מדויק - רק מה שנאמר בפועל
 - שימושי - מה קרה ומה הצעד הבא
 - כן - אם לא הגיעו לסיכום, כתוב את זה
+- מלא - כולל המלצה חכמה לסטטוס
+
+המלצת סטטוס:
+⚠️ תקבל רשימת סטטוסים ספציפית לעסק בפרומפט
+⚠️ כל סטטוס מופיע בפורמט: שם_פנימי (תווית בעברית)
+⚠️ השתמש בשם הפנימי בהמלצה שלך
+⚠️ הבן את המשמעות מהתווית בעברית
+⚠️ בחר את הסטטוס המתאים ביותר לתוכן השיחה
 
 דוגמאות:
-✓ "לקוח שאל על מחירי שירות. קיבל הצעת מחיר. ביקש לחשוב על זה."
-✓ "בירור על זמינות. לא נמצא תאריך מתאים. הלקוח יחזור בשבוע הבא."
-✓ "לקוח התעניין בשירות אך לא השיב להודעות ההמשך."
-"""},
+✓ "לקוח שאל על מחירי שירות. קיבל הצעת מחיר. ביקש לחשוב על זה. [המלצה: <שם_מהרשימה>]"
+✓ "בירור על זמינות. לא נמצא תאריך מתאים. הלקוח יחזור בשבוע הבא. [המלצה: <שם_מהרשימה>]"
+✓ "לקוח התעניין בשירות אך לא השיב להודעות ההמשך. [המלצה: <שם_מהרשימה>]"
+✓ "לקוח ביקש פגישה - נקבעה לתאריך 15/3 בשעה 10:00. [המלצה: <שם_מהרשימה>]"
+
+זכור: השתמש רק בשמות הפנימיים מהרשימה שקיבלת!"""},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=200,

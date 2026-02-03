@@ -23,7 +23,7 @@ class UpsertLeadInput(BaseModel):
     last_name: Optional[str] = Field(None, description="Last name")
     email: Optional[str] = Field(None, description="Email address")
     source: str = Field("ai_agent", description="Lead source (call/whatsapp/ai_agent)")
-    status: str = Field("new", description="Lead status (new/contacted/qualified/won/lost)")
+    # STATUS REMOVED: Use the dedicated update_lead_status tool instead
     tags: Optional[List[str]] = Field(None, description="Tags for categorization")
     notes: Optional[str] = Field(None, description="Notes about the lead")
     summary: Optional[str] = Field(None, description="Brief summary of conversation (10-30 words)")
@@ -105,18 +105,10 @@ def _leads_upsert_impl(input: UpsertLeadInput) -> UpsertLeadOutput:
                 lead.last_name = input.last_name
             if input.email:
                 lead.email = input.email
-            if input.status:
-                # Log status change
-                if lead.status != input.status:
-                    old_status = lead.status
-                    lead.status = input.status
-                    activity = LeadActivity(
-                        lead_id=lead.id,
-                        type='status_change',
-                        payload={'from': old_status, 'to': input.status, 'by': 'ai_agent'},
-                        at=now
-                    )
-                    db.session.add(activity)
+            
+            # 🔒 STATUS UPDATE REMOVED: Use the dedicated update_lead_status tool instead
+            # Status changes must go through unified_status_service for proper validation,
+            # audit logging, and enforcement of the "summary-only" rule.
             
             # Append notes if provided
             if input.notes:

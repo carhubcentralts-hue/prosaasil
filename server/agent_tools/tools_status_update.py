@@ -84,13 +84,21 @@ def update_lead_status(input: UpdateLeadStatusInput) -> UpdateLeadStatusOutput:
     """
     try:
         # Detect channel from context
+        # 🔥 IMPORTANT: Channel must be summary-based for auto-status to work
         channel = "unknown"
         if hasattr(g, 'agent_channel'):
-            channel = g.agent_channel
+            base_channel = g.agent_channel
+            # Map to summary channels
+            if base_channel == 'whatsapp':
+                channel = 'whatsapp_summary'
+            elif base_channel in ['call', 'phone']:
+                channel = 'call_summary'
+            else:
+                channel = base_channel
         elif hasattr(g, 'whatsapp_conversation'):
-            channel = "whatsapp"
+            channel = "whatsapp_summary"  # WhatsApp AI always operates on summaries
         elif hasattr(g, 'call_sid'):
-            channel = "call"
+            channel = "call_summary"  # Call AI always operates on summaries
         
         # 🔥 LOG: AI is using the status update tool!
         logger.info(f"[STATUS-UPDATE] 🤖 AI requesting status change:")
