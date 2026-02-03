@@ -11,6 +11,7 @@ from server.utils.whatsapp_utils import normalize_conversation_key
 from server.agent_tools.phone_utils import normalize_phone
 from server.services.jobs import enqueue_job
 from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
+from server.services.unified_lead_context_service import get_unified_context_for_lead
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1378,7 +1379,6 @@ def baileys_webhook():
                     lead_context_payload = None
                     if lead and lead.id:
                         try:
-                            from server.services.unified_lead_context_service import get_unified_context_for_lead
                             lead_context_payload = get_unified_context_for_lead(
                                 business_id=business_id,
                                 lead_id=lead.id,
@@ -2625,7 +2625,6 @@ def _process_meta_ai_response(business, from_number: str, user_message: str):
         lead_context_payload = None
         if lead and lead.id:
             try:
-                from server.services.unified_lead_context_service import get_unified_context_for_lead
                 lead_context_payload = get_unified_context_for_lead(
                     business_id=business_id,
                     lead_id=lead.id,
