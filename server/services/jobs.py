@@ -183,6 +183,11 @@ def enqueue(
             job_id=generate_deterministic_job_id('webhook', 'baileys', message_id)
         )
     """
+    # Validate that func is callable
+    if not callable(func):
+        logger.error(f"[JOBS] enqueue got non-callable func={func!r} type={type(func)}")
+        raise TypeError(f"enqueue expected callable, got {type(func).__name__}: {func!r}")
+    
     redis_conn = get_redis()
     queue = get_queue(queue_name)
     
@@ -192,13 +197,17 @@ def enqueue(
     if not trace_id:
         trace_id = str(uuid.uuid4())
     
+    # Get function name safely with fallback chain: __name__ -> __qualname__ -> str(func)
+    func_name = getattr(func, "__name__", None) or getattr(func, "__qualname__", None) or str(func)
+    job_desc = description or func_name
+    
     # Create job metadata
     meta = {
         'business_id': business_id,
         'run_id': run_id,
         'trace_id': trace_id,
         'enqueued_at': datetime.utcnow().isoformat(),
-        'description': description or func.__name__
+        'description': job_desc
     }
     
     # Build job kwargs
@@ -210,7 +219,7 @@ def enqueue(
         'meta': meta,
         'ttl': ttl,
         'job_timeout': timeout,
-        'description': description or f"{func.__name__}",
+        'description': job_desc,
     }
     
     # Add retry if specified
@@ -218,7 +227,7 @@ def enqueue(
         job_kwargs['retry'] = Retry(max=retry)
     
     # Log enqueue
-    log_context = f"[JOB-ENQUEUE] queue={queue_name} func={func.__name__} job_id={job_id[:8] if len(job_id) > 8 else job_id}"
+    log_context = f"[JOB-ENQUEUE] queue={queue_name} func={func_name} job_id={job_id[:8] if len(job_id) > 8 else job_id}"
     if business_id:
         log_context += f" business_id={business_id}"
     if run_id:
@@ -248,7 +257,7 @@ def enqueue(
         )
         return job
     except Exception as e:
-        logger.error(f"[JOB-ENQUEUE] Failed to enqueue {func.__name__}: {e}")
+        logger.error(f"[JOB-ENQUEUE] Failed to enqueue {func_name}: {e}")
         raise
 
 
