@@ -296,7 +296,7 @@ def update_status(status_id):
             status.description = data['description'].strip()
         
         # ✅ Exactly one default enforcement for PUT
-        if 'is_default' in data and not status.is_system:
+        if 'is_default' in data:
             new_is_default = data['is_default']
             
             # Get current default status
