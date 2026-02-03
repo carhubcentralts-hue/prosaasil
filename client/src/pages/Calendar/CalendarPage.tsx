@@ -26,7 +26,8 @@ import {
   ChevronUp,
   Check,
   Star,
-  Tag
+  Tag,
+  Zap
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { http } from '../../services/http';
@@ -34,6 +35,7 @@ import { formatDate, formatDateOnly, formatTimeOnly, formatLongDate } from '../.
 import { useNavigate } from 'react-router-dom';
 import AppointmentStatusManagementModal from './components/AppointmentStatusManagementModal';
 import AppointmentTypeManagementModal from './components/AppointmentTypeManagementModal';
+import AppointmentAutomationModal from './components/AppointmentAutomationModal';
 
 // Calendar components and types
 interface Appointment {
@@ -314,6 +316,7 @@ export function CalendarPage() {
   // New modal states for appointment status and type management
   const [showAppointmentStatusModal, setShowAppointmentStatusModal] = useState(false);
   const [showAppointmentTypeModal, setShowAppointmentTypeModal] = useState(false);
+  const [showAppointmentAutomationModal, setShowAppointmentAutomationModal] = useState(false);
 
   // Fetch appointments using the proper HTTP client
   const fetchAppointments = useCallback(async () => {
@@ -955,6 +958,15 @@ export function CalendarPage() {
                 >
                   <Tag className="h-5 w-5 flex-shrink-0" />
                   <span className="hidden sm:inline font-medium">סוגים</span>
+                </button>
+                <button
+                  className="btn-ghost flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
+                  onClick={() => setShowAppointmentAutomationModal(true)}
+                  data-testid="button-appointment-automation-management"
+                  title="אוטומציות אישורי פגישות"
+                >
+                  <Zap className="h-5 w-5 flex-shrink-0" />
+                  <span className="hidden sm:inline font-medium">אוטומציות</span>
                 </button>
                 <button
                   className="btn-primary flex-1 sm:flex-none sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
@@ -2318,6 +2330,12 @@ export function CalendarPage() {
           fetchAppointmentConfigs();
           fetchAppointments();
         }}
+      />
+      
+      {/* Appointment Automation Modal */}
+      <AppointmentAutomationModal
+        isOpen={showAppointmentAutomationModal}
+        onClose={() => setShowAppointmentAutomationModal(false)}
       />
     </div>
   );
