@@ -124,8 +124,25 @@ class UnifiedStatusService:
             StatusUpdateResult with success/failure and details
         """
         try:
+            # 🔒 CRITICAL: Enforce that status changes ONLY come from conversation summaries
+            # This is the SINGLE SOURCE OF TRUTH requirement
+            ALLOWED_SUMMARY_CHANNELS = ['whatsapp_summary', 'call_summary', 'phone_summary']
+            ALLOWED_MANUAL_CHANNELS = ['manual', 'system', 'api']  # For admin/system overrides
+            
+            # If the channel is not a summary or manual override, reject the update
+            if request.channel not in ALLOWED_SUMMARY_CHANNELS and request.channel not in ALLOWED_MANUAL_CHANNELS:
+                logger.warning(f"[UnifiedStatus] 🚫 REJECTED status change from non-summary channel: {request.channel}")
+                logger.warning(f"[UnifiedStatus]    - Lead ID: {request.lead_id}, Business: {self.business_id}")
+                logger.warning(f"[UnifiedStatus]    - Attempted Status: {request.new_status}")
+                logger.warning(f"[UnifiedStatus]    - Reason: Status changes ONLY allowed from conversation summaries")
+                return StatusUpdateResult(
+                    success=False,
+                    message=f"Status changes only allowed from conversation summaries (whatsapp_summary, call_summary). Current channel: {request.channel}",
+                    skipped=True
+                )
+            
             # Check if customer service (auto-status) is enabled
-            if request.channel in ['whatsapp', 'call'] and not self.is_customer_service_enabled():
+            if request.channel in ALLOWED_SUMMARY_CHANNELS and not self.is_customer_service_enabled():
                 logger.info(f"[UnifiedStatus] Customer service disabled for business {self.business_id}, "
                            f"skipping auto-status update")
                 return StatusUpdateResult(
@@ -174,7 +191,7 @@ class UnifiedStatusService:
                 )
             
             # Check status progression (prevent downgrades unless manual/forced)
-            if request.channel in ['whatsapp', 'call']:  # Only for automated updates
+            if request.channel in ALLOWED_SUMMARY_CHANNELS:  # Only for automated updates from summaries
                 if not self._is_valid_progression(old_status, new_status):
                     logger.warning(f"[UnifiedStatus] Invalid status progression for lead {request.lead_id}: "
                                  f"{old_status} → {new_status}")

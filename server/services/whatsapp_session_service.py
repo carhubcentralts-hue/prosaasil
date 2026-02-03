@@ -218,6 +218,65 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                 
                 logger.info(f"[WA-SUMMARY] ✅ Updated unified customer memory for lead {lead.id}")
                 
+                # 🔥 NEW: Trigger auto-status update from WhatsApp summary
+                # This ensures WhatsApp summaries can change status just like call summaries
+                try:
+                    from server.services.lead_auto_status_service import suggest_lead_status_from_call
+                    from server.services.unified_status_service import update_lead_status_unified
+                    
+                    logger.info(f"[WA-STATUS] 🔍 Checking if status update needed for lead {lead.id}")
+                    logger.info(f"[WA-STATUS]    - Current status: {lead.status}")
+                    logger.info(f"[WA-STATUS]    - Summary: {summary[:150]}...")
+                    
+                    # Get messages for transcript-like analysis
+                    messages = get_session_messages(session)
+                    transcript_text = "\n".join([
+                        f"{'Customer' if m.direction == 'inbound' else 'Business'}: {m.message_text or ''}"
+                        for m in messages if m.message_text
+                    ])
+                    
+                    # Use the same auto-status logic as calls
+                    suggested_status = suggest_lead_status_from_call(
+                        tenant_id=session.business_id,
+                        lead_id=lead.id,
+                        call_direction='inbound',  # WhatsApp is typically inbound
+                        call_summary=summary,
+                        call_transcript=transcript_text,
+                        call_duration=None  # Not applicable for WhatsApp
+                    )
+                    
+                    if suggested_status:
+                        logger.info(f"[WA-STATUS] 🤖 Suggested status: '{suggested_status}'")
+                        
+                        # Use unified status service with whatsapp_summary channel
+                        result = update_lead_status_unified(
+                            business_id=session.business_id,
+                            lead_id=lead.id,
+                            new_status=suggested_status,
+                            reason=f"Auto-updated from WhatsApp conversation summary",
+                            confidence=0.8,  # AI-generated from summary
+                            channel='whatsapp_summary',  # 🔥 CRITICAL: Mark as summary-based change
+                            metadata={
+                                'session_id': session_id,
+                                'old_status': lead.status,
+                                'source': 'whatsapp_session',
+                                'message_count': len(messages)
+                            }
+                        )
+                        
+                        if result.success:
+                            logger.info(f"[WA-STATUS] ✅ Updated lead {lead.id} status: {lead.status} → {suggested_status}")
+                        elif result.skipped:
+                            logger.info(f"[WA-STATUS] ⏭️ Status update skipped: {result.message}")
+                        else:
+                            logger.warning(f"[WA-STATUS] ⚠️ Status update failed: {result.message}")
+                    else:
+                        logger.info(f"[WA-STATUS] ℹ️ No confident status match - keeping status as '{lead.status}'")
+                        
+                except Exception as e:
+                    logger.error(f"[WA-STATUS] ❌ Error updating status from WhatsApp summary: {e}", exc_info=True)
+                    # Don't fail the whole summary creation if status update fails
+                
                 # Try to extract memory patches from conversation
                 try:
                     messages = get_session_messages(session)
