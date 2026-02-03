@@ -107,12 +107,10 @@ Users can insert these variables in message templates:
 
 ## Pre-built Templates
 
-The system includes 5 default templates:
-1. **Day Before Reminder** - Confirmation reminder 24 hours before
-2. **Two Hours Before** - Last minute reminder 2 hours before
-3. **Immediate Confirmation** - Instant confirmation when scheduled
-4. **Day After Follow-up** - Thank you message after completion
-5. **Confirm and Remind** - Both immediate and day-before messages
+The system includes 3 default templates:
+1. **Immediate Confirmation** - Instant confirmation when scheduled
+2. **Day Before Reminder** - Confirmation reminder 24 hours before
+3. **Same Day Reminder** - Reminder on the same day (3 hours before appointment)
 
 ## Technical Details
 

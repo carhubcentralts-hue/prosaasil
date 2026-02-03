@@ -3,10 +3,9 @@ Default Appointment Automation Templates
 Pre-built Hebrew message templates for common automation scenarios
 
 🎯 TEMPLATES:
-- Day before reminder: Send confirmation reminder 24 hours before appointment
-- Day after follow-up: Thank you message after appointment
-- Two hours before: Last minute reminder
 - Immediate confirmation: Confirm appointment as soon as status changes to scheduled
+- Day before reminder: Send confirmation reminder 24 hours before appointment
+- Same day reminder: Send reminder on the same day (3 hours before appointment)
 """
 
 # Default Hebrew message templates
@@ -32,19 +31,19 @@ DEFAULT_TEMPLATES = {
         'trigger_statuses': ['scheduled', 'confirmed']
     },
     
-    'two_hours_before': {
-        'name': 'תזכורת שעתיים לפני',
+    'same_day_reminder': {
+        'name': 'תזכורת באותו יום',
         'message': """שלום {first_name} 👋
 
 מזכיר/ה לך שיש לנו פגישה היום:
-⏰ בעוד שעתיים, בשעה {appointment_time}
+⏰ בעוד כמה שעות, בשעה {appointment_time}
 📍 כתובת: {appointment_location}
 
 מחכים לראות אותך! ✨
 
 {business_name}""",
         'schedule_offsets': [
-            {'type': 'before', 'minutes': 120}  # 2 hours before
+            {'type': 'before', 'minutes': 180}  # 3 hours before
         ],
         'trigger_statuses': ['scheduled', 'confirmed']
     },
@@ -69,44 +68,6 @@ DEFAULT_TEMPLATES = {
         ],
         'trigger_statuses': ['scheduled']
     },
-    
-    'day_after_followup': {
-        'name': 'מעקב יום אחרי',
-        'message': """היי {first_name}! 😊
-
-תודה רבה שהגעת אתמול!
-
-אשמח לדעת איך היה לך וכמובן נשמח לעזור בכל שאלה 🙏
-
-אם תרצה/י לקבוע פגישה נוספת או שיש משהו שאני יכול לעזור בו - פשוט כתוב/י לי כאן.
-
-{rep_name}
-{business_name} 💙""",
-        'schedule_offsets': [
-            {'type': 'after', 'minutes': 1440}  # 24 hours after
-        ],
-        'trigger_statuses': ['completed']
-    },
-    
-    'confirm_and_remind': {
-        'name': 'אישור + תזכורת (מלא)',
-        'message': """היי {first_name}! 👋
-
-הפגישה נקבעה בהצלחה:
-📅 {appointment_date}
-⏰ שעה: {appointment_time}
-📍 מיקום: {appointment_location}
-
-אשמח לאישור הגעה 🙏
-
-{rep_name}
-{business_name}""",
-        'schedule_offsets': [
-            {'type': 'immediate'},
-            {'type': 'before', 'minutes': 1440}  # Both immediate and day before
-        ],
-        'trigger_statuses': ['scheduled', 'confirmed']
-    }
 }
 
 

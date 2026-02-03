@@ -256,8 +256,8 @@ Authorization: Bearer <token>
 Response:
 {
   "success": true,
-  "created_count": 5,
-  "message": "5 תבניות אוטומציה נוצרו בהצלחה"
+  "created_count": 3,
+  "message": "3 תבניות אוטומציה נוצרו בהצלחה"
 }
 ```
 
@@ -294,30 +294,20 @@ Response:
 
 ## 🎯 תבניות מובנות
 
-### 1. תזכורת יום לפני (`day_before_reminder`)
-- **תזמון:** 24 שעות לפני הפגישה
-- **סטטוסים:** scheduled, confirmed
-- **מטרה:** אישור הגעה מראש
-
-### 2. תזכורת שעתיים לפני (`two_hours_before`)
-- **תזמון:** שעתיים לפני הפגישה
-- **סטטוסים:** scheduled, confirmed
-- **מטרה:** תזכורת אחרונה
-
-### 3. אישור מיידי (`immediate_confirmation`)
+### 1. אישור מיידי (`immediate_confirmation`)
 - **תזמון:** מיידי כשהסטטוס משתנה
 - **סטטוסים:** scheduled
 - **מטרה:** אישור מיידי שהפגישה נקבעה
 
-### 4. מעקב יום אחרי (`day_after_followup`)
-- **תזמון:** 24 שעות אחרי הפגישה
-- **סטטוסים:** completed
-- **מטרה:** תודה ומעקב
-
-### 5. אישור + תזכורת מלא (`confirm_and_remind`)
-- **תזמון:** מיידי + יום לפני
+### 2. תזכורת יום לפני (`day_before_reminder`)
+- **תזמון:** 24 שעות לפני הפגישה
 - **סטטוסים:** scheduled, confirmed
-- **מטרה:** גם אישור וגם תזכורת
+- **מטרה:** אישור הגעה מראש
+
+### 3. תזכורת באותו יום (`same_day_reminder`)
+- **תזמון:** 3 שעות לפני הפגישה
+- **סטטוסים:** scheduled, confirmed
+- **מטרה:** תזכורת באותו יום
 
 ---
 
@@ -343,7 +333,7 @@ enqueue('default', appointment_automation_tick)
 ```python
 from server.services.appointment_automation_templates import create_default_automations
 
-# יוצר 5 תבניות ברירת מחדל (מושבתות)
+# יוצר 3 תבניות ברירת מחדל (מושבתות)
 automations = create_default_automations(business_id=123, created_by=1)
 ```
 
