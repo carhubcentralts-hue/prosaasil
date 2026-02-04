@@ -1192,8 +1192,8 @@ class AppointmentAutomationRun(db.Model):
     
     # Relationships
     business = db.relationship("Business", backref=db.backref("appointment_automation_runs", lazy="dynamic"))
-    appointment = db.relationship("Appointment", backref=db.backref("automation_runs", lazy="dynamic"))
-    automation = db.relationship("AppointmentAutomation", backref=db.backref("runs", lazy="dynamic"))
+    appointment = db.relationship("Appointment", backref=db.backref("automation_runs", lazy="dynamic", cascade="all, delete-orphan"))
+    automation = db.relationship("AppointmentAutomation", backref=db.backref("runs", lazy="dynamic", cascade="all, delete-orphan"))
     
     # Indexes and constraints
     __table_args__ = (

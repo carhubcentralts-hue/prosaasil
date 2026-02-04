@@ -264,18 +264,7 @@ def delete_automation(automation_id):
         if not automation:
             return jsonify({'error': 'Automation not found'}), 404
         
-        # Check if there are pending runs
-        pending_runs = AppointmentAutomationRun.query.filter_by(
-            automation_id=automation_id,
-            status='pending'
-        ).count()
-        
-        if pending_runs > 0:
-            return jsonify({
-                'error': f'Cannot delete automation with {pending_runs} pending runs. Disable it instead.',
-                'pending_runs': pending_runs
-            }), 400
-        
+        # Delete automation (cascade will automatically delete all related runs)
         db.session.delete(automation)
         db.session.commit()
         
