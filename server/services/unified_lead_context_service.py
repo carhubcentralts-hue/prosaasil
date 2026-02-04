@@ -311,7 +311,7 @@ class UnifiedLeadContextService:
                 
                 # 🔥 NEW: Include custom fields with Hebrew labels
                 custom_fields_formatted = []
-                if next_apt.custom_fields:
+                if hasattr(next_apt, 'custom_fields') and next_apt.custom_fields:
                     custom_fields_formatted = hebrew_label_service.format_custom_fields(next_apt.custom_fields)
                 
                 payload.next_appointment = {
@@ -340,7 +340,7 @@ class UnifiedLeadContextService:
                 
                 # 🔥 NEW: Include custom fields with Hebrew labels
                 custom_fields_formatted = []
-                if apt.custom_fields:
+                if hasattr(apt, 'custom_fields') and apt.custom_fields:
                     custom_fields_formatted = hebrew_label_service.format_custom_fields(apt.custom_fields)
                 
                 payload.past_appointments.append({
