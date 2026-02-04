@@ -1232,336 +1232,44 @@ def baileys_webhook():
                     log.info(f"[WA-INCOMING] Message processed (AI disabled, no response) in {msg_duration:.2f}s")
                     continue
                 
-                # ✅ FIX: Load conversation history for AI context (20 messages for better context)
-                # 🔥 FIX #3: Use conversation_key for consistent history loading
-                # 🔥 IMPORTANT: Even though OpenAI Agents SDK manages history via conversation_id,
-                # we still pass previous_messages for fallback and context enrichment
-                previous_messages = []
+                # 🔥 PERFORMANCE FIX: Enqueue AI processing as background job (ACK < 1s!)
+                # Instead of processing AI synchronously (7+ seconds causing ECONNABORTED),
+                # we immediately enqueue a job and return 200 to Baileys
+                # The job will handle ALL heavy processing: history, memory, AI, tools, sending
+                log.info(f"[WA-ASYNC] 🚀 Enqueueing AI processing job for message_id={wa_msg.id}, lead_id={lead.id}")
+                
                 try:
-                    recent_msgs = WhatsAppMessage.query.filter_by(
+                    from server.services.jobs import enqueue_job
+                    from server.jobs.whatsapp_ai_response_job import whatsapp_ai_response_job
+                    
+                    ai_job_id = enqueue_job(
+                        queue_name='default',
+                        func=whatsapp_ai_response_job,
                         business_id=business_id,
-                        to_number=conversation_key  # 🔥 FIX #3: Use conversation_key
-                    ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
-                    
-                    # 🔥 DEBUG: Log how many of each direction
-                    direction_counts = {}
-                    for msg in recent_msgs:
-                        dir_key = msg.direction or 'unknown'
-                        direction_counts[dir_key] = direction_counts.get(dir_key, 0) + 1
-                    log.info(f"[WA-HISTORY] Loaded {len(recent_msgs)} messages: {direction_counts}")
-                    
-                    # Format as conversation (reversed to chronological order)
-                    # 🔥 BUILD 180: Handle both 'in'/'inbound' and 'out'/'outbound' for backwards compatibility
-                    for msg_hist in reversed(recent_msgs):
-                        if msg_hist.direction in ['in', 'inbound']:
-                            previous_messages.append(f"לקוח: {msg_hist.body}")
-                        else:
-                            previous_messages.append(f"עוזר: {msg_hist.body}")  # ✅ כללי - לא hardcoded!
-                    
-                    log.info(f"📚 Loaded {len(previous_messages)} previous messages for context (last 20 messages)")
-                    if len(previous_messages) > 0:
-                        log.debug(f"📚 Last 3 messages: {previous_messages[-3:] if len(previous_messages) >= 3 else previous_messages}")
-                except Exception as e:
-                    log.warning(f"⚠️ Could not load conversation history: {e}")
-                
-                # 🆕 CUSTOMER MEMORY: Load unified memory for AI context (when enabled)
-                customer_memory = {}
-                customer_memory_text = ""
-                ask_continue_or_fresh = False
-                
-                try:
-                    from server.services.customer_memory_service import (
-                        is_customer_service_enabled,
-                        get_customer_memory,
-                        format_memory_for_ai,
-                        should_ask_continue_or_fresh,
-                        update_interaction_timestamp
+                        message_id=wa_msg.id,
+                        remote_jid=remote_jid,
+                        conversation_key=conversation_key,
+                        message_text=message_text,
+                        from_number_e164=from_number_e164,
+                        lead_id=lead.id,
+                        timeout=180,  # 3 minutes for AI processing (includes tools!)
+                        retry=1,
+                        description=f"Process WhatsApp AI response for {conversation_key[:15]}"
                     )
                     
-                    # Only load memory if customer service is enabled
-                    if is_customer_service_enabled(business_id):
-                        log.info(f"[CUSTOMER-MEMORY] 🎧 Customer service ENABLED for business {business_id}")
-                        log.info(f"[CUSTOMER-MEMORY]    Lead: {lead.id}, Status: {lead.status}, Phone: {lead.phone_e164 or 'N/A'}")
-                        log.info(f"[CUSTOMER-MEMORY]    AI has access to: update_lead_status tool (auto status changes)")
-                        
-                        # Load full customer memory (profile + summary + last 5 notes)
-                        customer_memory = get_customer_memory(lead.id, business_id, max_notes=5)
-                        
-                        # Format for AI
-                        customer_memory_text = format_memory_for_ai(customer_memory)
-                        
-                        # Check if this is a returning customer (should we ask continue/fresh?)
-                        ask_continue_or_fresh = should_ask_continue_or_fresh(lead.id, business_id)
-                        
-                        # Update interaction timestamp
-                        update_interaction_timestamp(lead.id, business_id, 'whatsapp')
-                        
-                        log.info(f"[CUSTOMER-MEMORY] Memory loaded: "
-                                f"has_profile={bool(customer_memory.get('customer_profile'))}, "
-                                f"has_summary={bool(customer_memory.get('last_summary'))}, "
-                                f"notes_count={len(customer_memory.get('recent_notes', []))}, "
-                                f"ask_continue={ask_continue_or_fresh}")
-                    else:
-                        log.info(f"[CUSTOMER-MEMORY] Customer service disabled for business {business_id}")
-                        
-                except Exception as e:
-                    log.warning(f"⚠️ Could not load customer memory: {e}")
-                    customer_memory = {}
-                    customer_memory_text = ""
-                    ask_continue_or_fresh = False
-                
-                # ✅ BUILD 119: Generate AI response with Agent SDK (real actions!)
-                # 🔥 AgentKit Only: ALWAYS use AgentKit for all WhatsApp messages
-                # Provides consistent behavior with tools, memory, and context
-                log.info(f"[WA-AI-READY] ✅ Message passed all filters, using AgentKit for all messages")
-                log.info(f"[WA-AI-READY] Parameters: business_id={business_id}, lead_id={lead.id}, from={from_number_e164}, jid={remote_jid[:30]}")
-                
-                try:
-                    db.session.rollback()
-                except:
-                    pass
-                
-                ai_start = time.time()
-                response_text = None
-                
-                from server.services.ai_service import get_ai_service
-                ai_service = get_ai_service()
-                
-                # 🔥 AGENTKIT-ONLY: Log state before AI call
-                log.info(f"[WA-AI-START] About to call AgentKit for jid={remote_jid[:30]}, lead_id={lead.id}")
-                
-                # 🔥 COMPREHENSIVE LOGGING: Track all context for debugging
-                try:
-                    from server.models_sql import Business
-                    business_obj = Business.query.get(business_id)
-                    prompt_source = "whatsapp_system_prompt" if (business_obj and business_obj.whatsapp_system_prompt) else "fallback"
+                    log.info(f"[WA-ASYNC] ✅ Job enqueued: {ai_job_id} - webhook will return 200 immediately")
+                    log.info(f"[WA-ASYNC] 📊 Job will handle: AI + tools + memory + sending (all async)")
                     
-                    # Load conversation state to check if it exists
-                    state_found = False
-                    conv_state = None
-                    try:
-                        conv_state = WhatsAppConversationState.query.filter_by(
-                            business_id=business_id,
-                            phone=conversation_key
-                        ).first()
-                        state_found = bool(conv_state)
-                    except Exception as e:
-                        log.warning(f"[WA-AI-CONTEXT] Could not check conv state: {e}")
-                    
-                    log.info(f"[WA-AI-CONTEXT] 🔍 FULL CONTEXT:")
-                    log.info(f"  ├─ business_id={business_id}")
-                    log.info(f"  ├─ remote_jid={remote_jid[:30]}...")
-                    log.info(f"  ├─ conversation_key={conversation_key[:30]}...")
-                    log.info(f"  ├─ lead_id={lead.id if lead else None}")
-                    log.info(f"  ├─ history_count={len(previous_messages)}")
-                    log.info(f"  ├─ state_found={state_found}")
-                    log.info(f"  ├─ prompt_source={prompt_source}")
-                    
-                    # Log last few messages from history for debugging
-                    if previous_messages:
-                        log.info(f"[WA-AI-CONTEXT] 📚 Last 3 messages:")
-                        for i, msg in enumerate(previous_messages[-3:]):
-                            log.info(f"    [{i+1}] {msg[:80]}...")
-                    else:
-                        log.info(f"[WA-AI-CONTEXT] 📚 No previous messages (new conversation)")
-                        
-                except Exception as e:
-                    log.error(f"[WA-AI-CONTEXT] Error logging context: {e}")
-                
-                try:
-                    # Build AI context with customer memory and conversation state
-                    # 🔥 AgentKit Only: Always include full context for best results
-                    
-                    # Load conversation state for stage tracking
-                    if not conv_state:
-                        try:
-                            conv_state = WhatsAppConversationState.query.filter_by(
-                                business_id=business_id,
-                                phone=conversation_key
-                            ).first()
-                        except Exception as e:
-                            log.warning(f"[WA-CONTEXT] Could not load conv state: {e}")
-                    
-                    # 🔥 CRITICAL FIX: Load unified lead context (single source of truth)
-                    lead_context_payload = None
-                    if lead and lead.id:
-                        try:
-                            lead_context_payload = get_unified_context_for_lead(
-                                business_id=business_id,
-                                lead_id=lead.id,
-                                channel='whatsapp'
-                            )
-                            if lead_context_payload and lead_context_payload.found:
-                                log.info(f"[WA-CONTEXT] ✅ Loaded unified lead context: lead_id={lead.id}, appointments={len(lead_context_payload.past_appointments)}")
-                            else:
-                                log.warning(f"[WA-CONTEXT] ⚠️ Lead context returned empty for lead_id={lead.id}")
-                                lead_context_payload = None
-                        except Exception as ctx_err:
-                            log.error(f"[WA-CONTEXT] ❌ Failed to load lead context for lead_id={lead.id}: {ctx_err}")
-                            lead_context_payload = None
-                    
-                    ai_context = {
-                        'phone': from_number_e164,  # E.164 for CRM
-                        'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
-                        'customer_name': customer.name if customer else None,
-                        'lead_status': lead.status if lead else None,
-                        'lead_id': lead.id if lead else None,
-                        'previous_messages': previous_messages,  # Full conversation history
-                        'appointment_created': appointment_created,
-                        'customer_memory': customer_memory_text,  # Unified customer memory
-                        'ask_continue_or_fresh': ask_continue_or_fresh,
-                        # 🔥 AgentKit Only: Include conversation state for better context
-                        'last_user_message': conv_state.last_user_message if conv_state else None,
-                        'last_agent_message': conv_state.last_agent_message if conv_state else None,
-                        'conversation_stage': conv_state.conversation_stage if conv_state else None,
-                        'conversation_has_history': len(previous_messages) >= 2,
-                        # 🔥 CRITICAL FIX: Include unified lead context (single source of truth)
-                        'lead_context': lead_context_payload.dict() if lead_context_payload else None
-                    }
-                    
-                    # 🔥 AgentKit Only: ALWAYS use AgentKit - no routing
-                    ai_response = ai_service.generate_response_with_agent(
-                        message=message_text,
-                        business_id=business_id,
-                        context=ai_context,
-                        channel='whatsapp',
-                        customer_phone=conversation_key,  # Use conversation_key for consistency
-                        customer_name=customer.name if customer else None
-                    )
-                    
-                    # Handle dict response (text + actions) vs plain string
-                    if isinstance(ai_response, dict):
-                        response_text = ai_response.get('text', '')
-                        actions = ai_response.get('actions', [])
-                    else:
-                        response_text = str(ai_response)
-                    
-                    ai_duration = time.time() - ai_start
-                    log.info(f"[WA-AI-SUCCESS] AI generated response in {ai_duration:.2f}s, length={len(response_text) if response_text else 0}")
-                    
-                    # 🔥 AgentKit Only: Update conversation state after successful response
-                    # Track messages for anti-loop and better context in next turn
-                    try:
-                        if not conv_state:
-                            conv_state = WhatsAppConversationState()
-                            conv_state.business_id = business_id
-                            conv_state.phone = conversation_key
-                            conv_state.ai_active = True
-                            db.session.add(conv_state)
-                        
-                        conv_state.last_user_message = message_text
-                        conv_state.last_agent_message = response_text
-                        # conversation_stage could be extracted from response or set by tools
-                        # For now, we'll leave it to be set by specific logic if needed
-                        
-                        db.session.commit()
-                        log.info(f"[WA-STATE] ✅ Updated conversation state for {conversation_key[:30]}")
-                    except Exception as state_err:
-                        log.warning(f"[WA-STATE] ⚠️ Could not update conversation state: {state_err}")
-                        try:
-                            db.session.rollback()
-                        except:
-                            pass
-                    
-                except Exception as e:
-                    logger.error(f"⚠️ AI call failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    
-                    # ✅ BUILD 170.1: Fallback to regular AI (which uses DB prompt!)
-                    try:
-                        response_text = ai_service.generate_response(
-                            message=message_text,
-                            business_id=business_id,
-                            context={
-                                'phone': from_number_e164,  # E.164 for CRM
-                                'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
-                                'customer_name': customer.name if customer else None,
-                                'previous_messages': previous_messages
-                            },
-                            channel='whatsapp'
-                        )
-                    except Exception as e2:
-                        logger.error(f"⚠️ Regular AI also failed: {e2}")
-                        # 🔥 NO FALLBACK: If AI fails completely, don't send anything
-                        # The bot should ONLY respond based on the DB prompt, never hardcoded text
-                        log.error(f"[WA-ERROR] ❌ All AI methods failed - skipping message to avoid hardcoded response")
-                        log.error(f"[WA-ERROR] This preserves bot behavior according to DB prompt only")
-                        continue
-                
-                # 🔥 BUILD 200 DEBUG: Log before sending
-                log.info(f"[WA-SEND-DEBUG] reply_jid={reply_jid[:30]}, response_text_length={len(response_text) if response_text else 0}")
-                
-                # 🔥 CRITICAL: Verify response_text is not empty before sending
-                # If AI returned empty, skip sending (don't use fallback - only DB prompt matters)
-                if not response_text or response_text.isspace():
-                    log.error(f"[WA-ERROR] ❌ AI returned empty response! Skipping send to preserve DB prompt behavior.")
+                except Exception as enqueue_err:
+                    log.error(f"[WA-ASYNC] ❌ Failed to enqueue AI job: {enqueue_err}")
+                    # Don't crash - just skip this message
                     continue
                 
-                # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
-                # This ensures Android messages with @lid, @g.us, etc. get proper replies
-                # 🔥 LID FIX: Use reply_jid (which prefers @s.whatsapp.net over @lid)
-                log.info(f"[WA-OUTGOING] 📤 Sending AI reply to jid={reply_jid}, text={str(response_text)[:50]}...")
-                log.info(f"[WA-OUTGOING] 🤖 AgentKit successfully generated response, now enqueueing send job")
-                
-                # 🔥 REMOVED THREADING: Use RQ job for WhatsApp sending
-                # This ensures proper retry, error handling, and no thread proliferation
-                try:
-                    # 🔥 BUILD 200 DEBUG: Log parameters before enqueue
-                    log.info(f"[WA-ENQUEUE-DEBUG] business_id={business_id}, tenant_id={tenant_id}, reply_jid={reply_jid[:30]}, msg_length={len(response_text)}")
-                    
-                    job = enqueue_job(
-                        queue_name='default',
-                        func=send_whatsapp_message_job,
-                        business_id=business_id,
-                        tenant_id=tenant_id,
-                        remote_jid=reply_jid,  # 🔥 LID FIX: Use reply_jid instead of remote_jid
-                        response_text=response_text,
-                        wa_msg_id=wa_msg.id,
-                        timeout=60,
-                        retry=2,
-                        description=f"Send WhatsApp to {reply_jid[:15]}"
-                    )
-                    log.info(f"[WA-OUTGOING] ✅ Job enqueued: {job.id[:8]} for message {wa_msg.id}, target={reply_jid[:20]}")
-                    log.info(f"[WA-SUCCESS] ✅✅✅ FULL FLOW COMPLETED: webhook → AgentKit → sendMessage queued ✅✅✅")
-                    
-                    # 🔥 UPDATE CONVERSATION STATE: Update state after response is generated
-                    # This ensures the bot remembers context and doesn't repeat itself
-                    try:
-                        conv_state = WhatsAppConversationState.query.filter_by(
-                            business_id=business_id,
-                            phone=conversation_key
-                        ).first()
-                        
-                        if not conv_state:
-                            conv_state = WhatsAppConversationState()
-                            conv_state.business_id = business_id
-                            conv_state.phone = conversation_key
-                            conv_state.ai_active = True
-                            db.session.add(conv_state)
-                        
-                        # Update state with latest message exchange
-                        conv_state.last_user_message = message_text
-                        conv_state.last_agent_message = response_text[:500] if response_text else None  # Store first 500 chars
-                        conv_state.updated_at = datetime.utcnow()
-                        
-                        db.session.commit()
-                        log.info(f"[WA-STATE] ✅ Updated conversation state for {conversation_key[:30]}")
-                    except Exception as state_err:
-                        log.error(f"[WA-STATE] ❌ Failed to update conversation state: {state_err}")
-                        db.session.rollback()
-                    
-                except Exception as enqueue_error:
-                    log.error(f"[WA-OUTGOING] ❌ Failed to enqueue WhatsApp send: {enqueue_error}")
-                    # Fall back to synchronous send if enqueue fails
-                    log.warning(f"[WA-OUTGOING] Falling back to synchronous send to {reply_jid[:20]}")
-                    send_whatsapp_message_job(business_id, tenant_id, reply_jid, response_text, wa_msg.id)  # 🔥 LID FIX: Use reply_jid
-                
-                # Mark as processed immediately (actual sending happens in background)
+                # Mark as processed immediately (actual AI processing happens in background)
                 processed_count += 1
                 
                 msg_duration = time.time() - msg_start
-                log.info(f"[WA-INCOMING] Message queued for background send in {msg_duration:.2f}s")
+                log.info(f"[WA-ASYNC] ✅ Message enqueued in {msg_duration:.2f}s - returning ACK")
                 
             except Exception as e:
                 import traceback

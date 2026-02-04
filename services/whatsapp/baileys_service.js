@@ -37,7 +37,7 @@ const keepAliveAgent = new http.Agent({
 
 // ⚡ PERFORMANCE: Configure axios globally with keep-alive
 axios.defaults.httpAgent = keepAliveAgent;
-axios.defaults.timeout = 30000;  // 🔧 Increased from 10s to 30s for Flask webhooks
+axios.defaults.timeout = 60000;  // 🔥 Increased to 60s (though webhook should ACK in < 1s with async processing)
 
 const PORT = Number(process.env.BAILEYS_PORT || 3300);
 const HOST = process.env.BAILEYS_HOST || '0.0.0.0';  // ✅ Listen on all interfaces for Docker networking
@@ -1940,7 +1940,7 @@ async function startSession(tenantId, forceRelink = false) {
                 'Content-Type': 'application/json',
                 'X-Internal-Secret': INTERNAL_SECRET 
               },
-              timeout: 30000  // 30 second timeout - increased for slow Flask processing
+              timeout: 60000  // 60 second timeout (webhook should ACK in < 1s with async processing)
             }
           );
           console.log(`[${tenantId}] ✅ Webhook→Flask success:`, response.status);
