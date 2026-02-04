@@ -149,7 +149,7 @@ def whatsapp_ai_response_job(
             'last_agent_message': conv_state.last_agent_message if conv_state else None,
             'conversation_stage': conv_state.conversation_stage if conv_state else None,
             'conversation_has_history': len(previous_messages) >= 2,
-            'lead_context': lead_context_payload.dict() if lead_context_payload else None
+            'lead_context': lead_context_payload.dict() if (lead_context_payload and lead_context_payload.found) else None
         }
         
         # 🔥 CRITICAL: Generate AI response with AgentKit (ALL TOOLS ENABLED!)

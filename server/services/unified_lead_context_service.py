@@ -314,15 +314,19 @@ class UnifiedLeadContextService:
                 if hasattr(next_apt, 'custom_fields') and next_apt.custom_fields:
                     custom_fields_formatted = hebrew_label_service.format_custom_fields(next_apt.custom_fields)
                 
+                # Safe access to treatment_type and title
+                title = getattr(next_apt, 'treatment_type', None) or getattr(next_apt, 'title', 'פגישה')
+                
+                # Safe access to all fields
                 payload.next_appointment = {
                     'id': next_apt.id,
-                    'title': next_apt.treatment_type or next_apt.title,
-                    'start': next_apt.start_time.isoformat() if next_apt.start_time else "",
-                    'end': next_apt.end_time.isoformat() if next_apt.end_time else "",
-                    'status': next_apt.status or 'scheduled',
+                    'title': title,
+                    'start': next_apt.start_time.isoformat() if hasattr(next_apt, 'start_time') and next_apt.start_time else "",
+                    'end': next_apt.end_time.isoformat() if hasattr(next_apt, 'end_time') and next_apt.end_time else "",
+                    'status': getattr(next_apt, 'status', 'scheduled') or 'scheduled',
                     'calendar_status_id': apt_status_info.get('calendar_status_id'),
                     'calendar_status_label_he': apt_status_info.get('calendar_status_label_he'),
-                    'notes': next_apt.notes[:200] if next_apt.notes else None,
+                    'notes': next_apt.notes[:200] if hasattr(next_apt, 'notes') and next_apt.notes else None,
                     'custom_fields': custom_fields_formatted
                 }
             
@@ -336,22 +340,26 @@ class UnifiedLeadContextService:
             payload.past_appointments = []
             for apt in past_apts:
                 # 🔥 NEW: Get Hebrew label for appointment status
-                apt_status_info = hebrew_label_service.get_appointment_status_label(apt.status or 'completed')
+                apt_status_info = hebrew_label_service.get_appointment_status_label(getattr(apt, 'status', 'completed') or 'completed')
                 
                 # 🔥 NEW: Include custom fields with Hebrew labels
                 custom_fields_formatted = []
                 if hasattr(apt, 'custom_fields') and apt.custom_fields:
                     custom_fields_formatted = hebrew_label_service.format_custom_fields(apt.custom_fields)
                 
+                # Safe access to treatment_type and title
+                title = getattr(apt, 'treatment_type', None) or getattr(apt, 'title', 'פגישה')
+                
+                # Safe access to all fields
                 payload.past_appointments.append({
                     'id': apt.id,
-                    'title': apt.treatment_type or apt.title,
-                    'start': apt.start_time.isoformat() if apt.start_time else "",
-                    'end': apt.end_time.isoformat() if apt.end_time else "",
-                    'status': apt.status or 'completed',
+                    'title': title,
+                    'start': apt.start_time.isoformat() if hasattr(apt, 'start_time') and apt.start_time else "",
+                    'end': apt.end_time.isoformat() if hasattr(apt, 'end_time') and apt.end_time else "",
+                    'status': getattr(apt, 'status', 'completed') or 'completed',
                     'calendar_status_id': apt_status_info.get('calendar_status_id'),
                     'calendar_status_label_he': apt_status_info.get('calendar_status_label_he'),
-                    'notes': apt.notes[:200] if apt.notes else None,
+                    'notes': apt.notes[:200] if hasattr(apt, 'notes') and apt.notes else None,
                     'custom_fields': custom_fields_formatted
                 })
             
