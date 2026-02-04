@@ -161,18 +161,18 @@ def whatsapp_ai_response_job(
         logger.info(f"[WA-AI-JOB] 🤖 Calling AgentKit with FULL TOOLS for lead_id={lead.id}")
         logger.info(f"[WA-AI-JOB]    Context: history={len(previous_messages)} msgs, has_memory={bool(customer_memory_text)}, has_lead_context={bool(lead_context_payload)}")
         
-        try:
-            # 🔥 AgentKit with ALL TOOLS - this is the FULL power of the bot!
-            ai_response = ai_service.generate_response_with_agent(
-                message=message_text,
-                business_id=business_id,
-                context=ai_context,
-                channel='whatsapp',
-                customer_phone=conversation_key,
-                customer_name=customer.name if customer else None
-            )
+        # 🔥 AgentKit with ALL TOOLS - this is the FULL power of the bot!
+        ai_response = ai_service.generate_response_with_agent(
+            message=message_text,
+            business_id=business_id,
+            context=ai_context,
+            channel='whatsapp',
+            customer_phone=conversation_key,
+            customer_name=customer.name if customer else None
+        )
         
         # Handle response
+        actions = []
         if isinstance(ai_response, dict):
             response_text = ai_response.get('text', '')
             actions = ai_response.get('actions', [])
