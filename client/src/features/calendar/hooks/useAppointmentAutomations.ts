@@ -6,6 +6,8 @@ export interface AppointmentAutomation {
   name: string;
   enabled: boolean;
   trigger_status_ids: string[];
+  calendar_ids?: number[] | null;  // Optional: filter by specific calendars (null = all calendars)
+  appointment_type_keys?: string[] | null;  // Optional: filter by appointment types (null = all types)
   schedule_offsets: Array<{
     type: 'immediate' | 'before' | 'after';
     minutes?: number;

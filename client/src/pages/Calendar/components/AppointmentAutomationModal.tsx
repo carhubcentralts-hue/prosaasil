@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, X, Check, AlertTriangle, Power, 
-  MessageSquare, Clock, Tag, Zap, Eye, Play, Sparkles 
+  MessageSquare, Clock, Tag, Zap, Eye, Play, Sparkles, Calendar as CalendarIcon
 } from 'lucide-react';
 import { Button } from '../../../shared/components/ui/Button';
 import { Input } from '../../../shared/components/ui/Input';
@@ -9,6 +9,8 @@ import { Card } from '../../../shared/components/ui/Card';
 import { Badge } from '../../../shared/components/Badge';
 import { useAppointmentAutomations, AppointmentAutomation } from '../../../features/calendar/hooks/useAppointmentAutomations';
 import { useAppointmentStatuses } from '../../../features/calendar/hooks/useAppointmentStatuses';
+import { useBusinessCalendars } from '../../../features/calendar/hooks/useBusinessCalendars';
+import { useAppointmentTypes } from '../../../features/calendar/hooks/useAppointmentTypes';
 
 interface AppointmentAutomationModalProps {
   isOpen: boolean;
@@ -19,6 +21,8 @@ interface AutomationFormData {
   name: string;
   enabled: boolean;
   trigger_status_ids: string[];
+  calendar_ids?: number[] | null;
+  appointment_type_keys?: string[] | null;
   schedule_offsets: Array<{
     type: 'immediate' | 'before' | 'after';
     minutes?: number;
@@ -39,6 +43,10 @@ const TEXTS = {
   namePlaceholder: 'לדוגמה: תזכורת יום לפני',
   statusesLabel: 'סטטוסים שמפעילים',
   statusesPlaceholder: 'בחר סטטוסים',
+  calendarsLabel: 'לוחות שנה (אופציונלי)',
+  calendarsPlaceholder: 'כל הלוחות',
+  appointmentTypesLabel: 'סוגי פגישות (אופציונלי)',
+  appointmentTypesPlaceholder: 'כל הסוגים',
   timingLabel: 'תזמון שליחה',
   messageLabel: 'תבנית הודעה',
   messagePlaceholder: 'היי {first_name} 👋\n\nתזכורת לפגישה...',
@@ -121,6 +129,35 @@ function getPresetIdFromOffset(offset: { type: string; minutes?: number }): stri
   return preset?.id || 'immediate';
 }
 
+/**
+ * Helper to toggle filter selection (calendars or types)
+ * - Selecting "All" (null) clears any specific selections
+ * - Selecting a specific item adds/removes it from the list
+ * - If all items are deselected, reverts to null (All)
+ */
+function toggleFilterSelection<T>(
+  currentSelection: T[] | null,
+  itemToToggle: T | null
+): T[] | null {
+  // Clicking "All" - clear all selections
+  if (itemToToggle === null) {
+    return null;
+  }
+  
+  const currentItems = currentSelection || [];
+  const isSelected = currentItems.includes(itemToToggle);
+  
+  if (isSelected) {
+    // Remove item from selection
+    const newItems = currentItems.filter(item => item !== itemToToggle);
+    // If empty, return null (All)
+    return newItems.length > 0 ? newItems : null;
+  } else {
+    // Add item to selection
+    return [...currentItems, itemToToggle];
+  }
+}
+
 export default function AppointmentAutomationModal({
   isOpen,
   onClose,
@@ -139,12 +176,16 @@ export default function AppointmentAutomationModal({
   } = useAppointmentAutomations();
   
   const { statuses } = useAppointmentStatuses();
+  const { calendars } = useBusinessCalendars();
+  const { types: appointmentTypes } = useAppointmentTypes();
   
   const [editingAutomation, setEditingAutomation] = useState<AppointmentAutomation | null>(null);
   const [formData, setFormData] = useState<AutomationFormData>({
     name: '',
     enabled: true,
     trigger_status_ids: [],
+    calendar_ids: null,
+    appointment_type_keys: null,
     schedule_offsets: [{ type: 'immediate' }],
     message_template: '',
     cancel_on_status_exit: true,
@@ -172,6 +213,8 @@ export default function AppointmentAutomationModal({
       name: '',
       enabled: true,
       trigger_status_ids: [],
+      calendar_ids: null,
+      appointment_type_keys: null,
       schedule_offsets: [{ type: 'immediate' }],
       message_template: '',
       cancel_on_status_exit: true,
@@ -186,6 +229,8 @@ export default function AppointmentAutomationModal({
       name: automation.name,
       enabled: automation.enabled,
       trigger_status_ids: automation.trigger_status_ids,
+      calendar_ids: automation.calendar_ids || null,
+      appointment_type_keys: automation.appointment_type_keys || null,
       schedule_offsets: automation.schedule_offsets,
       message_template: automation.message_template,
       cancel_on_status_exit: automation.cancel_on_status_exit,
@@ -409,6 +454,86 @@ export default function AppointmentAutomationModal({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Calendar Filter */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4" />
+                  {TEXTS.calendarsLabel}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids, null) });
+                    }}
+                    className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
+                      formData.calendar_ids === null
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {TEXTS.calendarsPlaceholder}
+                  </button>
+                  {calendars.map((calendar) => (
+                    <button
+                      key={calendar.id}
+                      onClick={() => {
+                        setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids, calendar.id) });
+                      }}
+                      className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
+                        formData.calendar_ids && formData.calendar_ids.includes(calendar.id)
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {calendar.name}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  בחירה ריקה = האוטומציה תחול על כל הלוחות
+                </p>
+              </div>
+
+              {/* Appointment Type Filter */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <Tag className="h-4 w-4" />
+                  {TEXTS.appointmentTypesLabel}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys, null) });
+                    }}
+                    className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
+                      formData.appointment_type_keys === null
+                        ? 'bg-green-600 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {TEXTS.appointmentTypesPlaceholder}
+                  </button>
+                  {appointmentTypes.map((type) => (
+                    <button
+                      key={type.key}
+                      onClick={() => {
+                        setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys, type.key) });
+                      }}
+                      className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
+                        formData.appointment_type_keys && formData.appointment_type_keys.includes(type.key)
+                          ? 'bg-green-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {type.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  בחירה ריקה = האוטומציה תחול על כל סוגי הפגישות
+                </p>
               </div>
 
               {/* Schedule Offsets */}
