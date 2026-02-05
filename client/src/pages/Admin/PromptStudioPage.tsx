@@ -19,9 +19,9 @@ import { LiveCallCard } from '../../components/settings/LiveCallCard';
 import { BusinessAISettings } from '../../components/settings/BusinessAISettings';
 
 // Temporary UI components
-const Card = ({ children, className = "" }: any) => (
-  <div className={`border border-gray-200 rounded-lg bg-white ${className}`}>{children}</div>
-);
+const Card = ({ children, className = "" }: any) => {
+  return <div className={"border border-gray-200 rounded-lg bg-white " + className}>{children}</div>;
+};
 
 interface AppointmentSettings {
   slot_size_min: number;
