@@ -18,6 +18,7 @@ Worker job that sends automated WhatsApp messages for appointment confirmations
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
+import pytz
 from server.db import db
 from server.models_sql import (
     AppointmentAutomationRun,
@@ -29,6 +30,7 @@ from server.models_sql import (
     User
 )
 from server.services.whatsapp_send_service import send_message
+from server.services.hebrew_datetime import hebrew_weekday_name, _HE_MONTHS
 
 logger = logging.getLogger(__name__)
 
@@ -70,31 +72,65 @@ def render_template(template: str, context: Dict[str, Any]) -> str:
 
 def format_hebrew_date(dt: datetime) -> str:
     """
-    Format datetime to Hebrew-friendly date string.
+    Format datetime to Hebrew-friendly date string with correct timezone conversion.
     
     Args:
-        dt: Datetime object
+        dt: Datetime object (UTC or naive)
     
     Returns:
-        Formatted date string (e.g., "יום שני, 15 ינואר 2024")
+        Formatted date string (e.g., "יום חמישי, 5 פברואר 2026")
     """
     try:
-        # Hebrew day names (Sunday = index 0)
-        hebrew_days = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
-        # Hebrew month names (January = index 0, so use month-1 for indexing)
-        hebrew_months = [
-            'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
-            'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
-        ]
+        # Convert to Asia/Jerusalem timezone
+        israel_tz = pytz.timezone('Asia/Jerusalem')
         
-        day_name = hebrew_days[dt.weekday()]
-        month_name = hebrew_months[dt.month - 1]  # month is 1-12, array is 0-11
+        # If naive (no timezone info), assume UTC
+        if dt.tzinfo is None:
+            dt = pytz.utc.localize(dt)
         
-        return f"יום {day_name}, {dt.day} {month_name} {dt.year}"
+        # Convert to Israel local time
+        local_dt = dt.astimezone(israel_tz)
+        
+        # Use correct weekday mapping from hebrew_datetime.py
+        # weekday() returns: Monday=0, Tuesday=1, ..., Sunday=6
+        day_name = hebrew_weekday_name(local_dt.date())
+        month_name = _HE_MONTHS.get(local_dt.month, str(local_dt.month))
+        
+        return f"יום {day_name}, {local_dt.day} {month_name} {local_dt.year}"
         
     except Exception as e:
         logger.error(f"Error formatting Hebrew date: {e}", exc_info=True)
+        # Fallback to simple format
         return dt.strftime('%d/%m/%Y')
+
+
+def format_time_israel(dt: datetime) -> str:
+    """
+    Format datetime to time string in Israel timezone.
+    
+    Args:
+        dt: Datetime object (UTC or naive)
+    
+    Returns:
+        Time string in HH:MM format (e.g., "17:30")
+    """
+    try:
+        # Convert to Asia/Jerusalem timezone
+        israel_tz = pytz.timezone('Asia/Jerusalem')
+        
+        # If naive (no timezone info), assume UTC
+        if dt.tzinfo is None:
+            dt = pytz.utc.localize(dt)
+        
+        # Convert to Israel local time
+        local_dt = dt.astimezone(israel_tz)
+        
+        return local_dt.strftime('%H:%M')
+        
+    except Exception as e:
+        logger.error(f"Error formatting time: {e}", exc_info=True)
+        # Fallback to original datetime
+        return dt.strftime('%H:%M')
 
 
 def send_appointment_confirmation(run_id: int, business_id: int) -> Dict[str, Any]:
@@ -239,7 +275,7 @@ def send_appointment_confirmation(run_id: int, business_id: int) -> Dict[str, An
             'first_name': first_name or 'לקוח יקר',
             'business_name': business.name,
             'appointment_date': format_hebrew_date(appointment.start_time),
-            'appointment_time': appointment.start_time.strftime('%H:%M'),
+            'appointment_time': format_time_israel(appointment.start_time),
             'appointment_location': appointment.location or 'המשרד שלנו',
             'rep_name': rep_name
         }
