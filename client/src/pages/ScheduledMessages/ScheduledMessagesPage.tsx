@@ -419,6 +419,30 @@ function CreateRuleModal({
   const [error, setError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
+  // Available variables for message templates
+  const AVAILABLE_VARIABLES = [
+    { key: '{first_name}', label: 'שם פרטי' },
+    { key: '{lead_name}', label: 'שם מלא' },
+    { key: '{phone}', label: 'טלפון' },
+    { key: '{business_name}', label: 'שם העסק' },
+    { key: '{status}', label: 'סטטוס' }
+  ];
+
+  // Insert variable into message field
+  const insertVariable = (field: 'recurring_message' | 'immediate_message' | 'step_message', variable: string, stepIndex?: number) => {
+    if (field === 'step_message' && stepIndex !== undefined) {
+      const updatedSteps = [...formData.steps];
+      updatedSteps[stepIndex].message_text = (updatedSteps[stepIndex].message_text || '') + variable;
+      setFormData({ ...formData, steps: updatedSteps });
+    } else {
+      const currentValue = formData[field] || '';
+      setFormData({
+        ...formData,
+        [field]: currentValue + variable
+      });
+    }
+  };
+
   const getDelayInMinutes = (value: number, unit: 'minutes' | 'hours' | 'days'): number => {
     switch (unit) {
       case 'minutes': return value;
@@ -746,9 +770,22 @@ function CreateRuleModal({
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     placeholder="תוכן ההודעה שתישלח בימים ובשעות שנבחרו..."
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    משתנים זמינים: {'{lead_name}'}, {'{phone}'}, {'{business_name}'}, {'{status}'}
-                  </p>
+                  {/* Available Variables */}
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-600 mb-2">משתנים זמינים:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {AVAILABLE_VARIABLES.map((variable) => (
+                        <button
+                          key={variable.key}
+                          type="button"
+                          onClick={() => insertVariable('recurring_message', variable.key)}
+                          className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono transition-colors"
+                        >
+                          {variable.key} - {variable.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -836,9 +873,22 @@ function CreateRuleModal({
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     placeholder="הודעה שתישלח מיד כאשר הליד נכנס לסטטוס..."
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    משתנים זמינים: {'{lead_name}'}, {'{phone}'}, {'{business_name}'}, {'{status}'}
-                  </p>
+                  {/* Available Variables */}
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-600 mb-2">משתנים זמינים:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {AVAILABLE_VARIABLES.map((variable) => (
+                        <button
+                          key={variable.key}
+                          type="button"
+                          onClick={() => insertVariable('immediate_message', variable.key)}
+                          className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono transition-colors"
+                        >
+                          {variable.key} - {variable.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -934,6 +984,22 @@ function CreateRuleModal({
                               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                               placeholder="תוכן ההודעה..."
                             />
+                            {/* Available Variables for step */}
+                            <div className="mt-1">
+                              <p className="text-xs text-gray-600 mb-1">משתנים זמינים:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {AVAILABLE_VARIABLES.map((variable) => (
+                                  <button
+                                    key={variable.key}
+                                    type="button"
+                                    onClick={() => insertVariable('step_message', variable.key, index)}
+                                    className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono transition-colors"
+                                  >
+                                    {variable.key} - {variable.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                           
                           <div className="flex items-center gap-2">
