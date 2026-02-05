@@ -8508,6 +8508,65 @@ def apply_migrations():
         
         checkpoint("✅ Migration 134 complete: Active weekdays support ready")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 135: Add webhook_lead_ingest table and raw_payload to leads
+        # 🎯 PURPOSE: Enable external lead ingestion via webhooks (Make, Zapier, etc.)
+        # - Create webhook_lead_ingest table for webhook configuration (max 3 per business)
+        # - Add raw_payload column to leads table to store original webhook data
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 135: Add webhook lead ingestion system")
+        
+        try:
+            changes_made = False
+            
+            # Part 1: Create webhook_lead_ingest table
+            if not check_table_exists('webhook_lead_ingest'):
+                checkpoint("  → Creating webhook_lead_ingest table...")
+                execute_with_retry(migrate_engine, """
+                    CREATE TABLE webhook_lead_ingest (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        secret VARCHAR(128) NOT NULL,
+                        status_id INTEGER NULL REFERENCES lead_statuses(id) ON DELETE SET NULL,
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT (NOW() AT TIME ZONE 'utc'),
+                        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc')
+                    )
+                """)
+                checkpoint("  ✅ webhook_lead_ingest table created")
+                checkpoint("     💡 Businesses can now configure up to 3 webhooks for lead ingestion")
+                checkpoint("     💡 Each webhook creates leads in a pre-configured status")
+                checkpoint("     💡 If target status is deleted, webhook status_id is set to NULL (uses default 'new')")
+                changes_made = True
+            else:
+                checkpoint("  ℹ️  webhook_lead_ingest table already exists")
+            
+            # Part 2: Add raw_payload column to leads table
+            if check_table_exists('leads'):
+                if not check_column_exists('leads', 'raw_payload'):
+                    checkpoint("  → Adding raw_payload column to leads table...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN raw_payload JSON NULL
+                    """)
+                    checkpoint("  ✅ raw_payload column added to leads table")
+                    checkpoint("     💡 Webhook-created leads will store original payload for debugging")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  raw_payload column already exists in leads table")
+            
+            if changes_made:
+                migrations_applied.append("migration_135_webhook_lead_ingest")
+                checkpoint("  ✅ Migration 135 completed successfully")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 135 failed: {e}")
+            logger.error(f"Migration 135 error: {e}", exc_info=True)
+            # Don't raise - these are important but not critical for startup
+        
+        checkpoint("✅ Migration 135 complete: Webhook lead ingestion system ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
