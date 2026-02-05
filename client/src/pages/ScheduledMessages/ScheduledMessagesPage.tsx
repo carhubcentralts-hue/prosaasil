@@ -771,42 +771,6 @@ function CreateRuleModal({
             
             {/* Multi-Step Messages - Only for STATUS_CHANGE */}
             {formData.schedule_type === 'STATUS_CHANGE' && (
-            <div className="border-t pt-4"
-                            updatedSelection = null;
-                          }
-                        } else {
-                          // Day not selected - add it
-                          updatedSelection = [...currentSelection, dayInfo.index].sort();
-                          // If all 7 days now selected, set to null (all days)
-                          if (updatedSelection.length === 7) {
-                            updatedSelection = null;
-                          }
-                        }
-                        
-                        setFormData({ ...formData, active_weekdays: updatedSelection });
-                      }}
-                      className={`min-w-[3.5rem] px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                        isActiveDay
-                          ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300'
-                          : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                      }`}
-                    >
-                      {dayInfo.nameHeb}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                בחר ימים ספציפיים או השאר הכל מסומן לכל הימים.
-                {formData.active_weekdays && formData.active_weekdays.length > 0 && (
-                  <span className="font-medium text-blue-600">
-                    {' '}(פעיל ב-{formData.active_weekdays.length} ימים)
-                  </span>
-                )}
-              </p>
-            </div>
-            
-            {/* Multi-Step Messages */}
             <div className="border-t pt-4">
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -934,6 +898,7 @@ function CreateRuleModal({
                 </div>
               )}
             </div>
+            )}
             
             <div className="flex items-center gap-2">
               <input
