@@ -39,6 +39,7 @@ def create_rule(
     apply_mode: str = "ON_ENTER_ONLY",
     steps: Optional[List[Dict]] = None,
     active_weekdays: Optional[List[int]] = None,
+    excluded_weekdays: Optional[List[int]] = None,
     schedule_type: str = "STATUS_CHANGE",
     recurring_times: Optional[List[str]] = None
 ) -> ScheduledMessageRule:
@@ -151,6 +152,7 @@ def create_rule(
         immediate_message=immediate_message,
         apply_mode=apply_mode,
         active_weekdays=active_weekdays,
+        excluded_weekdays=excluded_weekdays,
         schedule_type=schedule_type,
         recurring_times=recurring_times
     )
@@ -216,6 +218,7 @@ def update_rule(
     apply_mode: Optional[str] = None,
     steps: Optional[List[Dict]] = None,
     active_weekdays: Optional[List[int]] = None,
+    excluded_weekdays: Optional[List[int]] = None,
     schedule_type: Optional[str] = None,
     recurring_times: Optional[List[str]] = None
 ) -> ScheduledMessageRule:
@@ -296,6 +299,8 @@ def update_rule(
         rule.apply_mode = apply_mode
     if active_weekdays is not None:
         rule.active_weekdays = active_weekdays
+    if excluded_weekdays is not None:
+        rule.excluded_weekdays = excluded_weekdays
     
     # Update status mappings if provided
     if status_ids is not None:
@@ -684,10 +689,34 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
         
         return our_weekday in active_weekdays
     
+    # Helper function to check if a date falls on an excluded weekday
+    def is_excluded_weekday(scheduled_datetime: datetime, excluded_weekdays: list) -> bool:
+        """
+        Check if scheduled_datetime falls on an excluded weekday
+        
+        Args:
+            scheduled_datetime: The datetime to check
+            excluded_weekdays: List of excluded weekdays (0=Sunday, 1=Monday, ..., 6=Saturday) or None for no exclusions
+        
+        Returns:
+            True if excluded (should NOT send), False if allowed
+        """
+        if excluded_weekdays is None or not isinstance(excluded_weekdays, list) or len(excluded_weekdays) == 0:
+            return False  # No exclusions - all days allowed
+        
+        # Convert Python weekday (0=Monday, 6=Sunday) to our format (0=Sunday, 1=Monday, ..., 6=Saturday)
+        python_weekday = scheduled_datetime.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
+        our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+        
+        return our_weekday in excluded_weekdays
+    
     # Create immediate message if enabled
     if rule.send_immediately_on_enter:
-        # Check if today is an active weekday
-        if not is_active_on_weekday(now, rule.active_weekdays):
+        # Check if today is an excluded weekday (for STATUS_CHANGE schedules)
+        if rule.schedule_type == 'STATUS_CHANGE' and is_excluded_weekday(now, getattr(rule, 'excluded_weekdays', None)):
+            logger.info(f"[SCHEDULED-MSG] Skipping immediate message for lead {lead_id} - excluded weekday")
+        # Check if today is an active weekday (for RECURRING_TIME schedules)
+        elif not is_active_on_weekday(now, rule.active_weekdays):
             logger.info(f"[SCHEDULED-MSG] Skipping immediate message for lead {lead_id} - not an active weekday")
         else:
             try:
@@ -750,7 +779,12 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
             
             scheduled_for = now + timedelta(seconds=step.delay_seconds)
             
-            # Check if scheduled_for falls on an active weekday
+            # Check if scheduled_for falls on an excluded weekday (for STATUS_CHANGE schedules)
+            if rule.schedule_type == 'STATUS_CHANGE' and is_excluded_weekday(scheduled_for, getattr(rule, 'excluded_weekdays', None)):
+                logger.info(f"[SCHEDULED-MSG] Skipping step {step.id} for lead {lead_id} - excluded weekday ({scheduled_for.strftime('%A')})")
+                continue
+            
+            # Check if scheduled_for falls on an active weekday (for RECURRING_TIME schedules)
             if not is_active_on_weekday(scheduled_for, rule.active_weekdays):
                 logger.info(f"[SCHEDULED-MSG] Skipping step {step.id} for lead {lead_id} - scheduled for inactive weekday ({scheduled_for.strftime('%A')})")
                 continue

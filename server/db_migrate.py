@@ -8618,6 +8618,44 @@ def apply_migrations():
         
         checkpoint("✅ Migration 136 complete: Recurring schedule support added")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 137: Add excluded_weekdays to scheduled_message_rules
+        # 🎯 PURPOSE: Allow users to exclude specific weekdays from automation
+        # - Add excluded_weekdays JSON column: Array of weekday indices [0-6] to exclude
+        # - Used only for STATUS_CHANGE schedule type
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 137: Add excluded_weekdays support to scheduled_message_rules")
+        
+        try:
+            changes_made = False
+            
+            if check_table_exists('scheduled_message_rules'):
+                # Add excluded_weekdays column
+                if not check_column_exists('scheduled_message_rules', 'excluded_weekdays'):
+                    checkpoint("  → Adding excluded_weekdays column to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN excluded_weekdays JSON NULL
+                    """)
+                    checkpoint("  ✅ excluded_weekdays column added to scheduled_message_rules")
+                    checkpoint("     💡 Array of weekday indices [0-6] where 0=Sunday, 6=Saturday")
+                    checkpoint("     💡 Automation will NOT run on these days, even if rule is active")
+                    checkpoint("     💡 Only applies to STATUS_CHANGE schedule type")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  excluded_weekdays column already exists in scheduled_message_rules")
+            
+            if changes_made:
+                migrations_applied.append("migration_137_excluded_weekdays")
+                checkpoint("  ✅ Migration 137 completed successfully")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 137 failed: {e}")
+            logger.error(f"Migration 137 error: {e}", exc_info=True)
+            # Don't raise - these are important but not critical for startup
+        
+        checkpoint("✅ Migration 137 complete: Excluded weekdays support added")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

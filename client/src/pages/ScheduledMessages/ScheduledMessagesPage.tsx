@@ -410,8 +410,10 @@ function CreateRuleModal({
     apply_mode: rule?.apply_mode || 'ON_ENTER_ONLY',
     steps: convertApiStepsToUI(rule?.steps),
     active_weekdays: rule?.active_weekdays || null,
+    excluded_weekdays: (rule as any)?.excluded_weekdays || null,
     schedule_type: rule?.schedule_type || 'STATUS_CHANGE',
-    recurring_times: rule?.recurring_times || []
+    recurring_times: rule?.recurring_times || [],
+    recurring_message: rule?.message_text || ''
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -464,6 +466,10 @@ function CreateRuleModal({
         setError('יש לבחור לפחות יום אחד לתזמון חוזר');
         return;
       }
+      if (!formData.recurring_message.trim()) {
+        setError('יש למלא תוכן הודעה לתזמון חוזר');
+        return;
+      }
     } else {
       // Validate STATUS_CHANGE schedule
       // Need at least one message source
@@ -502,7 +508,7 @@ function CreateRuleModal({
       // Convert UI data to API format
       const apiData: any = {
         name: formData.name,
-        message_text: '',  // Empty string for backward compatibility
+        message_text: formData.schedule_type === 'RECURRING_TIME' ? formData.recurring_message : '',  // Use recurring_message for RECURRING_TIME
         status_ids: formData.status_ids,
         delay_minutes: 0,  // Set to 0 - will be ignored for RECURRING_TIME
         delay_seconds: 0,  // Set to 0 - will be ignored for RECURRING_TIME
@@ -513,6 +519,7 @@ function CreateRuleModal({
         apply_mode: formData.apply_mode,
         steps: convertUIStepsToAPI(formData.steps),
         active_weekdays: formData.active_weekdays,
+        excluded_weekdays: formData.schedule_type === 'STATUS_CHANGE' ? formData.excluded_weekdays : null,
         schedule_type: formData.schedule_type,
         recurring_times: formData.schedule_type === 'RECURRING_TIME' ? formData.recurring_times : undefined
       };
@@ -726,6 +733,74 @@ function CreateRuleModal({
                     ההודעות יישלחו לכל הלידים בסטטוסים שנבחרו בשעות אלו בימים שנבחרו
                   </p>
                 </div>
+                
+                {/* Recurring Message Text */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    תוכן ההודעה *
+                  </label>
+                  <textarea
+                    value={formData.recurring_message}
+                    onChange={(e) => setFormData({ ...formData, recurring_message: e.target.value })}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="תוכן ההודעה שתישלח בימים ובשעות שנבחרו..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    משתנים זמינים: {'{lead_name}'}, {'{phone}'}, {'{business_name}'}, {'{status}'}
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            {/* Excluded Weekdays - Only for STATUS_CHANGE */}
+            {formData.schedule_type === 'STATUS_CHANGE' && (
+              <div className="border-t pt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <XCircle className="w-4 h-4 text-red-500" />
+                  ימים שבהם לא תפעל האוטומציה (אופציונלי)
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  בחר ימים שבהם לא יישלחו הודעות, גם אם החוק פעיל. שאר את השדה ריק אם רצונך שהחוק יפעל בכל הימים.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {DAYS_OF_WEEK.map((dayInfo) => {
+                    const dayIsExcluded = formData.excluded_weekdays?.includes(dayInfo.index);
+                    
+                    return (
+                      <button
+                        key={dayInfo.index}
+                        type="button"
+                        onClick={() => {
+                          const currentSelection = formData.excluded_weekdays || [];
+                          let updatedSelection: number[];
+                          
+                          if (currentSelection.includes(dayInfo.index)) {
+                            // Day is excluded - remove it (allow it)
+                            updatedSelection = currentSelection.filter((d: number) => d !== dayInfo.index);
+                          } else {
+                            // Day not excluded - add it (exclude it)
+                            updatedSelection = [...currentSelection, dayInfo.index].sort();
+                          }
+                          
+                          setFormData({ ...formData, excluded_weekdays: updatedSelection.length > 0 ? updatedSelection : null });
+                        }}
+                        className={`min-w-[3.5rem] px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                          dayIsExcluded
+                            ? 'bg-red-600 text-white shadow-md ring-2 ring-red-300'
+                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                        }`}
+                      >
+                        {dayInfo.nameHeb}
+                      </button>
+                    );
+                  })}
+                </div>
+                {formData.excluded_weekdays && formData.excluded_weekdays.length > 0 && (
+                  <p className="text-xs text-red-600 mt-2">
+                    האוטומציה לא תפעל ב-{formData.excluded_weekdays.length} ימים שנבחרו (מסומנים באדום)
+                  </p>
+                )}
               </div>
             )}
             
