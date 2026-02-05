@@ -10,18 +10,20 @@ import {
   Mic, 
   AlertCircle,
   Settings,
-  Sparkles
+  Sparkles,
+  Target
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
 import { PromptBuilderChat } from '../../components/settings/PromptBuilderChat';
 import { LiveCallCard } from '../../components/settings/LiveCallCard';
 import { BusinessAISettings } from '../../components/settings/BusinessAISettings';
+import { StatusChangePromptEditor } from '../../components/settings/StatusChangePromptEditor';
 
 // Temporary UI components
-const Card = ({ children, className = "" }: any) => {
-  return <div className={"border border-gray-200 rounded-lg bg-white " + className}>{children}</div>;
-};
+const Card = ({ children, className = "" }: any) => (
+  <div className={`border border-gray-200 rounded-lg bg-white ${className}`}>{children}</div>
+);
 
 interface AppointmentSettings {
   slot_size_min: number;
@@ -35,8 +37,8 @@ export function PromptStudioPage() {
   const { user } = useAuth();
   // ✅ URL-based tab navigation for search and refresh persistence
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'tester' | 'appointments' | null;
-  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'tester' | 'appointments'>(tabFromUrl || 'prompts');
+  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'tester' | 'appointments' | 'statuses' | null;
+  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'tester' | 'appointments' | 'statuses'>(tabFromUrl || 'prompts');
   const [showChatBuilder, setShowChatBuilder] = useState(false);
   const [smartGenChannel, setSmartGenChannel] = useState<'calls' | 'whatsapp'>('calls');
   const [saving, setSaving] = useState(false);
@@ -205,6 +207,17 @@ export function PromptStudioPage() {
           <Settings className="h-4 w-4" />
           הגדרות תורים
         </button>
+        <button
+          onClick={() => handleTabChange('statuses')}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            activeTab === 'statuses'
+              ? 'border-purple-600 text-purple-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Target className="h-4 w-4" />
+          פרומפט סטטוסים
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -273,7 +286,7 @@ export function PromptStudioPage() {
 
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">פתוח 24 שעות ביממה</h4>
+                  <h4 className="font-medium text-gray-900">פתוח 24/7</h4>
                   <p className="text-sm text-gray-600">אפשר קביעת תורים בכל שעה ביום</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -283,7 +296,7 @@ export function PromptStudioPage() {
                     onChange={(e) => setAppointmentSettings({...appointmentSettings, allow_24_7: e.target.checked})}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
                 </label>
               </div>
 
@@ -334,7 +347,7 @@ export function PromptStudioPage() {
                       >
                         {Array.from({length: 24}, (_, i) => {
                           const hour = i.toString().padStart(2, '0');
-                          return <option key={i} value={hour + ':00'}>{hour + ':00'}</option>;
+                          return <option key={i} value={`${hour}:00`}>{`${hour}:00`}</option>;
                         })}
                       </select>
                     </div>
@@ -347,7 +360,7 @@ export function PromptStudioPage() {
                       >
                         {Array.from({length: 24}, (_, i) => {
                           const hour = i.toString().padStart(2, '0');
-                          return <option key={i} value={hour + ':00'}>{hour + ':00'}</option>;
+                          return <option key={i} value={`${hour}:00`}>{`${hour}:00`}</option>;
                         })}
                       </select>
                     </div>
@@ -390,9 +403,9 @@ export function PromptStudioPage() {
                 <h4 className="font-medium text-gray-900 mb-2">סיכום הגדרות</h4>
                 <div className="space-y-2 text-sm text-gray-600">
                   <p>• תורים כל <strong>{appointmentSettings.slot_size_min}</strong> דקות</p>
-                  <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? "24 שעות ביממה" : "בשעות מוגדרות"}</strong></p>
+                  <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? '24/7' : 'בשעות מוגדרות'}</strong></p>
                   <p>• ניתן לקבוע עד <strong>{appointmentSettings.booking_window_days}</strong> ימים קדימה</p>
-                  <p>• הודעה מוקדמת: <strong>{appointmentSettings.min_notice_min === 0 ? "לא נדרשת" : appointmentSettings.min_notice_min + " דקות"}</strong></p>
+                  <p>• הודעה מוקדמת: <strong>{appointmentSettings.min_notice_min === 0 ? 'לא נדרשת' : `${appointmentSettings.min_notice_min} דקות`}</strong></p>
                 </div>
               </div>
               
@@ -409,7 +422,18 @@ export function PromptStudioPage() {
         </div>
       )}
 
-      {/* Prompt Builder Chat Modal */
+      {activeTab === 'statuses' && (
+        <div className="max-w-4xl mx-auto">
+          <StatusChangePromptEditor 
+            businessId={user?.tenant_id}
+            onSave={(version) => {
+              console.log('Status change prompt saved, version:', version);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Prompt Builder Chat Modal */}
       <PromptBuilderChat
         isOpen={showChatBuilder}
         onClose={() => setShowChatBuilder(false)}
