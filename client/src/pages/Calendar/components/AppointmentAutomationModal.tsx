@@ -129,6 +129,35 @@ function getPresetIdFromOffset(offset: { type: string; minutes?: number }): stri
   return preset?.id || 'immediate';
 }
 
+/**
+ * Helper to toggle filter selection (calendars or types)
+ * - Selecting "All" (null) clears any specific selections
+ * - Selecting a specific item adds/removes it from the list
+ * - If all items are deselected, reverts to null (All)
+ */
+function toggleFilterSelection<T>(
+  currentSelection: T[] | null,
+  itemToToggle: T | null
+): T[] | null {
+  // Clicking "All" - clear all selections
+  if (itemToToggle === null) {
+    return null;
+  }
+  
+  const currentItems = currentSelection || [];
+  const isSelected = currentItems.includes(itemToToggle);
+  
+  if (isSelected) {
+    // Remove item from selection
+    const newItems = currentItems.filter(item => item !== itemToToggle);
+    // If empty, return null (All)
+    return newItems.length > 0 ? newItems : null;
+  } else {
+    // Add item to selection
+    return [...currentItems, itemToToggle];
+  }
+}
+
 export default function AppointmentAutomationModal({
   isOpen,
   onClose,
@@ -436,7 +465,7 @@ export default function AppointmentAutomationModal({
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => {
-                      setFormData({ ...formData, calendar_ids: null });
+                      setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids, null) });
                     }}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                       formData.calendar_ids === null
@@ -450,11 +479,7 @@ export default function AppointmentAutomationModal({
                     <button
                       key={calendar.id}
                       onClick={() => {
-                        const currentIds = formData.calendar_ids || [];
-                        const newIds = currentIds.includes(calendar.id)
-                          ? currentIds.filter(id => id !== calendar.id)
-                          : [...currentIds, calendar.id];
-                        setFormData({ ...formData, calendar_ids: newIds.length > 0 ? newIds : null });
+                        setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids, calendar.id) });
                       }}
                       className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                         formData.calendar_ids && formData.calendar_ids.includes(calendar.id)
@@ -480,7 +505,7 @@ export default function AppointmentAutomationModal({
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => {
-                      setFormData({ ...formData, appointment_type_keys: null });
+                      setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys, null) });
                     }}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                       formData.appointment_type_keys === null
@@ -494,11 +519,7 @@ export default function AppointmentAutomationModal({
                     <button
                       key={type.key}
                       onClick={() => {
-                        const currentKeys = formData.appointment_type_keys || [];
-                        const newKeys = currentKeys.includes(type.key)
-                          ? currentKeys.filter(k => k !== type.key)
-                          : [...currentKeys, type.key];
-                        setFormData({ ...formData, appointment_type_keys: newKeys.length > 0 ? newKeys : null });
+                        setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys, type.key) });
                       }}
                       className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                         formData.appointment_type_keys && formData.appointment_type_keys.includes(type.key)
