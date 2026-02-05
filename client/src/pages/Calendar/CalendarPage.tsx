@@ -2317,7 +2317,8 @@ export function CalendarPage() {
         isOpen={showAppointmentStatusModal}
         onClose={() => setShowAppointmentStatusModal(false)}
         onStatusChange={() => {
-          fetchAppointmentConfigs();
+          fetchAppointmentTypes();
+          fetchAppointmentStatuses();
           fetchAppointments();
         }}
       />
@@ -2327,7 +2328,8 @@ export function CalendarPage() {
         isOpen={showAppointmentTypeModal}
         onClose={() => setShowAppointmentTypeModal(false)}
         onTypeChange={() => {
-          fetchAppointmentConfigs();
+          fetchAppointmentTypes();
+          fetchAppointmentStatuses();
           fetchAppointments();
         }}
       />
