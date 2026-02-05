@@ -428,18 +428,48 @@ function CreateRuleModal({
     { key: '{status}', label: 'סטטוס' }
   ];
 
-  // Insert variable into message field
+  // Refs to track cursor position in textareas
+  const recurringMessageRef = React.useRef<HTMLTextAreaElement>(null);
+  const immediateMessageRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Insert variable into message field at cursor position or at end
   const insertVariable = (field: 'recurring_message' | 'immediate_message' | 'step_message', variable: string, stepIndex?: number) => {
     if (field === 'step_message' && stepIndex !== undefined) {
+      // For step messages, just append to end (no ref tracking for dynamic fields)
       const updatedSteps = [...formData.steps];
       updatedSteps[stepIndex].message_text = (updatedSteps[stepIndex].message_text || '') + variable;
       setFormData({ ...formData, steps: updatedSteps });
     } else {
+      // For main message fields, try to insert at cursor position
+      const ref = field === 'recurring_message' ? recurringMessageRef : immediateMessageRef;
+      const textarea = ref.current;
       const currentValue = formData[field] || '';
-      setFormData({
-        ...formData,
-        [field]: currentValue + variable
-      });
+      
+      let newValue: string;
+      if (textarea && document.activeElement === textarea) {
+        // Insert at cursor position if textarea is focused
+        const cursorPos = textarea.selectionStart || 0;
+        newValue = currentValue.substring(0, cursorPos) + variable + currentValue.substring(cursorPos);
+        
+        // Update form data
+        setFormData({
+          ...formData,
+          [field]: newValue
+        });
+        
+        // Restore cursor position after the inserted variable
+        setTimeout(() => {
+          textarea.selectionStart = textarea.selectionEnd = cursorPos + variable.length;
+          textarea.focus();
+        }, 0);
+      } else {
+        // If not focused, append to end
+        newValue = currentValue + variable;
+        setFormData({
+          ...formData,
+          [field]: newValue
+        });
+      }
     }
   };
 
@@ -764,6 +794,7 @@ function CreateRuleModal({
                     תוכן ההודעה *
                   </label>
                   <textarea
+                    ref={recurringMessageRef}
                     value={formData.recurring_message}
                     onChange={(e) => setFormData({ ...formData, recurring_message: e.target.value })}
                     rows={4}
@@ -867,6 +898,7 @@ function CreateRuleModal({
                     הודעה מיידית *
                   </label>
                   <textarea
+                    ref={immediateMessageRef}
                     value={formData.immediate_message}
                     onChange={(e) => setFormData({ ...formData, immediate_message: e.target.value })}
                     rows={3}

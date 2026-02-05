@@ -862,7 +862,16 @@ def render_message_template(
     """
     # Get lead name with fallback
     lead_full_name = lead.full_name or lead.name or 'Customer'
-    lead_first_name = lead.first_name or lead_full_name.split()[0] if lead_full_name else 'Customer'
+    
+    # Extract first name with proper fallbacks
+    if lead.first_name:
+        lead_first_name = lead.first_name
+    elif lead_full_name and lead_full_name != 'Customer':
+        # Try to extract first word from full name
+        name_parts = lead_full_name.split()
+        lead_first_name = name_parts[0] if name_parts else 'Customer'
+    else:
+        lead_first_name = 'Customer'
     
     # Build replacement dictionary - English placeholders
     replacements = {

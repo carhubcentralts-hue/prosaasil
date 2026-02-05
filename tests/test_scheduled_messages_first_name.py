@@ -89,6 +89,36 @@ def test_all_variables_including_first_name():
     assert "צור קשר" in rendered
 
 
+def test_first_name_with_empty_string():
+    """Test that first_name handles empty strings correctly"""
+    lead = MockLead(first_name="", full_name="", phone_e164="+972501234567")
+    business = MockBusiness(name="Test Business")
+    
+    template = "שלום {first_name}"
+    rendered = scheduled_messages_service.render_message_template(
+        template, lead, business,
+        status_name="new",
+        status_label="חדש"
+    )
+    
+    assert rendered == "שלום Customer"
+
+
+def test_first_name_with_spaces_only():
+    """Test that first_name handles whitespace-only names"""
+    lead = MockLead(full_name="   ", phone_e164="+972501234567")
+    business = MockBusiness(name="Test Business")
+    
+    template = "היי {first_name}!"
+    rendered = scheduled_messages_service.render_message_template(
+        template, lead, business,
+        status_name="new",
+        status_label="חדש"
+    )
+    
+    assert rendered == "היי Customer!"
+
+
 def test_first_name_fallback_to_customer():
     """Test that first_name falls back to 'Customer' when no name is available"""
     lead = MockLead(phone_e164="+972501234567")
