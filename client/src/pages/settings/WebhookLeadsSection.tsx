@@ -91,8 +91,9 @@ export function WebhookLeadsSection() {
   const { data: statuses = [] } = useQuery<StatusOption[]>({
     queryKey: ['lead-statuses'],
     queryFn: async () => {
-      const response = await apiRequest('/crm/statuses', { method: 'GET' });
-      return response;
+      const response = await apiRequest('/api/statuses', { method: 'GET' });
+      // API returns {items: [...], total: N}, extract items array
+      return response.items || [];
     }
   });
 

@@ -64,6 +64,17 @@ interface LeadStatus {
   color?: string;
 }
 
+// Weekday configuration for message scheduling
+const DAYS_OF_WEEK = [
+  { index: 0, nameHeb: 'ראשון', shortHeb: 'א' },
+  { index: 1, nameHeb: 'שני', shortHeb: 'ב' },
+  { index: 2, nameHeb: 'שלישי', shortHeb: 'ג' },
+  { index: 3, nameHeb: 'רביעי', shortHeb: 'ד' },
+  { index: 4, nameHeb: 'חמישי', shortHeb: 'ה' },
+  { index: 5, nameHeb: 'שישי', shortHeb: 'ו' },
+  { index: 6, nameHeb: 'שבת', shortHeb: 'ש' },
+];
+
 export function ScheduledMessagesPage() {
   const [rules, setRules] = useState<scheduledMessagesApi.ScheduledRule[]>([]);
   const [statuses, setStatuses] = useState<LeadStatus[]>([]);
@@ -397,7 +408,8 @@ function CreateRuleModal({
     send_immediately_on_enter: rule?.send_immediately_on_enter ?? false,
     immediate_message: rule?.immediate_message || '',
     apply_mode: rule?.apply_mode || 'ON_ENTER_ONLY',
-    steps: convertApiStepsToUI(rule?.steps)
+    steps: convertApiStepsToUI(rule?.steps),
+    active_weekdays: rule?.active_weekdays || null
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -605,6 +617,70 @@ function CreateRuleModal({
                 {formData.apply_mode === 'ON_ENTER_ONLY' 
                   ? 'ההודעות יישלחו רק כאשר הליד נכנס לסטטוס' 
                   : 'ההודעות יישלחו כל עוד הליד נמצא בסטטוס'}
+              </p>
+            </div>
+            
+            {/* Active Weekdays Section */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                ימים פעילים לשליחת הודעות
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {DAYS_OF_WEEK.map((dayInfo) => {
+                  const allDaysMode = formData.active_weekdays === null;
+                  const dayIsActive = formData.active_weekdays?.includes(dayInfo.index);
+                  const isActiveDay = allDaysMode || dayIsActive;
+                  
+                  return (
+                    <button
+                      key={dayInfo.index}
+                      type="button"
+                      onClick={() => {
+                        const currentSelection = formData.active_weekdays || [];
+                        let updatedSelection: number[] | null;
+                        
+                        if (formData.active_weekdays === null) {
+                          // Currently all days - clicking removes this day
+                          updatedSelection = DAYS_OF_WEEK
+                            .filter((d: { index: number }) => d.index !== dayInfo.index)
+                            .map((d: { index: number }) => d.index);
+                        } else if (currentSelection.includes(dayInfo.index)) {
+                          // Day is selected - remove it
+                          updatedSelection = currentSelection.filter((d: number) => d !== dayInfo.index);
+                          // If empty, revert to all days
+                          if (updatedSelection && updatedSelection.length === 0) {
+                            updatedSelection = null;
+                          }
+                        } else {
+                          // Day not selected - add it
+                          updatedSelection = [...currentSelection, dayInfo.index].sort();
+                          // If all 7 days now selected, set to null (all days)
+                          if (updatedSelection.length === 7) {
+                            updatedSelection = null;
+                          }
+                        }
+                        
+                        setFormData({ ...formData, active_weekdays: updatedSelection });
+                      }}
+                      className={`min-w-[3.5rem] px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                        isActiveDay
+                          ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300'
+                          : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                      }`}
+                    >
+                      {dayInfo.nameHeb}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                בחר ימים ספציפיים או השאר הכל מסומן לכל הימים.
+                {formData.active_weekdays && formData.active_weekdays.length > 0 && (
+                  <span className="font-medium text-blue-600">
+                    {' '}(פעיל ב-{formData.active_weekdays.length} ימים)
+                  </span>
+                )}
               </p>
             </div>
             

@@ -281,7 +281,8 @@ def create_rule():
             send_immediately_on_enter=data.get('send_immediately_on_enter', False),
             immediate_message=data.get('immediate_message'),
             apply_mode=apply_mode,
-            steps=steps
+            steps=steps,
+            active_weekdays=data.get('active_weekdays')  # Optional: null means all days
         )
         
         logger.info(f"[SCHEDULED-MSG-API] Created rule {rule.id} for business {business_id}")

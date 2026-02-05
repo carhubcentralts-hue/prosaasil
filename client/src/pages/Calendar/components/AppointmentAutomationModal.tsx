@@ -29,6 +29,7 @@ interface AutomationFormData {
   }>;
   message_template: string;
   cancel_on_status_exit: boolean;
+  active_weekdays?: number[] | null; // null = all days, [0,1,2,3,4,5,6] = specific days
 }
 
 const TEXTS = {
@@ -73,6 +74,8 @@ const TEXTS = {
   cancelOnExit: 'בטל שליחה אם הסטטוס משתנה',
   selectStatus: 'בחר אוטומציה לעריכה',
   orCreateNew: 'או לחץ על "אוטומציה חדשה" ליצירה',
+  activeWeekdaysLabel: 'ימים פעילים לשליחה',
+  activeWeekdaysHint: 'בחר את הימים בהם הודעות יישלחו. ללא בחירה = כל הימים',
 };
 
 const AVAILABLE_VARIABLES = [
@@ -82,6 +85,17 @@ const AVAILABLE_VARIABLES = [
   { key: '{appointment_time}', label: 'שעת הפגישה' },
   { key: '{appointment_location}', label: 'מיקום' },
   { key: '{rep_name}', label: 'שם הנציג' },
+];
+
+// Weekday configuration for filtering when messages should be sent
+const WEEKDAY_CONFIG = [
+  { dayIndex: 0, hebrewLabel: 'ראשון', shortLabel: 'א' },
+  { dayIndex: 1, hebrewLabel: 'שני', shortLabel: 'ב' },
+  { dayIndex: 2, hebrewLabel: 'שלישי', shortLabel: 'ג' },
+  { dayIndex: 3, hebrewLabel: 'רביעי', shortLabel: 'ד' },
+  { dayIndex: 4, hebrewLabel: 'חמישי', shortLabel: 'ה' },
+  { dayIndex: 5, hebrewLabel: 'שישי', shortLabel: 'ו' },
+  { dayIndex: 6, hebrewLabel: 'שבת', shortLabel: 'ש' },
 ];
 
 // Timing formatting function
@@ -165,6 +179,7 @@ export default function AppointmentAutomationModal({
     schedule_offsets: [{ type: 'immediate' }],
     message_template: '',
     cancel_on_status_exit: true,
+    active_weekdays: null,
   });
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -194,6 +209,7 @@ export default function AppointmentAutomationModal({
       schedule_offsets: [{ type: 'immediate' }],
       message_template: '',
       cancel_on_status_exit: true,
+      active_weekdays: null,
     });
     setShowForm(true);
     setShowTemplates(false);
@@ -210,6 +226,7 @@ export default function AppointmentAutomationModal({
       schedule_offsets: automation.schedule_offsets,
       message_template: automation.message_template,
       cancel_on_status_exit: automation.cancel_on_status_exit,
+      active_weekdays: automation.active_weekdays || null,
     });
     setShowForm(true);
     setShowTemplates(false);
@@ -440,7 +457,7 @@ export default function AppointmentAutomationModal({
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => {
-                      setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids, null) });
+                      setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids ?? null, null) });
                     }}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                       formData.calendar_ids === null
@@ -454,7 +471,7 @@ export default function AppointmentAutomationModal({
                     <button
                       key={calendar.id}
                       onClick={() => {
-                        setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids, calendar.id) });
+                        setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids ?? null, calendar.id) });
                       }}
                       className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                         formData.calendar_ids && formData.calendar_ids.includes(calendar.id)
@@ -480,7 +497,7 @@ export default function AppointmentAutomationModal({
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => {
-                      setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys, null) });
+                      setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys ?? null, null) });
                     }}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                       formData.appointment_type_keys === null
@@ -494,7 +511,7 @@ export default function AppointmentAutomationModal({
                     <button
                       key={type.key}
                       onClick={() => {
-                        setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys, type.key) });
+                        setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys ?? null, type.key) });
                       }}
                       className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                         formData.appointment_type_keys && formData.appointment_type_keys.includes(type.key)
@@ -621,6 +638,70 @@ export default function AppointmentAutomationModal({
                 <label htmlFor="cancelOnExit" className="text-sm font-medium text-slate-700">
                   {TEXTS.cancelOnExit}
                 </label>
+              </div>
+
+              {/* Active Weekdays Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4" />
+                  {TEXTS.activeWeekdaysLabel}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAY_CONFIG.map((weekday) => {
+                    const isAllDaysSelected = formData.active_weekdays === null;
+                    const isDaySelected = formData.active_weekdays?.includes(weekday.dayIndex);
+                    const isSelected = isAllDaysSelected || isDaySelected;
+                    
+                    return (
+                      <button
+                        key={weekday.dayIndex}
+                        type="button"
+                        onClick={() => {
+                          const currentDays = formData.active_weekdays || [];
+                          let updatedDays: number[] | null;
+                          
+                          if (formData.active_weekdays === null) {
+                            // First click: deselect this day (select all others)
+                            updatedDays = WEEKDAY_CONFIG
+                              .filter(d => d.dayIndex !== weekday.dayIndex)
+                              .map(d => d.dayIndex);
+                          } else if (currentDays.includes(weekday.dayIndex)) {
+                            // Remove this day
+                            updatedDays = currentDays.filter(d => d !== weekday.dayIndex);
+                            // If all days removed, set to null (all days)
+                            if (updatedDays.length === 0) {
+                              updatedDays = null;
+                            }
+                          } else {
+                            // Add this day
+                            updatedDays = [...currentDays, weekday.dayIndex].sort();
+                            // If all 7 days selected, set to null (all days)
+                            if (updatedDays.length === 7) {
+                              updatedDays = null;
+                            }
+                          }
+                          
+                          setFormData({ ...formData, active_weekdays: updatedDays });
+                        }}
+                        className={`min-w-[3rem] px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                          isSelected
+                            ? 'bg-blue-600 text-white ring-2 ring-blue-400'
+                            : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                        }`}
+                      >
+                        {weekday.hebrewLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  {TEXTS.activeWeekdaysHint}
+                  {formData.active_weekdays && formData.active_weekdays.length > 0 && (
+                    <span className="font-medium text-blue-600">
+                      {' '}(נבחרו {formData.active_weekdays.length} ימים)
+                    </span>
+                  )}
+                </p>
               </div>
 
               {/* Message Template */}

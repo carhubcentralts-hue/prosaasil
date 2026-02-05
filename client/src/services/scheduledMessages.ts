@@ -29,6 +29,7 @@ export interface ScheduledRule {
   immediate_message?: string;  // NEW: Message to send immediately on entering status (if different from scheduled message)
   apply_mode?: string;  // "ON_ENTER_ONLY" | "WHILE_IN_STATUS"
   steps?: Array<RuleStep>;
+  active_weekdays?: number[] | null;  // NEW: Array of weekday indices [0-6] where 0=Sunday, null=all days
   statuses: Array<{
     id: number;
     name: string;

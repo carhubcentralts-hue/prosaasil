@@ -16,6 +16,7 @@ export interface AppointmentAutomation {
   message_template: string;
   send_once_per_offset: boolean;
   cancel_on_status_exit: boolean;
+  active_weekdays?: number[] | null;  // Optional: Array of weekday indices [0-6] where 0=Sunday, null=all days
   created_at?: string;
   updated_at?: string;
 }

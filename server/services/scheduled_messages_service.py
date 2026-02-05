@@ -37,7 +37,8 @@ def create_rule(
     send_immediately_on_enter: bool = False,
     immediate_message: Optional[str] = None,
     apply_mode: str = "ON_ENTER_ONLY",
-    steps: Optional[List[Dict]] = None
+    steps: Optional[List[Dict]] = None,
+    active_weekdays: Optional[List[int]] = None
 ) -> ScheduledMessageRule:
     """
     Create a new scheduling rule
@@ -112,7 +113,8 @@ def create_rule(
         provider=provider,
         send_immediately_on_enter=send_immediately_on_enter,
         immediate_message=immediate_message,
-        apply_mode=apply_mode
+        apply_mode=apply_mode,
+        active_weekdays=active_weekdays
     )
     
     db.session.add(rule)
@@ -174,7 +176,8 @@ def update_rule(
     send_immediately_on_enter: Optional[bool] = None,
     immediate_message: Optional[str] = None,
     apply_mode: Optional[str] = None,
-    steps: Optional[List[Dict]] = None
+    steps: Optional[List[Dict]] = None,
+    active_weekdays: Optional[List[int]] = None
 ) -> ScheduledMessageRule:
     """
     Update an existing scheduling rule
@@ -224,6 +227,8 @@ def update_rule(
         rule.immediate_message = immediate_message
     if apply_mode is not None:
         rule.apply_mode = apply_mode
+    if active_weekdays is not None:
+        rule.active_weekdays = active_weekdays
     
     # Update status mappings if provided
     if status_ids is not None:
