@@ -457,7 +457,7 @@ export default function AppointmentAutomationModal({
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => {
-                      setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids, null) });
+                      setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids ?? null, null) });
                     }}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                       formData.calendar_ids === null
@@ -471,7 +471,7 @@ export default function AppointmentAutomationModal({
                     <button
                       key={calendar.id}
                       onClick={() => {
-                        setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids, calendar.id) });
+                        setFormData({ ...formData, calendar_ids: toggleFilterSelection(formData.calendar_ids ?? null, calendar.id) });
                       }}
                       className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                         formData.calendar_ids && formData.calendar_ids.includes(calendar.id)
@@ -497,7 +497,7 @@ export default function AppointmentAutomationModal({
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => {
-                      setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys, null) });
+                      setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys ?? null, null) });
                     }}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                       formData.appointment_type_keys === null
@@ -511,7 +511,7 @@ export default function AppointmentAutomationModal({
                     <button
                       key={type.key}
                       onClick={() => {
-                        setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys, type.key) });
+                        setFormData({ ...formData, appointment_type_keys: toggleFilterSelection(formData.appointment_type_keys ?? null, type.key) });
                       }}
                       className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
                         formData.appointment_type_keys && formData.appointment_type_keys.includes(type.key)

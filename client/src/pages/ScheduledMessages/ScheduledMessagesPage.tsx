@@ -643,13 +643,13 @@ function CreateRuleModal({
                         if (formData.active_weekdays === null) {
                           // Currently all days - clicking removes this day
                           updatedSelection = DAYS_OF_WEEK
-                            .filter(d => d.index !== dayInfo.index)
-                            .map(d => d.index);
+                            .filter((d: { index: number }) => d.index !== dayInfo.index)
+                            .map((d: { index: number }) => d.index);
                         } else if (currentSelection.includes(dayInfo.index)) {
                           // Day is selected - remove it
-                          updatedSelection = currentSelection.filter(d => d !== dayInfo.index);
+                          updatedSelection = currentSelection.filter((d: number) => d !== dayInfo.index);
                           // If empty, revert to all days
-                          if (updatedSelection.length === 0) {
+                          if (updatedSelection && updatedSelection.length === 0) {
                             updatedSelection = null;
                           }
                         } else {
