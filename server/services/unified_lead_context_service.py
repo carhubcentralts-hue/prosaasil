@@ -500,8 +500,8 @@ class UnifiedLeadContextService:
         try:
             tasks = CRMTask.query.filter(
                 CRMTask.lead_id == lead.id,
-                CRMTask.business_id == self.business_id,  # 🔥 FIX: Use 'business_id' not 'tenant_id'
-                CRMTask.status.in_(['open', 'pending', 'in_progress'])
+                CRMTask.business_id == self.business_id,
+                CRMTask.status.in_(['todo', 'doing'])  # 🔥 FIX: Correct statuses (not 'done')
             ).order_by(CRMTask.due_date.asc()).limit(10).all()
             
             task_list = []

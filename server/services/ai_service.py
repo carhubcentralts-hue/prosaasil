@@ -1131,6 +1131,7 @@ class AIService:
                                 "content": f"מידע על הלקוח (שימוש פנימי - אל תחזור על המידע הזה ללקוח):\n{context_text}"
                             })
                             logger.info(f"[AGENTKIT] 🎧 Prepended lead context to conversation ({len(context_text)} chars)")
+                            logger.info(f"[AGENTKIT] 📄 CONTEXT CONTENT:\n{context_text[:500]}...")  # 🔥 DEBUG: Print first 500 chars
                 except Exception as ctx_err:
                     logger.warning(f"[AGENTKIT] Failed to format lead context: {ctx_err}")
             

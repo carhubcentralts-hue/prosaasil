@@ -225,6 +225,23 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                 
                 logger.info(f"[WA-SUMMARY] ✅ Updated unified customer memory for lead {lead.id}")
                 
+                # 🔥 NEW: Create LeadNote for AI context (single source of truth)
+                try:
+                    from server.models_sql import LeadNote
+                    
+                    # Create note with customer_service_ai type so unified context picks it up
+                    note = LeadNote(
+                        lead_id=lead.id,
+                        tenant_id=session.business_id,
+                        note_type='customer_service_ai',  # 🔥 CRITICAL: This makes it visible to AI
+                        content=f"סיכום שיחת WhatsApp:\n{summary}",
+                        created_at=datetime.utcnow()
+                    )
+                    db.session.add(note)
+                    logger.info(f"[WA-SUMMARY] ✅ Created LeadNote (customer_service_ai) for lead {lead.id}")
+                except Exception as note_err:
+                    logger.error(f"[WA-SUMMARY] ❌ Failed to create LeadNote: {note_err}", exc_info=True)
+                
                 # 🔥 NEW: Trigger auto-status update from WhatsApp summary
                 # This ensures WhatsApp summaries can change status just like call summaries
                 try:
