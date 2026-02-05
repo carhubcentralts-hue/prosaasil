@@ -247,32 +247,37 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                 try:
                     from server.services.lead_auto_status_service import suggest_lead_status_from_call
                     from server.services.unified_status_service import update_lead_status_unified
+                    import re
                     
                     logger.info(f"[WA-STATUS] 🔍 Checking if status update needed for lead {lead.id}")
                     logger.info(f"[WA-STATUS]    - Current status: {lead.status}")
                     logger.info(f"[WA-STATUS]    - Summary: {summary[:150]}...")
                     
-                    # Get messages for transcript-like analysis
-                    messages = get_session_messages(session)
+                    # 🚨 FIX: Extract status recommendation directly from summary
+                    # Look for [המלצה: <status>] pattern
+                    suggested_status = None
+                    recommendation_match = re.search(r'\[המלצה:\s*([^\]]+)\]', summary)
                     
-                    # Build transcript from messages
-                    transcript_lines = []
-                    for m in messages:
-                        if m.get('body'):  # 🔥 FIX: Use 'body' not 'message_text'
-                            sender = 'Customer' if m.get('direction') == 'in' else 'Business'
-                            transcript_lines.append(f"{sender}: {m['body']}")
-                    
-                    transcript_text = "\n".join(transcript_lines)
-                    
-                    # Use the same auto-status logic as calls
-                    suggested_status = suggest_lead_status_from_call(
-                        tenant_id=session.business_id,
-                        lead_id=lead.id,
-                        call_direction='inbound',  # WhatsApp is typically inbound
-                        call_summary=summary,
-                        call_transcript=transcript_text,
-                        call_duration=None  # Not applicable for WhatsApp
-                    )
+                    if recommendation_match:
+                        recommended_label = recommendation_match.group(1).strip()
+                        logger.info(f"[WA-STATUS] 📋 Found recommendation in summary: '{recommended_label}'")
+                        
+                        # Map Hebrew label to status_id
+                        from server.models_sql import LeadStatus
+                        status_obj = LeadStatus.query.filter_by(
+                            business_id=session.business_id,
+                            label=recommended_label,
+                            is_active=True
+                        ).first()
+                        
+                        if status_obj:
+                            suggested_status = status_obj.name
+                            logger.info(f"[WA-STATUS] ✅ Mapped '{recommended_label}' → status_id '{suggested_status}'")
+                        else:
+                            logger.warning(f"[WA-STATUS] ⚠️ Could not find status with label '{recommended_label}'")
+                    else:
+                        logger.info(f"[WA-STATUS] ℹ️ No [המלצה: ...] found in summary - skipping auto-status")
+                        suggested_status = None
                     
                     if suggested_status:
                         logger.info(f"[WA-STATUS] 🤖 Suggested status: '{suggested_status}'")
@@ -748,15 +753,15 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
 
 הסיכום חייב לכלול:
 1. **נושא** - מה הלקוח רצה/שאל
-2. **מה נדון** - הנקודות העיקריות (אם יש)
+2. **מה נדון** - הנקודות העיקריות עם **כל הפרטים הרלוונטיים** שהלקוח סיפק (תאריכים, מקומות, כמויות, דרישות וכו')
 3. **תוצאה** - מה סוכם או איך הסתיימה השיחה
 4. **המשך** - אם יש פעולה נדרשת
 5. **המלצת סטטוס** - המלצה חכמה לסטטוס מהרשימה למעלה
 
 כללים:
-- כתוב רק מה שנאמר בפועל
+- **כתוב את כל הפרטים המשמעותיים** שהלקוח מסר (תאריכים, מספרים, מיקומים, דרישות מיוחדות)
 - אם השיחה קצרה/לא הגיעה לסיכום - ציין זאת בקצרה
-- 1-4 משפטים מספיקים (תלוי באורך השיחה)
+- סיכום יכול להיות ארוך אם השיחה הייתה מפורטת
 - גם שיחה של הודעה אחת צריכה סיכום (למשל: "לקוח שאל על X, טרם נענה")
 - הוסף המלצת סטטוס בפורמט [המלצה: <תווית_בעברית>]
 - הסטטוס חייב להיות **בעברית** מהרשימה שקיבלת!
@@ -780,28 +785,35 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
                 {"role": "system", "content": """אתה מסכם שיחות WhatsApp עסקיות בעברית.
 
 הסיכום שלך חייב להיות:
-- מדויק - רק מה שנאמר בפועל
-- שימושי - מה קרה ומה הצעד הבא
-- כן - אם לא הגיעו לסיכום, כתוב את זה
-- מלא - כולל המלצה חכמה לסטטוס
+- **מפורט** - כלול את כל הפרטים המשמעותיים שהלקוח מסר
+- **מדויק** - רק מה שנאמר בפועל
+- **שימושי** - מה קרה ומה הצעד הבא
+- **ישיר** - אם לא הגיעו לסיכום, כתוב את זה
+- **מלא** - כולל המלצה חכמה לסטטוס
+
+חשוב במיוחד:
+⚠️ רשום את **כל הפרטים הרלוונטיים** מהשיחה - תאריכים, מיקומים, מספרים, דרישות מיוחדות
+⚠️ אל תכתוב "הלקוח סיפק פרטים" - **מהם הפרטים?**
+⚠️ אל תסכם סיכום - כתוב את המידע בפועל
 
 המלצת סטטוס:
-⚠️ תקבל רשימת סטטוסים ספציפית לעסק בפרומפט
-⚠️ כל סטטוס מופיע בפורמט: שם_פנימי (תווית בעברית)
-⚠️ השתמש בשם הפנימי בהמלצה שלך
-⚠️ הבן את המשמעות מהתווית בעברית
-⚠️ בחר את הסטטוס המתאים ביותר לתוכן השיחה
+⚠️ תקבל רשימת סטטוסים בעברית בפרומפט
+⚠️ בחר אחד מהסטטוסים המופיעים ברשימה
+⚠️ כתוב אותו **בדיוק** כפי שמופיע ברשימה (באותיות, רווחים וכו')
+⚠️ בחר את הסטטוס שהכי מתאים לתוכן השיחה
 
-דוגמאות:
-✓ "לקוח שאל על מחירי שירות. קיבל הצעת מחיר. ביקש לחשוב על זה. [המלצה: <שם_מהרשימה>]"
-✓ "בירור על זמינות. לא נמצא תאריך מתאים. הלקוח יחזור בשבוע הבא. [המלצה: <שם_מהרשימה>]"
-✓ "לקוח התעניין בשירות אך לא השיב להודעות ההמשך. [המלצה: <שם_מהרשימה>]"
-✓ "לקוח ביקש פגישה - נקבעה לתאריך 15/3 בשעה 10:00. [המלצה: <שם_מהרשימה>]"
+דוגמאות טובות:
+✓ "לקוח מבקש הובלה מתל אביב לרמלה. קומת איסוף: 2 עם מעלית, קומת פריקה: 1. 4 נפשות, 3 חדרים. העסק יכין הצעת מחיר. [המלצה: מחכה להצעת מחיר]"
+✓ "בירור על זמינות למועד 15/3 בשעה 10:00. לא נמצא זמן מתאים. הלקוח יחזור בשבוע הבא. [המלצה: המתנה]"
+
+דוגמאות רעות ❌:
+❌ "הלקוח סיפק פרטים על ההובלה" - מהם הפרטים??
+❌ "נדונו הנושאים הבאים" - מהם הנושאים??
 
 זכור: השתמש רק בשמות הפנימיים מהרשימה שקיבלת!"""},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=200,
+            max_tokens=400,  # 🔥 FIX: Increased for detailed summaries
             temperature=0.0
         )
         
