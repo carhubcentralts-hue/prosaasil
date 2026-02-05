@@ -78,7 +78,7 @@ def send_whatsapp_message_job(
                     business_id=business_id,
                     to_number=remote_jid,  # 🔥 FIX: Store FULL JID for history matching
                     body=response_text,
-                    direction='outbound',
+                    direction='out',  # 🔥 Consistent 'in'/'out' values (not 'outbound')
                     provider='baileys',  # Default provider for this job
                     status='sent',
                     message_type='text',

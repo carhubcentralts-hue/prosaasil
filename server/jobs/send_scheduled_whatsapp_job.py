@@ -151,7 +151,7 @@ def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
                             business_id=message.business_id,
                             to_number=message.remote_jid,  # 🔥 Store full JID like send_whatsapp_message_job
                             body=message.message_text,
-                            direction='outbound',
+                            direction='out',  # 🔥 Consistent 'in'/'out' values (not 'outbound')
                             provider=provider,
                             status='sent',
                             message_type='text',

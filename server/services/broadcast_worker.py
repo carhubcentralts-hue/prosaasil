@@ -235,7 +235,7 @@ class BroadcastWorker:
                                 business_id=self.broadcast.business_id,
                                 to_number=normalized_jid,  # Store full JID for history matching
                                 body=text or '',
-                                direction='outbound',
+                                direction='out',  # 🔥 Consistent 'in'/'out' values (not 'outbound')
                                 provider=self.broadcast.provider or 'baileys',
                                 status='sent',
                                 message_type=media_type if media_dict else 'text',

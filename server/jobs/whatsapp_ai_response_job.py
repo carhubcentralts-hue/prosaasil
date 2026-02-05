@@ -100,15 +100,18 @@ def whatsapp_ai_response_job(
                     sender_label = "לקוח"
                 else:
                     # Outbound message - use source to determine who sent it
-                    if msg_hist.source == 'bot':
+                    # Handle legacy messages where source is None
+                    source = msg_hist.source
+                    if source == 'bot':
                         sender_label = "עוזר (בוט)"
-                    elif msg_hist.source == 'human':
+                    elif source == 'human':
                         sender_label = "נציג"
-                    elif msg_hist.source == 'automation':
+                    elif source == 'automation':
                         sender_label = "אוטומציה"
-                    elif msg_hist.source == 'system':
+                    elif source == 'system':
                         sender_label = "מערכת"
                     else:
+                        # Legacy messages without source field
                         sender_label = "עוזר"
                 
                 previous_messages.append(f"{sender_label}: {msg_hist.body}")
@@ -125,7 +128,11 @@ def whatsapp_ai_response_job(
                 # Customer is replying to a specific message - fetch it for context
                 quoted_msg = WhatsAppMessage.query.get(current_incoming.reply_to_message_id)
                 if quoted_msg:
-                    quoted_context = f"[הלקוח ענה להודעה הזאת: '{quoted_msg.body[:100]}...']"
+                    # Only add '...' if message is longer than 100 characters
+                    body_preview = quoted_msg.body[:100]
+                    if len(quoted_msg.body) > 100:
+                        body_preview += '...'
+                    quoted_context = f"[הלקוח ענה להודעה הזאת: '{body_preview}']"
                     logger.info(f"[WA-AI-JOB] 🔗 Customer replied to message: {quoted_msg.id}")
         except Exception as e:
             logger.warning(f"[WA-AI-JOB] ⚠️ Could not load history: {e}")
