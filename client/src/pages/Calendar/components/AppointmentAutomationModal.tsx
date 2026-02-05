@@ -84,49 +84,25 @@ const AVAILABLE_VARIABLES = [
   { key: '{rep_name}', label: 'שם הנציג' },
 ];
 
-const TIMING_PRESETS = [
-  { id: 'immediate', type: 'immediate' as const, minutes: undefined, label: 'מיידי' },
-  { id: 'day_before', type: 'before' as const, minutes: 1440, label: 'יום לפני' },
-  { id: 'same_day', type: 'before' as const, minutes: 180, label: 'באותו יום (3 שעות לפני)' },
-];
-
+// Timing formatting function
 function formatTimingLabel(offset: { type: string; minutes?: number }): string {
   if (offset.type === 'immediate') return 'מיידי';
   
   const minutes = offset.minutes || 0;
-  
-  // Check if it matches a preset
-  const preset = TIMING_PRESETS.find(p => 
-    p.type === offset.type && p.minutes === offset.minutes
-  );
-  
-  if (preset) {
-    return preset.label;
-  }
-  
-  // Fallback to dynamic formatting (for legacy data)
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
   
+  const direction = offset.type === 'before' ? 'לפני' : 'אחרי';
+  
   if (days > 0) {
-    return `${days} ${days === 1 ? 'יום' : 'ימים'} ${offset.type === 'before' ? 'לפני' : 'אחרי'}`;
+    return `${days} ${days === 1 ? 'יום' : 'ימים'} ${direction}`;
   } else if (hours > 0) {
-    return `${hours} ${hours === 1 ? 'שעה' : 'שעות'} ${offset.type === 'before' ? 'לפני' : 'אחרי'}`;
+    return `${hours} ${hours === 1 ? 'שעה' : 'שעות'} ${direction}`;
+  } else if (minutes > 0) {
+    return `${minutes} ${minutes === 1 ? 'דקה' : 'דקות'} ${direction}`;
   } else {
-    return `${minutes} דקות ${offset.type === 'before' ? 'לפני' : 'אחרי'}`;
+    return 'מיידי';
   }
-}
-
-function getPresetIdFromOffset(offset: { type: string; minutes?: number }): string {
-  const preset = TIMING_PRESETS.find(p => 
-    p.type === offset.type && p.minutes === offset.minutes
-  );
-  
-  if (!preset) {
-    console.warn('[AppointmentAutomationModal] No preset found for offset:', offset, 'defaulting to immediate');
-  }
-  
-  return preset?.id || 'immediate';
 }
 
 /**
@@ -323,13 +299,12 @@ export default function AppointmentAutomationModal({
   };
 
   const addTimingOffset = () => {
-    // Add a new timing with the first preset (immediate)
-    const firstPreset = TIMING_PRESETS[0];
+    // Add a new timing with default: 1 day before
     setFormData({
       ...formData,
       schedule_offsets: [
         ...formData.schedule_offsets,
-        { type: firstPreset.type, minutes: firstPreset.minutes }
+        { type: 'before', minutes: 1440 } // 1 day = 1440 minutes
       ]
     });
   };
@@ -544,25 +519,74 @@ export default function AppointmentAutomationModal({
                 <div className="space-y-2">
                   {formData.schedule_offsets.map((offset, index) => (
                     <div key={index} className="flex items-center gap-2">
+                      {/* סוג תזמון */}
                       <select
-                        value={getPresetIdFromOffset(offset)}
+                        value={offset.type}
                         onChange={(e) => {
-                          const selectedPreset = TIMING_PRESETS.find(p => p.id === e.target.value);
-                          if (selectedPreset) {
-                            updateTimingOffset(index, {
-                              type: selectedPreset.type,
-                              minutes: selectedPreset.minutes
-                            });
-                          }
+                          const newType = e.target.value as 'immediate' | 'before' | 'after';
+                          updateTimingOffset(index, {
+                            type: newType,
+                            minutes: newType === 'immediate' ? undefined : (offset.minutes || 60)
+                          });
                         }}
-                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2"
+                        className="border border-slate-300 rounded-lg px-3 py-2"
                       >
-                        {TIMING_PRESETS.map((preset) => (
-                          <option key={preset.id} value={preset.id}>
-                            {preset.label}
-                          </option>
-                        ))}
+                        <option value="immediate">מיידי</option>
+                        <option value="before">לפני</option>
+                        <option value="after">אחרי</option>
                       </select>
+                      
+                      {/* שדות מספר ויחידה (רק אם לא מיידי) */}
+                      {offset.type !== 'immediate' && (
+                        <>
+                          <input
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={(() => {
+                              const minutes = offset.minutes || 60;
+                              // בדיקה אם זה ימים (>= 1440 דקות = 24 שעות)
+                              if (minutes >= 1440) {
+                                return Math.floor(minutes / 1440); // המרה לימים
+                              } else {
+                                return Math.floor(minutes / 60); // המרה לשעות
+                              }
+                            })()}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value) || 1;
+                              const minutes = offset.minutes || 60;
+                              const isDays = minutes >= 1440;
+                              const newMinutes = isDays ? value * 1440 : value * 60;
+                              updateTimingOffset(index, {
+                                type: offset.type,
+                                minutes: newMinutes
+                              });
+                            }}
+                            className="w-20 border border-slate-300 rounded-lg px-3 py-2 text-center"
+                          />
+                          
+                          <select
+                            value={offset.minutes && offset.minutes >= 1440 ? 'days' : 'hours'}
+                            onChange={(e) => {
+                              const minutes = offset.minutes || 60;
+                              const currentValue = minutes >= 1440 
+                                ? Math.floor(minutes / 1440) // ערך נוכחי בימים
+                                : Math.floor(minutes / 60); // ערך נוכחי בשעות
+                              const newMinutes = e.target.value === 'days' 
+                                ? currentValue * 1440  // המרה לימים
+                                : currentValue * 60;   // המרה לשעות
+                              updateTimingOffset(index, {
+                                type: offset.type,
+                                minutes: newMinutes
+                              });
+                            }}
+                            className="border border-slate-300 rounded-lg px-3 py-2"
+                          >
+                            <option value="hours">שעות</option>
+                            <option value="days">ימים</option>
+                          </select>
+                        </>
+                      )}
                       
                       <Button
                         variant="ghost"
