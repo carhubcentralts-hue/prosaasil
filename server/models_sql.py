@@ -2261,6 +2261,10 @@ class ScheduledMessageRule(db.Model):
     # Example: [0,1,2,3,4] = Sunday-Thursday only
     active_weekdays = db.Column(db.JSON, nullable=True, default=None)  # null = all days, [0,1,2,3,4] = specific days
     
+    # Recurring schedule configuration (NEW)
+    schedule_type = db.Column(db.String(32), default="STATUS_CHANGE", nullable=False)  # "STATUS_CHANGE" | "RECURRING_TIME"
+    recurring_times = db.Column(db.JSON, nullable=True, default=None)  # Array of times in "HH:MM" format, e.g. ["09:00", "15:00"]
+    
     # Metadata
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
