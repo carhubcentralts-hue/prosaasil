@@ -24,14 +24,14 @@ class BroadcastWorker:
     def __init__(self, broadcast_id: int):
         self.broadcast_id = broadcast_id
         self.broadcast = None
-        # ✅ FIX: Rate limit - 30 messages every 3 seconds = 10 msgs/sec
-        # This is optimized to avoid blocking while being fast
-        self.rate_limit = float(os.getenv('BROADCAST_RATE_LIMIT', '10.0'))  # msgs per second
-        self.batch_size = 30  # Send in batches of 30
-        self.batch_delay = 3.0  # Wait 3 seconds between batches
+        # 🔥 SAFE MODE: Slow and steady - 3-4 second delay between messages to prevent blocking
+        # This ensures WhatsApp won't block the account for sending too fast
+        self.rate_limit = float(os.getenv('BROADCAST_RATE_LIMIT', '0.3'))  # msgs per second (1 msg every ~3.3s)
+        self.batch_size = 1000  # Effectively disabled - no batch waits
+        self.batch_delay = 0.0  # No additional batch delay needed
         self.max_retries = int(os.getenv('BROADCAST_MAX_RETRIES', '3'))
-        # ✅ FIX: Add random delay to avoid patterns (0.1-0.3s)
-        self.random_delay_range = (0.1, 0.3)
+        # 🔥 CRITICAL: 3-4 second delay between messages (prevents WhatsApp blocking)
+        self.random_delay_range = (3.0, 4.0)
         self.stop_requested = False
         
     def process_campaign(self):
@@ -109,14 +109,11 @@ class BroadcastWorker:
                 
                 self._process_recipient(recipient, idx, len(recipients))
                 
-                # ✅ FIX: Smart throttling - batch-based
-                # Every 30 messages, wait 3 seconds. Otherwise minimal delay.
-                if idx % self.batch_size == 0:
-                    log.info(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} batch_complete={idx} waiting={self.batch_delay}s")
-                    time.sleep(self.batch_delay)
-                else:
-                    # Small delay between individual messages within batch
+                # 🔥 SAFE MODE: Wait 3-4 seconds between EVERY message to prevent WhatsApp blocking
+                # This is the safest approach - slow but will never get blocked
+                if idx < len(recipients):  # Don't wait after last message
                     random_jitter = random.uniform(*self.random_delay_range)
+                    log.debug(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} message={idx}/{len(recipients)} waiting={random_jitter:.1f}s")
                     time.sleep(random_jitter)
             
             # Update campaign status

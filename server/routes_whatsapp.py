@@ -3181,6 +3181,17 @@ def create_broadcast():
                     'message': f'הקובץ {attachment.filename_original} לא נתמך בתפוצות WhatsApp'
                 }), 400
             
+            # 🔥 FIX: Check file size BEFORE sending (prevent HTTP 413 errors)
+            # Files are base64-encoded for sending, which increases size by 33%
+            MAX_BROADCAST_SIZE = 10 * 1024 * 1024  # 10 MB
+            if attachment.file_size and attachment.file_size > MAX_BROADCAST_SIZE:
+                size_mb = attachment.file_size / (1024 * 1024)
+                return jsonify({
+                    'ok': False,
+                    'error': 'file_too_large_for_broadcast',
+                    'message': f'הקובץ גדול מדי לתפוצות ({size_mb:.1f}MB). מקסימום: 10MB'
+                }), 400
+            
             # Generate signed URL for media
             attachment_service = get_attachment_service()
             media_url = attachment_service.generate_signed_url(

@@ -16,13 +16,15 @@ Features:
 """
 import logging
 import time
+import random
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 BATCH_SIZE = 50  # Process 50 recipients per batch
-THROTTLE_MS = 200  # 200ms sleep between batches
+THROTTLE_MS = 200  # 200ms sleep between batches (mostly for DB commit timing)
+MESSAGE_DELAY_RANGE = (3.0, 4.0)  # 🔥 SAFE MODE: 3-4 seconds between messages
 MAX_RUNTIME_SECONDS = 300  # 5 minutes max runtime before pausing
 MAX_BATCH_FAILURES = 10  # Stop broadcast after 10 consecutive batch failures
 
@@ -223,7 +225,7 @@ def process_broadcast_job(broadcast_id: int):
                 
             try:
                 # Process recipients using existing broadcast worker
-                for recipient in recipients:
+                for idx, recipient in enumerate(recipients, 1):
                     try:
                         # Mark as processing
                         recipient.status = 'processing'
@@ -240,6 +242,13 @@ def process_broadcast_job(broadcast_id: int):
                             batch_succeeded += 1
                         else:
                             batch_failed += 1
+                        
+                        # 🔥 SAFE MODE: Wait 3-4 seconds between EVERY message (same as broadcast_worker)
+                        # This prevents WhatsApp from blocking the account
+                        if idx < len(recipients):  # Don't wait after last message in batch
+                            delay = random.uniform(*MESSAGE_DELAY_RANGE)
+                            logger.debug(f"[BROADCAST] Waiting {delay:.1f}s before next message...")
+                            time.sleep(delay)
                                 
                     except Exception as e:
                         logger.error(f"Failed to send to recipient {recipient.id}: {e}")

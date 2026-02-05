@@ -75,7 +75,7 @@ def format_hebrew_date(dt: datetime) -> str:
     Format datetime to Hebrew-friendly date string with correct timezone conversion.
     
     Args:
-        dt: Datetime object (UTC or naive)
+        dt: Datetime object (naive = Israel time, or timezone-aware)
     
     Returns:
         Formatted date string (e.g., "יום חמישי, 5 פברואר 2026")
@@ -84,12 +84,13 @@ def format_hebrew_date(dt: datetime) -> str:
         # Convert to Asia/Jerusalem timezone
         israel_tz = pytz.timezone('Asia/Jerusalem')
         
-        # If naive (no timezone info), assume UTC
+        # 🔥 FIX: If naive (no timezone info), assume it's ALREADY in Israel time
+        # (Database stores naive datetimes as local Israel time)
         if dt.tzinfo is None:
-            dt = pytz.utc.localize(dt)
-        
-        # Convert to Israel local time
-        local_dt = dt.astimezone(israel_tz)
+            local_dt = israel_tz.localize(dt)
+        else:
+            # If already timezone-aware, convert to Israel time
+            local_dt = dt.astimezone(israel_tz)
         
         # Use correct weekday mapping from hebrew_datetime.py
         # weekday() returns: Monday=0, Tuesday=1, ..., Sunday=6
@@ -109,7 +110,7 @@ def format_time_israel(dt: datetime) -> str:
     Format datetime to time string in Israel timezone.
     
     Args:
-        dt: Datetime object (UTC or naive)
+        dt: Datetime object (naive = Israel time, or timezone-aware)
     
     Returns:
         Time string in HH:MM format (e.g., "17:30")
@@ -118,12 +119,13 @@ def format_time_israel(dt: datetime) -> str:
         # Convert to Asia/Jerusalem timezone
         israel_tz = pytz.timezone('Asia/Jerusalem')
         
-        # If naive (no timezone info), assume UTC
+        # 🔥 FIX: If naive (no timezone info), assume it's ALREADY in Israel time
+        # (Database stores naive datetimes as local Israel time)
         if dt.tzinfo is None:
-            dt = pytz.utc.localize(dt)
-        
-        # Convert to Israel local time
-        local_dt = dt.astimezone(israel_tz)
+            local_dt = israel_tz.localize(dt)
+        else:
+            # If already timezone-aware, convert to Israel time
+            local_dt = dt.astimezone(israel_tz)
         
         return local_dt.strftime('%H:%M')
         
