@@ -48,6 +48,10 @@ def create_webhook():
         "created_at": "2024-01-01T00:00:00"
     }
     """
+    # 🔍 Log incoming request for debugging
+    logger.info(f"[LEAD_WEBHOOK_CREATE] Received request: method={request.method}, business_id={getattr(g, 'business_id', None)}")
+    logger.info(f"[LEAD_WEBHOOK_CREATE] payload={request.get_json()}")
+    
     try:
         data = request.get_json() or {}
         business_id = g.business_id
@@ -111,7 +115,18 @@ def create_webhook():
     except Exception as e:
         logger.error(f"❌ Error creating webhook: {e}", exc_info=True)
         db.session.rollback()
-        return jsonify({"error": "Internal server error"}), 500
+        
+        # Check if it's a table-not-found error (migration not run)
+        error_msg = str(e).lower()
+        if 'webhook_lead_ingest' in error_msg and ('does not exist' in error_msg or 'no such table' in error_msg):
+            logger.error("❌ CRITICAL: webhook_lead_ingest table does not exist - migrations need to run!")
+            return jsonify({
+                "error": "Database not initialized",
+                "message": "The webhook_lead_ingest table does not exist. Migrations need to run.",
+                "details": "Run migrations with RUN_MIGRATIONS=1 or execute: python -m server.db_migrate"
+            }), 500
+        
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
 
 @webhook_leads_bp.route('/leads/webhooks', methods=['GET'])
