@@ -619,39 +619,39 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
             logger.info(f"[SCHEDULED-MSG] Skipping immediate message for lead {lead_id} - not an active weekday")
         else:
             try:
-            # Use immediate_message if available, otherwise fall back to message_text
-            template = rule.immediate_message if rule.immediate_message else rule.message_text
-            
-            message_text = render_message_template(
-                template=template,
-                lead=lead,
-                business=lead.tenant,
-                status_name=status_name,
-                status_label=status_label
-            )
-            
-            dedupe_key = f"{rule.business_id}:{lead_id}:{rule_id}:0:{lead.status_sequence_token}"
-            
-            queue_entry = ScheduledMessagesQueue(
-                business_id=rule.business_id,
-                rule_id=rule.id,
-                lead_id=lead_id,
-                channel='whatsapp',
-                provider=rule.provider or "baileys",
-                message_text=message_text,
-                remote_jid=remote_jid,
-                scheduled_for=now,
-                status='pending',
-                dedupe_key=dedupe_key,
-                attempts=0
-            )
-            
-            db.session.add(queue_entry)
-            db.session.flush()
-            created_count += 1
-            logger.info(f"[SCHEDULED-MSG] Scheduled immediate message {queue_entry.id} for lead {lead_id}")
-            
-        except Exception as e:
+                # Use immediate_message if available, otherwise fall back to message_text
+                template = rule.immediate_message if rule.immediate_message else rule.message_text
+
+                message_text = render_message_template(
+                    template=template,
+                    lead=lead,
+                    business=lead.tenant,
+                    status_name=status_name,
+                    status_label=status_label
+                )
+
+                dedupe_key = f"{rule.business_id}:{lead_id}:{rule_id}:0:{lead.status_sequence_token}"
+
+                queue_entry = ScheduledMessagesQueue(
+                    business_id=rule.business_id,
+                    rule_id=rule.id,
+                    lead_id=lead_id,
+                    channel='whatsapp',
+                    provider=rule.provider or "baileys",
+                    message_text=message_text,
+                    remote_jid=remote_jid,
+                    scheduled_for=now,
+                    status='pending',
+                    dedupe_key=dedupe_key,
+                    attempts=0
+                )
+
+                db.session.add(queue_entry)
+                db.session.flush()
+                created_count += 1
+                logger.info(f"[SCHEDULED-MSG] Scheduled immediate message {queue_entry.id} for lead {lead_id}")
+
+            except Exception as e:
             if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
                 logger.debug(f"[SCHEDULED-MSG] Immediate message already scheduled for lead {lead_id} - skipping")
                 db.session.rollback()
