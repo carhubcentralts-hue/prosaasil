@@ -102,7 +102,7 @@ export function WebhookLeadsSection() {
     mutationFn: async (data: { name: string; status_id: number }) => {
       return await apiRequest('/api/leads/webhooks', {
         method: 'POST',
-        body: JSON.stringify(data)
+        body: data
       });
     },
     onSuccess: () => {
@@ -117,7 +117,7 @@ export function WebhookLeadsSection() {
     mutationFn: async ({ id, data }: { id: number; data: any }) => {
       return await apiRequest(`/api/leads/webhooks/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify(data)
+        body: data
       });
     },
     onSuccess: () => {
