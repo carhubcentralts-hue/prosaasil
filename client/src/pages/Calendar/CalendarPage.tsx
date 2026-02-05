@@ -38,6 +38,20 @@ import AppointmentTypeManagementModal from './components/AppointmentTypeManageme
 import AppointmentAutomationModal from './components/AppointmentAutomationModal';
 
 // Calendar components and types
+interface LeadForSelection {
+  id: number;
+  name?: string;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  phone_e164?: string;
+}
+
+interface LeadsApiResponse {
+  items?: LeadForSelection[];
+  leads?: LeadForSelection[];
+}
 interface Appointment {
   id: number;
   title: string;
@@ -452,9 +466,9 @@ export function CalendarPage() {
   const fetchLeads = async () => {
     try {
       setLoadingLeads(true);
-      const response = await http.get('/api/leads') as any;
+      const response = await http.get<LeadsApiResponse>('/api/leads');
       const leadsData = response?.items || response?.leads || [];
-      setLeads(leadsData.map((lead: any) => ({
+      setLeads(leadsData.map((lead) => ({
         id: lead.id,
         name: lead.full_name || lead.name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם',
         phone: lead.phone_e164 || lead.phone || ''
@@ -1972,7 +1986,6 @@ export function CalendarPage() {
                       const value = e.target.value;
                       const parsed = value ? parseInt(value, 10) : undefined;
                       const newLeadId = parsed && !isNaN(parsed) ? parsed : undefined;
-                      console.log('👤 Lead selected:', { value, parsed, newLeadId });
                       setFormData({...formData, lead_id: newLeadId});
                     }}
                     data-testid="select-lead"
