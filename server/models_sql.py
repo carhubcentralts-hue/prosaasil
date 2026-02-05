@@ -713,7 +713,7 @@ class WebhookLeadIngest(db.Model):
     # Webhook configuration
     name = db.Column(db.String(255), nullable=False)  # Descriptive name (e.g., "Make Source 1", "Facebook Leads")
     secret = db.Column(db.String(128), nullable=False)  # Authentication token for X-Webhook-Secret header
-    status_id = db.Column(db.Integer, db.ForeignKey("lead_statuses.id"), nullable=False, index=True)  # Target status for new leads
+    status_id = db.Column(db.Integer, db.ForeignKey("lead_statuses.id", ondelete="SET NULL"), nullable=True, index=True)  # Target status for new leads (nullable - defaults to 'new')
     is_active = db.Column(db.Boolean, default=True, nullable=False)  # Enable/disable webhook
     
     # Timestamps

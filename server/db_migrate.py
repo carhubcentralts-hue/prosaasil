@@ -8528,7 +8528,7 @@ def apply_migrations():
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
                         name VARCHAR(255) NOT NULL,
                         secret VARCHAR(128) NOT NULL,
-                        status_id INTEGER NOT NULL REFERENCES lead_statuses(id) ON DELETE RESTRICT,
+                        status_id INTEGER NULL REFERENCES lead_statuses(id) ON DELETE SET NULL,
                         is_active BOOLEAN NOT NULL DEFAULT TRUE,
                         created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT (NOW() AT TIME ZONE 'utc'),
                         updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc')
@@ -8537,6 +8537,7 @@ def apply_migrations():
                 checkpoint("  ✅ webhook_lead_ingest table created")
                 checkpoint("     💡 Businesses can now configure up to 3 webhooks for lead ingestion")
                 checkpoint("     💡 Each webhook creates leads in a pre-configured status")
+                checkpoint("     💡 If target status is deleted, webhook status_id is set to NULL (uses default 'new')")
                 changes_made = True
             else:
                 checkpoint("  ℹ️  webhook_lead_ingest table already exists")

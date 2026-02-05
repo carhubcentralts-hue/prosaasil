@@ -503,7 +503,7 @@ def webhook_ingest_lead(webhook_id):
                 city=fields.get('city'),
                 notes=fields.get('notes'),
                 source=fields.get('source', f"webhook_{webhook_id}"),
-                status=webhook.status.name if webhook.status else 'new',
+                status=webhook.status.name if webhook.status else 'new',  # Use status name for Lead model
                 raw_payload=payload,
                 created_at=datetime.utcnow()
             )
