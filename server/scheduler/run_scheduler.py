@@ -136,6 +136,23 @@ def enqueue_periodic_jobs():
     except Exception as e:
         logger.error(f"❌ Failed to enqueue scheduled_messages_tick_job: {e}")
     
+    # 2a. Recurring scheduled messages (every hour at :00) - MEDIUM PRIORITY
+    if current_minute == 0:
+        try:
+            from server.jobs.recurring_scheduled_messages_job import recurring_scheduled_messages_job
+            enqueue(
+                'default',
+                recurring_scheduled_messages_job,
+                job_id=f"recurring_scheduled_messages_{datetime.now().strftime('%Y%m%d_%H')}",
+                timeout=300,  # 5 minutes
+                retry=None,  # Don't retry - next hour will handle it
+                ttl=3600  # 1 hour
+            )
+            jobs_enqueued += 1
+            logger.info("✅ Enqueued: recurring_scheduled_messages_job")
+        except Exception as e:
+            logger.error(f"❌ Failed to enqueue recurring_scheduled_messages_job: {e}")
+    
     # 3. Appointment automation tick (every minute) - HIGH PRIORITY
     try:
         from server.jobs.appointment_automation_tick_job import appointment_automation_tick
