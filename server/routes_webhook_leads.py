@@ -53,11 +53,19 @@ def create_webhook():
     logger.info(f"[LEAD_WEBHOOK_CREATE] payload={request.get_json()}")
     
     try:
-        data = request.get_json() or {}
+        # Parse JSON safely and validate it's a dict
+        data = request.get_json(silent=True)
+        
+        if not isinstance(data, dict):
+            return jsonify({
+                "error": "Invalid JSON payload",
+                "details": "Expected application/json body with valid JSON object"
+            }), 400
+        
         business_id = g.business_id
         
         # Validate required fields
-        name = data.get('name', '').strip()
+        name = (data.get('name') or '').strip()
         status_id = data.get('status_id')
         
         if not name:
@@ -197,7 +205,15 @@ def update_webhook(webhook_id):
     }
     """
     try:
-        data = request.get_json() or {}
+        # Parse JSON safely and validate it's a dict
+        data = request.get_json(silent=True)
+        
+        if not isinstance(data, dict):
+            return jsonify({
+                "error": "Invalid JSON payload",
+                "details": "Expected application/json body with valid JSON object"
+            }), 400
+        
         business_id = g.business_id
         
         # Find webhook
@@ -424,7 +440,14 @@ def webhook_ingest_lead(webhook_id):
             return jsonify({"error": "Invalid or missing X-Webhook-Secret header"}), 401
         
         # Get payload
-        payload = request.get_json() or {}
+        payload = request.get_json(silent=True)
+        
+        if not isinstance(payload, dict):
+            logger.warning(f"⚠️ Webhook {webhook_id}: Invalid JSON payload, expected dict")
+            return jsonify({
+                "error": "Invalid JSON payload",
+                "details": "Expected application/json body with valid JSON object"
+            }), 400
         
         # Extract lead fields
         fields = extract_lead_fields(payload)
