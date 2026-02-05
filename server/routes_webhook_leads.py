@@ -65,7 +65,7 @@ def create_webhook():
         business_id = g.business_id
         
         # Validate required fields
-        name = (data.get('name') or '').strip()
+        name = data.get('name', '').strip()
         status_id = data.get('status_id')
         
         if not name:
