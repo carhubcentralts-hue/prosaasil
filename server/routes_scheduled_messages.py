@@ -182,6 +182,32 @@ def create_rule():
         if not data.get('name'):
             return jsonify({'error': 'name is required'}), 400
         
+        # Get schedule_type (default to STATUS_CHANGE)
+        schedule_type = data.get('schedule_type', 'STATUS_CHANGE')
+        if schedule_type not in ('STATUS_CHANGE', 'RECURRING_TIME'):
+            return jsonify({'error': 'schedule_type must be "STATUS_CHANGE" or "RECURRING_TIME"'}), 400
+        
+        # Validate based on schedule_type
+        if schedule_type == 'RECURRING_TIME':
+            # For recurring schedules, validate recurring_times
+            recurring_times = data.get('recurring_times')
+            if not recurring_times or not isinstance(recurring_times, list) or len(recurring_times) == 0:
+                return jsonify({'error': 'recurring_times is required for RECURRING_TIME schedules'}), 400
+            
+            # Validate time format
+            import re
+            time_pattern = re.compile(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$')
+            for time_str in recurring_times:
+                if not time_pattern.match(time_str):
+                    return jsonify({'error': f'Invalid time format "{time_str}". Must be HH:MM (e.g., "09:00", "15:30")'}), 400
+            
+            # For recurring schedules, delay is not required
+            delay_seconds = 0
+            delay_minutes = 0
+        else:
+            # For STATUS_CHANGE schedules, validate message and delay
+            recurring_times = None
+        
         # message_text is optional if steps are provided or if send_immediately_on_enter with immediate_message
         # But at least one message source must be provided
         has_message_text = bool(data.get('message_text', '').strip())
@@ -194,35 +220,37 @@ def create_rule():
         if not data.get('status_ids') or not isinstance(data['status_ids'], list):
             return jsonify({'error': 'status_ids must be a non-empty array'}), 400
         
-        # Handle delay - prefer delay_seconds, fallback to delay_minutes
-        delay_seconds = data.get('delay_seconds')
-        delay_minutes = data.get('delay_minutes')
+        # Handle delay for STATUS_CHANGE schedules
+        if schedule_type == 'STATUS_CHANGE':
+            delay_seconds = data.get('delay_seconds')
+            delay_minutes = data.get('delay_minutes')
         
-        if delay_seconds is None and delay_minutes is None:
-            return jsonify({'error': 'Either delay_minutes or delay_seconds is required'}), 400
+        if schedule_type == 'STATUS_CHANGE' and delay_seconds is None and delay_minutes is None:
+            return jsonify({'error': 'Either delay_minutes or delay_seconds is required for STATUS_CHANGE schedules'}), 400
         
-        # Convert delay_minutes to delay_seconds if needed
-        if delay_seconds is None:
-            try:
-                delay_minutes = int(delay_minutes)
-            except (TypeError, ValueError):
-                return jsonify({'error': 'delay_minutes must be a valid integer'}), 400
+        # Convert delay_minutes to delay_seconds if needed (for STATUS_CHANGE)
+        if schedule_type == 'STATUS_CHANGE':
+            if delay_seconds is None:
+                try:
+                    delay_minutes = int(delay_minutes)
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'delay_minutes must be a valid integer'}), 400
+                    
+                if delay_minutes < 1 or delay_minutes > 43200:
+                    return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
                 
-            if delay_minutes < 1 or delay_minutes > 43200:
-                return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
-            
-            delay_seconds = delay_minutes * 60
-        else:
-            try:
-                delay_seconds = int(delay_seconds)
-            except (TypeError, ValueError):
-                return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
-            
-            if delay_seconds < 0 or delay_seconds > 2592000:
-                return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
-            
-            # Set delay_minutes for backward compatibility
-            delay_minutes = max(1, delay_seconds // 60)
+                delay_seconds = delay_minutes * 60
+            else:
+                try:
+                    delay_seconds = int(delay_seconds)
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
+                
+                if delay_seconds < 0 or delay_seconds > 2592000:
+                    return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+                
+                # Set delay_minutes for backward compatibility
+                delay_minutes = max(1, delay_seconds // 60)
         
         # Get provider (default to baileys)
         provider = data.get('provider', 'baileys')
@@ -282,7 +310,9 @@ def create_rule():
             immediate_message=data.get('immediate_message'),
             apply_mode=apply_mode,
             steps=steps,
-            active_weekdays=data.get('active_weekdays')  # Optional: null means all days
+            active_weekdays=data.get('active_weekdays'),  # Optional: null means all days
+            schedule_type=schedule_type,
+            recurring_times=recurring_times
         )
         
         logger.info(f"[SCHEDULED-MSG-API] Created rule {rule.id} for business {business_id}")

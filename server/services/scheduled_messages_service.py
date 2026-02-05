@@ -38,7 +38,9 @@ def create_rule(
     immediate_message: Optional[str] = None,
     apply_mode: str = "ON_ENTER_ONLY",
     steps: Optional[List[Dict]] = None,
-    active_weekdays: Optional[List[int]] = None
+    active_weekdays: Optional[List[int]] = None,
+    schedule_type: str = "STATUS_CHANGE",
+    recurring_times: Optional[List[str]] = None
 ) -> ScheduledMessageRule:
     """
     Create a new scheduling rule
@@ -60,26 +62,52 @@ def create_rule(
         immediate_message: Message to send immediately (if different from message_text)
         apply_mode: When to apply rule ("ON_ENTER_ONLY" | "ON_ENTER_AND_EXISTING")
         steps: Optional list of step dicts with step_index, message_template, delay_seconds
+        active_weekdays: Optional list of weekday indices [0-6] where 0=Sunday
+        schedule_type: "STATUS_CHANGE" (default) or "RECURRING_TIME"
+        recurring_times: Optional list of times in "HH:MM" format for recurring schedules
     
     Returns:
         Created ScheduledMessageRule instance
     """
+    # Validate schedule_type
+    if schedule_type not in ("STATUS_CHANGE", "RECURRING_TIME"):
+        raise ValueError("schedule_type must be 'STATUS_CHANGE' or 'RECURRING_TIME'")
+    
+    # Validate recurring schedule parameters
+    if schedule_type == "RECURRING_TIME":
+        if not recurring_times or len(recurring_times) == 0:
+            raise ValueError("recurring_times is required when schedule_type is 'RECURRING_TIME'")
+        
+        # Validate time format
+        import re
+        time_pattern = re.compile(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$')
+        for time_str in recurring_times:
+            if not time_pattern.match(time_str):
+                raise ValueError(f"Invalid time format '{time_str}'. Must be 'HH:MM' (e.g., '09:00', '15:30')")
+    
     # Determine delay_seconds (prefer delay_seconds over delay_minutes)
     if delay_seconds is None:
         if delay_minutes is None:
-            raise ValueError("Either delay_minutes or delay_seconds is required")
-        delay_seconds = delay_minutes * 60
+            # For recurring schedules, delay is not used
+            if schedule_type == "RECURRING_TIME":
+                delay_minutes = 0
+                delay_seconds = 0
+            else:
+                raise ValueError("Either delay_minutes or delay_seconds is required for STATUS_CHANGE schedules")
+        else:
+            delay_seconds = delay_minutes * 60
     
-    # Validation
-    if delay_seconds < 0 or delay_seconds > 2592000:  # 0 seconds to 30 days
-        raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
+    # Validation for STATUS_CHANGE schedules
+    if schedule_type == "STATUS_CHANGE":
+        if delay_seconds < 0 or delay_seconds > 2592000:  # 0 seconds to 30 days
+            raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
     
     # Set delay_minutes for backward compatibility if not provided
     if delay_minutes is None:
-        delay_minutes = max(1, delay_seconds // 60)
+        delay_minutes = max(1, delay_seconds // 60) if delay_seconds > 0 else 0
     
-    # Validate delay_minutes for backward compatibility
-    if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
+    # Validate delay_minutes for backward compatibility (skip for recurring schedules)
+    if schedule_type == "STATUS_CHANGE" and (delay_minutes < 1 or delay_minutes > 43200):  # 1 minute to 30 days
         raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
     
     if not status_ids:
@@ -114,7 +142,9 @@ def create_rule(
         send_immediately_on_enter=send_immediately_on_enter,
         immediate_message=immediate_message,
         apply_mode=apply_mode,
-        active_weekdays=active_weekdays
+        active_weekdays=active_weekdays,
+        schedule_type=schedule_type,
+        recurring_times=recurring_times
     )
     
     db.session.add(rule)
@@ -133,7 +163,7 @@ def create_rule(
         create_rule_steps(rule.id, steps)
     
     db.session.commit()
-    logger.info(f"[SCHEDULED-MSG] Created rule {rule.id}: '{name}' for business {business_id}")
+    logger.info(f"[SCHEDULED-MSG] Created rule {rule.id}: '{name}' (type: {schedule_type}) for business {business_id}")
     
     return rule
 
@@ -177,7 +207,9 @@ def update_rule(
     immediate_message: Optional[str] = None,
     apply_mode: Optional[str] = None,
     steps: Optional[List[Dict]] = None,
-    active_weekdays: Optional[List[int]] = None
+    active_weekdays: Optional[List[int]] = None,
+    schedule_type: Optional[str] = None,
+    recurring_times: Optional[List[str]] = None
 ) -> ScheduledMessageRule:
     """
     Update an existing scheduling rule
@@ -191,6 +223,22 @@ def update_rule(
     
     if not rule:
         raise ValueError(f"Rule {rule_id} not found for business {business_id}")
+    
+    # Validate schedule_type if provided
+    if schedule_type is not None:
+        if schedule_type not in ("STATUS_CHANGE", "RECURRING_TIME"):
+            raise ValueError("schedule_type must be 'STATUS_CHANGE' or 'RECURRING_TIME'")
+        rule.schedule_type = schedule_type
+    
+    # Validate recurring_times if provided
+    if recurring_times is not None:
+        if recurring_times:  # Only validate if not empty
+            import re
+            time_pattern = re.compile(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$')
+            for time_str in recurring_times:
+                if not time_pattern.match(time_str):
+                    raise ValueError(f"Invalid time format '{time_str}'. Must be 'HH:MM' (e.g., '09:00', '15:30')")
+        rule.recurring_times = recurring_times
     
     # Update fields
     if name is not None:

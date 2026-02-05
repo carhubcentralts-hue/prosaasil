@@ -8567,6 +8567,57 @@ def apply_migrations():
         
         checkpoint("✅ Migration 135 complete: Webhook lead ingestion system ready")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 136: Add recurring schedule support to scheduled_message_rules
+        # 🎯 PURPOSE: Enable scheduling messages at specific recurring times
+        # - Add schedule_type column: "STATUS_CHANGE" (default) or "RECURRING_TIME"
+        # - Add recurring_times JSON column: Array of times in "HH:MM" format
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 136: Add recurring schedule support to scheduled_message_rules")
+        
+        try:
+            changes_made = False
+            
+            if check_table_exists('scheduled_message_rules'):
+                # Add schedule_type column
+                if not check_column_exists('scheduled_message_rules', 'schedule_type'):
+                    checkpoint("  → Adding schedule_type column to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN schedule_type VARCHAR(32) NOT NULL DEFAULT 'STATUS_CHANGE'
+                    """)
+                    checkpoint("  ✅ schedule_type column added to scheduled_message_rules")
+                    checkpoint("     💡 'STATUS_CHANGE' = triggered by status change (current behavior)")
+                    checkpoint("     💡 'RECURRING_TIME' = sent at specific times on specific days")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  schedule_type column already exists in scheduled_message_rules")
+                
+                # Add recurring_times column
+                if not check_column_exists('scheduled_message_rules', 'recurring_times'):
+                    checkpoint("  → Adding recurring_times column to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN recurring_times JSON NULL
+                    """)
+                    checkpoint("  ✅ recurring_times column added to scheduled_message_rules")
+                    checkpoint("     💡 Array of times in 'HH:MM' format, e.g. ['09:00', '15:00']")
+                    checkpoint("     💡 Combined with active_weekdays for precise scheduling")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  recurring_times column already exists in scheduled_message_rules")
+            
+            if changes_made:
+                migrations_applied.append("migration_136_recurring_schedule")
+                checkpoint("  ✅ Migration 136 completed successfully")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 136 failed: {e}")
+            logger.error(f"Migration 136 error: {e}", exc_info=True)
+            # Don't raise - these are important but not critical for startup
+        
+        checkpoint("✅ Migration 136 complete: Recurring schedule support added")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
