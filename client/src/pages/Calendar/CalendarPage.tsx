@@ -138,6 +138,21 @@ const PRIORITY_TYPES = {
   urgent: { label: 'דחוף', color: 'bg-red-100 text-red-700' }
 };
 
+// Helper to convert color name to Tailwind classes
+const COLOR_MAP: Record<string, string> = {
+  blue: 'bg-blue-100 text-blue-800',
+  yellow: 'bg-yellow-100 text-yellow-800',
+  purple: 'bg-purple-100 text-purple-800',
+  green: 'bg-green-100 text-green-800',
+  red: 'bg-red-100 text-red-800',
+  gray: 'bg-gray-100 text-gray-800',
+  orange: 'bg-orange-100 text-orange-800',
+  pink: 'bg-pink-100 text-pink-800',
+  cyan: 'bg-cyan-100 text-cyan-800',
+  indigo: 'bg-indigo-100 text-indigo-800',
+  teal: 'bg-teal-100 text-teal-800',
+};
+
 // Translation helpers for dynamic summary fields
 const SENTIMENT_LABELS: Record<string, string> = {
   'positive': 'חיובי',
@@ -318,58 +333,43 @@ export function CalendarPage() {
   const [showAppointmentTypeModal, setShowAppointmentTypeModal] = useState(false);
   const [showAppointmentAutomationModal, setShowAppointmentAutomationModal] = useState(false);
 
-  // Helper functions to get dynamic type/status info
-  const getTypeInfo = useCallback((typeKey: string) => {
-    const type = appointmentTypes.find(t => t.key === typeKey);
-    if (!type) {
-      // Fallback to hardcoded values if not found
-      return APPOINTMENT_TYPES[typeKey] || { label: typeKey, color: 'bg-gray-100 text-gray-800' };
-    }
-    // Convert color name to Tailwind classes
-    const colorMap: Record<string, string> = {
-      blue: 'bg-blue-100 text-blue-800',
-      yellow: 'bg-yellow-100 text-yellow-800',
-      purple: 'bg-purple-100 text-purple-800',
-      green: 'bg-green-100 text-green-800',
-      red: 'bg-red-100 text-red-800',
-      gray: 'bg-gray-100 text-gray-800',
-      orange: 'bg-orange-100 text-orange-800',
-      pink: 'bg-pink-100 text-pink-800',
-      cyan: 'bg-cyan-100 text-cyan-800',
-      indigo: 'bg-indigo-100 text-indigo-800',
-      teal: 'bg-teal-100 text-teal-800',
-    };
-    return {
-      label: type.label,
-      color: colorMap[type.color] || 'bg-gray-100 text-gray-800'
-    };
+  // Memoized Maps for O(1) lookups
+  const typeMap = useMemo(() => {
+    const map = new Map<string, { label: string; color: string }>();
+    appointmentTypes.forEach(type => {
+      map.set(type.key, {
+        label: type.label,
+        color: COLOR_MAP[type.color] || 'bg-gray-100 text-gray-800'
+      });
+    });
+    return map;
   }, [appointmentTypes]);
 
-  const getStatusInfo = useCallback((statusKey: string) => {
-    const status = appointmentStatuses.find(s => s.key === statusKey);
-    if (!status) {
-      // Fallback to hardcoded values if not found
-      return STATUS_TYPES[statusKey] || { label: statusKey, color: 'bg-gray-100 text-gray-800' };
-    }
-    // Convert color name to Tailwind classes
-    const colorMap: Record<string, string> = {
-      blue: 'bg-blue-100 text-blue-800',
-      yellow: 'bg-yellow-100 text-yellow-800',
-      purple: 'bg-purple-100 text-purple-800',
-      green: 'bg-green-100 text-green-800',
-      red: 'bg-red-100 text-red-800',
-      gray: 'bg-gray-100 text-gray-800',
-      orange: 'bg-orange-100 text-orange-800',
-      pink: 'bg-pink-100 text-pink-800',
-      cyan: 'bg-cyan-100 text-cyan-800',
-      indigo: 'bg-indigo-100 text-indigo-800',
-      teal: 'bg-teal-100 text-teal-800',
-    };
-    return {
-      label: status.label,
-      color: colorMap[status.color] || 'bg-gray-100 text-gray-800'
-    };
+  const statusMap = useMemo(() => {
+    const map = new Map<string, { label: string; color: string }>();
+    appointmentStatuses.forEach(status => {
+      map.set(status.key, {
+        label: status.label,
+        color: COLOR_MAP[status.color] || 'bg-gray-100 text-gray-800'
+      });
+    });
+    return map;
   }, [appointmentStatuses]);
+
+  // Helper functions to get dynamic type/status info with O(1) lookups
+  const getTypeInfo = useCallback((typeKey: string) => {
+    const info = typeMap.get(typeKey);
+    if (info) return info;
+    // Fallback to hardcoded values if not found
+    return APPOINTMENT_TYPES[typeKey] || { label: typeKey, color: 'bg-gray-100 text-gray-800' };
+  }, [typeMap]);
+
+  const getStatusInfo = useCallback((statusKey: string) => {
+    const info = statusMap.get(statusKey);
+    if (info) return info;
+    // Fallback to hardcoded values if not found
+    return STATUS_TYPES[statusKey] || { label: statusKey, color: 'bg-gray-100 text-gray-800' };
+  }, [statusMap]);
 
   // Fetch appointments using the proper HTTP client
   const fetchAppointments = useCallback(async () => {
