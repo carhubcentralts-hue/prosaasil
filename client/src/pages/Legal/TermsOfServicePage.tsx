@@ -105,7 +105,7 @@ export function TermsOfServicePage() {
           <section>
             <h2 className="text-xl font-semibold text-slate-900 mb-3">9. זמינות השירות</h2>
             <p className="text-slate-600 leading-relaxed">
-              אנו שואפים לספק שירות זמין 24/7, אך אין אנו מתחייבים לזמינות מושלמת. 
+              אנו שואפים לספק שירות זמין 24 שעות ביממה, אך אין אנו מתחייבים לזמינות מושלמת. 
               תחזוקה מתוכננת תתואם מראש ככל האפשר.
             </p>
           </section>

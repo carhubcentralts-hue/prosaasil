@@ -273,7 +273,7 @@ export function PromptStudioPage() {
 
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">פתוח 24/7</h4>
+                  <h4 className="font-medium text-gray-900">פתוח 24 שעות ביממה</h4>
                   <p className="text-sm text-gray-600">אפשר קביעת תורים בכל שעה ביום</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -283,7 +283,7 @@ export function PromptStudioPage() {
                     onChange={(e) => setAppointmentSettings({...appointmentSettings, allow_24_7: e.target.checked})}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
                 </label>
               </div>
 
@@ -390,7 +390,7 @@ export function PromptStudioPage() {
                 <h4 className="font-medium text-gray-900 mb-2">סיכום הגדרות</h4>
                 <div className="space-y-2 text-sm text-gray-600">
                   <p>• תורים כל <strong>{appointmentSettings.slot_size_min}</strong> דקות</p>
-                  <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? '24/7' : 'בשעות מוגדרות'}</strong></p>
+                  <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? '24 שעות ביממה' : 'בשעות מוגדרות'}</strong></p>
                   <p>• ניתן לקבוע עד <strong>{appointmentSettings.booking_window_days}</strong> ימים קדימה</p>
                   <p>• הודעה מוקדמת: <strong>{appointmentSettings.min_notice_min === 0 ? 'לא נדרשת' : `${appointmentSettings.min_notice_min} דקות`}</strong></p>
                 </div>
