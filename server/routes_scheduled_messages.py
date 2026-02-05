@@ -132,6 +132,7 @@ def get_rules():
                     for step in getattr(rule, 'steps', [])
                 ],
                 'active_weekdays': getattr(rule, 'active_weekdays', None),
+                'excluded_weekdays': getattr(rule, 'excluded_weekdays', None),
                 'schedule_type': getattr(rule, 'schedule_type', 'STATUS_CHANGE'),
                 'recurring_times': getattr(rule, 'recurring_times', None),
                 'created_by_user_id': rule.created_by_user_id,
@@ -314,6 +315,7 @@ def create_rule():
             apply_mode=apply_mode,
             steps=steps,
             active_weekdays=data.get('active_weekdays'),  # Optional: null means all days
+            excluded_weekdays=data.get('excluded_weekdays'),  # Optional: null means no exclusions
             schedule_type=schedule_type,
             recurring_times=recurring_times
         )
@@ -513,6 +515,7 @@ def update_rule(rule_id: int):
                     for step in getattr(rule, 'steps', [])
                 ],
                 'active_weekdays': getattr(rule, 'active_weekdays', None),
+                'excluded_weekdays': getattr(rule, 'excluded_weekdays', None),
                 'schedule_type': getattr(rule, 'schedule_type', 'STATUS_CHANGE'),
                 'recurring_times': getattr(rule, 'recurring_times', None),
                 'updated_at': rule.updated_at.isoformat()

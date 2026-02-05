@@ -30,6 +30,7 @@ export interface ScheduledRule {
   apply_mode?: string;  // "ON_ENTER_ONLY" | "WHILE_IN_STATUS"
   steps?: Array<RuleStep>;
   active_weekdays?: number[] | null;  // NEW: Array of weekday indices [0-6] where 0=Sunday, null=all days
+  excluded_weekdays?: number[] | null;  // NEW: Array of weekday indices [0-6] to exclude from automation
   schedule_type?: string;  // NEW: "STATUS_CHANGE" | "RECURRING_TIME" - scheduling mode
   recurring_times?: string[] | null;  // NEW: Array of times in "HH:MM" format, e.g. ["09:00", "15:00"]
   statuses: Array<{
@@ -90,6 +91,7 @@ export interface CreateRuleRequest {
   schedule_type?: string;  // NEW: "STATUS_CHANGE" | "RECURRING_TIME"
   recurring_times?: string[];  // NEW: Array of times in "HH:MM" format
   active_weekdays?: number[] | null;  // NEW: Array of weekday indices [0-6] where 0=Sunday, null=all days
+  excluded_weekdays?: number[] | null;  // NEW: Array of weekday indices [0-6] to exclude from automation
 }
 
 export interface UpdateRuleRequest {
@@ -110,6 +112,7 @@ export interface UpdateRuleRequest {
   schedule_type?: string;  // NEW: "STATUS_CHANGE" | "RECURRING_TIME"
   recurring_times?: string[];  // NEW: Array of times in "HH:MM" format
   active_weekdays?: number[] | null;  // NEW: Array of weekday indices [0-6] where 0=Sunday, null=all days
+  excluded_weekdays?: number[] | null;  // NEW: Array of weekday indices [0-6] to exclude from automation
 }
 
 export interface ManualTemplate {

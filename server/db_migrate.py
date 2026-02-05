@@ -8618,6 +8618,13 @@ def apply_migrations():
         
         checkpoint("✅ Migration 136 complete: Recurring schedule support added")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 137: Add excluded_weekdays to scheduled_message_rules
+        # 🎯 PURPOSE: Allow users to exclude specific weekdays from automation
+        # - Add excluded_weekdays JSON column: Array of weekday indices [0-6] to exclude
+        # - Used only for STATUS_CHANGE schedule type
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 137: Add excluded_weekdays support to scheduled_message_rules")
         # Migration 137: Add source and reply threading fields to whatsapp_message
         # 🎯 PURPOSE: Enable LLM to understand message context and reply threading
         # Layer 1: Track who sent the message (bot/human/automation/system)
@@ -8628,6 +8635,25 @@ def apply_migrations():
         try:
             changes_made = False
             
+            if check_table_exists('scheduled_message_rules'):
+                # Add excluded_weekdays column
+                if not check_column_exists('scheduled_message_rules', 'excluded_weekdays'):
+                    checkpoint("  → Adding excluded_weekdays column to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN excluded_weekdays JSON NULL
+                    """)
+                    checkpoint("  ✅ excluded_weekdays column added to scheduled_message_rules")
+                    checkpoint("     💡 Array of weekday indices [0-6] where 0=Sunday, 6=Saturday")
+                    checkpoint("     💡 Automation will NOT run on these days, even if rule is active")
+                    checkpoint("     💡 Only applies to STATUS_CHANGE schedule type")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  excluded_weekdays column already exists in scheduled_message_rules")
+            
+            if changes_made:
+                migrations_applied.append("migration_137_excluded_weekdays")
+                checkpoint("  ✅ Migration 137 completed successfully")
             if check_table_exists('whatsapp_message'):
                 # Add source column (Layer 1)
                 if not check_column_exists('whatsapp_message', 'source'):
@@ -8681,6 +8707,7 @@ def apply_migrations():
             logger.error(f"Migration 137 error: {e}", exc_info=True)
             # Don't raise - these are important but not critical for startup
         
+        checkpoint("✅ Migration 137 complete: Excluded weekdays support added")
         checkpoint("✅ Migration 137 complete: WhatsApp context tracking added")
         
         checkpoint("Committing migrations to database...")
