@@ -8625,6 +8625,12 @@ def apply_migrations():
         # - Used only for STATUS_CHANGE schedule type
         # ═══════════════════════════════════════════════════════════════════════
         checkpoint("Migration 137: Add excluded_weekdays support to scheduled_message_rules")
+        # Migration 137: Add source and reply threading fields to whatsapp_message
+        # 🎯 PURPOSE: Enable LLM to understand message context and reply threading
+        # Layer 1: Track who sent the message (bot/human/automation/system)
+        # Layer 2: Link replies to original messages for better context
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 137: Add source and reply threading to whatsapp_message")
         
         try:
             changes_made = False
@@ -8648,6 +8654,53 @@ def apply_migrations():
             if changes_made:
                 migrations_applied.append("migration_137_excluded_weekdays")
                 checkpoint("  ✅ Migration 137 completed successfully")
+            if check_table_exists('whatsapp_message'):
+                # Add source column (Layer 1)
+                if not check_column_exists('whatsapp_message', 'source'):
+                    checkpoint("  → Adding source column to whatsapp_message...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_message 
+                        ADD COLUMN source VARCHAR(16) NULL
+                    """)
+                    checkpoint("  ✅ source column added to whatsapp_message")
+                    checkpoint("     💡 Values: 'bot', 'human', 'automation', 'system'")
+                    checkpoint("     💡 Enables LLM to distinguish sender type in conversation history")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  source column already exists in whatsapp_message")
+                
+                # Add reply_to_message_id column (Layer 2)
+                if not check_column_exists('whatsapp_message', 'reply_to_message_id'):
+                    checkpoint("  → Adding reply_to_message_id column to whatsapp_message...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_message 
+                        ADD COLUMN reply_to_message_id INTEGER NULL 
+                        REFERENCES whatsapp_message(id) ON DELETE SET NULL
+                    """)
+                    checkpoint("  ✅ reply_to_message_id column added to whatsapp_message")
+                    checkpoint("     💡 Links incoming messages to the outbound message they're replying to")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  reply_to_message_id column already exists in whatsapp_message")
+                
+                # Add quoted_message_stanza_id column (Layer 2)
+                if not check_column_exists('whatsapp_message', 'quoted_message_stanza_id'):
+                    checkpoint("  → Adding quoted_message_stanza_id column to whatsapp_message...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_message 
+                        ADD COLUMN quoted_message_stanza_id VARCHAR(128) NULL
+                    """)
+                    checkpoint("  ✅ quoted_message_stanza_id column added to whatsapp_message")
+                    checkpoint("     💡 Stores WhatsApp's stanzaId from contextInfo for reply matching")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  quoted_message_stanza_id column already exists in whatsapp_message")
+            
+            if changes_made:
+                migrations_applied.append("migration_137_whatsapp_context")
+                checkpoint("  ✅ Migration 137 completed successfully")
+                checkpoint("     🎯 Impact: LLM can now understand automation/human messages in context")
+                checkpoint("     🎯 Impact: LLM can identify what message customer is replying to")
                     
         except Exception as e:
             checkpoint(f"  ❌ Migration 137 failed: {e}")
@@ -8655,6 +8708,7 @@ def apply_migrations():
             # Don't raise - these are important but not critical for startup
         
         checkpoint("✅ Migration 137 complete: Excluded weekdays support added")
+        checkpoint("✅ Migration 137 complete: WhatsApp context tracking added")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:

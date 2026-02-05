@@ -10,10 +10,11 @@ import logging
 import random
 from datetime import datetime
 from server.db import db
-from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Business, Attachment
+from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Business, Attachment, WhatsAppMessage
 from server.app_factory import get_process_app
 from server.services.attachment_service import get_attachment_service
 from server.services.whatsapp_send_service import send_message
+from server.utils.whatsapp_utils import normalize_whatsapp_to
 
 log = logging.getLogger(__name__)
 
@@ -221,6 +222,30 @@ class BroadcastWorker:
                         
                         # Update counters
                         self.broadcast.sent_count += 1
+                        
+                        # 🔥 CONTEXT FIX: Save broadcast message to history for LLM context
+                        try:
+                            # Normalize phone to JID for consistent history lookup
+                            normalized_jid, _ = normalize_whatsapp_to(
+                                to=recipient.phone,
+                                business_id=self.broadcast.business_id
+                            )
+                            
+                            outgoing_msg = WhatsAppMessage(
+                                business_id=self.broadcast.business_id,
+                                to_number=normalized_jid,  # Store full JID for history matching
+                                body=text or '',
+                                direction='out',  # 🔥 Consistent 'in'/'out' values (not 'outbound')
+                                provider=self.broadcast.provider or 'baileys',
+                                status='sent',
+                                message_type=media_type if media_dict else 'text',
+                                source='automation',  # Mark as automation (broadcast campaign)
+                                provider_message_id=result.get('sid') or result.get('message_id')
+                            )
+                            db.session.add(outgoing_msg)
+                            log.info(f"✅ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} saved_to_history (source=automation)")
+                        except Exception as db_err:
+                            log.warning(f"⚠️ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} failed_to_save_history: {db_err}")
                         
                         log.info(f"✅ [WA_SEND] broadcast_id={self.broadcast_id} to={recipient.phone} status=sent")
                         break

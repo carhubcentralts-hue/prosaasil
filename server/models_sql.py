@@ -438,6 +438,13 @@ class WhatsAppMessage(db.Model):
     delivered_at = db.Column(db.DateTime)
     read_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Layer 1: Track message source for better context understanding
+    source = db.Column(db.String(16), nullable=True)      # bot/human/automation/system - who sent the message
+    
+    # Layer 2: Reply threading - link to message being replied to
+    reply_to_message_id = db.Column(db.Integer, db.ForeignKey("whatsapp_message.id"), nullable=True)
+    quoted_message_stanza_id = db.Column(db.String(128), nullable=True)  # WhatsApp stanzaId from contextInfo
 
 
 class WhatsAppConversationState(db.Model):
