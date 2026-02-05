@@ -4,6 +4,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/features/auth/hooks';
+import { WebhookLeadsSection } from './WebhookLeadsSection';
 import { 
   isPushSupported, 
   getPermissionStatus, 
@@ -1207,6 +1208,9 @@ export function SettingsPage() {
                 </div>
               </div>
             )}
+            
+            {/* Webhook Leads Ingestion - NEW */}
+            <WebhookLeadsSection />
           </div>
         )}
 
