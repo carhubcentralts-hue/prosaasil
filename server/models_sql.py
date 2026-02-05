@@ -1134,6 +1134,8 @@ class AppointmentAutomation(db.Model):
     
     # Trigger configuration
     trigger_status_ids = db.Column(db.JSON, nullable=False, default=list)  # Array of status strings: ["scheduled", "confirmed"]
+    calendar_ids = db.Column(db.JSON, nullable=True, default=None)  # Optional: Array of calendar IDs to filter by (null = all calendars)
+    appointment_type_keys = db.Column(db.JSON, nullable=True, default=None)  # Optional: Array of appointment type keys to filter by (null = all types)
     
     # Schedule offsets (when to send messages relative to appointment time)
     # Format: [{"type":"before","minutes":1440},{"type":"after","minutes":1440},{"type":"immediate"}]

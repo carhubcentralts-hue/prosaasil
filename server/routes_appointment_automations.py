@@ -68,6 +68,8 @@ def list_automations():
                 'name': automation.name,
                 'enabled': automation.enabled,
                 'trigger_status_ids': automation.trigger_status_ids or [],
+                'calendar_ids': automation.calendar_ids if automation.calendar_ids is not None else None,
+                'appointment_type_keys': automation.appointment_type_keys if automation.appointment_type_keys is not None else None,
                 'schedule_offsets': automation.schedule_offsets or [],
                 'channel': automation.channel,
                 'message_template': automation.message_template,
@@ -113,6 +115,8 @@ def get_automation(automation_id):
                 'name': automation.name,
                 'enabled': automation.enabled,
                 'trigger_status_ids': automation.trigger_status_ids or [],
+                'calendar_ids': automation.calendar_ids if automation.calendar_ids is not None else None,
+                'appointment_type_keys': automation.appointment_type_keys if automation.appointment_type_keys is not None else None,
                 'schedule_offsets': automation.schedule_offsets or [],
                 'channel': automation.channel,
                 'message_template': automation.message_template,
@@ -172,6 +176,8 @@ def create_automation():
             name=data['name'],
             enabled=data.get('enabled', True),
             trigger_status_ids=data['trigger_status_ids'],
+            calendar_ids=data.get('calendar_ids'),  # Optional: null means all calendars
+            appointment_type_keys=data.get('appointment_type_keys'),  # Optional: null means all types
             schedule_offsets=data['schedule_offsets'],
             channel=data.get('channel', 'whatsapp'),
             message_template=data['message_template'],
@@ -221,8 +227,9 @@ def update_automation(automation_id):
         
         # Update fields
         updatable_fields = [
-            'name', 'enabled', 'trigger_status_ids', 'schedule_offsets',
-            'channel', 'message_template', 'send_once_per_offset', 'cancel_on_status_exit'
+            'name', 'enabled', 'trigger_status_ids', 'calendar_ids', 'appointment_type_keys',
+            'schedule_offsets', 'channel', 'message_template', 'send_once_per_offset', 
+            'cancel_on_status_exit'
         ]
         
         for field in updatable_fields:

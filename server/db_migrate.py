@@ -8310,6 +8310,54 @@ def apply_migrations():
         
         checkpoint("✅ Migration 131 complete: FK CASCADE verified")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 132: Add calendar_ids and appointment_type_keys to appointment_automations
+        # Allows automations to filter by specific calendars and appointment types
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 132: Adding calendar and type filters to appointment_automations")
+        
+        if check_table_exists('appointment_automations'):
+            try:
+                changes_made = False
+                
+                # Add calendar_ids column
+                if not check_column_exists('appointment_automations', 'calendar_ids'):
+                    checkpoint("  → Adding calendar_ids column to appointment_automations...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE appointment_automations 
+                        ADD COLUMN calendar_ids JSON NULL
+                    """)
+                    checkpoint("  ✅ calendar_ids column added")
+                    checkpoint("     💡 Automations can now filter by specific calendars (null = all calendars)")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  calendar_ids column already exists")
+                
+                # Add appointment_type_keys column
+                if not check_column_exists('appointment_automations', 'appointment_type_keys'):
+                    checkpoint("  → Adding appointment_type_keys column to appointment_automations...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE appointment_automations 
+                        ADD COLUMN appointment_type_keys JSON NULL
+                    """)
+                    checkpoint("  ✅ appointment_type_keys column added")
+                    checkpoint("     💡 Automations can now filter by appointment types (null = all types)")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  appointment_type_keys column already exists")
+                
+                if changes_made:
+                    migrations_applied.append("migration_132_automation_filters")
+                    
+            except Exception as e:
+                checkpoint(f"  ❌ Migration 132 failed: {e}")
+                logger.error(f"Migration 132 error: {e}", exc_info=True)
+                raise
+        else:
+            checkpoint("  ℹ️  appointment_automations table does not exist - skipping Migration 132")
+        
+        checkpoint("✅ Migration 132 complete: Automation filtering by calendar and type ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

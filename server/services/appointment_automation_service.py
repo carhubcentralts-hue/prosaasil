@@ -41,16 +41,23 @@ from server.jobs.send_appointment_confirmation_job import send_appointment_confi
 logger = logging.getLogger(__name__)
 
 
-def get_active_automations(business_id: int, status_value: str) -> List[AppointmentAutomation]:
+def get_active_automations(
+    business_id: int, 
+    status_value: str,
+    calendar_id: Optional[int] = None,
+    appointment_type: Optional[str] = None
+) -> List[AppointmentAutomation]:
     """
-    Get all active automations that match a specific appointment status.
+    Get all active automations that match appointment criteria.
     
     Args:
         business_id: Business ID
         status_value: Appointment status value (e.g., "scheduled", "confirmed")
+        calendar_id: Optional calendar ID to filter by
+        appointment_type: Optional appointment type key to filter by
     
     Returns:
-        List of active AppointmentAutomation records
+        List of active AppointmentAutomation records that match all criteria
     """
     try:
         automations = AppointmentAutomation.query.filter(
@@ -58,12 +65,25 @@ def get_active_automations(business_id: int, status_value: str) -> List[Appointm
             AppointmentAutomation.enabled.is_(True)
         ).all()
         
-        # Filter by trigger_status_ids (JSON array contains status)
+        # Filter by multiple criteria
         matching = []
         for automation in automations:
+            # Check status
             trigger_statuses = automation.trigger_status_ids or []
-            if status_value in trigger_statuses:
-                matching.append(automation)
+            if status_value not in trigger_statuses:
+                continue
+            
+            # Check calendar filter (null = all calendars)
+            if automation.calendar_ids is not None and len(automation.calendar_ids) > 0:
+                if calendar_id is None or calendar_id not in automation.calendar_ids:
+                    continue
+            
+            # Check appointment type filter (null = all types)
+            if automation.appointment_type_keys is not None and len(automation.appointment_type_keys) > 0:
+                if appointment_type is None or appointment_type not in automation.appointment_type_keys:
+                    continue
+            
+            matching.append(automation)
         
         return matching
     except Exception as e:
@@ -157,8 +177,13 @@ def schedule_automation_jobs(
             logger.error(f"Appointment has no ID - skipping automation scheduling")
             return {'error': 'Invalid appointment ID', 'scheduled': 0}
         
-        # Get active automations for this appointment's status
-        automations = get_active_automations(business_id, appointment.status)
+        # Get active automations for this appointment's status, calendar, and type
+        automations = get_active_automations(
+            business_id, 
+            appointment.status,
+            calendar_id=appointment.calendar_id,
+            appointment_type=appointment.appointment_type
+        )
         
         if not automations:
             logger.debug(f"No active automations for status '{appointment.status}' in business {business_id}")
