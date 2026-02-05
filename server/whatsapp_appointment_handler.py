@@ -20,66 +20,25 @@ tz = pytz.timezone("Asia/Jerusalem")
 
 def extract_appointment_info_from_whatsapp(message_text: str, customer_phone: str) -> Dict:
     """
-    🔥 BUILD 200: מחלץ מידע לפגישה מהודעת ווצאפ - GENERIC for any business type
+    � DISABLED: יצירה אוטומטית של פגישות מבוטלת - AI יטפל בזה דרך tools
+    
+    הסיבה: זיהוי אוטומטי יוצר false positives (מזהה "לראות" כבקשה לפגישה)
+    ומוביל ל-deadlocks כשמנסה לשלוח הודעות סינכרונית.
+    
+    הפתרון: ה-AI ידבר עם הלקוח, יאסוף את כל הפרטים, ויקרא ל-crm_create_appointment
+    רק כשיש את כל המידע הנדרש.
     """
     info = {
         'has_request': False,
         'area': '',
-        'service_type': '',  # 🔥 BUILD 200: Generic service_type, not property_type
+        'service_type': '',
         'urgency': 'medium',
         'preferred_time': '',
-        'meeting_ready': False
+        'meeting_ready': False,  # ← תמיד False - AI יטפל בזה
+        'disabled_reason': 'AUTO_APPOINTMENT_DISABLED'
     }
     
-    text = message_text.lower()
-    
-    # זיהוי בקשה לפגישה - generic keywords
-    meeting_keywords = [
-        'פגישה', 'לראות', 'לבקר', 'להיפגש',
-        'מתי אפשר', 'מתי נוכל', 'אפשר לקבוע', 'בואו נפגש',
-        'תור', 'קביעת', 'לקבוע'
-    ]
-    
-    if any(keyword in text for keyword in meeting_keywords):
-        info['has_request'] = True
-    
-    # 🔥 BUILD 200: Use dynamic parser - only area extraction
-    from server.services.appointment_parser import parse_appointment_info_dynamic
-    
-    # Parse area only - other fields come from AI prompt
-    parsed_info = parse_appointment_info_dynamic(text)
-    if parsed_info.get('area'):
-        info['area'] = parsed_info['area']
-    
-    # זיהוי דחיפות
-    if any(word in text for word in ['דחוף', 'מיידי', 'היום', 'מחר']):
-        info['urgency'] = 'high'
-    elif any(word in text for word in ['לא ממהר', 'בזמן הקרוב', 'בשבועים הקרובים']):
-        info['urgency'] = 'low'
-    
-    # זיהוי זמן מועדף
-    time_patterns = [
-        r'בשעה (\d{1,2}):?(\d{0,2})',
-        r'ב-?(\d{1,2})',
-        r'(בוקר|צהריים|אחר הצהריים|ערב)'
-    ]
-    
-    for pattern in time_patterns:
-        match = re.search(pattern, text)
-        if match:
-            info['preferred_time'] = match.group(0)
-            break
-    
-    # 🔥 BUILD 200: Simplified criteria - generic for any business
-    criteria_met = sum([
-        bool(info['has_request']),
-        bool(info['area']),
-        True  # מספר טלפון תמיד קיים
-    ])
-    
-    info['meeting_ready'] = criteria_met >= 2  # Has request + phone = ready
-    info['criteria_score'] = criteria_met
-    
+    # 🚨 לא מזהים ולא יוצרים פגישות אוטומטית - AI handles everything
     return info
 
 def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp_message_id: Optional[int] = None, business_id: Optional[int] = None) -> Dict:
@@ -404,34 +363,24 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
         
         # 🔥 BUILD 200: אם יש בקשה לפגישה אבל לא מספיק מידע - GENERIC message
         if appointment_info['has_request'] and not appointment_info['meeting_ready']:
-            # שלח הודעת בקשת מידע נוסף - GENERIC for any business
-            missing_info = []
-            if not appointment_info['area']:
-                missing_info.append('איזה אזור נוח לכם?')
-            
-            follow_up_message = f"""
-תודה על הפנייה!
-
-כדי לקבוע פגישה, אשמח לדעת:
-{chr(10).join(f"• {info}" for info in missing_info)}
-            """.strip()  # 🔥 BUILD 200: Generic message - works for any business
-            
-            requests.post("http://localhost:5000/api/whatsapp/send", json={
-                'to': phone_number,
-                'message': follow_up_message,
-                'business_id': business_id  # ✅ FIX: Use correct business_id
-            })
+            # 🚨 DEADLOCK FIX: DO NOT send message synchronously from webhook handler!
+            # Let the AI handle follow-up questions instead
+            logger.info(f"[WA-APPT] Appointment request incomplete - letting AI handle follow-up")
             
             result['processed'] = True
-            result['follow_up_sent'] = True
+            result['follow_up_needed'] = True
+            result['missing_info'] = []
+            if not appointment_info['area']:
+                result['missing_info'].append('area')
         
         # אם יש מספיק מידע - צור פגישה
         elif appointment_info['meeting_ready']:
             appointment_result = create_whatsapp_appointment(phone_number, message_text, message_id, business_id)  # ✅ FIX: Pass business_id
             
             if appointment_result['success']:
-                # שלח אישור - ✅ BUILD 155: Pass business_id for multi-tenant safety
-                send_appointment_confirmation(phone_number, appointment_result, business_id)
+                # 🚨 DEADLOCK FIX: DO NOT send confirmation synchronously!
+                # Let the AI inform the customer about the created appointment
+                logger.info(f"[WA-APPT] Appointment {appointment_result['appointment_id']} created - letting AI send confirmation")
                 
                 result['processed'] = True
                 result['appointment_created'] = True
