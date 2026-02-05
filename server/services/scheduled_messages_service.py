@@ -591,9 +591,34 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
     now = triggered_at if triggered_at is not None else datetime.utcnow()
     created_count = 0
     
+    # Helper function to check if a date falls on an active weekday
+    def is_active_on_weekday(scheduled_datetime: datetime, active_weekdays: list) -> bool:
+        """
+        Check if scheduled_datetime falls on an active weekday
+        
+        Args:
+            scheduled_datetime: The datetime to check
+            active_weekdays: List of active weekdays (0=Sunday, 1=Monday, ..., 6=Saturday) or None for all days
+        
+        Returns:
+            True if active, False if should skip
+        """
+        if active_weekdays is None or not isinstance(active_weekdays, list):
+            return True  # No restriction - all days active
+        
+        # Convert Python weekday (0=Monday, 6=Sunday) to our format (0=Sunday, 1=Monday, ..., 6=Saturday)
+        python_weekday = scheduled_datetime.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
+        our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+        
+        return our_weekday in active_weekdays
+    
     # Create immediate message if enabled
     if rule.send_immediately_on_enter:
-        try:
+        # Check if today is an active weekday
+        if not is_active_on_weekday(now, rule.active_weekdays):
+            logger.info(f"[SCHEDULED-MSG] Skipping immediate message for lead {lead_id} - not an active weekday")
+        else:
+            try:
             # Use immediate_message if available, otherwise fall back to message_text
             template = rule.immediate_message if rule.immediate_message else rule.message_text
             
@@ -652,6 +677,12 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
             )
             
             scheduled_for = now + timedelta(seconds=step.delay_seconds)
+            
+            # Check if scheduled_for falls on an active weekday
+            if not is_active_on_weekday(scheduled_for, rule.active_weekdays):
+                logger.info(f"[SCHEDULED-MSG] Skipping step {step.id} for lead {lead_id} - scheduled for inactive weekday ({scheduled_for.strftime('%A')})")
+                continue
+            
             dedupe_key = f"{rule.business_id}:{lead_id}:{rule_id}:{step.id}:{lead.status_sequence_token}"
             
             queue_entry = ScheduledMessagesQueue(
@@ -698,12 +729,18 @@ def render_message_template(
     """
     Render message template with available variables
     
-    Supported variables:
+    Supported variables (English):
     - {lead_name} - Lead's full name
     - {phone} - Lead's phone number
     - {business_name} - Business name
     - {status} - Status label (user-friendly)
     - {status_name} - Status name (technical)
+    
+    Supported variables (Hebrew - with double braces):
+    - {{שם}} - Lead's full name (same as {lead_name})
+    - {{טלפון}} - Lead's phone number (same as {phone})
+    - {{עסק}} - Business name (same as {business_name})
+    - {{סטטוס}} - Status label (same as {status})
     
     Args:
         template: Message template with placeholders
@@ -715,19 +752,35 @@ def render_message_template(
     Returns:
         Rendered message text
     """
-    # Build replacement dictionary
+    # Get lead name with fallback
+    lead_full_name = lead.full_name or lead.name or 'Customer'
+    
+    # Build replacement dictionary - English placeholders
     replacements = {
-        '{lead_name}': lead.full_name or lead.name or 'Customer',
+        '{lead_name}': lead_full_name,
         '{phone}': lead.phone_e164 or lead.phone_raw or '',
         '{business_name}': business.name if business else '',
         '{status}': status_label,
         '{status_name}': status_name
     }
     
-    # Apply replacements
+    # Hebrew placeholders (with double braces for easier typing)
+    hebrew_replacements = {
+        '{{שם}}': lead_full_name,
+        '{{טלפון}}': lead.phone_e164 or lead.phone_raw or '',
+        '{{עסק}}': business.name if business else '',
+        '{{סטטוס}}': status_label
+    }
+    
+    # Apply replacements - Hebrew first (to handle {{}} before single {})
     rendered = template
+    for placeholder, value in hebrew_replacements.items():
+        rendered = rendered.replace(placeholder, str(value))
+    
     for placeholder, value in replacements.items():
         rendered = rendered.replace(placeholder, str(value))
+    
+    return rendered
     
     return rendered
 

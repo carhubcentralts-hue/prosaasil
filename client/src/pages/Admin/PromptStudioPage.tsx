@@ -18,7 +18,6 @@ import { useAuth } from '../../features/auth/hooks';
 import { PromptBuilderChat } from '../../components/settings/PromptBuilderChat';
 import { LiveCallCard } from '../../components/settings/LiveCallCard';
 import { BusinessAISettings } from '../../components/settings/BusinessAISettings';
-import { StatusChangePromptEditor } from '../../components/settings/StatusChangePromptEditor';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -37,8 +36,8 @@ export function PromptStudioPage() {
   const { user } = useAuth();
   // ✅ URL-based tab navigation for search and refresh persistence
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'tester' | 'appointments' | 'statuses' | null;
-  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'tester' | 'appointments' | 'statuses'>(tabFromUrl || 'prompts');
+  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'tester' | 'appointments' | null;
+  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'tester' | 'appointments'>(tabFromUrl || 'prompts');
   const [showChatBuilder, setShowChatBuilder] = useState(false);
   const [smartGenChannel, setSmartGenChannel] = useState<'calls' | 'whatsapp'>('calls');
   const [saving, setSaving] = useState(false);
@@ -206,17 +205,6 @@ export function PromptStudioPage() {
         >
           <Settings className="h-4 w-4" />
           הגדרות תורים
-        </button>
-        <button
-          onClick={() => handleTabChange('statuses')}
-          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-            activeTab === 'statuses'
-              ? 'border-purple-600 text-purple-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <Target className="h-4 w-4" />
-          פרומפט סטטוסים
         </button>
       </div>
 
@@ -422,18 +410,7 @@ export function PromptStudioPage() {
         </div>
       )}
 
-      {activeTab === 'statuses' && (
-        <div className="max-w-4xl mx-auto">
-          <StatusChangePromptEditor 
-            businessId={user?.tenant_id}
-            onSave={(version) => {
-              console.log('Status change prompt saved, version:', version);
-            }}
-          />
-        </div>
-      )}
-
-      {/* Prompt Builder Chat Modal */}
+      {/* Prompt Builder Chat Modal */
       <PromptBuilderChat
         isOpen={showChatBuilder}
         onClose={() => setShowChatBuilder(false)}

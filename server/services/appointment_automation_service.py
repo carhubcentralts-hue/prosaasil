@@ -222,6 +222,17 @@ def schedule_automation_jobs(
                     logger.warning(f"Could not calculate scheduled time for offset: {offset_config}")
                     continue
                 
+                # Check if scheduled_for falls on an active weekday
+                if automation.active_weekdays is not None and isinstance(automation.active_weekdays, list):
+                    # Convert Python weekday (0=Monday, 6=Sunday) to our format (0=Sunday, 1=Monday, ..., 6=Saturday)
+                    python_weekday = scheduled_for.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
+                    our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+                    
+                    if our_weekday not in automation.active_weekdays:
+                        logger.info(f"Skipping automation {automation.id} for {scheduled_for.strftime('%A')} - not an active weekday")
+                        skipped_count += 1
+                        continue
+                
                 # Create offset signature for deduplication
                 offset_sig = create_offset_signature(offset_config)
                 

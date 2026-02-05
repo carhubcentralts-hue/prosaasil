@@ -363,8 +363,8 @@ def update_rule(rule_id: int):
         business_id = get_business_id_from_session()
         data = request.get_json()
         
-        # Validate delay_minutes if provided
-        if 'delay_minutes' in data:
+        # Validate delay_minutes if provided (skip if None or empty)
+        if 'delay_minutes' in data and data['delay_minutes'] is not None and data['delay_minutes'] != '':
             try:
                 delay_minutes = int(data['delay_minutes'])
             except (TypeError, ValueError):
@@ -374,8 +374,8 @@ def update_rule(rule_id: int):
                 return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
             data['delay_minutes'] = delay_minutes
         
-        # Validate delay_seconds if provided
-        if 'delay_seconds' in data:
+        # Validate delay_seconds if provided (skip if None or empty)
+        if 'delay_seconds' in data and data['delay_seconds'] is not None and data['delay_seconds'] != '':
             try:
                 delay_seconds = int(data['delay_seconds'])
             except (TypeError, ValueError):

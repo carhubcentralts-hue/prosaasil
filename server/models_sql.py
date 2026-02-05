@@ -1152,6 +1152,10 @@ class AppointmentAutomation(db.Model):
     # Cancel if status changes
     cancel_on_status_exit = db.Column(db.Boolean, default=True)  # Cancel scheduled jobs if appointment status changes out
     
+    # Active weekdays: Array of integers 0-6 (0=Sunday, 6=Saturday) or null for always active  
+    # Example: [0,1,2,3,4] = Sunday-Thursday only
+    active_weekdays = db.Column(db.JSON, nullable=True, default=None)  # null = all days, [0,1,2,3,4] = specific days
+    
     # Metadata
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -2220,6 +2224,10 @@ class ScheduledMessageRule(db.Model):
     immediate_message = db.Column(db.Text, nullable=True)  # Message to send immediately (if different from message_text)
     apply_mode = db.Column(db.String(32), default="ON_ENTER_ONLY", nullable=False)  # "ON_ENTER_ONLY" | "WHILE_IN_STATUS"
     
+    # Active weekdays: Array of integers 0-6 (0=Sunday, 6=Saturday) or null for always active
+    # Example: [0,1,2,3,4] = Sunday-Thursday only
+    active_weekdays = db.Column(db.JSON, nullable=True, default=None)  # null = all days, [0,1,2,3,4] = specific days
+    
     # Metadata
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -2298,7 +2306,7 @@ class ScheduledMessagesQueue(db.Model):
     business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
     rule_id = db.Column(db.Integer, db.ForeignKey("scheduled_message_rules.id", ondelete="CASCADE"), nullable=False, index=True)
     step_id = db.Column(db.Integer, db.ForeignKey("scheduled_message_rule_steps.id", ondelete="SET NULL"), nullable=True, index=True)  # NEW: Link to specific step
-    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)  # 🔥 FIX: Allow NULL when lead is deleted
     
     # Message details
     channel = db.Column(db.String(32), nullable=False, default='whatsapp')  # "whatsapp" - channel type

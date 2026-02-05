@@ -8358,6 +8358,156 @@ def apply_migrations():
         
         checkpoint("✅ Migration 132 complete: Automation filtering by calendar and type ready")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 133: Add updated_at to whatsapp_broadcasts and fix scheduled_messages_queue FK
+        # 🎯 PURPOSE: Fix missing updated_at column and lead deletion issues
+        # - Add updated_at column to whatsapp_broadcasts with default and onupdate
+        # - Change scheduled_messages_queue.lead_id to allow NULL with ON DELETE SET NULL
+        # - Prevents errors when creating broadcasts or deleting leads
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 133: Add updated_at to whatsapp_broadcasts and fix scheduled_messages FK")
+        
+        try:
+            changes_made = False
+            
+            # Part 1: Add updated_at to whatsapp_broadcasts
+            if check_table_exists('whatsapp_broadcasts'):
+                if not check_column_exists('whatsapp_broadcasts', 'updated_at'):
+                    checkpoint("  → Adding updated_at column to whatsapp_broadcasts...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_broadcasts 
+                        ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    """)
+                    
+                    # Set updated_at to created_at for existing records
+                    execute_with_retry(migrate_engine, """
+                        UPDATE whatsapp_broadcasts 
+                        SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+                        WHERE updated_at IS NULL
+                    """)
+                    
+                    checkpoint("  ✅ updated_at column added to whatsapp_broadcasts")
+                    checkpoint("     💡 Existing broadcasts now have updated_at set to created_at")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  updated_at column already exists in whatsapp_broadcasts")
+            
+            # Part 2: Fix scheduled_messages_queue.lead_id FK constraint
+            if check_table_exists('scheduled_messages_queue'):
+                checkpoint("  → Fixing scheduled_messages_queue.lead_id FK constraint...")
+                
+                # Check current FK constraint
+                constraint_check = execute_with_retry(migrate_engine, """
+                    SELECT conname, confdeltype
+                    FROM pg_constraint 
+                    WHERE conrelid = 'scheduled_messages_queue'::regclass
+                    AND conname LIKE '%lead_id%'
+                """)
+                
+                needs_fix = False
+                if constraint_check and len(constraint_check) > 0:
+                    constraint_name = constraint_check[0][0]
+                    delete_action = constraint_check[0][1]
+                    # 'c' = CASCADE, 'n' = SET NULL, 'r' = RESTRICT, 'a' = NO ACTION
+                    if delete_action != 'n':  # Not SET NULL
+                        checkpoint(f"  → FK constraint '{constraint_name}' has delete action '{delete_action}' - needs SET NULL")
+                        needs_fix = True
+                else:
+                    checkpoint("  → No lead_id FK constraint found")
+                
+                if needs_fix:
+                    # Drop existing FK constraint
+                    execute_with_retry(migrate_engine, f"""
+                        ALTER TABLE scheduled_messages_queue 
+                        DROP CONSTRAINT IF EXISTS {constraint_name}
+                    """)
+                    
+                    # Make lead_id nullable
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_messages_queue 
+                        ALTER COLUMN lead_id DROP NOT NULL
+                    """)
+                    
+                    # Add new FK with ON DELETE SET NULL
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_messages_queue
+                        ADD CONSTRAINT scheduled_messages_queue_lead_id_fkey
+                        FOREIGN KEY (lead_id)
+                        REFERENCES leads(id)
+                        ON DELETE SET NULL
+                    """)
+                    
+                    checkpoint("  ✅ FK constraint updated with ON DELETE SET NULL")
+                    checkpoint("     💡 Lead deletions now set lead_id to NULL instead of failing")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  FK constraint already has correct behavior")
+            
+            if changes_made:
+                migrations_applied.append("migration_133_updated_at_and_fk_fix")
+                checkpoint("  ✅ Migration 133 completed successfully")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 133 failed: {e}")
+            logger.error(f"Migration 133 error: {e}", exc_info=True)
+            # Don't raise - these are important but not critical for startup
+        
+        checkpoint("✅ Migration 133 complete: Database schema fixes applied")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 134: Add active_weekdays to automation tables
+        # 🎯 PURPOSE: Allow automations to skip specific days of the week
+        # - Add active_weekdays column to scheduled_message_rules (WhatsApp automation)
+        # - Add active_weekdays column to appointment_automations (Calendar automation)
+        # - null = active all days, [0,1,2,3,4] = Sunday-Thursday only, etc.
+        # - 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 134: Add active_weekdays to automation tables")
+        
+        try:
+            changes_made = False
+            
+            # Part 1: Add active_weekdays to scheduled_message_rules
+            if check_table_exists('scheduled_message_rules'):
+                if not check_column_exists('scheduled_message_rules', 'active_weekdays'):
+                    checkpoint("  → Adding active_weekdays column to scheduled_message_rules...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE scheduled_message_rules 
+                        ADD COLUMN active_weekdays JSON NULL
+                    """)
+                    checkpoint("  ✅ active_weekdays column added to scheduled_message_rules")
+                    checkpoint("     💡 Automations can now skip specific days (e.g., holidays/weekends)")
+                    checkpoint("     💡 null = all days, [0,1,2,3,4] = Sunday-Thursday, etc.")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  active_weekdays column already exists in scheduled_message_rules")
+            
+            # Part 2: Add active_weekdays to appointment_automations
+            if check_table_exists('appointment_automations'):
+                if not check_column_exists('appointment_automations', 'active_weekdays'):
+                    checkpoint("  → Adding active_weekdays column to appointment_automations...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE appointment_automations 
+                        ADD COLUMN active_weekdays JSON NULL
+                    """)
+                    checkpoint("  ✅ active_weekdays column added to appointment_automations")
+                    checkpoint("     💡 Appointment automations can now skip specific days")
+                    checkpoint("     💡 Example: Skip Tuesdays when owner is on vacation")
+                    changes_made = True
+                else:
+                    checkpoint("  ℹ️  active_weekdays column already exists in appointment_automations")
+            
+            if changes_made:
+                migrations_applied.append("migration_134_active_weekdays")
+                checkpoint("  ✅ Migration 134 completed successfully")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 134 failed: {e}")
+            logger.error(f"Migration 134 error: {e}", exc_info=True)
+            # Don't raise - these are important but not critical for startup
+        
+        checkpoint("✅ Migration 134 complete: Active weekdays support ready")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
