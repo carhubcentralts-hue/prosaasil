@@ -435,7 +435,8 @@ function CreateRuleModal({
   // Insert variable into message field at cursor position or at end
   const insertVariable = (field: 'recurring_message' | 'immediate_message' | 'step_message', variable: string, stepIndex?: number) => {
     if (field === 'step_message' && stepIndex !== undefined) {
-      // For step messages, just append to end (no ref tracking for dynamic fields)
+      // For step messages, append to end (dynamic fields don't support cursor tracking)
+      // Note: Cursor position insertion not supported for dynamically generated step textareas
       const updatedSteps = [...formData.steps];
       updatedSteps[stepIndex].message_text = (updatedSteps[stepIndex].message_text || '') + variable;
       setFormData({ ...formData, steps: updatedSteps });
@@ -448,7 +449,7 @@ function CreateRuleModal({
       let newValue: string;
       if (textarea && document.activeElement === textarea) {
         // Insert at cursor position if textarea is focused
-        const cursorPos = textarea.selectionStart || 0;
+        const cursorPos = textarea.selectionStart ?? 0;
         newValue = currentValue.substring(0, cursorPos) + variable + currentValue.substring(cursorPos);
         
         // Update form data

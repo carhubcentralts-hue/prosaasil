@@ -866,7 +866,7 @@ def render_message_template(
     # Extract first name with proper fallbacks
     if lead.first_name:
         lead_first_name = lead.first_name
-    elif lead_full_name and lead_full_name != 'Customer':
+    elif lead_full_name.strip() and lead_full_name != 'Customer':
         # Try to extract first word from full name
         name_parts = lead_full_name.split()
         lead_first_name = name_parts[0] if name_parts else 'Customer'
