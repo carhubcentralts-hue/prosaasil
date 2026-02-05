@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 from server.services.appointment_automation_service import get_pending_automation_runs
 from server.services.jobs import enqueue
+from server.jobs.send_appointment_confirmation_job import send_appointment_confirmation
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def appointment_automation_tick():
                 # Enqueue send job
                 enqueue(
                     'default',
-                    'server.jobs.send_appointment_confirmation_job.send_appointment_confirmation',
+                    send_appointment_confirmation,
                     run_id=run.id,
                     business_id=run.business_id
                 )
