@@ -65,26 +65,44 @@ def get_active_automations(
             AppointmentAutomation.enabled.is_(True)
         ).all()
         
+        logger.info(f"🔍 Found {len(automations)} active automations for business {business_id}")
+        
         # Filter by multiple criteria
         matching = []
         for automation in automations:
             # Check status
             trigger_statuses = automation.trigger_status_ids or []
+            logger.info(f"🔍 Automation {automation.id}: trigger_statuses={trigger_statuses}, looking for status_value='{status_value}'")
             if status_value not in trigger_statuses:
+                logger.info(f"  ❌ Status mismatch")
                 continue
+            logger.info(f"  ✅ Status match!")
+            logger.info(f"  ✅ Status match!")
             
             # Check calendar filter (null = all calendars)
             if automation.calendar_ids is not None and len(automation.calendar_ids) > 0:
+                logger.info(f"  🔍 Calendar filter: automation.calendar_ids={automation.calendar_ids}, appointment calendar_id={calendar_id}")
                 if calendar_id is None or calendar_id not in automation.calendar_ids:
+                    logger.info(f"  ❌ Calendar mismatch")
                     continue
+                logger.info(f"  ✅ Calendar match!")
+            else:
+                logger.info(f"  ℹ️  No calendar filter (applies to all)")
             
             # Check appointment type filter (null = all types)
             if automation.appointment_type_keys is not None and len(automation.appointment_type_keys) > 0:
+                logger.info(f"  🔍 Type filter: automation.appointment_type_keys={automation.appointment_type_keys}, appointment type={appointment_type}")
                 if appointment_type is None or appointment_type not in automation.appointment_type_keys:
+                    logger.info(f"  ❌ Type mismatch")
                     continue
+                logger.info(f"  ✅ Type match!")
+            else:
+                logger.info(f"  ℹ️  No type filter (applies to all)")
             
+            logger.info(f"  🎯 Automation {automation.id} '{automation.name}' MATCHES!")
             matching.append(automation)
         
+        logger.info(f"🎯 Returning {len(matching)} matching automations")
         return matching
     except Exception as e:
         logger.error(f"Error getting active automations for business {business_id}: {e}", exc_info=True)

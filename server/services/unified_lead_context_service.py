@@ -500,7 +500,7 @@ class UnifiedLeadContextService:
         try:
             tasks = CRMTask.query.filter(
                 CRMTask.lead_id == lead.id,
-                CRMTask.tenant_id == self.business_id,
+                CRMTask.business_id == self.business_id,  # 🔥 FIX: Use 'business_id' not 'tenant_id'
                 CRMTask.status.in_(['open', 'pending', 'in_progress'])
             ).order_by(CRMTask.due_date.asc()).limit(10).all()
             
@@ -539,7 +539,7 @@ class UnifiedLeadContextService:
             if lead.phone_e164:
                 customer = Customer.query.filter_by(
                     business_id=self.business_id,
-                    phone=lead.phone_e164
+                    phone_e164=lead.phone_e164  # 🔥 FIX: Use 'phone_e164' not 'phone'
                 ).first()
             
             if customer:
@@ -611,7 +611,7 @@ class UnifiedLeadContextService:
             if lead.phone_e164:
                 customer = Customer.query.filter_by(
                     business_id=self.business_id,
-                    phone=lead.phone_e164
+                    phone_e164=lead.phone_e164  # 🔥 FIX: Use 'phone_e164' not 'phone'
                 ).first()
             
             if not customer:

@@ -628,16 +628,13 @@ def get_session_messages(session: WhatsAppConversation) -> list:
     end_time = session.last_message_at or session.updated_at or datetime.utcnow()
     
     # Query with EXACT phone matching only (no LIKE - prevents cross-customer data leak!)
-    # 🔥 FIX: Check BOTH from_number AND to_number (inbound vs outbound messages)
+    # 🔥 FIX: Filter by to_number (used for both inbound and outbound in this schema)
     messages = WhatsAppMessage.query.filter(
         WhatsAppMessage.business_id == session.business_id,
         or_(
             WhatsAppMessage.to_number == phone_variants[0],
             WhatsAppMessage.to_number == phone_variants[1],
-            WhatsAppMessage.to_number == phone_variants[2],
-            WhatsAppMessage.from_number == phone_variants[0],
-            WhatsAppMessage.from_number == phone_variants[1],
-            WhatsAppMessage.from_number == phone_variants[2]
+            WhatsAppMessage.to_number == phone_variants[2]
         ),
         WhatsAppMessage.created_at >= session.started_at,
         WhatsAppMessage.created_at <= end_time  # 🔥 Upper bound!

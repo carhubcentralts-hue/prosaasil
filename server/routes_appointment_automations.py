@@ -191,10 +191,74 @@ def create_automation():
         
         logger.info(f"Created automation {automation.id} for business {business_id}")
         
+        # 🔥 FIX: Apply automation immediately to existing appointments if it has immediate trigger
+        applied_count = 0
+        if automation.enabled and automation.schedule_offsets:
+            for offset in automation.schedule_offsets:
+                if offset.get('timing') == 'immediate':
+                    # Find all appointments that match this automation's criteria
+                    query = Appointment.query.filter_by(business_id=business_id)
+                    
+                    # Filter by status
+                    if automation.trigger_status_ids:
+                        query = query.filter(Appointment.status.in_(automation.trigger_status_ids))
+                    
+                    # Filter by calendar
+                    if automation.calendar_ids:
+                        query = query.filter(Appointment.calendar_id.in_(automation.calendar_ids))
+                    
+                    # Filter by appointment type
+                    if automation.appointment_type_keys:
+                        query = query.filter(Appointment.appointment_type_key.in_(automation.appointment_type_keys))
+                    
+                    matching_appointments = query.all()
+                    
+                    logger.info(f"[AUTOMATION-IMMEDIATE] Found {len(matching_appointments)} matching appointments for automation {automation.id}")
+                    
+                    # Create automation runs for immediate execution
+                    from server.jobs.send_appointment_confirmation_job import send_appointment_confirmation_job
+                    from server.services.jobs import enqueue_job
+                    
+                    for appointment in matching_appointments:
+                        # Check if already sent for this offset
+                        existing_run = AppointmentAutomationRun.query.filter_by(
+                            automation_id=automation.id,
+                            appointment_id=appointment.id,
+                            offset_key=offset.get('key')
+                        ).first()
+                        
+                        if not existing_run:
+                            # Create run record
+                            run = AppointmentAutomationRun(
+                                automation_id=automation.id,
+                                appointment_id=appointment.id,
+                                offset_key=offset.get('key'),
+                                scheduled_for=datetime.utcnow(),  # Immediate
+                                status='pending'
+                            )
+                            db.session.add(run)
+                            db.session.flush()  # Get run.id
+                            
+                            # Enqueue send job
+                            try:
+                                enqueue_job(
+                                    send_appointment_confirmation_job,
+                                    run_id=run.id,
+                                    queue='default'
+                                )
+                                applied_count += 1
+                                logger.info(f"[AUTOMATION-IMMEDIATE] Enqueued job for appointment {appointment.id}")
+                            except Exception as e:
+                                logger.error(f"[AUTOMATION-IMMEDIATE] Failed to enqueue job: {e}")
+                    
+                    db.session.commit()
+                    break  # Only process first immediate offset
+        
         return jsonify({
             'success': True,
             'automation_id': automation.id,
-            'message': 'אוטומציה נוצרה בהצלחה'
+            'message': f'אוטומציה נוצרה בהצלחה{f" והופעלה על {applied_count} פגישות" if applied_count > 0 else ""}',
+            'applied_to_existing': applied_count
         }), 201
         
     except Exception as e:
