@@ -1128,7 +1128,7 @@ class AIService:
                             # Prepend lead context as system message
                             messages.insert(0, {
                                 "role": "system",
-                                "content": f"מידע על הלקוח (שימוש פנימי - אל תחזור על המידע הזה ללקוח):\n{context_text}"
+                                "content": f"📋 **מידע על הלקוח (יש לך גישה מלאה למידע הזה - השתמש בו לצורך מענה מדויק):**\n\n{context_text}\n\n⚠️ **חשוב:** אל תציין ללקוח שיש לך מערכת או מידע - פשוט ענה בצורה טבעית על בסיס המידע המופיע למעלה."
                             })
                             logger.info(f"[AGENTKIT] 🎧 Prepended lead context to conversation ({len(context_text)} chars)")
                             logger.info(f"[AGENTKIT] 📄 CONTEXT CONTENT:\n{context_text[:500]}...")  # 🔥 DEBUG: Print first 500 chars
@@ -1255,6 +1255,13 @@ class AIService:
                 logger.error(f"❌ Failed to log payload debug info: {log_err}")
             
             # Run agent using Runner.run_sync() (correct API for openai-agents SDK)
+            logger.info(f"🔙 About to call Runner.run_sync with {len(messages)} messages")
+            logger.info(f"📨 [DEBUG] Messages array:")
+            for i, msg in enumerate(messages):
+                role = msg.get('role', 'unknown')
+                content = msg.get('content', '')[:150]
+                logger.info(f"   [{i}] {role}: {content}...")
+            
             result = Runner.run_sync(agent, input=messages, context=agent_context)
             
             # Extract response text from result
