@@ -183,6 +183,7 @@ def create_automation():
             message_template=data['message_template'],
             send_once_per_offset=data.get('send_once_per_offset', True),
             cancel_on_status_exit=data.get('cancel_on_status_exit', True),
+            active_weekdays=data.get('active_weekdays'),  # Optional: null means all days
             created_by=user_id
         )
         
@@ -293,7 +294,7 @@ def update_automation(automation_id):
         updatable_fields = [
             'name', 'enabled', 'trigger_status_ids', 'calendar_ids', 'appointment_type_keys',
             'schedule_offsets', 'channel', 'message_template', 'send_once_per_offset', 
-            'cancel_on_status_exit'
+            'cancel_on_status_exit', 'active_weekdays'
         ]
         
         for field in updatable_fields:
