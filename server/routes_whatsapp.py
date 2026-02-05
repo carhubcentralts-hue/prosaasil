@@ -1178,7 +1178,8 @@ def baileys_webhook():
                         business_id=business_id,
                         customer_wa_id=conversation_key,  # 🔥 FIX #3: Use conversation_key
                         direction="in",
-                        provider="baileys"
+                        provider="baileys",
+                        lead_id=lead.id  # 🔥 FIX: Link session to lead
                     )
                 except Exception as e:
                     log.warning(f"⚠️ Session tracking failed: {e}")

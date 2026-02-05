@@ -126,7 +126,8 @@ def update_session_activity(
     business_id: int,
     customer_wa_id: str,
     direction: str = "in",
-    provider: str = "baileys"
+    provider: str = "baileys",
+    lead_id: Optional[int] = None  # 🔥 FIX: Add lead_id parameter
 ) -> Optional[WhatsAppConversation]:
     """Update session's last_message_at timestamp
     
@@ -135,6 +136,7 @@ def update_session_activity(
         customer_wa_id: Customer WhatsApp number
         direction: "in" for customer message, "out" for business message
         provider: WhatsApp provider
+        lead_id: Optional lead ID to link session to lead
     
     Returns:
         Updated session or None
@@ -148,11 +150,16 @@ def update_session_activity(
         if direction == "in":
             session.last_customer_message_at = now
         
+        # 🔥 FIX: Update lead_id if provided
+        if lead_id and not session.lead_id:
+            session.lead_id = lead_id
+            logger.info(f"[WA-SESSION] 🔗 Linked session {session.id} to lead {lead_id}")
+        
         session.updated_at = now
         
         db.session.commit()
         
-        logger.info(f"[WA-SESSION] ✅ Updated session id={session.id} last_message_at={now} direction={direction} new={is_new}")
+        logger.info(f"[WA-SESSION] ✅ Updated session id={session.id} last_message_at={now} direction={direction} new={is_new} lead_id={session.lead_id}")
         
         return session
     except Exception as e:
@@ -234,9 +241,9 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                     # Build transcript from messages
                     transcript_lines = []
                     for m in messages:
-                        if m.message_text:
-                            sender = 'Customer' if m.direction == 'inbound' else 'Business'
-                            transcript_lines.append(f"{sender}: {m.message_text}")
+                        if m.get('body'):  # 🔥 FIX: Use 'body' not 'message_text'
+                            sender = 'Customer' if m.get('direction') == 'in' else 'Business'
+                            transcript_lines.append(f"{sender}: {m['body']}")
                     
                     transcript_text = "\n".join(transcript_lines)
                     
@@ -621,12 +628,16 @@ def get_session_messages(session: WhatsAppConversation) -> list:
     end_time = session.last_message_at or session.updated_at or datetime.utcnow()
     
     # Query with EXACT phone matching only (no LIKE - prevents cross-customer data leak!)
+    # 🔥 FIX: Check BOTH from_number AND to_number (inbound vs outbound messages)
     messages = WhatsAppMessage.query.filter(
         WhatsAppMessage.business_id == session.business_id,
         or_(
             WhatsAppMessage.to_number == phone_variants[0],
             WhatsAppMessage.to_number == phone_variants[1],
-            WhatsAppMessage.to_number == phone_variants[2]
+            WhatsAppMessage.to_number == phone_variants[2],
+            WhatsAppMessage.from_number == phone_variants[0],
+            WhatsAppMessage.from_number == phone_variants[1],
+            WhatsAppMessage.from_number == phone_variants[2]
         ),
         WhatsAppMessage.created_at >= session.started_at,
         WhatsAppMessage.created_at <= end_time  # 🔥 Upper bound!
@@ -697,7 +708,7 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
                 # Build list with Hebrew labels
                 status_list = []
                 for s in statuses:
-                    hebrew_label = s.display_name or s.name
+                    hebrew_label = s.label or s.name  # 🔥 FIX: Use 'label' not 'display_name'
                     status_list.append(f"- {s.name} ({hebrew_label})")
                 
                 status_context = f"""
