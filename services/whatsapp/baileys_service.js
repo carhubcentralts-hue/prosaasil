@@ -142,7 +142,10 @@ function checkClockSync() {
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// 🔥 FIX: Increased limit to 50MB for base64-encoded media in broadcasts
+// Default is 100KB which is too small for images/videos
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 /** simple health BEFORE anything else */
 app.get('/healthz', (req, res) => res.status(200).send('ok'));

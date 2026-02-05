@@ -1525,6 +1525,7 @@ class WhatsAppBroadcast(db.Model):
     # Metadata
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # 🔥 FIX: Added missing field
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
     stopped_by = db.Column(db.Integer, db.ForeignKey("users.id"))  # User who stopped the broadcast
