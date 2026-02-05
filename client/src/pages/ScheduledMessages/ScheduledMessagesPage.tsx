@@ -419,6 +419,61 @@ function CreateRuleModal({
   const [error, setError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
+  // Available variables for message templates
+  const AVAILABLE_VARIABLES = [
+    { key: '{first_name}', label: 'שם פרטי' },
+    { key: '{lead_name}', label: 'שם מלא' },
+    { key: '{phone}', label: 'טלפון' },
+    { key: '{business_name}', label: 'שם העסק' },
+    { key: '{status}', label: 'סטטוס' }
+  ];
+
+  // Refs to track cursor position in textareas
+  const recurringMessageRef = React.useRef<HTMLTextAreaElement>(null);
+  const immediateMessageRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Insert variable into message field at cursor position or at end
+  const insertVariable = (field: 'recurring_message' | 'immediate_message' | 'step_message', variable: string, stepIndex?: number) => {
+    if (field === 'step_message' && stepIndex !== undefined) {
+      // For step messages, append to end (dynamic fields don't support cursor tracking)
+      // Note: Cursor position insertion not supported for dynamically generated step textareas
+      const updatedSteps = [...formData.steps];
+      updatedSteps[stepIndex].message_text = (updatedSteps[stepIndex].message_text || '') + variable;
+      setFormData({ ...formData, steps: updatedSteps });
+    } else {
+      // For main message fields, try to insert at cursor position
+      const ref = field === 'recurring_message' ? recurringMessageRef : immediateMessageRef;
+      const textarea = ref.current;
+      const currentValue = formData[field] || '';
+      
+      let newValue: string;
+      if (textarea && document.activeElement === textarea) {
+        // Insert at cursor position if textarea is focused
+        const cursorPos = textarea.selectionStart ?? 0;
+        newValue = currentValue.substring(0, cursorPos) + variable + currentValue.substring(cursorPos);
+        
+        // Update form data
+        setFormData({
+          ...formData,
+          [field]: newValue
+        });
+        
+        // Restore cursor position after the inserted variable
+        setTimeout(() => {
+          textarea.selectionStart = textarea.selectionEnd = cursorPos + variable.length;
+          textarea.focus();
+        }, 0);
+      } else {
+        // If not focused, append to end
+        newValue = currentValue + variable;
+        setFormData({
+          ...formData,
+          [field]: newValue
+        });
+      }
+    }
+  };
+
   const getDelayInMinutes = (value: number, unit: 'minutes' | 'hours' | 'days'): number => {
     switch (unit) {
       case 'minutes': return value;
@@ -740,15 +795,29 @@ function CreateRuleModal({
                     תוכן ההודעה *
                   </label>
                   <textarea
+                    ref={recurringMessageRef}
                     value={formData.recurring_message}
                     onChange={(e) => setFormData({ ...formData, recurring_message: e.target.value })}
                     rows={4}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     placeholder="תוכן ההודעה שתישלח בימים ובשעות שנבחרו..."
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    משתנים זמינים: {'{lead_name}'}, {'{phone}'}, {'{business_name}'}, {'{status}'}
-                  </p>
+                  {/* Available Variables */}
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-600 mb-2">משתנים זמינים:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {AVAILABLE_VARIABLES.map((variable) => (
+                        <button
+                          key={variable.key}
+                          type="button"
+                          onClick={() => insertVariable('recurring_message', variable.key)}
+                          className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono transition-colors"
+                        >
+                          {variable.key} - {variable.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -830,15 +899,29 @@ function CreateRuleModal({
                     הודעה מיידית *
                   </label>
                   <textarea
+                    ref={immediateMessageRef}
                     value={formData.immediate_message}
                     onChange={(e) => setFormData({ ...formData, immediate_message: e.target.value })}
                     rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     placeholder="הודעה שתישלח מיד כאשר הליד נכנס לסטטוס..."
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    משתנים זמינים: {'{lead_name}'}, {'{phone}'}, {'{business_name}'}, {'{status}'}
-                  </p>
+                  {/* Available Variables */}
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-600 mb-2">משתנים זמינים:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {AVAILABLE_VARIABLES.map((variable) => (
+                        <button
+                          key={variable.key}
+                          type="button"
+                          onClick={() => insertVariable('immediate_message', variable.key)}
+                          className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono transition-colors"
+                        >
+                          {variable.key} - {variable.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -934,6 +1017,22 @@ function CreateRuleModal({
                               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                               placeholder="תוכן ההודעה..."
                             />
+                            {/* Available Variables for step */}
+                            <div className="mt-1">
+                              <p className="text-xs text-gray-600 mb-1">משתנים זמינים:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {AVAILABLE_VARIABLES.map((variable) => (
+                                  <button
+                                    key={variable.key}
+                                    type="button"
+                                    onClick={() => insertVariable('step_message', variable.key, index)}
+                                    className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono transition-colors"
+                                  >
+                                    {variable.key} - {variable.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                           
                           <div className="flex items-center gap-2">

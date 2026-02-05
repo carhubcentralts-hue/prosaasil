@@ -837,6 +837,7 @@ def render_message_template(
     
     Supported variables (English):
     - {lead_name} - Lead's full name
+    - {first_name} - Lead's first name only
     - {phone} - Lead's phone number
     - {business_name} - Business name
     - {status} - Status label (user-friendly)
@@ -844,6 +845,7 @@ def render_message_template(
     
     Supported variables (Hebrew - with double braces):
     - {{שם}} - Lead's full name (same as {lead_name})
+    - {{שם פרטי}} - Lead's first name only (same as {first_name})
     - {{טלפון}} - Lead's phone number (same as {phone})
     - {{עסק}} - Business name (same as {business_name})
     - {{סטטוס}} - Status label (same as {status})
@@ -861,9 +863,20 @@ def render_message_template(
     # Get lead name with fallback
     lead_full_name = lead.full_name or lead.name or 'Customer'
     
+    # Extract first name with proper fallbacks
+    if lead.first_name:
+        lead_first_name = lead.first_name
+    elif lead_full_name.strip() and lead_full_name != 'Customer':
+        # Try to extract first word from full name
+        name_parts = lead_full_name.split()
+        lead_first_name = name_parts[0] if name_parts else 'Customer'
+    else:
+        lead_first_name = 'Customer'
+    
     # Build replacement dictionary - English placeholders
     replacements = {
         '{lead_name}': lead_full_name,
+        '{first_name}': lead_first_name,
         '{phone}': lead.phone_e164 or lead.phone_raw or '',
         '{business_name}': business.name if business else '',
         '{status}': status_label,
@@ -873,6 +886,7 @@ def render_message_template(
     # Hebrew placeholders (with double braces for easier typing)
     hebrew_replacements = {
         '{{שם}}': lead_full_name,
+        '{{שם פרטי}}': lead_first_name,
         '{{טלפון}}': lead.phone_e164 or lead.phone_raw or '',
         '{{עסק}}': business.name if business else '',
         '{{סטטוס}}': status_label
