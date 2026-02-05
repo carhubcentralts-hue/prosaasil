@@ -38,6 +38,20 @@ import AppointmentTypeManagementModal from './components/AppointmentTypeManageme
 import AppointmentAutomationModal from './components/AppointmentAutomationModal';
 
 // Calendar components and types
+interface LeadForSelection {
+  id: number;
+  name?: string;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  phone_e164?: string;
+}
+
+interface LeadsApiResponse {
+  items?: LeadForSelection[];
+  leads?: LeadForSelection[];
+}
 interface Appointment {
   id: number;
   title: string;
@@ -73,6 +87,7 @@ interface AppointmentForm {
   contact_name: string;
   contact_phone: string;
   calendar_id?: number;
+  lead_id?: number;  // ✅ NEW: Link appointment to specific lead
 }
 
 interface BusinessCalendar {
@@ -318,6 +333,10 @@ export function CalendarPage() {
   const [showAppointmentTypeModal, setShowAppointmentTypeModal] = useState(false);
   const [showAppointmentAutomationModal, setShowAppointmentAutomationModal] = useState(false);
 
+  // Leads state for linking appointments to leads
+  const [leads, setLeads] = useState<Array<{id: number; name: string; phone?: string}>>([]);
+  const [loadingLeads, setLoadingLeads] = useState(false);
+
   // Fetch appointments using the proper HTTP client
   const fetchAppointments = useCallback(async () => {
     try {
@@ -367,6 +386,7 @@ export function CalendarPage() {
     fetchAppointmentTypes();
     fetchAppointmentStatuses();
     fetchDefaultCalendar();
+    fetchLeads();  // ✅ NEW: Fetch leads for appointment linking
   }, []);
 
   useEffect(() => {
@@ -439,6 +459,25 @@ export function CalendarPage() {
       }
     } catch (error) {
       console.error('שגיאה בטעינת לוח שנה ראשי:', error);
+    }
+  };
+
+  // Fetch leads for appointment linking
+  const fetchLeads = async () => {
+    try {
+      setLoadingLeads(true);
+      const response = await http.get<LeadsApiResponse>('/api/leads');
+      const leadsData = response?.items || response?.leads || [];
+      setLeads(leadsData.map((lead) => ({
+        id: lead.id,
+        name: lead.full_name || lead.name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם',
+        phone: lead.phone_e164 || lead.phone || ''
+      })));
+    } catch (error) {
+      console.error('שגיאה בטעינת לידים:', error);
+      setLeads([]);
+    } finally {
+      setLoadingLeads(false);
     }
   };
 
@@ -1931,6 +1970,30 @@ export function CalendarPage() {
                     {calendars.filter(c => c.is_active).map(calendar => (
                       <option key={calendar.id} value={calendar.id}>
                         {calendar.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    קישור לליד
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.lead_id || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const parsed = value ? parseInt(value, 10) : undefined;
+                      const newLeadId = parsed && !isNaN(parsed) ? parsed : undefined;
+                      setFormData({...formData, lead_id: newLeadId});
+                    }}
+                    data-testid="select-lead"
+                  >
+                    <option value="">-- בחר ליד (אופציונלי) --</option>
+                    {leads.map(lead => (
+                      <option key={lead.id} value={lead.id}>
+                        {lead.name} {lead.phone ? `(${lead.phone})` : ''}
                       </option>
                     ))}
                   </select>
