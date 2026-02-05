@@ -683,6 +683,11 @@ def create_app():
         app.register_blueprint(webhook_secret_bp)
         app.logger.info("✅ Webhook Secret Management blueprint registered")
         
+        # Webhook Leads Ingestion - /api/leads/webhooks and /api/webhooks/leads
+        from server.routes_webhook_leads import webhook_leads_bp
+        app.register_blueprint(webhook_leads_bp)
+        app.logger.info("✅ Webhook Leads Ingestion blueprint registered")
+        
         # Email System - /api/email/*
         from server.email_api import email_bp
         app.register_blueprint(email_bp)

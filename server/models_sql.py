@@ -576,6 +576,9 @@ class Lead(db.Model):
     detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
     detected_topic_source = db.Column(db.String(32), default="embedding")  # "embedding" - classification method
     
+    # 🆕 WEBHOOK INGESTION: Raw payload from webhook sources
+    raw_payload = db.Column(db.JSON, nullable=True)  # Store original webhook payload for debugging and data recovery
+    
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -694,6 +697,36 @@ class LeadStatusHistory(db.Model):
     __table_args__ = (
         db.Index('idx_lead_status_history_lead', 'lead_id', 'created_at'),
         db.Index('idx_lead_status_history_tenant', 'tenant_id', 'created_at'),
+    )
+
+class WebhookLeadIngest(db.Model):
+    """Webhook configuration for lead ingestion from external sources (Make, Zapier, etc.)
+    
+    Maximum of 3 webhooks per business - each webhook receives POST requests with lead data
+    and creates leads in a pre-configured status. Supports secret-based authentication.
+    """
+    __tablename__ = "webhook_lead_ingest"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Webhook configuration
+    name = db.Column(db.String(255), nullable=False)  # Descriptive name (e.g., "Make Source 1", "Facebook Leads")
+    secret = db.Column(db.String(128), nullable=False)  # Authentication token for X-Webhook-Secret header
+    status_id = db.Column(db.Integer, db.ForeignKey("lead_statuses.id"), nullable=False, index=True)  # Target status for new leads
+    is_active = db.Column(db.Boolean, default=True, nullable=False)  # Enable/disable webhook
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref="webhook_lead_ingests")
+    status = db.relationship("LeadStatus")
+    
+    # Indexes
+    __table_args__ = (
+        db.Index('idx_webhook_lead_ingest_business', 'business_id', 'is_active'),
     )
 
 class LeadActivity(db.Model):

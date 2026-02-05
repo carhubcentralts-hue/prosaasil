@@ -228,6 +228,27 @@ INDEX_DEFS_LEADS_CRM = [
         "critical": False,
         "description": "Index on project_leads for project leads lead id"
     },
+    {
+        "name": "idx_webhook_lead_ingest_business",
+        "table": "webhook_lead_ingest",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_webhook_lead_ingest_business ON webhook_lead_ingest(business_id)",
+        "critical": False,
+        "description": "Index on webhook_lead_ingest for business lookups"
+    },
+    {
+        "name": "idx_webhook_lead_ingest_status",
+        "table": "webhook_lead_ingest",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_webhook_lead_ingest_status ON webhook_lead_ingest(status_id)",
+        "critical": False,
+        "description": "Index on webhook_lead_ingest for status lookups"
+    },
+    {
+        "name": "idx_webhook_lead_ingest_active",
+        "table": "webhook_lead_ingest",
+        "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_webhook_lead_ingest_active ON webhook_lead_ingest(business_id, is_active) WHERE is_active = TRUE",
+        "critical": False,
+        "description": "Partial index on webhook_lead_ingest for active webhooks per business"
+    },
 ]
 
 
