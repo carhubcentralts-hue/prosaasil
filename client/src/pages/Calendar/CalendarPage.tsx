@@ -153,6 +153,21 @@ const PRIORITY_TYPES = {
   urgent: { label: 'דחוף', color: 'bg-red-100 text-red-700' }
 };
 
+// Helper to convert color name to Tailwind classes
+const COLOR_MAP: Record<string, string> = {
+  blue: 'bg-blue-100 text-blue-800',
+  yellow: 'bg-yellow-100 text-yellow-800',
+  purple: 'bg-purple-100 text-purple-800',
+  green: 'bg-green-100 text-green-800',
+  red: 'bg-red-100 text-red-800',
+  gray: 'bg-gray-100 text-gray-800',
+  orange: 'bg-orange-100 text-orange-800',
+  pink: 'bg-pink-100 text-pink-800',
+  cyan: 'bg-cyan-100 text-cyan-800',
+  indigo: 'bg-indigo-100 text-indigo-800',
+  teal: 'bg-teal-100 text-teal-800',
+};
+
 // Translation helpers for dynamic summary fields
 const SENTIMENT_LABELS: Record<string, string> = {
   'positive': 'חיובי',
@@ -333,6 +348,43 @@ export function CalendarPage() {
   const [showAppointmentTypeModal, setShowAppointmentTypeModal] = useState(false);
   const [showAppointmentAutomationModal, setShowAppointmentAutomationModal] = useState(false);
 
+  // Memoized Maps for O(1) lookups
+  const typeMap = useMemo(() => {
+    const map = new Map<string, { label: string; color: string }>();
+    appointmentTypes.forEach(type => {
+      map.set(type.key, {
+        label: type.label,
+        color: COLOR_MAP[type.color] || 'bg-gray-100 text-gray-800'
+      });
+    });
+    return map;
+  }, [appointmentTypes]);
+
+  const statusMap = useMemo(() => {
+    const map = new Map<string, { label: string; color: string }>();
+    appointmentStatuses.forEach(status => {
+      map.set(status.key, {
+        label: status.label,
+        color: COLOR_MAP[status.color] || 'bg-gray-100 text-gray-800'
+      });
+    });
+    return map;
+  }, [appointmentStatuses]);
+
+  // Helper functions to get dynamic type/status info with O(1) lookups
+  const getTypeInfo = useCallback((typeKey: string) => {
+    const info = typeMap.get(typeKey);
+    if (info) return info;
+    // Fallback to hardcoded values if not found
+    return APPOINTMENT_TYPES[typeKey] || { label: typeKey, color: 'bg-gray-100 text-gray-800' };
+  }, [typeMap]);
+
+  const getStatusInfo = useCallback((statusKey: string) => {
+    const info = statusMap.get(statusKey);
+    if (info) return info;
+    // Fallback to hardcoded values if not found
+    return STATUS_TYPES[statusKey] || { label: statusKey, color: 'bg-gray-100 text-gray-800' };
+  }, [statusMap]);
   // Leads state for linking appointments to leads
   const [leads, setLeads] = useState<Array<{id: number; name: string; phone?: string}>>([]);
   const [loadingLeads, setLoadingLeads] = useState(false);
@@ -1087,11 +1139,9 @@ export function CalendarPage() {
               data-testid="select-filter-status"
             >
               <option value="all">כל הסטטוסים</option>
-              <option value="scheduled">מתוכנן</option>
-              <option value="confirmed">מאושר</option>
-              <option value="paid">שילם</option>
-              <option value="unpaid">לא שילם</option>
-              <option value="cancelled">בוטל</option>
+              {appointmentStatuses.map(status => (
+                <option key={status.key} value={status.key}>{status.label}</option>
+              ))}
             </select>
 
             <select
@@ -1101,10 +1151,9 @@ export function CalendarPage() {
               data-testid="select-filter-type"
             >
               <option value="all">כל הסוגים</option>
-              <option value="viewing">צפייה</option>
-              <option value="meeting">פגישה</option>
-              <option value="signing">חתימה</option>
-              <option value="call_followup">מעקב שיחה</option>
+              {appointmentTypes.map(type => (
+                <option key={type.key} value={type.key}>{type.label}</option>
+              ))}
             </select>
 
             {/* Calendar Filter */}
@@ -1210,11 +1259,9 @@ export function CalendarPage() {
               data-testid="select-filter-status"
             >
               <option value="all">כל הסטטוסים</option>
-              <option value="scheduled">מתוכנן</option>
-              <option value="confirmed">מאושר</option>
-              <option value="paid">שילם</option>
-              <option value="unpaid">לא שילם</option>
-              <option value="cancelled">בוטל</option>
+              {appointmentStatuses.map(status => (
+                <option key={status.key} value={status.key}>{status.label}</option>
+              ))}
             </select>
 
             {/* Type Filter */}
@@ -1225,10 +1272,9 @@ export function CalendarPage() {
               data-testid="select-filter-type"
             >
               <option value="all">כל הסוגים</option>
-              <option value="viewing">צפייה</option>
-              <option value="meeting">פגישה</option>
-              <option value="signing">חתימה</option>
-              <option value="call_followup">מעקב שיחה</option>
+              {appointmentTypes.map(type => (
+                <option key={type.key} value={type.key}>{type.label}</option>
+              ))}
             </select>
 
             {/* Calendar Filter */}
@@ -1395,7 +1441,7 @@ export function CalendarPage() {
                           key={apt.id}
                           className={`
                             text-[10px] md:text-xs px-1 md:px-2 py-0.5 md:py-1 rounded text-right truncate
-                            ${APPOINTMENT_TYPES[apt.appointment_type]?.color || 'bg-gray-100 text-gray-800'}
+                            ${getTypeInfo(apt.appointment_type)?.color || 'bg-gray-100 text-gray-800'}
                           `}
                           title={`${apt.title} - ${apt.start_time.split('T')[1]?.substring(0, 5) || ''}`}
                         >
@@ -1490,15 +1536,15 @@ export function CalendarPage() {
                       </h4>
                       <span className={`
                         inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                        ${STATUS_TYPES[appointment.status]?.color}
+                        ${getStatusInfo(appointment.status)?.color}
                       `}>
-                        {STATUS_TYPES[appointment.status]?.label}
+                        {getStatusInfo(appointment.status)?.label}
                       </span>
                       <span className={`
                         inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                        ${APPOINTMENT_TYPES[appointment.appointment_type]?.color}
+                        ${getTypeInfo(appointment.appointment_type)?.color}
                       `}>
-                        {APPOINTMENT_TYPES[appointment.appointment_type]?.label}
+                        {getTypeInfo(appointment.appointment_type)?.label}
                       </span>
                       {appointment.auto_generated && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
@@ -2380,7 +2426,8 @@ export function CalendarPage() {
         isOpen={showAppointmentStatusModal}
         onClose={() => setShowAppointmentStatusModal(false)}
         onStatusChange={() => {
-          fetchAppointmentConfigs();
+          fetchAppointmentTypes();
+          fetchAppointmentStatuses();
           fetchAppointments();
         }}
       />
@@ -2390,7 +2437,8 @@ export function CalendarPage() {
         isOpen={showAppointmentTypeModal}
         onClose={() => setShowAppointmentTypeModal(false)}
         onTypeChange={() => {
-          fetchAppointmentConfigs();
+          fetchAppointmentTypes();
+          fetchAppointmentStatuses();
           fetchAppointments();
         }}
       />
