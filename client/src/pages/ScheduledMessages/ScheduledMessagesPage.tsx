@@ -409,7 +409,7 @@ function CreateRuleModal({
     immediate_message: rule?.immediate_message || '',
     apply_mode: rule?.apply_mode || 'ON_ENTER_ONLY',
     steps: convertApiStepsToUI(rule?.steps),
-    active_weekdays: (rule as any)?.active_weekdays || null
+    active_weekdays: rule?.active_weekdays || null
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

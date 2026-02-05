@@ -226,7 +226,7 @@ export default function AppointmentAutomationModal({
       schedule_offsets: automation.schedule_offsets,
       message_template: automation.message_template,
       cancel_on_status_exit: automation.cancel_on_status_exit,
-      active_weekdays: (automation as any).active_weekdays || null,
+      active_weekdays: automation.active_weekdays || null,
     });
     setShowForm(true);
     setShowTemplates(false);
