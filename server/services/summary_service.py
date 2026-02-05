@@ -166,13 +166,12 @@ def summarize_conversation(
             ).all()
             
             if statuses:
-                # Build list of available statuses with their Hebrew display names
-                # Format: "- internal_name (תווית בעברית)"
+                # Build list of available statuses with their Hebrew labels ONLY
                 status_list = []
                 for s in statuses:
-                    hebrew_label = s.display_name or s.name
-                    status_list.append(f"- {s.name} ({hebrew_label})")
-                    available_statuses.append(s.name)
+                    hebrew_label = s.label  # 🔥 FIX: Use 'label' not 'display_name'
+                    status_list.append(f"- {hebrew_label}")
+                    available_statuses.append(hebrew_label)  # Store Hebrew labels
                 
                 status_context = f"""
 
@@ -181,8 +180,8 @@ def summarize_conversation(
 
 ⚠️ חשוב: 
 - המלץ רק על סטטוס מהרשימה הזו! אל תמציא סטטוסים חדשים.
-- השתמש בשם הפנימי (השם לפני הסוגריים) בהמלצה שלך
-- הבן את המשמעות מהתווית בעברית (בסוגריים)
+- השתמש בתווית **בעברית בדיוק** כפי שמופיעה ברשימה
+- כתוב את השם בעברית בהמלצה - לא קוד באנגלית!
 - אם אין סטטוס מדויק - בחר את הקרוב ביותר מבחינת משמעות"""
                 
                 log.info(f"📊 [SUMMARY] Loaded {len(statuses)} available statuses for business {business_id}")
@@ -247,8 +246,9 @@ def summarize_conversation(
 - אם הלקוח ביקש לסיים או ניתק - ציין זאת במפורש
 - אם לא הגיעו לסיכום או הלקוח לא התעניין - ציין זאת
 - סיכום קצר (30-50 מילים) מספיק אם אין הרבה תוכן
-- המלצת סטטוס: בחר את הסטטוס המתאים ביותר מהרשימה שקיבלת
-- פורמט ההמלצה: [המלצה: <שם_סטטוס_מדויק_מהרשימה>]
+- המלצת סטטוס: בחר את הסטטוס **בעברית** מהרשימה שקיבלת
+- פורמט ההמלצה: [המלצה: <תווית_בעברית_מדויקת_מהרשימה>]
+- **חשוב מאוד**: כתוב את הסטטוס בעברית! לא באנגלית!
 
 דוגמאות לסיכומים (ללא סטטוסים קבועים - זה משתנה לפי עסק!):
 - "לקוח פנה בנושא ניקוי מזגן. ביקש לדעת מחירים. סוכם לחזור אליו עם הצעת מחיר. [המלצה: <בחר_מהרשימה>]"

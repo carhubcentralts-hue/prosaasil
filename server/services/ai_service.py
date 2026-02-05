@@ -1130,6 +1130,13 @@ class AIService:
                                 "role": "system",
                                 "content": f"📋 **מידע על הלקוח (יש לך גישה מלאה למידע הזה - השתמש בו לצורך מענה מדויק):**\n\n{context_text}\n\n⚠️ **חשוב:** אל תציין ללקוח שיש לך מערכת או מידע - פשוט ענה בצורה טבעית על בסיס המידע המופיע למעלה."
                             })
+                            
+                            # 🔥 CRITICAL: Add another system message AFTER history to override past errors
+                            messages.append({
+                                "role": "system", 
+                                "content": "🔥 **עדכון חשוב:** כעת יש לך גישה מלאה למידע הלקוח (ראה למעלה). אם בתשובות קודמות אמרת שיש 'בעיה טכנית' - התעלם מזה עכשיו. המידע זמין ותקין. השתמש בו!"
+                            })
+                            
                             logger.info(f"[AGENTKIT] 🎧 Prepended lead context to conversation ({len(context_text)} chars)")
                             logger.info(f"[AGENTKIT] 📄 CONTEXT CONTENT:\n{context_text[:500]}...")  # 🔥 DEBUG: Print first 500 chars
                 except Exception as ctx_err:

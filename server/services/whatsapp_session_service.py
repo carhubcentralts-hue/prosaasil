@@ -719,11 +719,11 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
             ).all()
             
             if statuses:
-                # Build list with Hebrew labels
+                # Build list with Hebrew labels ONLY
                 status_list = []
                 for s in statuses:
-                    hebrew_label = s.label or s.name  # 🔥 FIX: Use 'label' not 'display_name'
-                    status_list.append(f"- {s.name} ({hebrew_label})")
+                    hebrew_label = s.label  # 🔥 FIX: Use 'label' not 'display_name'
+                    status_list.append(f"- {hebrew_label}")
                 
                 status_context = f"""
 
@@ -732,8 +732,8 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
 
 ⚠️ חשוב: 
 - המלץ רק על סטטוס מהרשימה!
-- השתמש בשם הפנימי (לפני הסוגריים)
-- הבן את המשמעות מהתווית בעברית (בסוגריים)"""
+- כתוב את השם **בעברית בדיוק** כפי שמופיע ברשימה
+- לא קוד באנגלית!"""
                 
                 logger.info(f"[WA-SESSION] Loaded {len(statuses)} statuses for business {session.business_id}")
             else:
@@ -758,8 +758,9 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
 - אם השיחה קצרה/לא הגיעה לסיכום - ציין זאת בקצרה
 - 1-4 משפטים מספיקים (תלוי באורך השיחה)
 - גם שיחה של הודעה אחת צריכה סיכום (למשל: "לקוח שאל על X, טרם נענה")
-- הוסף המלצת סטטוס בפורמט [המלצה: <שם_סטטוס>]
-- הסטטוס חייב להיות מהרשימה שקיבלת!
+- הוסף המלצת סטטוס בפורמט [המלצה: <תווית_בעברית>]
+- הסטטוס חייב להיות **בעברית** מהרשימה שקיבלת!
+- **חשוב**: כתוב את הסטטוס בעברית - לא באנגלית!
 
 סיכום:"""
 
