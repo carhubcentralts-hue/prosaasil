@@ -27,6 +27,37 @@ def generate_webhook_secret():
     return f"wh_{secrets.token_urlsafe(32)}"
 
 
+def validate_json_body(request, allow_none=False):
+    """
+    Validate that request body contains valid JSON object (dict)
+    
+    Args:
+        request: Flask request object
+        allow_none: If True, returns None for missing body; if False, returns error tuple
+    
+    Returns:
+        Tuple of (data, error_response) where error_response is None if successful
+        If error_response is not None, it's a tuple of (jsonify_response, status_code)
+    """
+    data = request.get_json(silent=True)
+    
+    if data is None:
+        if allow_none:
+            return None, None
+        return None, (jsonify({
+            "error": "Invalid or missing JSON body",
+            "details": "Request body must be valid JSON with Content-Type: application/json"
+        }), 400)
+    
+    if not isinstance(data, dict):
+        return None, (jsonify({
+            "error": "Invalid JSON payload",
+            "details": f"Expected JSON object, received: {type(data).__name__}"
+        }), 400)
+    
+    return data, None
+
+
 @webhook_leads_bp.route('/leads/webhooks', methods=['POST'])
 @require_api_auth
 def create_webhook():
@@ -53,20 +84,10 @@ def create_webhook():
     logger.info(f"[LEAD_WEBHOOK_CREATE] payload={request.get_json()}")
     
     try:
-        # Parse JSON safely and validate it's a dict
-        data = request.get_json(silent=True)
-        
-        if data is None:
-            return jsonify({
-                "error": "Invalid or missing JSON body",
-                "details": "Request body must be valid JSON with Content-Type: application/json"
-            }), 400
-        
-        if not isinstance(data, dict):
-            return jsonify({
-                "error": "Invalid JSON payload",
-                "details": "Expected JSON object, received: " + type(data).__name__
-            }), 400
+        # Parse and validate JSON body
+        data, error_response = validate_json_body(request)
+        if error_response:
+            return error_response
         
         business_id = g.business_id
         
@@ -211,20 +232,10 @@ def update_webhook(webhook_id):
     }
     """
     try:
-        # Parse JSON safely and validate it's a dict
-        data = request.get_json(silent=True)
-        
-        if data is None:
-            return jsonify({
-                "error": "Invalid or missing JSON body",
-                "details": "Request body must be valid JSON with Content-Type: application/json"
-            }), 400
-        
-        if not isinstance(data, dict):
-            return jsonify({
-                "error": "Invalid JSON payload",
-                "details": "Expected JSON object, received: " + type(data).__name__
-            }), 400
+        # Parse and validate JSON body
+        data, error_response = validate_json_body(request)
+        if error_response:
+            return error_response
         
         business_id = g.business_id
         
@@ -451,22 +462,11 @@ def webhook_ingest_lead(webhook_id):
             logger.warning(f"⚠️ Invalid secret for webhook {webhook_id}")
             return jsonify({"error": "Invalid or missing X-Webhook-Secret header"}), 401
         
-        # Get payload
-        payload = request.get_json(silent=True)
-        
-        if payload is None:
-            logger.warning(f"⚠️ Webhook {webhook_id}: Invalid or missing JSON body")
-            return jsonify({
-                "error": "Invalid or missing JSON body",
-                "details": "Request body must be valid JSON with Content-Type: application/json"
-            }), 400
-        
-        if not isinstance(payload, dict):
-            logger.warning(f"⚠️ Webhook {webhook_id}: Invalid JSON payload type: {type(payload).__name__}")
-            return jsonify({
-                "error": "Invalid JSON payload",
-                "details": "Expected JSON object, received: " + type(payload).__name__
-            }), 400
+        # Get and validate payload
+        payload, error_response = validate_json_body(request)
+        if error_response:
+            logger.warning(f"⚠️ Webhook {webhook_id}: Invalid JSON payload")
+            return error_response
         
         # Extract lead fields
         fields = extract_lead_fields(payload)
