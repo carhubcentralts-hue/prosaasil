@@ -652,12 +652,12 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
                 logger.info(f"[SCHEDULED-MSG] Scheduled immediate message {queue_entry.id} for lead {lead_id}")
 
             except Exception as e:
-            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
-                logger.debug(f"[SCHEDULED-MSG] Immediate message already scheduled for lead {lead_id} - skipping")
-                db.session.rollback()
-            else:
-                logger.error(f"[SCHEDULED-MSG] Error scheduling immediate message: {e}")
-                db.session.rollback()
+                if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                    logger.debug(f"[SCHEDULED-MSG] Immediate message already scheduled for lead {lead_id} - skipping")
+                    db.session.rollback()
+                else:
+                    logger.error(f"[SCHEDULED-MSG] Error scheduling immediate message: {e}")
+                    db.session.rollback()
     
     # Get all enabled steps
     steps = ScheduledMessageRuleStep.query.filter_by(
