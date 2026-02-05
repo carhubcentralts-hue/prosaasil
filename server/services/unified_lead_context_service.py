@@ -382,10 +382,16 @@ class UnifiedLeadContextService:
                 CallLog.business_id == self.business_id
             ).count()
             
-            payload.recent_whatsapp_count = WhatsAppMessage.query.filter(
-                WhatsAppMessage.lead_id == lead.id,
-                WhatsAppMessage.business_id == self.business_id
-            ).count()
+            # 🔥 FIX: WhatsAppMessage doesn't have lead_id - filter by phone number
+            whatsapp_count = 0
+            if lead.phone_e164:
+                phone_clean = lead.phone_e164.replace('+', '').strip()
+                # Filter by to_number (used for both inbound and outbound)
+                whatsapp_count = WhatsAppMessage.query.filter(
+                    WhatsAppMessage.business_id == self.business_id,
+                    WhatsAppMessage.to_number.contains(phone_clean)
+                ).count()
+            payload.recent_whatsapp_count = whatsapp_count
             
             # Load customer memory (unified across channels)
             payload.customer_memory = self._load_customer_memory(lead)
@@ -725,29 +731,26 @@ class UnifiedLeadContextService:
         try:
             from sqlalchemy import or_
             
-            # Build filters: lead_id OR phone match
-            filters = [WhatsAppMessage.business_id == self.business_id]
+            # 🔥 FIX: Filter by phone number (WhatsAppMessage doesn't have lead_id)
+            if not lead.phone_e164:
+                # No phone number - can't filter WhatsApp messages
+                return []
             
-            # Add lead_id filter
-            if lead.id:
-                filters.append(WhatsAppMessage.lead_id == lead.id)
+            phone_clean = lead.phone_e164.replace('+', '').strip()
             
-            # Add phone filter (normalized)
-            if lead.phone_e164:
-                phone_clean = lead.phone_e164.replace('+', '').strip()
-                filters.append(WhatsAppMessage.to_number.like(f'%{phone_clean}%'))
-            
+            # Filter by to_number (used for both inbound and outbound messages)
             messages = WhatsAppMessage.query.filter(
-                or_(*filters)
-            ).order_by(WhatsAppMessage.timestamp.desc()).limit(20).all()
+                WhatsAppMessage.business_id == self.business_id,
+                WhatsAppMessage.to_number.contains(phone_clean)
+            ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
             
             message_list = []
             for msg in messages:
                 message_list.append({
                     'id': msg.id,
                     'direction': msg.direction if hasattr(msg, 'direction') else 'unknown',
-                    'message_text': msg.message_text[:200] if msg.message_text else None,
-                    'timestamp': msg.timestamp.isoformat() if msg.timestamp else None,
+                    'message_text': msg.body[:200] if msg.body else None,  # 🔥 FIX: Use 'body' not 'message_text'
+                    'timestamp': msg.created_at.isoformat() if msg.created_at else None,  # 🔥 FIX: Use 'created_at' not 'timestamp'
                     'is_from_customer': msg.direction == 'in' if hasattr(msg, 'direction') else True
                 })
             
