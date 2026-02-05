@@ -10,8 +10,7 @@ import {
   Mic, 
   AlertCircle,
   Settings,
-  Sparkles,
-  Target
+  Sparkles
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
