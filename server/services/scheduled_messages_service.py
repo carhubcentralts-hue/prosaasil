@@ -97,18 +97,26 @@ def create_rule(
         else:
             delay_seconds = delay_minutes * 60
     
-    # Validation for STATUS_CHANGE schedules
+    # Validation for STATUS_CHANGE schedules only
     if schedule_type == "STATUS_CHANGE":
-        if delay_seconds < 0 or delay_seconds > 2592000:  # 0 seconds to 30 days
+        # Allow delay_seconds=0 only if send_immediately_on_enter is True
+        if delay_seconds == 0 and not send_immediately_on_enter:
+            raise ValueError("delay_seconds must be at least 1 for STATUS_CHANGE schedules (unless immediate send is enabled)")
+        if delay_seconds < 0 or delay_seconds > 2592000:  # 0-30 days
             raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
     
     # Set delay_minutes for backward compatibility if not provided
     if delay_minutes is None:
-        delay_minutes = max(1, delay_seconds // 60) if delay_seconds > 0 else 0
+        delay_minutes = max(0, delay_seconds // 60) if delay_seconds >= 0 else 0
     
-    # Validate delay_minutes for backward compatibility (skip for recurring schedules)
-    if schedule_type == "STATUS_CHANGE" and (delay_minutes < 1 or delay_minutes > 43200):  # 1 minute to 30 days
-        raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+    # Validate delay_minutes for backward compatibility (skip for recurring schedules or immediate sends)
+    if schedule_type == "STATUS_CHANGE" and not send_immediately_on_enter:
+        if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
+            raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+    elif schedule_type == "STATUS_CHANGE" and send_immediately_on_enter:
+        # For immediate sends, allow 0
+        if delay_minutes < 0 or delay_minutes > 43200:
+            raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
     
     if not status_ids:
         raise ValueError("At least one status_id is required")
@@ -246,8 +254,19 @@ def update_rule(
     if message_text is not None:
         rule.message_text = message_text
     if delay_minutes is not None:
-        if delay_minutes < 1 or delay_minutes > 43200:
-            raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+        # More lenient validation - allow 0 for immediate/recurring, but check schedule_type
+        current_schedule_type = rule.schedule_type if hasattr(rule, 'schedule_type') else 'STATUS_CHANGE'
+        current_immediate = rule.send_immediately_on_enter if hasattr(rule, 'send_immediately_on_enter') else False
+        
+        if current_schedule_type == 'RECURRING_TIME' or current_immediate:
+            # Allow 0 for recurring schedules or immediate sends
+            if delay_minutes < 0 or delay_minutes > 43200:
+                raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
+        else:
+            # Regular STATUS_CHANGE requires >= 1
+            if delay_minutes < 1 or delay_minutes > 43200:
+                raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+        
         rule.delay_minutes = delay_minutes
         # Also update delay_seconds
         rule.delay_seconds = delay_minutes * 60
@@ -256,7 +275,7 @@ def update_rule(
             raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
         rule.delay_seconds = delay_seconds
         # Also update delay_minutes for backward compatibility
-        rule.delay_minutes = max(1, delay_seconds // 60)
+        rule.delay_minutes = max(0, delay_seconds // 60)
     if provider is not None:
         if provider not in ("baileys", "meta", "auto"):
             raise ValueError("provider must be 'baileys', 'meta', or 'auto'")

@@ -409,7 +409,9 @@ function CreateRuleModal({
     immediate_message: rule?.immediate_message || '',
     apply_mode: rule?.apply_mode || 'ON_ENTER_ONLY',
     steps: convertApiStepsToUI(rule?.steps),
-    active_weekdays: rule?.active_weekdays || null
+    active_weekdays: rule?.active_weekdays || null,
+    schedule_type: rule?.schedule_type || 'STATUS_CHANGE',
+    recurring_times: rule?.recurring_times || []
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -451,6 +453,29 @@ function CreateRuleModal({
       return;
     }
     
+    // Validate based on schedule_type
+    if (formData.schedule_type === 'RECURRING_TIME') {
+      // Validate recurring schedule
+      if (!formData.recurring_times || formData.recurring_times.length === 0) {
+        setError('יש לבחור לפחות שעה אחת לתזמון חוזר');
+        return;
+      }
+      if (!formData.active_weekdays || formData.active_weekdays.length === 0) {
+        setError('יש לבחור לפחות יום אחד לתזמון חוזר');
+        return;
+      }
+    } else {
+      // Validate STATUS_CHANGE schedule
+      // Need at least one message source
+      const hasSteps = formData.steps.length > 0;
+      const hasImmediate = formData.send_immediately_on_enter && formData.immediate_message.trim();
+      
+      if (!hasSteps && !hasImmediate) {
+        setError('יש להגדיר לפחות הודעה אחת (מיידית או מתוזמנת)');
+        return;
+      }
+    }
+    
     // Validate immediate message if send_immediately_on_enter is checked
     if (formData.send_immediately_on_enter && !formData.immediate_message.trim()) {
       setError('יש למלא הודעה מיידית כאשר "שלח מיד בעת כניסה לסטטוס" מסומן');
@@ -475,18 +500,21 @@ function CreateRuleModal({
       setError(null);
       
       // Convert UI data to API format
-      const apiData = {
+      const apiData: any = {
         name: formData.name,
         message_text: '',  // Empty string for backward compatibility
         status_ids: formData.status_ids,
-        delay_minutes: 0,  // Set to 0 as it's not used
-        delay_seconds: 0,  // Set to 0 as it's not used
+        delay_minutes: 0,  // Set to 0 - will be ignored for RECURRING_TIME
+        delay_seconds: 0,  // Set to 0 - will be ignored for RECURRING_TIME
         provider: formData.provider,
         is_active: formData.is_active,
         send_immediately_on_enter: formData.send_immediately_on_enter,
         immediate_message: formData.send_immediately_on_enter ? formData.immediate_message : undefined,
         apply_mode: formData.apply_mode,
-        steps: convertUIStepsToAPI(formData.steps)
+        steps: convertUIStepsToAPI(formData.steps),
+        active_weekdays: formData.active_weekdays,
+        schedule_type: formData.schedule_type,
+        recurring_times: formData.schedule_type === 'RECURRING_TIME' ? formData.recurring_times : undefined
       };
       
       if (rule) {
@@ -562,8 +590,148 @@ function CreateRuleModal({
               </div>
             </div>
             
-            {/* Send Immediately Section */}
+            {/* Schedule Type Selection */}
             <div className="border-t pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                סוג תזמון *
+              </label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 p-3 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="schedule_type"
+                    value="STATUS_CHANGE"
+                    checked={formData.schedule_type === 'STATUS_CHANGE'}
+                    onChange={(e) => setFormData({ ...formData, schedule_type: e.target.value })}
+                    className="rounded"
+                  />
+                  <div>
+                    <div className="font-medium">תזמון לפי שינוי סטטוס</div>
+                    <div className="text-xs text-gray-500">שלח הודעות כאשר ליד נכנס לסטטוס מסויים</div>
+                  </div>
+                </label>
+                <label className="flex items-center gap-2 p-3 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="schedule_type"
+                    value="RECURRING_TIME"
+                    checked={formData.schedule_type === 'RECURRING_TIME'}
+                    onChange={(e) => setFormData({ ...formData, schedule_type: e.target.value })}
+                    className="rounded"
+                  />
+                  <div>
+                    <div className="font-medium">תזמון חוזר בימים ושעות ספציפיים</div>
+                    <div className="text-xs text-gray-500">שלח הודעות בימים ושעות קבועים (למשל: כל יום ראשון בשעה 15:00)</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+            
+            {/* Recurring Schedule Configuration */}
+            {formData.schedule_type === 'RECURRING_TIME' && (
+              <div className="border-t pt-4 bg-blue-50 p-4 rounded-md">
+                <h3 className="text-sm font-medium text-gray-700 mb-3">⏰ הגדרות תזמון חוזר</h3>
+                
+                {/* Active Weekdays */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Calendar className="w-4 h-4" />
+                    ימים לשליחה *
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {DAYS_OF_WEEK.map((dayInfo) => {
+                      const dayIsActive = formData.active_weekdays?.includes(dayInfo.index);
+                      
+                      return (
+                        <button
+                          key={dayInfo.index}
+                          type="button"
+                          onClick={() => {
+                            const currentSelection = formData.active_weekdays || [];
+                            let updatedSelection: number[];
+                            
+                            if (currentSelection.includes(dayInfo.index)) {
+                              // Day is selected - remove it
+                              updatedSelection = currentSelection.filter((d: number) => d !== dayInfo.index);
+                            } else {
+                              // Day not selected - add it
+                              updatedSelection = [...currentSelection, dayInfo.index].sort();
+                            }
+                            
+                            setFormData({ ...formData, active_weekdays: updatedSelection.length > 0 ? updatedSelection : null });
+                          }}
+                          className={`min-w-[3.5rem] px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                            dayIsActive
+                              ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300'
+                              : 'bg-white text-gray-400 hover:bg-gray-100 border border-gray-300'
+                          }`}
+                        >
+                          {dayInfo.nameHeb}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {formData.active_weekdays && formData.active_weekdays.length > 0 && (
+                    <p className="text-xs text-gray-600 mt-2">
+                      נבחרו {formData.active_weekdays.length} ימים
+                    </p>
+                  )}
+                </div>
+                
+                {/* Recurring Times */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    שעות שליחה *
+                  </label>
+                  <div className="space-y-2">
+                    {formData.recurring_times.map((time, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <input
+                          type="time"
+                          value={time}
+                          onChange={(e) => {
+                            const newTimes = [...formData.recurring_times];
+                            newTimes[index] = e.target.value;
+                            setFormData({ ...formData, recurring_times: newTimes });
+                          }}
+                          className="px-3 py-2 border border-gray-300 rounded-md"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newTimes = formData.recurring_times.filter((_, i) => i !== index);
+                            setFormData({ ...formData, recurring_times: newTimes });
+                          }}
+                          className="text-red-600 hover:text-red-700 p-2"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const newTimes = [...formData.recurring_times, '09:00'];
+                        setFormData({ ...formData, recurring_times: newTimes });
+                      }}
+                    >
+                      <Plus className="w-4 h-4 ml-1" />
+                      הוסף שעה
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    ההודעות יישלחו לכל הלידים בסטטוסים שנבחרו בשעות אלו בימים שנבחרו
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            {/* Send Immediately Section - Only for STATUS_CHANGE */}
+            {formData.schedule_type === 'STATUS_CHANGE' && (
+              <div className="border-t pt-4">
               <div className="flex items-center gap-2 mb-4">
                 <input
                   type="checkbox"
@@ -599,57 +767,11 @@ function CreateRuleModal({
                 </div>
               )}
             </div>
+            )}
             
-            {/* Apply Mode */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                אופן החלה *
-              </label>
-              <select
-                value={formData.apply_mode}
-                onChange={(e) => setFormData({ ...formData, apply_mode: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
-              >
-                <option value="ON_ENTER_ONLY">רק בכניסה לסטטוס</option>
-                <option value="WHILE_IN_STATUS">כל עוד בסטטוס</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                {formData.apply_mode === 'ON_ENTER_ONLY' 
-                  ? 'ההודעות יישלחו רק כאשר הליד נכנס לסטטוס' 
-                  : 'ההודעות יישלחו כל עוד הליד נמצא בסטטוס'}
-              </p>
-            </div>
-            
-            {/* Active Weekdays Section */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                ימים פעילים לשליחת הודעות
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {DAYS_OF_WEEK.map((dayInfo) => {
-                  const allDaysMode = formData.active_weekdays === null;
-                  const dayIsActive = formData.active_weekdays?.includes(dayInfo.index);
-                  const isActiveDay = allDaysMode || dayIsActive;
-                  
-                  return (
-                    <button
-                      key={dayInfo.index}
-                      type="button"
-                      onClick={() => {
-                        const currentSelection = formData.active_weekdays || [];
-                        let updatedSelection: number[] | null;
-                        
-                        if (formData.active_weekdays === null) {
-                          // Currently all days - clicking removes this day
-                          updatedSelection = DAYS_OF_WEEK
-                            .filter((d: { index: number }) => d.index !== dayInfo.index)
-                            .map((d: { index: number }) => d.index);
-                        } else if (currentSelection.includes(dayInfo.index)) {
-                          // Day is selected - remove it
-                          updatedSelection = currentSelection.filter((d: number) => d !== dayInfo.index);
-                          // If empty, revert to all days
-                          if (updatedSelection && updatedSelection.length === 0) {
+            {/* Multi-Step Messages - Only for STATUS_CHANGE */}
+            {formData.schedule_type === 'STATUS_CHANGE' && (
+            <div className="border-t pt-4"
                             updatedSelection = null;
                           }
                         } else {
