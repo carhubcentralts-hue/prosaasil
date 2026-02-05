@@ -56,10 +56,16 @@ def create_webhook():
         # Parse JSON safely and validate it's a dict
         data = request.get_json(silent=True)
         
+        if data is None:
+            return jsonify({
+                "error": "Invalid or missing JSON body",
+                "details": "Request body must be valid JSON with Content-Type: application/json"
+            }), 400
+        
         if not isinstance(data, dict):
             return jsonify({
                 "error": "Invalid JSON payload",
-                "details": "Expected application/json body with valid JSON object"
+                "details": "Expected JSON object, received: " + type(data).__name__
             }), 400
         
         business_id = g.business_id
@@ -208,10 +214,16 @@ def update_webhook(webhook_id):
         # Parse JSON safely and validate it's a dict
         data = request.get_json(silent=True)
         
+        if data is None:
+            return jsonify({
+                "error": "Invalid or missing JSON body",
+                "details": "Request body must be valid JSON with Content-Type: application/json"
+            }), 400
+        
         if not isinstance(data, dict):
             return jsonify({
                 "error": "Invalid JSON payload",
-                "details": "Expected application/json body with valid JSON object"
+                "details": "Expected JSON object, received: " + type(data).__name__
             }), 400
         
         business_id = g.business_id
@@ -442,11 +454,18 @@ def webhook_ingest_lead(webhook_id):
         # Get payload
         payload = request.get_json(silent=True)
         
+        if payload is None:
+            logger.warning(f"⚠️ Webhook {webhook_id}: Invalid or missing JSON body")
+            return jsonify({
+                "error": "Invalid or missing JSON body",
+                "details": "Request body must be valid JSON with Content-Type: application/json"
+            }), 400
+        
         if not isinstance(payload, dict):
-            logger.warning(f"⚠️ Webhook {webhook_id}: Invalid JSON payload, expected dict")
+            logger.warning(f"⚠️ Webhook {webhook_id}: Invalid JSON payload type: {type(payload).__name__}")
             return jsonify({
                 "error": "Invalid JSON payload",
-                "details": "Expected application/json body with valid JSON object"
+                "details": "Expected JSON object, received: " + type(payload).__name__
             }), 400
         
         # Extract lead fields
