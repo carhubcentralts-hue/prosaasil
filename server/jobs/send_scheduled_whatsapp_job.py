@@ -146,21 +146,20 @@ def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
                     try:
                         from server.models_sql import WhatsAppMessage
                         
-                        # Extract recipient phone safely
-                        recipient_phone = message.remote_jid.split('@')[0] if '@' in message.remote_jid else message.remote_jid
-                        
+                        # 🔥 CONTEXT FIX: Store FULL JID for history matching (not just phone)
                         outgoing_msg = WhatsAppMessage(
                             business_id=message.business_id,
-                            to_number=recipient_phone,
+                            to_number=message.remote_jid,  # 🔥 Store full JID like send_whatsapp_message_job
                             body=message.message_text,
                             direction='outbound',
                             provider=provider,
                             status='sent',
-                            message_type='text'
+                            message_type='text',
+                            source='automation'  # 🔥 CONTEXT FIX: Mark as automation-generated for LLM context
                         )
                         db.session.add(outgoing_msg)
                         db.session.commit()
-                        logger.debug(f"[SEND-SCHEDULED-WA] Created WhatsApp message record {outgoing_msg.id}")
+                        logger.info(f"[SEND-SCHEDULED-WA] Created WhatsApp message record {outgoing_msg.id} (source=automation)")
                     except Exception as db_err:
                         logger.error(f"[SEND-SCHEDULED-WA] Failed to create message record: {db_err}")
                         db.session.rollback()

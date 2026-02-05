@@ -226,6 +226,30 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                             incoming_msg.message_type = 'text'
                             incoming_msg.status = 'received'
                             incoming_msg.provider = 'baileys'
+                            
+                            # 🔥 LAYER 2: Extract reply threading context even when AI is inactive
+                            try:
+                                msg_content = msg.get('message', {})
+                                context_info = None
+                                
+                                if 'extendedTextMessage' in msg_content:
+                                    context_info = msg_content['extendedTextMessage'].get('contextInfo')
+                                elif 'contextInfo' in msg_content:
+                                    context_info = msg_content.get('contextInfo')
+                                
+                                if context_info:
+                                    stanza_id = context_info.get('stanzaId')
+                                    if stanza_id:
+                                        incoming_msg.quoted_message_stanza_id = stanza_id
+                                        original_msg = WhatsAppMessage.query.filter_by(
+                                            business_id=business_id,
+                                            provider_message_id=stanza_id
+                                        ).first()
+                                        if original_msg:
+                                            incoming_msg.reply_to_message_id = original_msg.id
+                            except Exception as reply_err:
+                                logger.warning(f"⚠️ Failed to extract reply context (AI inactive): {reply_err}")
+                            
                             db.session.add(incoming_msg)
                             db.session.commit()
                             
@@ -388,7 +412,41 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         incoming_msg.status = 'received'
                         incoming_msg.provider = 'baileys'
                         incoming_msg.provider_message_id = message_id  # 🔥 FIX: Add for dedupe
-                        incoming_msg.lead_id = None  # Will be set by future lead link
+                        
+                        # 🔥 LAYER 2: Extract reply threading context
+                        # Check if this message is replying to a previous message
+                        try:
+                            msg_content = msg.get('message', {})
+                            context_info = None
+                            
+                            # Check multiple possible locations for contextInfo
+                            if 'extendedTextMessage' in msg_content:
+                                context_info = msg_content['extendedTextMessage'].get('contextInfo')
+                            elif 'conversation' in msg_content and 'contextInfo' in msg_content:
+                                context_info = msg_content.get('contextInfo')
+                            elif 'contextInfo' in msg_content:
+                                context_info = msg_content.get('contextInfo')
+                            
+                            if context_info:
+                                stanza_id = context_info.get('stanzaId')
+                                quoted_message = context_info.get('quotedMessage')
+                                
+                                if stanza_id:
+                                    incoming_msg.quoted_message_stanza_id = stanza_id
+                                    logger.info(f"🔗 [REPLY_THREAD] trace_id={trace_id} replying_to_stanza={stanza_id[:20]}...")
+                                    
+                                    # Try to find the original message in our DB by provider_message_id
+                                    original_msg = WhatsAppMessage.query.filter_by(
+                                        business_id=business_id,
+                                        provider_message_id=stanza_id
+                                    ).first()
+                                    
+                                    if original_msg:
+                                        incoming_msg.reply_to_message_id = original_msg.id
+                                        logger.info(f"🔗 [REPLY_THREAD] trace_id={trace_id} linked_to_db_id={original_msg.id}")
+                        except Exception as reply_err:
+                            logger.warning(f"⚠️ [REPLY_THREAD] trace_id={trace_id} Failed to extract reply context: {reply_err}")
+                        
                         db.session.add(incoming_msg)
                         
                         # Track session for incoming
@@ -423,6 +481,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                             outgoing_msg.status = 'sent'
                             outgoing_msg.provider = send_result.get('provider', 'baileys')
                             outgoing_msg.provider_message_id = send_result.get('message_id')
+                            outgoing_msg.source = 'bot'  # 🔥 CONTEXT FIX: Mark as bot-generated
                             db.session.add(outgoing_msg)
                             
                             # Track session for outgoing

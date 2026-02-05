@@ -86,6 +86,7 @@ def whatsapp_ai_response_job(
         
         # Load conversation history (20 messages)
         previous_messages = []
+        quoted_context = None  # Store reply context if current message is a reply
         try:
             recent_msgs = WhatsAppMessage.query.filter_by(
                 business_id=business_id,
@@ -93,10 +94,39 @@ def whatsapp_ai_response_job(
             ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
             
             for msg_hist in reversed(recent_msgs):
+                # 🔥 LAYER 1: Include source info for better context understanding
+                sender_label = "לקוח"
                 if msg_hist.direction in ['in', 'inbound']:
-                    previous_messages.append(f"לקוח: {msg_hist.body}")
+                    sender_label = "לקוח"
                 else:
-                    previous_messages.append(f"עוזר: {msg_hist.body}")
+                    # Outbound message - use source to determine who sent it
+                    if msg_hist.source == 'bot':
+                        sender_label = "עוזר (בוט)"
+                    elif msg_hist.source == 'human':
+                        sender_label = "נציג"
+                    elif msg_hist.source == 'automation':
+                        sender_label = "אוטומציה"
+                    elif msg_hist.source == 'system':
+                        sender_label = "מערכת"
+                    else:
+                        sender_label = "עוזר"
+                
+                previous_messages.append(f"{sender_label}: {msg_hist.body}")
+            
+            # 🔥 LAYER 2: Check if the current message (latest incoming) is a reply to something
+            # Find the most recent incoming message (which should be the one we're responding to)
+            current_incoming = WhatsAppMessage.query.filter_by(
+                business_id=business_id,
+                to_number=conversation_key,
+                direction='in'
+            ).order_by(WhatsAppMessage.created_at.desc()).first()
+            
+            if current_incoming and current_incoming.reply_to_message_id:
+                # Customer is replying to a specific message - fetch it for context
+                quoted_msg = WhatsAppMessage.query.get(current_incoming.reply_to_message_id)
+                if quoted_msg:
+                    quoted_context = f"[הלקוח ענה להודעה הזאת: '{quoted_msg.body[:100]}...']"
+                    logger.info(f"[WA-AI-JOB] 🔗 Customer replied to message: {quoted_msg.id}")
         except Exception as e:
             logger.warning(f"[WA-AI-JOB] ⚠️ Could not load history: {e}")
         
@@ -142,6 +172,7 @@ def whatsapp_ai_response_job(
             'lead_status': lead.status if lead else None,
             'lead_id': lead.id,
             'previous_messages': previous_messages,
+            'quoted_context': quoted_context,  # 🔥 LAYER 2: Include reply threading context
             'appointment_created': False,  # Will be updated by appointment handler if needed
             'customer_memory': customer_memory_text,
             'ask_continue_or_fresh': ask_continue_or_fresh,

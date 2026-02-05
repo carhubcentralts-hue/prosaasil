@@ -81,11 +81,12 @@ def send_whatsapp_message_job(
                     direction='outbound',
                     provider='baileys',  # Default provider for this job
                     status='sent',
-                    message_type='text'
+                    message_type='text',
+                    source='bot'  # 🔥 CONTEXT FIX: Mark as bot-generated for LLM context
                 )
                 db.session.add(outgoing_msg)
                 db.session.commit()
-                logger.info(f"[WA-SEND-JOB] ✅ Outgoing message saved to DB: {outgoing_msg.id}")
+                logger.info(f"[WA-SEND-JOB] ✅ Outgoing message saved to DB: {outgoing_msg.id} (source=bot)")
             except Exception as db_err:
                 logger.error(f"[WA-SEND-JOB] ⚠️ Failed to save outgoing message to DB: {db_err}")
                 db.session.rollback()

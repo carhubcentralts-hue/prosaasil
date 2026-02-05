@@ -1457,19 +1457,20 @@ def send_manual_message():
         
         if is_success:
             # שמירת ההודעה בבסיס הנתונים
-            clean_number = to_number.replace('@s.whatsapp.net', '')
+            # 🔥 CONTEXT FIX: Store full JID (formatted_number) not cleaned number for history matching
             # Normalize status for DB storage
             db_status = provider_status if provider_status in success_statuses else 'sent'
             try:
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
-                wa_msg.to_number = clean_number
+                wa_msg.to_number = formatted_number  # 🔥 CONTEXT FIX: Store full JID for history matching
                 wa_msg.body = message or ''  # Caption or empty if media-only
                 wa_msg.message_type = message_type  # 'text', 'image', 'video', 'audio', 'document'
                 wa_msg.direction = 'out'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = send_result.get('provider', 'unknown')
                 wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
                 wa_msg.status = db_status
+                wa_msg.source = 'human'  # 🔥 CONTEXT FIX: Mark as human-sent for LLM context
                 
                 # Store media URL if attachment was sent
                 if media_url:
@@ -1480,6 +1481,8 @@ def send_manual_message():
                 
                 # ✅ BUILD 162: Track session for manual message
                 try:
+                    # Extract phone number for session tracking (without @domain)
+                    clean_number = formatted_number.split('@')[0] if '@' in formatted_number else formatted_number
                     update_session_activity(
                         business_id=business_id,
                         customer_wa_id=clean_number,
@@ -1806,7 +1809,7 @@ def send_via_webhook():
         
         if is_success:
             # Save to database
-            clean_number = to_number.replace('@s.whatsapp.net', '')
+            # 🔥 CONTEXT FIX: Store full JID for history matching
             db_status = provider_status if provider_status in success_statuses else 'sent'
             
             message_db_id = None
@@ -1815,19 +1818,20 @@ def send_via_webhook():
             try:
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
-                wa_msg.to_number = clean_number
+                wa_msg.to_number = formatted_number  # 🔥 CONTEXT FIX: Store full JID for history matching
                 wa_msg.body = message
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'out'
                 wa_msg.provider = send_result.get('provider', provider_resolved)
                 wa_msg.provider_message_id = provider_message_id
                 wa_msg.status = db_status
+                wa_msg.source = 'system'  # 🔥 CONTEXT FIX: Mark as system-sent (webhook/n8n) for LLM context
                 
                 db.session.add(wa_msg)
                 db.session.commit()
                 
                 message_db_id = wa_msg.id
-                log.info(f"[WA_WEBHOOK] ✅ Message sent successfully: db_id={message_db_id}, provider_msg_id={provider_message_id}")
+                log.info(f"[WA_WEBHOOK] ✅ Message sent successfully: db_id={message_db_id}, provider_msg_id={provider_message_id}, source=system")
                 
             except Exception as db_error:
                 log.error(f"[WA_WEBHOOK] DB save failed: {db_error}")
