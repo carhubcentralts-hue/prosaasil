@@ -334,7 +334,7 @@ export function PromptStudioPage() {
                       >
                         {Array.from({length: 24}, (_, i) => {
                           const hour = i.toString().padStart(2, '0');
-                          return <option key={i} value={`${hour}:00`}>{`${hour}:00`}</option>;
+                          return <option key={i} value={hour + ':00'}>{hour + ':00'}</option>;
                         })}
                       </select>
                     </div>
@@ -347,7 +347,7 @@ export function PromptStudioPage() {
                       >
                         {Array.from({length: 24}, (_, i) => {
                           const hour = i.toString().padStart(2, '0');
-                          return <option key={i} value={`${hour}:00`}>{`${hour}:00`}</option>;
+                          return <option key={i} value={hour + ':00'}>{hour + ':00'}</option>;
                         })}
                       </select>
                     </div>
@@ -390,9 +390,9 @@ export function PromptStudioPage() {
                 <h4 className="font-medium text-gray-900 mb-2">סיכום הגדרות</h4>
                 <div className="space-y-2 text-sm text-gray-600">
                   <p>• תורים כל <strong>{appointmentSettings.slot_size_min}</strong> דקות</p>
-                  <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? '24 שעות ביממה' : 'בשעות מוגדרות'}</strong></p>
+                  <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? "24 שעות ביממה" : "בשעות מוגדרות"}</strong></p>
                   <p>• ניתן לקבוע עד <strong>{appointmentSettings.booking_window_days}</strong> ימים קדימה</p>
-                  <p>• הודעה מוקדמת: <strong>{appointmentSettings.min_notice_min === 0 ? 'לא נדרשת' : `${appointmentSettings.min_notice_min} דקות`}</strong></p>
+                  <p>• הודעה מוקדמת: <strong>{appointmentSettings.min_notice_min === 0 ? "לא נדרשת" : appointmentSettings.min_notice_min + " דקות"}</strong></p>
                 </div>
               </div>
               
