@@ -127,10 +127,11 @@ def whatsapp_ai_response_job(
             if current_incoming and current_incoming.reply_to_message_id:
                 # Customer is replying to a specific message - fetch it for context
                 quoted_msg = WhatsAppMessage.query.get(current_incoming.reply_to_message_id)
-                if quoted_msg:
+                if quoted_msg and quoted_msg.body:
                     # Only add '...' if message is longer than 100 characters
-                    body_preview = quoted_msg.body[:100]
-                    if len(quoted_msg.body) > 100:
+                    body_text = quoted_msg.body or ''  # Handle None case
+                    body_preview = body_text[:100]
+                    if len(body_text) > 100:
                         body_preview += '...'
                     quoted_context = f"[הלקוח ענה להודעה הזאת: '{body_preview}']"
                     logger.info(f"[WA-AI-JOB] 🔗 Customer replied to message: {quoted_msg.id}")

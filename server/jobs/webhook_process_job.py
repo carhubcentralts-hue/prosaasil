@@ -433,7 +433,9 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                                 
                                 if stanza_id:
                                     incoming_msg.quoted_message_stanza_id = stanza_id
-                                    logger.info(f"🔗 [REPLY_THREAD] trace_id={trace_id} replying_to_stanza={stanza_id[:20]}...")
+                                    # Safe slicing with conditional ellipsis
+                                    stanza_preview = stanza_id[:20] + ('...' if len(stanza_id) > 20 else '')
+                                    logger.info(f"🔗 [REPLY_THREAD] trace_id={trace_id} replying_to_stanza={stanza_preview}")
                                     
                                     # Try to find the original message in our DB by provider_message_id
                                     original_msg = WhatsAppMessage.query.filter_by(

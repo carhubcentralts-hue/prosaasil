@@ -443,7 +443,7 @@ class WhatsAppMessage(db.Model):
     source = db.Column(db.String(16), nullable=True)      # bot/human/automation/system - who sent the message
     
     # Layer 2: Reply threading - link to message being replied to
-    reply_to_message_id = db.Column(db.Integer, db.ForeignKey("whatsapp_message.id"), nullable=True, index=True)
+    reply_to_message_id = db.Column(db.Integer, db.ForeignKey("whatsapp_message.id"), nullable=True)
     quoted_message_stanza_id = db.Column(db.String(128), nullable=True)  # WhatsApp stanzaId from contextInfo
 
 

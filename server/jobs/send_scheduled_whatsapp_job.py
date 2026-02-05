@@ -159,7 +159,7 @@ def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
                         )
                         db.session.add(outgoing_msg)
                         db.session.commit()
-                        logger.info(f"[SEND-SCHEDULED-WA] Created WhatsApp message record {outgoing_msg.id} (source=automation)")
+                        logger.debug(f"[SEND-SCHEDULED-WA] Created WhatsApp message record {outgoing_msg.id} (source=automation)")
                     except Exception as db_err:
                         logger.error(f"[SEND-SCHEDULED-WA] Failed to create message record: {db_err}")
                         db.session.rollback()
