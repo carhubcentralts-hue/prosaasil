@@ -82,7 +82,7 @@ export function WebhookLeadsSection() {
   const { data: webhooks = [], isLoading: loadingWebhooks } = useQuery<LeadWebhook[]>({
     queryKey: ['lead-webhooks'],
     queryFn: async () => {
-      const response = await apiRequest('/leads/webhooks', { method: 'GET' });
+      const response = await apiRequest('/api/leads/webhooks', { method: 'GET' });
       return response;
     }
   });
@@ -100,7 +100,7 @@ export function WebhookLeadsSection() {
   // Create webhook mutation
   const createMutation = useMutation({
     mutationFn: async (data: { name: string; status_id: number }) => {
-      return await apiRequest('/leads/webhooks', {
+      return await apiRequest('/api/leads/webhooks', {
         method: 'POST',
         body: JSON.stringify(data)
       });
@@ -115,7 +115,7 @@ export function WebhookLeadsSection() {
   // Update webhook mutation
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: any }) => {
-      return await apiRequest(`/leads/webhooks/${id}`, {
+      return await apiRequest(`/api/leads/webhooks/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(data)
       });
@@ -129,7 +129,7 @@ export function WebhookLeadsSection() {
   // Delete webhook mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      return await apiRequest(`/leads/webhooks/${id}`, { method: 'DELETE' });
+      return await apiRequest(`/api/leads/webhooks/${id}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['lead-webhooks'] });
