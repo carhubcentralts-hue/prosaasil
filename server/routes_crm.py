@@ -102,15 +102,18 @@ def get_business_id():
 @crm_bp.get("/api/crm/threads")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_threads():
-    """Get communication threads (WhatsApp conversations) as JSON - OPTIMIZED"""
+    """Get communication threads (WhatsApp conversations) as JSON - OPTIMIZED
+    Returns enriched thread data with lead name, push_name, and proper name hierarchy:
+    display_name = lead_name || push_name || customer_name || phone
+    """
     import re
     try:
         business_id = get_business_id()
         thread_type = request.args.get("type", "whatsapp")
         
         if thread_type == "whatsapp":
-            # BUILD 168.2: OPTIMIZED - Single query with window functions instead of N+1
-            # Uses raw SQL for best performance with DISTINCT ON
+            # Enriched query: joins leads + whatsapp_conversation for name resolution
+            # Priority: lead.name > conversation.customer_name (push_name) > customer.name > phone
             result = db.session.execute(text("""
                 WITH ranked_messages AS (
                     SELECT 
@@ -118,6 +121,8 @@ def api_threads():
                         body,
                         direction,
                         created_at,
+                        message_type,
+                        media_url,
                         ROW_NUMBER() OVER (PARTITION BY to_number ORDER BY created_at DESC) as rn
                     FROM whatsapp_message
                     WHERE business_id = :business_id AND COALESCE(status, '') != 'deleted'
@@ -126,10 +131,21 @@ def api_threads():
                     SELECT 
                         to_number,
                         MAX(created_at) as last_message_time,
-                        COUNT(*) as message_count
+                        COUNT(*) as message_count,
+                        COUNT(*) FILTER (WHERE direction = 'in' AND status NOT IN ('read', 'deleted')) as unread_count
                     FROM whatsapp_message
                     WHERE business_id = :business_id AND COALESCE(status, '') != 'deleted'
                     GROUP BY to_number
+                ),
+                latest_conv AS (
+                    SELECT DISTINCT ON (customer_number)
+                        customer_number,
+                        customer_name,
+                        lead_id,
+                        is_open
+                    FROM whatsapp_conversation
+                    WHERE business_id = :business_id
+                    ORDER BY customer_number, last_message_at DESC
                 )
                 SELECT 
                     rm.to_number,
@@ -137,13 +153,24 @@ def api_threads():
                     rm.direction as last_direction,
                     ts.last_message_time,
                     ts.message_count,
-                    c.name as customer_name
+                    c.name as customer_name,
+                    l.name as lead_name,
+                    l.id as lead_id,
+                    lc.customer_name as push_name,
+                    ts.unread_count,
+                    rm.message_type as last_message_type,
+                    rm.media_url as last_media_url
                 FROM ranked_messages rm
                 JOIN thread_stats ts ON rm.to_number = ts.to_number
                 LEFT JOIN customer c ON c.phone_number = rm.to_number AND c.business_id = :business_id
+                LEFT JOIN leads l ON l.tenant_id = :business_id 
+                    AND (l.phone_e164 = rm.to_number 
+                         OR l.phone_e164 = CONCAT('+', rm.to_number)
+                         OR REPLACE(l.phone_e164, '+', '') = rm.to_number)
+                LEFT JOIN latest_conv lc ON lc.customer_number = rm.to_number
                 WHERE rm.rn = 1
                 ORDER BY ts.last_message_time DESC
-                LIMIT 20
+                LIMIT 50
             """), {"business_id": business_id})
             
             threads_list = []
@@ -157,7 +184,16 @@ def api_threads():
                 last_body = row[1] or ""
                 last_direction = row[2]
                 last_message_time = row[3]
-                customer_name = row[5] or to_number
+                customer_name = row[5] or None
+                lead_name = row[6] or None
+                lead_id = row[7]
+                push_name = row[8] or None
+                unread_count = row[9] or 0
+                last_message_type = row[10] or "text"
+                last_media_url = row[11] or None
+                
+                # Name priority: lead_name > push_name > customer_name > formatted phone
+                display_name = lead_name or push_name or customer_name or to_number
                 
                 # Check if conversation is closed
                 is_closed = False
@@ -166,15 +202,25 @@ def api_threads():
                     msg_clean = re.sub(r'\s+', ' ', msg_clean).strip()
                     is_closed = any(phrase in msg_clean for phrase in closing_phrases)
                 
+                # Show media indicator in last message preview
+                last_msg_preview = last_body[:50] + "..." if len(last_body) > 50 else last_body
+                if last_message_type != "text" and not last_msg_preview:
+                    type_labels = {"image": "📷 תמונה", "video": "🎥 וידאו", "audio": "🎵 הודעה קולית", "document": "📄 מסמך"}
+                    last_msg_preview = type_labels.get(last_message_type, "📎 קובץ")
+                
                 threads_list.append({
                     "id": to_number,
-                    "name": customer_name,
+                    "name": display_name,
+                    "lead_name": lead_name,
+                    "push_name": push_name,
+                    "lead_id": lead_id,
                     "phone": to_number,
                     "phone_e164": to_number,
-                    "lastMessage": last_body[:50] + "..." if len(last_body) > 50 else last_body,
-                    "unread": 0,
+                    "lastMessage": last_msg_preview,
+                    "unread": unread_count,
                     "time": last_message_time.strftime('%d/%m %H:%M') if last_message_time else '',
-                    "is_closed": is_closed
+                    "is_closed": is_closed,
+                    "has_media": last_media_url is not None
                 })
                 
             return jsonify({"threads": threads_list})

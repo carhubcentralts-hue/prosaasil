@@ -346,10 +346,10 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="whatsapp-chat-modal">
-      <Card className="w-full max-w-md h-[600px] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end md:items-center justify-center z-50" data-testid="whatsapp-chat-modal">
+      <Card className="w-full md:max-w-md h-full md:h-[600px] flex flex-col md:rounded-xl rounded-none">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-green-50">
+        <div className="flex items-center justify-between p-3 md:p-4 border-b border-gray-200 bg-green-50">
           {/* Back button - prominent */}
           <Button 
             size="sm" 
@@ -513,20 +513,32 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
                   data-testid={`message-${message.direction}-${message.id}`}
                 >
                   <div
-                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl shadow-sm ${
+                    className={`max-w-[85%] md:max-w-xs lg:max-w-md px-4 py-2 rounded-2xl shadow-sm ${
                       message.direction === 'out'
                         ? message.status === 'failed'
                           ? 'bg-red-100 text-red-800 border border-red-200 rounded-br-sm'
                           : 'bg-green-500 text-white rounded-br-sm'
                         : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'
                     }`}
+                    style={{ wordBreak: 'break-word' }}
                   >
-                    <p className="text-sm whitespace-pre-wrap">{message.content_text}</p>
+                    <p className="text-sm whitespace-pre-wrap break-words">{message.content_text}</p>
                     <div className={`flex items-center justify-end gap-1 mt-1 text-xs ${
                       message.direction === 'out' && message.status !== 'failed' 
                         ? 'text-green-100' 
                         : 'text-gray-400'
                     }`}>
+                      {message.status === 'failed' && (
+                        <button
+                          onClick={() => {
+                            setNewMessage(message.content_text);
+                            setMessages(prev => prev.filter(m => m.id !== message.id));
+                          }}
+                          className="text-[10px] text-red-500 underline mr-1"
+                        >
+                          שלח שוב
+                        </button>
+                      )}
                       <span>{formatDate(message.sent_at)}</span>
                       {message.direction === 'out' && (
                         <span>
@@ -543,7 +555,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
         </div>
 
         {/* Input */}
-        <div className="p-4 border-t border-gray-200 bg-white">
+        <div className="p-3 md:p-4 border-t border-gray-200 bg-white" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
           {error && (
             <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
               {error}
