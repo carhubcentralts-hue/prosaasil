@@ -1,5 +1,6 @@
 import sys
 import types
+import asyncio
 
 import pytest
 
@@ -45,6 +46,7 @@ class DummyWebSocket:
 
 def test_mark_gemini_ready_sets_flag():
     handler = MediaStreamHandler(DummyWebSocket())
+    handler._ensure_gemini_ready_event()
 
     assert handler._gemini_ready is False
     assert not handler._gemini_ready_event.is_set()
