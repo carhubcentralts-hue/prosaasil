@@ -116,7 +116,8 @@ def send_whatsapp_message_job(
                 db.session.commit()
                 logger.info(f"[WA-SEND-JOB] ✅ Outgoing message saved to DB: {outgoing_msg.id} (source=bot, lead_id={lead_id})")
             except Exception as db_err:
-                logger.error(f"[WA-SEND-JOB] ⚠️ Failed to save outgoing message to DB: {db_err}")
+                logger.error(f"[WA-SEND-JOB] ❌ CRITICAL: Failed to persist outbound WhatsApp message to DB", exc_info=True)
+                logger.error(f"[WA-SEND-JOB] ❌ Details: remote_jid={remote_jid[:30]}, lead_id={lead_id}, error={db_err}")
                 db.session.rollback()
             
             # 🔥 NEW: Track session for outbound message

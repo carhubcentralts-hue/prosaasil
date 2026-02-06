@@ -1493,6 +1493,7 @@ def send_manual_message():
                 wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
                 wa_msg.status = db_status
                 wa_msg.source = 'human'  # 🔥 CONTEXT FIX: Mark as human-sent for LLM context
+                wa_msg.lead_id = lead_id  # 🔥 FIX: Link message to lead for conversation tracking
                 
                 # Store media URL if attachment was sent
                 if media_url:
@@ -1500,6 +1501,7 @@ def send_manual_message():
                 
                 db.session.add(wa_msg)
                 db.session.commit()
+                log.info(f"[WA-SEND] ✅ Message saved to DB: msg_id={wa_msg.id}, lead_id={lead_id}")
                 
                 # ✅ BUILD 162: Track session for manual message
                 try:
@@ -1541,7 +1543,8 @@ def send_manual_message():
                     log.warning(f"⚠️ Session tracking (manual) failed: {e}")
                     
             except Exception as db_error:
-                log.error(f"[WA-SEND] DB save failed (message was sent): {db_error}")
+                log.error(f"[WA-SEND] ❌ CRITICAL: Failed to persist outbound WhatsApp message to DB", exc_info=True)
+                log.error(f"[WA-SEND] ❌ Details: to={formatted_number[:30]}, lead_id={lead_id}, error={db_error}")
                 db.session.rollback()
                 # Message was sent even if DB failed - still return success
                 return {

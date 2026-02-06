@@ -8831,6 +8831,41 @@ def apply_migrations():
         
         checkpoint("✅ Migration 140 complete: Canonical key unique constraint")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 141: Add lead_id to whatsapp_message for conversation tracking
+        # 🎯 PURPOSE: Link WhatsApp messages to leads for proper conversation tracking
+        # 🔥 CRITICAL FIX: Outbound messages were sent but not linked to leads,
+        #    causing them to disappear from the UI/CRM despite being delivered
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 141: Add lead_id to whatsapp_message")
+        
+        try:
+            if check_table_exists('whatsapp_message'):
+                # Add lead_id column if not exists
+                if not check_column_exists('whatsapp_message', 'lead_id'):
+                    checkpoint("  → Adding lead_id column to whatsapp_message...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_message 
+                        ADD COLUMN lead_id INTEGER NULL 
+                        REFERENCES leads(id) ON DELETE SET NULL
+                    """)
+                    checkpoint("  ✅ lead_id column added to whatsapp_message")
+                    checkpoint("     💡 Links messages to leads for conversation tracking")
+                    checkpoint("     💡 Ensures outbound messages appear in CRM/UI")
+                    migrations_applied.append("migration_141_whatsapp_lead_id")
+                else:
+                    checkpoint("  ℹ️  lead_id column already exists in whatsapp_message")
+                
+                checkpoint("  ✅ Migration 141 schema changes completed")
+                checkpoint("     🎯 Impact: Outbound messages now properly linked to conversations")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 141 failed: {e}")
+            logger.error(f"Migration 141 error: {e}", exc_info=True)
+            # Don't raise - lead_id is important but not critical for startup
+        
+        checkpoint("✅ Migration 141 complete: WhatsApp message lead tracking added")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

@@ -448,6 +448,9 @@ class WhatsAppMessage(db.Model):
     # Layer 2: Reply threading - link to message being replied to
     reply_to_message_id = db.Column(db.Integer, db.ForeignKey("whatsapp_message.id"), nullable=True)
     quoted_message_stanza_id = db.Column(db.String(128), nullable=True)  # WhatsApp stanzaId from contextInfo
+    
+    # Link to Lead for better conversation tracking
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)
 
 
 class WhatsAppConversationState(db.Model):
