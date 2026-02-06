@@ -234,14 +234,21 @@ def create_rule():
         
         # Convert delay_minutes to delay_seconds if needed (for STATUS_CHANGE)
         if schedule_type == 'STATUS_CHANGE':
+            # Check if we have steps or immediate send - allows 0 delay
+            has_steps = steps and len(steps) > 0
+            has_immediate_send = data.get('send_immediately_on_enter', False)
+            allow_zero_delay = has_steps or has_immediate_send
+            
             if delay_seconds is None:
                 try:
                     delay_minutes = int(delay_minutes)
                 except (TypeError, ValueError):
                     return jsonify({'error': 'delay_minutes must be a valid integer'}), 400
-                    
-                if delay_minutes < 1 or delay_minutes > 43200:
-                    return jsonify({'error': 'delay_minutes must be between 1 and 43200 (30 days)'}), 400
+                
+                # Allow 0 if we have steps or immediate send
+                min_delay = 0 if allow_zero_delay else 1
+                if delay_minutes < min_delay or delay_minutes > 43200:
+                    return jsonify({'error': f'delay_minutes must be between {min_delay} and 43200 (30 days)'}), 400
                 
                 delay_seconds = delay_minutes * 60
             else:
@@ -254,7 +261,7 @@ def create_rule():
                     return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
                 
                 # Set delay_minutes for backward compatibility
-                delay_minutes = max(1, delay_seconds // 60)
+                delay_minutes = max(1, delay_seconds // 60) if delay_seconds > 0 else 0
         
         # Get provider (default to baileys)
         provider = data.get('provider', 'baileys')
