@@ -927,7 +927,13 @@ def baileys_webhook():
                     if not from_number_e164:
                         log.info(f"[WA-LID] lid detected; extracted_phone=none source=none")
 
-                    phone_for_ai_check = customer_external_id  # Use LID for AI state
+                    # 🔥 FIX: Use resolved phone for conversation key when available
+                    # This ensures WhatsApp chats page displays phone numbers instead of LID identifiers
+                    if from_number_e164:
+                        phone_for_ai_check = from_number_e164
+                        log.info(f"[WA-LID] ✅ Using resolved phone for conversation key: {from_number_e164}")
+                    else:
+                        phone_for_ai_check = customer_external_id  # Fallback to LID only if no phone
 
                 else:
                     # 🔥 FIX #6: Other non-standard JID - store as external ID
