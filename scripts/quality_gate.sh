@@ -103,7 +103,13 @@ run_server() {
   fi
 
   echo "→ pip-audit security..."
-  if pip-audit --desc --requirement <(pip freeze) 2>/dev/null; then
+  if [ -f requirements.lock ]; then
+    if pip-audit --desc --requirement requirements.lock 2>/dev/null; then
+      pass "pip-audit security (from requirements.lock)"
+    else
+      fail "pip-audit security — see server/AUDIT_ALLOWLIST.md for known exceptions"
+    fi
+  elif pip-audit --desc --requirement <(pip freeze) 2>/dev/null; then
     pass "pip-audit security"
   else
     fail "pip-audit security — see server/AUDIT_ALLOWLIST.md for known exceptions"

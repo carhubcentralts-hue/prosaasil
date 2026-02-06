@@ -74,7 +74,8 @@ class CallStateManager:
         """
         try:
             pipe = self.redis.pipeline(True)
-            while True:
+            max_retries = 5
+            for attempt in range(max_retries):
                 try:
                     pipe.watch(ACTIVE_CALLS_KEY)
                     current = int(pipe.get(ACTIVE_CALLS_KEY) or 0)
@@ -89,8 +90,11 @@ class CallStateManager:
                     pipe.incr(ACTIVE_CALLS_KEY)
                     pipe.execute()
                     return True
-                except Exception:
+                except Exception as retry_err:
+                    logger.debug("Redis WATCH retry %d/%d: %s", attempt + 1, max_retries, retry_err)
                     continue
+            logger.error("Failed to increment after %d retries, call_sid=%s", max_retries, call_sid)
+            return False
         except Exception as e:
             logger.error("Failed to increment active calls: %s", e)
             return False
