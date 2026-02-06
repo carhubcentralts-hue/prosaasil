@@ -105,7 +105,7 @@ class LeadAutoStatusService:
         statuses = LeadStatus.query.filter_by(
             business_id=tenant_id,
             is_active=True
-        ).all()
+        ).order_by(LeadStatus.order_index).all()
         
         return {s.name for s in statuses}
     
@@ -119,7 +119,7 @@ class LeadAutoStatusService:
         statuses = LeadStatus.query.filter_by(
             business_id=tenant_id,
             is_active=True
-        ).all()
+        ).order_by(LeadStatus.order_index).all()
         
         return {s.name: (s.description or s.name) for s in statuses}
     
@@ -135,7 +135,7 @@ class LeadAutoStatusService:
         statuses = LeadStatus.query.filter_by(
             business_id=tenant_id,
             is_active=True
-        ).all()
+        ).order_by(LeadStatus.order_index).all()
         
         return statuses
     

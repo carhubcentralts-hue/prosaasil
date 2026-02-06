@@ -5,6 +5,24 @@ import { Input } from '../../../shared/components/ui/Input';
 import { Card } from '../../../shared/components/ui/Card';
 import { Badge } from '../../../shared/components/Badge';
 import { useStatuses, LeadStatus } from '../../../features/statuses/hooks';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  TouchSensor,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface StatusManagementModalProps {
   isOpen: boolean;
@@ -47,6 +65,8 @@ const TEXTS = {
   clickToEdit: 'לחץ לעריכה',
   deleteBtn: 'מחק',
   editBtn: 'ערוך',
+  dragTip: 'גרור את הסטטוסים כדי לשנות סדר הופעה',
+  reorderError: 'שגיאה בשמירת הסדר',
 };
 
 const COLOR_OPTIONS = [
@@ -79,8 +99,188 @@ function generateInternalName(label: string): string {
   return `custom_${timestamp}`;
 }
 
+interface SortableStatusCardProps {
+  status: LeadStatus;
+  isEditing: boolean;
+  isDeleting: boolean;
+  statusToDelete: LeadStatus | undefined;
+  deleting: boolean;
+  onEdit: (status: LeadStatus) => void;
+  onDeleteClick: (status: LeadStatus, e: React.MouseEvent) => void;
+  onDeleteConfirm: (status: LeadStatus) => void;
+  onDeleteCancel: () => void;
+}
+
+function SortableStatusCard({
+  status,
+  isEditing,
+  isDeleting,
+  statusToDelete,
+  deleting,
+  onEdit,
+  onDeleteClick,
+  onDeleteConfirm,
+  onDeleteCancel,
+}: SortableStatusCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: status.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      {/* Delete Confirmation */}
+      {isDeleting && statusToDelete && (
+        <Card className="p-4 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 animate-in slide-in-from-top-2 duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-3 flex-1">
+              <div className="w-10 h-10 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {TEXTS.confirmDelete}
+                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {TEXTS.deleteConfirmText} "<strong>{statusToDelete.label}</strong>"?
+                </p>
+                <p className="text-xs text-red-600 mt-1">
+                  {TEXTS.deleteWarning}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 sm:flex-shrink-0">
+              <Button
+                onClick={() => onDeleteConfirm(statusToDelete)}
+                disabled={deleting}
+                className="bg-red-600 hover:bg-red-700 text-white flex-1 sm:flex-none min-h-[44px]"
+                data-testid="button-confirm-delete"
+              >
+                {deleting ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 ml-1.5" />
+                    מחק
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={onDeleteCancel}
+                variant="secondary"
+                disabled={deleting}
+                className="flex-1 sm:flex-none min-h-[44px]"
+                data-testid="button-cancel-delete"
+              >
+                ביטול
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+      
+      {/* Status Card */}
+      {!isDeleting && (
+        <Card
+          className={`group transition-all duration-200 ${
+            isEditing 
+              ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+              : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+          } ${isDragging ? 'shadow-lg' : ''}`}
+          data-testid={`status-card-${status.id}`}
+        >
+          <div className="p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-3">
+              {/* Drag Handle */}
+              <div
+                {...attributes}
+                {...listeners}
+                className="cursor-grab active:cursor-grabbing flex-shrink-0 touch-none p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                title="גרור כדי לשנות סדר"
+              >
+                <GripVertical className="w-5 h-5 text-gray-400" />
+              </div>
+
+              {/* Status Info */}
+              <div 
+                className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                onClick={() => onEdit(status)}
+              >
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className={`${status.color} text-sm px-3 py-1`}>
+                      {status.label}
+                    </Badge>
+                    {status.is_default && (
+                      <Badge className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5">
+                        {TEXTS.defaultBadge}
+                      </Badge>
+                    )}
+                    {status.is_system && (
+                      <Badge className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5">
+                        {TEXTS.systemBadge}
+                      </Badge>
+                    )}
+                  </div>
+                  {status.description && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">
+                      {status.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(status);
+                  }}
+                  className={`min-h-[40px] min-w-[40px] sm:min-w-[auto] sm:px-3 rounded-lg transition-all ${
+                    isEditing 
+                      ? 'bg-blue-100 text-blue-700' 
+                      : 'hover:bg-blue-50 text-gray-600 hover:text-blue-600'
+                  }`}
+                  data-testid={`button-edit-status-${status.id}`}
+                >
+                  <Edit2 className="w-4 h-4" />
+                  <span className="hidden sm:inline mr-1.5">{TEXTS.editBtn}</span>
+                </Button>
+                {/* BUILD 147: Show delete button for all statuses (removed is_system restriction) */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => onDeleteClick(status, e)}
+                  className="min-h-[40px] min-w-[40px] sm:min-w-[auto] sm:px-3 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"
+                  data-testid={`button-delete-status-${status.id}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="hidden sm:inline mr-1.5">{TEXTS.deleteBtn}</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function StatusManagementModal({ isOpen, onClose, onStatusChange }: StatusManagementModalProps) {
-  const { statuses, loading, error, refreshStatuses, createStatus, updateStatus, deleteStatus } = useStatuses();
+  const { statuses, loading, error, refreshStatuses, createStatus, updateStatus, deleteStatus, reorderStatuses } = useStatuses();
 
   const [editingStatus, setEditingStatus] = useState<LeadStatus | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -88,12 +288,37 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [reorderError, setReorderError] = useState<string | null>(null);
+  const [localStatuses, setLocalStatuses] = useState<LeadStatus[]>([]);
   const [formData, setFormData] = useState<StatusFormData>({
     label: '',
     color: 'bg-blue-100 text-blue-800',
     description: '',
     is_default: false,
   });
+
+  // Configure drag & drop sensors with touch support
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement before drag starts
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250, // 250ms delay for touch
+        tolerance: 5, // 5px tolerance for scrolling
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Sync local statuses with hook statuses
+  useEffect(() => {
+    setLocalStatuses(statuses);
+  }, [statuses]);
 
   useEffect(() => {
     if (isOpen) {
@@ -204,6 +429,43 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
     setDeleteConfirmId(null);
   };
 
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const oldIndex = localStatuses.findIndex((s) => s.id === active.id);
+    const newIndex = localStatuses.findIndex((s) => s.id === over.id);
+
+    // Optimistic UI update
+    const reorderedStatuses = arrayMove(localStatuses, oldIndex, newIndex);
+    setLocalStatuses(reorderedStatuses);
+
+    // Save to backend
+    try {
+      setReorderError(null);
+      const statusIds = reorderedStatuses.map((s) => s.id);
+      await reorderStatuses(statusIds);
+      
+      if (onStatusChange) {
+        onStatusChange();
+      }
+    } catch (error: any) {
+      console.error('Failed to reorder statuses:', error);
+      
+      // Rollback on error
+      setLocalStatuses(statuses);
+      
+      const errorMsg = error?.message || error?.error || TEXTS.reorderError;
+      setReorderError(typeof errorMsg === 'string' ? errorMsg : TEXTS.reorderError);
+      
+      // Clear error after 5 seconds
+      setTimeout(() => setReorderError(null), 5000);
+    }
+  };
+
   if (!isOpen) return null;
 
   const statusToDelete = statuses.find(s => s.id === deleteConfirmId);
@@ -253,14 +515,29 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
             </div>
           )}
 
+          {reorderError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 flex items-center gap-3 animate-in slide-in-from-top-2">
+              <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+              <p className="text-red-600 text-sm">{reorderError}</p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-6">
             {/* Status List - 3 columns on desktop */}
             <div className="lg:col-span-3">
+              {/* Drag tip */}
+              <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-800 dark:text-blue-200 flex items-center gap-2">
+                  <GripVertical className="w-4 h-4" />
+                  💡 {TEXTS.dragTip}
+                </p>
+              </div>
+
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                   <GripVertical className="w-5 h-5 text-gray-400" />
                   {TEXTS.existing}
-                  <span className="text-sm font-normal text-gray-500">({statuses.length})</span>
+                  <span className="text-sm font-normal text-gray-500">({localStatuses.length})</span>
                 </h3>
                 <Button
                   onClick={handleStartCreate}
@@ -278,7 +555,7 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                   <p className="text-gray-600 dark:text-gray-400 mt-3">{TEXTS.loading}</p>
                 </div>
-              ) : statuses.length === 0 ? (
+              ) : localStatuses.length === 0 ? (
                 <div className="text-center py-12 bg-gray-50 dark:bg-gray-900/50 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700">
                   <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
                     <Plus className="w-8 h-8 text-blue-600" />
@@ -293,141 +570,33 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {statuses.map((status) => {
-                    const isEditing = editingStatus?.id === status.id;
-                    const isDeleting = deleteConfirmId === status.id;
-                    
-                    return (
-                      <div key={status.id}>
-                        {/* Delete Confirmation */}
-                        {isDeleting && statusToDelete && (
-                          <Card className="p-4 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 animate-in slide-in-from-top-2 duration-200">
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                              <div className="flex items-center gap-3 flex-1">
-                                <div className="w-10 h-10 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center flex-shrink-0">
-                                  <AlertTriangle className="w-5 h-5 text-red-600" />
-                                </div>
-                                <div>
-                                  <p className="font-medium text-gray-900 dark:text-white">
-                                    {TEXTS.confirmDelete}
-                                  </p>
-                                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                                    {TEXTS.deleteConfirmText} "<strong>{statusToDelete.label}</strong>"?
-                                  </p>
-                                  <p className="text-xs text-red-600 mt-1">
-                                    {TEXTS.deleteWarning}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex gap-2 sm:flex-shrink-0">
-                                <Button
-                                  onClick={() => handleDeleteConfirm(statusToDelete)}
-                                  disabled={deleting}
-                                  className="bg-red-600 hover:bg-red-700 text-white flex-1 sm:flex-none min-h-[44px]"
-                                  data-testid="button-confirm-delete"
-                                >
-                                  {deleting ? (
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                                  ) : (
-                                    <>
-                                      <Trash2 className="w-4 h-4 ml-1.5" />
-                                      מחק
-                                    </>
-                                  )}
-                                </Button>
-                                <Button
-                                  onClick={handleDeleteCancel}
-                                  variant="secondary"
-                                  disabled={deleting}
-                                  className="flex-1 sm:flex-none min-h-[44px]"
-                                  data-testid="button-cancel-delete"
-                                >
-                                  ביטול
-                                </Button>
-                              </div>
-                            </div>
-                          </Card>
-                        )}
-                        
-                        {/* Status Card */}
-                        {!isDeleting && (
-                          <Card
-                            className={`group transition-all duration-200 cursor-pointer hover:shadow-md ${
-                              isEditing 
-                                ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                                : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                            }`}
-                            onClick={() => handleEdit(status)}
-                            data-testid={`status-card-${status.id}`}
-                          >
-                            <div className="p-3 sm:p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                {/* Status Info */}
-                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                  <div className="flex flex-col gap-1.5">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <Badge className={`${status.color} text-sm px-3 py-1`}>
-                                        {status.label}
-                                      </Badge>
-                                      {status.is_default && (
-                                        <Badge className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5">
-                                          {TEXTS.defaultBadge}
-                                        </Badge>
-                                      )}
-                                      {status.is_system && (
-                                        <Badge className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5">
-                                          {TEXTS.systemBadge}
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    {status.description && (
-                                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">
-                                        {status.description}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                                
-                                {/* Action Buttons */}
-                                <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleEdit(status);
-                                    }}
-                                    className={`min-h-[40px] min-w-[40px] sm:min-w-[auto] sm:px-3 rounded-lg transition-all ${
-                                      isEditing 
-                                        ? 'bg-blue-100 text-blue-700' 
-                                        : 'hover:bg-blue-50 text-gray-600 hover:text-blue-600'
-                                    }`}
-                                    data-testid={`button-edit-status-${status.id}`}
-                                  >
-                                    <Edit2 className="w-4 h-4" />
-                                    <span className="hidden sm:inline mr-1.5">{TEXTS.editBtn}</span>
-                                  </Button>
-                                  {/* BUILD 147: Show delete button for all statuses (removed is_system restriction) */}
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={(e) => handleDeleteClick(status, e)}
-                                    className="min-h-[40px] min-w-[40px] sm:min-w-[auto] sm:px-3 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"
-                                    data-testid={`button-delete-status-${status.id}`}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                    <span className="hidden sm:inline mr-1.5">{TEXTS.deleteBtn}</span>
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                          </Card>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={localStatuses.map((s) => s.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-2">
+                      {localStatuses.map((status) => (
+                        <SortableStatusCard
+                          key={status.id}
+                          status={status}
+                          isEditing={editingStatus?.id === status.id}
+                          isDeleting={deleteConfirmId === status.id}
+                          statusToDelete={statusToDelete}
+                          deleting={deleting}
+                          onEdit={handleEdit}
+                          onDeleteClick={handleDeleteClick}
+                          onDeleteConfirm={handleDeleteConfirm}
+                          onDeleteCancel={handleDeleteCancel}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
               )}
             </div>
 
