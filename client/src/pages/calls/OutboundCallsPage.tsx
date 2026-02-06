@@ -244,7 +244,7 @@ export function OutboundCallsPage() {
   useEffect(() => {
     const loadWebhookStatus = async () => {
       try {
-        const response = await http.get('/api/business/current');
+        const response = await http.get<any>('/api/business/current');
         setHasWebhook(!!response.status_webhook_url);
       } catch (error) {
         console.error('Error loading webhook status:', error);
@@ -375,10 +375,10 @@ export function OutboundCallsPage() {
           }
           
           console.log('[OutboundCallsPage] ✅ Active queue found on mount:', activeQueue);
-          setActiveRunId(activeQueue.job_id);
-          setQueueJobStatus(activeQueue);
+          setActiveRunId((activeQueue as any).job_id);
+          setQueueJobStatus(activeQueue as any);
           // Start polling for this run
-          startQueuePolling(activeQueue.job_id);
+          startQueuePolling((activeQueue as any).job_id);
         } else {
           console.log('[OutboundCallsPage] ✅ No active queue found - UI clean');
         }
@@ -452,7 +452,7 @@ export function OutboundCallsPage() {
         params.append('run_id', String(activeRunId));
       }
 
-      return await http.get(`/api/outbound/recent-calls?${params.toString()}`);
+      return await http.get<any>(`/api/outbound/recent-calls?${params.toString()}`);
     },
     enabled: activeTab === 'recent',
     retry: 1,
@@ -485,7 +485,7 @@ export function OutboundCallsPage() {
         params.append('status', projectsStatusFilter);
       }
 
-      return await http.get(`/api/projects?${params.toString()}`);
+      return await http.get<any>(`/api/projects?${params.toString()}`);
     },
     enabled: activeTab === 'projects',
     retry: 1,
@@ -971,7 +971,7 @@ export function OutboundCallsPage() {
     }
 
     try {
-      const response = await http.post('/api/leads/select-ids', {
+      const response = await http.post<any>('/api/leads/select-ids', {
         statuses: selectedStatuses,
         search: activeTab === 'imported' ? importedSearchQuery : searchQuery,
         tab: activeTab,
@@ -1448,7 +1448,7 @@ export function OutboundCallsPage() {
                 <div className="min-h-[600px]">
                   <OutboundKanbanView
                     leads={filteredLeads}
-                    statuses={statuses}
+                    statuses={statuses as any}
                     loading={leadsLoading}
                     selectedLeadIds={selectedLeadIdsSet}
                     onLeadSelect={handleLeadSelect}
@@ -1456,7 +1456,7 @@ export function OutboundCallsPage() {
                     onStatusChange={handleStatusChange}
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
-                    updatingStatusLeadId={updatingStatusLeadId}
+                    updatingStatusLeadId={updatingStatusLeadId ?? undefined}
                     statusCounts={systemLeadsStatusCounts}
                     totalLeads={totalSystemLeads}
                   />
@@ -1538,7 +1538,7 @@ export function OutboundCallsPage() {
                           <StatusDropdownWithWebhook
                             leadId={lead.id}
                             currentStatus={lead.status}
-                            statuses={statuses}
+                            statuses={statuses as any}
                             onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
                             source="outbound_calls"
                             hasWebhook={hasWebhook}
@@ -1635,7 +1635,7 @@ export function OutboundCallsPage() {
                 <div className="min-h-[600px]">
                   <OutboundKanbanView
                     leads={filteredLeads}
-                    statuses={statuses}
+                    statuses={statuses as any}
                     loading={activeLoading}
                     selectedLeadIds={selectedLeadIdsSet}
                     onLeadSelect={handleLeadSelect}
@@ -1643,7 +1643,7 @@ export function OutboundCallsPage() {
                     onStatusChange={handleStatusChange}
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
-                    updatingStatusLeadId={updatingStatusLeadId}
+                    updatingStatusLeadId={updatingStatusLeadId ?? undefined}
                     statusCounts={activeLeadsStatusCounts}
                     totalLeads={totalActiveLeads}
                   />
@@ -1710,7 +1710,7 @@ export function OutboundCallsPage() {
                         <StatusDropdownWithWebhook
                           leadId={lead.id}
                           currentStatus={lead.status}
-                          statuses={statuses}
+                          statuses={statuses as any}
                           onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
                           source="outbound_calls"
                           hasWebhook={hasWebhook}
@@ -1945,8 +1945,8 @@ export function OutboundCallsPage() {
               ) : (
                 <div className="min-h-[600px]">
                   <OutboundKanbanView
-                    leads={importedLeadsAsLeads}
-                    statuses={statuses}
+                    leads={importedLeadsAsLeads as any}
+                    statuses={statuses as any}
                     loading={importedLoading}
                     selectedLeadIds={safeSelectedImportedLeads}
                     onLeadSelect={(leadId) => handleToggleImportedLead(leadId)}
@@ -1954,7 +1954,7 @@ export function OutboundCallsPage() {
                     onStatusChange={handleStatusChange}
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
-                    updatingStatusLeadId={updatingStatusLeadId}
+                    updatingStatusLeadId={updatingStatusLeadId ?? undefined}
                     statusCounts={importedLeadsStatusCounts}
                     totalLeads={totalImported}
                   />
@@ -2093,7 +2093,7 @@ export function OutboundCallsPage() {
                               <StatusDropdownWithWebhook
                                 leadId={lead.id}
                                 currentStatus={lead.status}
-                                statuses={statuses}
+                                statuses={statuses as any}
                                 onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
                                 source="outbound_calls"
                                 hasWebhook={hasWebhook}
@@ -2262,8 +2262,8 @@ export function OutboundCallsPage() {
                                 <StatusDropdownWithWebhook
                                   leadId={call.lead_id}
                                   currentStatus={call.lead_status}
-                                  statuses={statuses}
-                                  onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id, newStatus)}
+                                  statuses={statuses as any}
+                                  onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id ?? 0, newStatus)}
                                   source="recent_calls_tab"
                                   hasWebhook={hasWebhook}
                                   size="sm"
@@ -2387,7 +2387,7 @@ export function OutboundCallsPage() {
                             <StatusDropdownWithWebhook
                               leadId={call.lead_id}
                               currentStatus={call.lead_status}
-                              statuses={statuses}
+                              statuses={statuses as any}
                               onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id!, newStatus)}
                               source="recent_calls_tab"
                               hasWebhook={hasWebhook}
@@ -2560,7 +2560,7 @@ export function OutboundCallsPage() {
           onClose={() => setShowCreateProject(false)}
           onCreate={async (name, description, leadIds) => {
             try {
-              const response = await http.post('/api/projects', {
+              const response = await http.post<any>('/api/projects', {
                 name,
                 description,
                 lead_ids: leadIds
