@@ -419,7 +419,7 @@ export function BusinessManagerPage() {
           business_type: item.business_type || 'real_estate',
           phone: item.phone_e164 || '',  // ✅ CRITICAL: השרת שולח phone_e164
           whatsapp: item.whatsapp_number || '', // ✅ לא fallback - נתונים מדויקים
-          users: 0, // TODO: עדיין לא מחושב בשרת
+          users: 0, // TECH_DEBT: see client/TECH_DEBT.md#BM-USERS-COUNT
           status: item.status as 'active' | 'inactive' | 'suspended',
           created_at: item.created_at,
           

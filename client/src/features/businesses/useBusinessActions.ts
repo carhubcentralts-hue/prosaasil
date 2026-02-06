@@ -26,19 +26,7 @@ interface ConfirmationDialogState {
   isDangerous?: boolean;
 }
 
-// Simple toast replacement for now - can be enhanced later
-const showToast = {
-  success: (message: string) => {
-    console.log('✅ Success:', message);
-    // TODO: Replace with proper toast system
-    alert(`✅ ${message}`);
-  },
-  error: (message: string) => {
-    console.error('❌ Error:', message);
-    // TODO: Replace with proper toast system  
-    alert(`❌ ${message}`);
-  }
-};
+import { showToast } from '../../shared/ui/toast';
 
 export function useBusinessActions() {
   const navigate = useNavigate();

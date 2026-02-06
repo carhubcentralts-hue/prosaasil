@@ -107,8 +107,7 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
         const businessData = await http.get('/api/admin/businesses?pageSize=1') as any;
         setBusinessCount(businessData.total || 0);
         
-        // For users - we'll use a simple estimate for now until we create users API
-        // TODO: Create a proper users API endpoint
+        // TECH_DEBT: see client/TECH_DEBT.md#MC-USERS-API
         setUserCount(user?.role === 'admin' ? 5 : (businessData as any).total * 3);
         
       } catch (error) {
