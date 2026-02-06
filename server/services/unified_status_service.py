@@ -243,6 +243,9 @@ class UnifiedStatusService:
             # Trigger webhook if configured
             self._trigger_status_webhook(lead, old_status, new_status, request.channel)
             
+            # Send push notification to business owners/admins about status change
+            self._send_status_change_notification(lead, old_status, new_status)
+            
             return StatusUpdateResult(
                 success=True,
                 message="Status updated successfully",
@@ -445,6 +448,64 @@ class UnifiedStatusService:
             
         except Exception as e:
             logger.error(f"[UnifiedStatus] Error triggering status webhook: {e}")
+    
+    def _send_status_change_notification(
+        self,
+        lead: Lead,
+        old_status: Optional[str],
+        new_status: str
+    ):
+        """
+        Send push notification to business owners/admins about lead status change
+        Uses Hebrew labels for status names
+        
+        Args:
+            lead: Lead object
+            old_status: Previous status
+            new_status: New status
+        """
+        try:
+            from server.services.notifications.dispatcher import notify_business_owners
+            from server.services.hebrew_label_service import HebrewLabelService
+            
+            # Get Hebrew labels for statuses
+            hebrew_service = HebrewLabelService(self.business_id)
+            old_status_label = hebrew_service.get_lead_status_label(old_status) if old_status else None
+            new_status_label = hebrew_service.get_lead_status_label(new_status)
+            
+            # Build notification title and body in Hebrew
+            lead_name = getattr(lead, 'name', None) or getattr(lead, 'phone', 'ליד')
+            
+            if old_status:
+                old_he = old_status_label.get('status_label_he', old_status)
+                new_he = new_status_label.get('status_label_he', new_status)
+                title = f"🔄 שינוי סטטוס: {lead_name}"
+                body = f"הסטטוס השתנה מ'{old_he}' ל'{new_he}'"
+            else:
+                new_he = new_status_label.get('status_label_he', new_status)
+                title = f"✨ סטטוס חדש: {lead_name}"
+                body = f"הסטטוס החדש: '{new_he}'"
+            
+            # URL to lead details page
+            url = f"/app/leads/{lead.id}"
+            
+            # Send notification to all business owners/admins
+            notify_business_owners(
+                event_type='lead_status_change',
+                title=title,
+                body=body,
+                url=url,
+                business_id=self.business_id,
+                entity_id=str(lead.id),
+                priority='medium',
+                save_to_bell=True
+            )
+            
+            logger.info(f"[UnifiedStatus] 📱 Sent status change notification for lead {lead.id}: "
+                       f"{old_status} → {new_status}")
+            
+        except Exception as e:
+            logger.error(f"[UnifiedStatus] Error sending status change notification: {e}")
 
 
 # ================================================================================

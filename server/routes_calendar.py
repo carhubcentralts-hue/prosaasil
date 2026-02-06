@@ -88,6 +88,76 @@ def get_user_business_filter():
     
     return None
 
+
+def _send_appointment_status_notification(
+    appointment: Appointment,
+    old_status: str,
+    new_status: str,
+    business_id: int
+):
+    """
+    Send push notification to business owners/admins about appointment status change
+    Uses Hebrew labels for status names
+    
+    Args:
+        appointment: Appointment object
+        old_status: Previous status
+        new_status: New status
+        business_id: Business ID
+    """
+    try:
+        from server.services.notifications.dispatcher import notify_business_owners
+        from server.services.hebrew_label_service import HebrewLabelService
+        
+        # Get Hebrew labels for appointment statuses
+        hebrew_service = HebrewLabelService(business_id)
+        
+        # Get Hebrew status labels (using default mappings)
+        status_hebrew_map = {
+            'scheduled': 'מתוכנן',
+            'confirmed': 'מאושר',
+            'completed': 'הושלם',
+            'cancelled': 'בוטל',
+            'no_show': 'לא הגיע',
+            'rescheduled': 'תוזמן מחדש'
+        }
+        
+        old_status_he = status_hebrew_map.get(old_status, old_status)
+        new_status_he = status_hebrew_map.get(new_status, new_status)
+        
+        # Build notification title and body in Hebrew
+        appointment_title = appointment.title or 'פגישה'
+        contact_name = appointment.contact_name or ''
+        
+        if contact_name:
+            title = f"🗓️ שינוי סטטוס פגישה: {contact_name}"
+        else:
+            title = f"🗓️ שינוי סטטוס: {appointment_title}"
+        
+        body = f"סטטוס הפגישה השתנה מ'{old_status_he}' ל'{new_status_he}'"
+        
+        # URL to calendar page
+        url = f"/app/calendar?appointment_id={appointment.id}"
+        
+        # Send notification to all business owners/admins
+        notify_business_owners(
+            event_type='appointment_status_change',
+            title=title,
+            body=body,
+            url=url,
+            business_id=business_id,
+            entity_id=str(appointment.id),
+            priority='medium',
+            save_to_bell=True
+        )
+        
+        logger.info(f"📱 Sent appointment status change notification for appointment {appointment.id}: "
+                   f"{old_status} → {new_status}")
+        
+    except Exception as e:
+        logger.error(f"Error sending appointment status change notification: {e}")
+
+
 @calendar_bp.route('/appointments', methods=['GET'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 @require_page_access('calendar')
@@ -681,6 +751,14 @@ def update_appointment(appointment_id):
                     new_status=appointment.status
                 )
                 logger.info(f"Status change automation: canceled {status_result.get('canceled', 0)}, scheduled {status_result.get('scheduled', 0)}")
+                
+                # Send push notification about appointment status change
+                _send_appointment_status_notification(
+                    appointment=appointment,
+                    old_status=old_status,
+                    new_status=appointment.status,
+                    business_id=appointment.business_id
+                )
             
             # If start_time changed, reschedule existing jobs (independent of status change)
             if time_changed:
