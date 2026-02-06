@@ -81,7 +81,7 @@ def whatsapp_ai_response_job(
             
             # Check lead-level AI toggle (if phone-level is enabled)
             if ai_enabled and lead:
-                ai_enabled = lead.ai_whatsapp_enabled
+                ai_enabled = getattr(lead, 'ai_whatsapp_enabled', True)  # Default True for backward compatibility
                 
         except Exception as e:
             logger.warning(f"[WA-AI-JOB] Could not check AI state: {e}")
