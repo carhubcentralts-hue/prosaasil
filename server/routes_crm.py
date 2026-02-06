@@ -192,8 +192,18 @@ def api_threads():
                 last_message_type = row[10] or "text"
                 last_media_url = row[11] or None
                 
-                # Name priority: lead_name > push_name > customer_name > formatted phone
-                display_name = lead_name or push_name or customer_name or to_number
+                # 🔥 FIX: Clean up phone display - don't show @lid identifiers
+                # to_number might contain @lid, @s.whatsapp.net, etc.
+                display_phone = to_number
+                if display_phone and '@lid' in display_phone:
+                    # @lid identifiers are not real phone numbers - don't display them
+                    display_phone = None
+                elif display_phone:
+                    # Clean up WhatsApp JID suffixes
+                    display_phone = display_phone.replace('@s.whatsapp.net', '').replace('@c.us', '')
+                
+                # Name priority: lead_name > push_name > customer_name > formatted phone (if not @lid)
+                display_name = lead_name or push_name or customer_name or display_phone or 'לא ידוע'
                 
                 # Check if conversation is closed
                 is_closed = False
@@ -214,8 +224,8 @@ def api_threads():
                     "lead_name": lead_name,
                     "push_name": push_name,
                     "lead_id": lead_id,
-                    "phone": to_number,
-                    "phone_e164": to_number,
+                    "phone": to_number,  # Keep raw for backend matching
+                    "phone_e164": display_phone or to_number,  # Cleaned version for display
                     "lastMessage": last_msg_preview,
                     "unread": unread_count,
                     "time": last_message_time.strftime('%d/%m %H:%M') if last_message_time else '',
