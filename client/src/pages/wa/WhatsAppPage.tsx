@@ -4,6 +4,7 @@ import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Sm
 import QRCodeReact from 'react-qr-code';
 import { http } from '../../services/http';
 import { formatDate, formatDateOnly, formatTimeOnly } from '../../shared/utils/format';
+import { getConversationDisplayName } from '../../shared/utils/conversation';
 
 // ─── UI Primitives ───────────────────────────────────────────────────────────
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
@@ -382,7 +383,7 @@ export function WhatsAppPage() {
       const response = await http.get<{threads: any[]}>('/api/crm/threads');
       const transformedThreads = (response.threads || []).map((thread: any) => ({
         id: thread.id?.toString() || '',
-        name: thread.lead_name || thread.push_name || thread.name || thread.peer_name || thread.phone_e164 || 'לא ידוע',
+        name: getConversationDisplayName(thread, 'לא ידוע'),
         lead_name: thread.lead_name || undefined,
         push_name: thread.push_name || undefined,
         lead_id: thread.lead_id || undefined,
