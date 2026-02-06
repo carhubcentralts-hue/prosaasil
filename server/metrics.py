@@ -82,11 +82,11 @@ API_ERRORS = "api_errors_total"
 def register_metrics_endpoint(app):
     """Register /metrics.json endpoint on a Flask app."""
     from flask import jsonify, request
-    from server.config import METRICS_TOKEN, INTERNAL_SECRET
 
     @app.route("/metrics.json")
     def metrics_json():
-        # Protect with admin token from config
+        # Protect with admin token from config (read at request time)
+        from server.config import METRICS_TOKEN, INTERNAL_SECRET
         token = METRICS_TOKEN or INTERNAL_SECRET or ""
         auth = request.headers.get("Authorization", "")
         provided = request.args.get("token", "")

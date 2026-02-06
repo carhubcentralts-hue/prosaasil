@@ -43,6 +43,7 @@ jobs:
                  tests/test_hebrew_datetime_year_correction.py \
                  tests/test_scheduled_messages_first_name.py \
                  tests/test_webhook_payload.py \
+                 tests/test_ssot_wiring.py \
                  -v --tb=short
         env:
           OPENAI_API_KEY: test-key-for-ci
@@ -50,8 +51,12 @@ jobs:
         
       - name: Security audit with pip-audit
         run: |
-          # Scan for known vulnerabilities in dependencies
-          pip-audit --desc --requirement <(pip freeze)
+          # Scan for known vulnerabilities in dependencies using locked requirements
+          if [ -f requirements.lock ]; then
+            pip-audit --desc --requirement requirements.lock
+          else
+            pip-audit --desc --requirement <(pip freeze)
+          fi
         continue-on-error: false
   
   # Frontend: Lint, Typecheck, Test, Build, Audit, Sourcemap Validation
