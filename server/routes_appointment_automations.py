@@ -13,6 +13,7 @@ API endpoints for managing appointment confirmation automations
 """
 from flask import Blueprint, request, jsonify, session
 from datetime import datetime, timedelta
+from sqlalchemy.orm.attributes import flag_modified
 from server.models_sql import (
     AppointmentAutomation,
     AppointmentAutomationRun,
@@ -274,8 +275,6 @@ def create_automation():
 def update_automation(automation_id):
     """Update an existing automation"""
     try:
-        from sqlalchemy.orm.attributes import flag_modified
-        
         business_id = get_business_id()
         if not business_id:
             return jsonify({'error': 'Business ID required'}), 400

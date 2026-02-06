@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from sqlalchemy import text
+from sqlalchemy.orm.attributes import flag_modified
 from server.db import db
 from server.models_sql import (
     ScheduledMessageRule,
@@ -259,7 +260,6 @@ def update_rule(
                     raise ValueError(f"Invalid time format '{time_str}'. Must be 'HH:MM' (e.g., '09:00', '15:30')")
         rule.recurring_times = recurring_times
         # Mark JSON field as modified for SQLAlchemy
-        from sqlalchemy.orm.attributes import flag_modified
         flag_modified(rule, 'recurring_times')
     
     # Update fields
@@ -311,12 +311,10 @@ def update_rule(
     if active_weekdays is not None:
         rule.active_weekdays = active_weekdays
         # Mark JSON field as modified for SQLAlchemy
-        from sqlalchemy.orm.attributes import flag_modified
         flag_modified(rule, 'active_weekdays')
     if excluded_weekdays is not None:
         rule.excluded_weekdays = excluded_weekdays
         # Mark JSON field as modified for SQLAlchemy
-        from sqlalchemy.orm.attributes import flag_modified
         flag_modified(rule, 'excluded_weekdays')
     
     # Update status mappings if provided
