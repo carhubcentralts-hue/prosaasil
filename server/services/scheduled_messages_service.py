@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from sqlalchemy import text
+from sqlalchemy.orm.attributes import flag_modified
 from server.db import db
 from server.models_sql import (
     ScheduledMessageRule,
@@ -100,24 +101,32 @@ def create_rule(
     
     # Validation for STATUS_CHANGE schedules only
     if schedule_type == "STATUS_CHANGE":
-        # Allow delay_seconds=0 only if send_immediately_on_enter is True
-        if delay_seconds == 0 and not send_immediately_on_enter:
-            raise ValueError("delay_seconds must be at least 1 for STATUS_CHANGE schedules (unless immediate send is enabled)")
+        has_steps = bool(steps)
+        
+        # Validate delay_seconds
+        if delay_seconds == 0 and not send_immediately_on_enter and not has_steps:
+            raise ValueError("delay_seconds must be at least 1 for STATUS_CHANGE schedules (unless immediate send or steps are enabled)")
         if delay_seconds < 0 or delay_seconds > 2592000:  # 0-30 days
             raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
     
-    # Set delay_minutes for backward compatibility if not provided
-    if delay_minutes is None:
-        delay_minutes = max(0, delay_seconds // 60) if delay_seconds >= 0 else 0
-    
-    # Validate delay_minutes for backward compatibility (skip for recurring schedules or immediate sends)
-    if schedule_type == "STATUS_CHANGE" and not send_immediately_on_enter:
-        if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
-            raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
-    elif schedule_type == "STATUS_CHANGE" and send_immediately_on_enter:
-        # For immediate sends, allow 0
-        if delay_minutes < 0 or delay_minutes > 43200:
-            raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
+        # Set delay_minutes for backward compatibility if not provided (delay_seconds already validated >= 0)
+        if delay_minutes is None:
+            delay_minutes = delay_seconds // 60
+        
+        # Validate delay_minutes for backward compatibility
+        if not send_immediately_on_enter and not has_steps:
+            # Require at least 1 minute for standard STATUS_CHANGE schedules
+            if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
+                raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+        else:
+            # For immediate sends or steps, allow 0
+            if delay_minutes < 0 or delay_minutes > 43200:
+                raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
+    elif schedule_type == "RECURRING_TIME":
+        # For RECURRING_TIME schedules, delays should be 0 (already set in lines 94-95)
+        # Set delay_minutes if not already set for backward compatibility
+        if delay_minutes is None:
+            delay_minutes = 0
     
     if not status_ids:
         raise ValueError("At least one status_id is required")
@@ -250,6 +259,8 @@ def update_rule(
                 if not time_pattern.match(time_str):
                     raise ValueError(f"Invalid time format '{time_str}'. Must be 'HH:MM' (e.g., '09:00', '15:30')")
         rule.recurring_times = recurring_times
+        # Mark JSON field as modified for SQLAlchemy
+        flag_modified(rule, 'recurring_times')
     
     # Update fields
     if name is not None:
@@ -299,8 +310,12 @@ def update_rule(
         rule.apply_mode = apply_mode
     if active_weekdays is not None:
         rule.active_weekdays = active_weekdays
+        # Mark JSON field as modified for SQLAlchemy
+        flag_modified(rule, 'active_weekdays')
     if excluded_weekdays is not None:
         rule.excluded_weekdays = excluded_weekdays
+        # Mark JSON field as modified for SQLAlchemy
+        flag_modified(rule, 'excluded_weekdays')
     
     # Update status mappings if provided
     if status_ids is not None:

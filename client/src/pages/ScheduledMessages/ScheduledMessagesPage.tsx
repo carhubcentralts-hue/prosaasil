@@ -565,8 +565,6 @@ function CreateRuleModal({
         name: formData.name,
         message_text: formData.schedule_type === 'RECURRING_TIME' ? formData.recurring_message : '',  // Use recurring_message for RECURRING_TIME
         status_ids: formData.status_ids,
-        delay_minutes: 0,  // Set to 0 - will be ignored for RECURRING_TIME
-        delay_seconds: 0,  // Set to 0 - will be ignored for RECURRING_TIME
         provider: formData.provider,
         is_active: formData.is_active,
         send_immediately_on_enter: formData.send_immediately_on_enter,
@@ -578,6 +576,25 @@ function CreateRuleModal({
         schedule_type: formData.schedule_type,
         recurring_times: formData.schedule_type === 'RECURRING_TIME' ? formData.recurring_times : undefined
       };
+      
+      // Handle delay based on schedule_type
+      if (formData.schedule_type !== 'RECURRING_TIME') {
+        // STATUS_CHANGE schedule - set delay based on whether we have steps or immediate send
+        const hasSteps = (formData.steps?.length ?? 0) > 0;
+        const hasImmediate = formData.send_immediately_on_enter;
+        
+        if (hasSteps || hasImmediate) {
+          // Can use 0 delay if we have steps or immediate send
+          apiData.delay_minutes = 0;
+          apiData.delay_seconds = 0;
+        } else {
+          // No steps and no immediate send - use minimum delay
+          // Backend requires at least 1 minute for STATUS_CHANGE without steps/immediate
+          apiData.delay_minutes = 1;
+          apiData.delay_seconds = 60;
+        }
+      }
+      // For RECURRING_TIME: don't set delay_minutes or delay_seconds at all
       
       if (rule) {
         await scheduledMessagesApi.updateRule(rule.id, apiData);

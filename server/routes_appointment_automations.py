@@ -13,6 +13,7 @@ API endpoints for managing appointment confirmation automations
 """
 from flask import Blueprint, request, jsonify, session
 from datetime import datetime, timedelta
+from sqlalchemy.orm.attributes import flag_modified
 from server.models_sql import (
     AppointmentAutomation,
     AppointmentAutomationRun,
@@ -297,9 +298,16 @@ def update_automation(automation_id):
             'cancel_on_status_exit', 'active_weekdays'
         ]
         
+        # JSON fields that need flag_modified
+        json_fields = ['trigger_status_ids', 'calendar_ids', 'appointment_type_keys', 
+                      'schedule_offsets', 'active_weekdays']
+        
         for field in updatable_fields:
             if field in data:
                 setattr(automation, field, data[field])
+                # Mark JSON fields as modified so SQLAlchemy tracks changes
+                if field in json_fields:
+                    flag_modified(automation, field)
         
         automation.updated_at = datetime.utcnow()
         
