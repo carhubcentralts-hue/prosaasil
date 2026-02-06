@@ -368,7 +368,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
             </div>
             <div>
               <Link 
-                to={`/leads/${lead.id}?tab=whatsapp`} 
+                to={`/app/leads/${lead.id}?tab=whatsapp`} 
                 className="font-semibold text-gray-900 hover:text-green-600 transition-colors" 
                 data-testid="whatsapp-contact-name"
               >
