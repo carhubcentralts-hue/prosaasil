@@ -9,6 +9,13 @@ Manages automated WhatsApp confirmations based on appointment status changes
 - Deduplication: Prevent duplicate sends
 - Cancellation: Auto-cancel when appointment status changes out
 
+⏰ TIMEZONE STRATEGY:
+- All datetimes in this system are NAIVE and represent Israel local time (Asia/Jerusalem)
+- Database stores naive datetimes (no timezone info) - treat as Israel time
+- Use datetime.now() for current time (NOT datetime.utcnow() which returns UTC)
+- Offset calculations preserve the exact hour (e.g., "1 day before" = exactly 24 hours)
+- Example: Meeting at 18:30 today → "day before" trigger = yesterday at 18:30
+
 ⚠️ USAGE:
     from server.services.appointment_automation_service import (
         schedule_automation_jobs,
@@ -128,7 +135,7 @@ def calculate_scheduled_time(
     minutes = offset_config.get('minutes', 0)
     
     if offset_type == 'immediate':
-        return datetime.utcnow()
+        return datetime.now()  # Naive Israel time (matches DB storage)
     elif offset_type == 'before':
         return appointment_start_time - timedelta(minutes=minutes)
     elif offset_type == 'after':
@@ -345,7 +352,7 @@ def cancel_automation_jobs(
             
             if automation and automation.cancel_on_status_exit:
                 run.status = 'canceled'
-                run.canceled_at = datetime.utcnow()
+                run.canceled_at = datetime.now()  # Naive Israel time (matches DB storage)
                 db.session.add(run)
                 canceled_count += 1
                 logger.info(f"Canceled automation run {run.id} for appointment {appointment_id}")
@@ -429,7 +436,7 @@ def get_pending_automation_runs(limit: int = 100) -> List[AppointmentAutomationR
         List of AppointmentAutomationRun records
     """
     try:
-        now = datetime.utcnow()
+        now = datetime.now()  # Naive Israel time (matches DB storage)
         
         runs = AppointmentAutomationRun.query.filter(
             AppointmentAutomationRun.status == 'pending',
