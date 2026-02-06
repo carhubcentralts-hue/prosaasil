@@ -20,11 +20,13 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 FAILURES=0
+SKIPPED=0
 MODE="${1:-config}"
 
 pass() { echo -e "${GREEN}✅ PASS${NC}: $1"; }
 fail() { echo -e "${RED}❌ FAIL${NC}: $1"; FAILURES=$((FAILURES + 1)); }
 info() { echo -e "${YELLOW}ℹ️  INFO${NC}: $1"; }
+skip() { echo -e "${YELLOW}⏭️  SKIP${NC}: $1"; SKIPPED=$((SKIPPED + 1)); }
 
 # -------------------------------------------
 # 1. Compose config validation (requires docker compose)
@@ -32,8 +34,7 @@ info() { echo -e "${YELLOW}ℹ️  INFO${NC}: $1"; }
 info "=== Compose Config Validation ==="
 
 if ! command -v docker &> /dev/null; then
-  info "Docker not available — skipping compose config validation"
-  info "(This is expected in CI environments without Docker)"
+  skip "Docker not available — skipping compose config validation"
 else
 
 # Create temporary .env if missing (compose needs it)
@@ -151,6 +152,8 @@ fi
 # -------------------------------------------
 if [ "$MODE" = "--full" ]; then
   info "=== Full Production Smoke Test ==="
+  API_URL="${SMOKE_API_URL:-http://localhost:5000}"
+  info "API URL: $API_URL"
   info "Starting services with combined profiles..."
 
   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
@@ -163,7 +166,7 @@ if [ "$MODE" = "--full" ]; then
   ELAPSED=0
 
   while [ $ELAPSED -lt $TIMEOUT ]; do
-    if curl -sf http://localhost:5000/health > /dev/null 2>&1; then
+    if curl -sf "$API_URL/health" > /dev/null 2>&1; then
       pass "API /health endpoint responds"
       break
     fi
@@ -177,7 +180,7 @@ if [ "$MODE" = "--full" ]; then
 
   # Hit key endpoints
   echo "→ Checking /health..."
-  HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" http://localhost:5000/health 2>/dev/null || echo "000")
+  HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" "$API_URL/health" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
     pass "/health returns 200"
   else
@@ -185,7 +188,7 @@ if [ "$MODE" = "--full" ]; then
   fi
 
   echo "→ Checking /ready..."
-  HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" http://localhost:5000/ready 2>/dev/null || echo "000")
+  HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" "$API_URL/ready" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "503" ]; then
     pass "/ready returns $HTTP_CODE (acceptable)"
   else
@@ -193,7 +196,7 @@ if [ "$MODE" = "--full" ]; then
   fi
 
   echo "→ Checking /metrics.json..."
-  HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" http://localhost:5000/metrics.json 2>/dev/null || echo "000")
+  HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" "$API_URL/metrics.json" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "404" ]; then
     pass "/metrics.json returns $HTTP_CODE (expected)"
   else
@@ -215,12 +218,20 @@ fi
 echo ""
 if [ "$FAILURES" -eq 0 ]; then
   echo -e "${GREEN}════════════════════════════════════════${NC}"
-  echo -e "${GREEN}  ALL PRODUCTION SMOKE CHECKS PASSED ✅${NC}"
+  if [ "$SKIPPED" -gt 0 ]; then
+    echo -e "${GREEN}  ALL PRODUCTION SMOKE CHECKS PASSED ✅${NC}"
+    echo -e "${YELLOW}  ($SKIPPED check(s) skipped — Docker not available)${NC}"
+  else
+    echo -e "${GREEN}  ALL PRODUCTION SMOKE CHECKS PASSED ✅${NC}"
+  fi
   echo -e "${GREEN}════════════════════════════════════════${NC}"
   exit 0
 else
   echo -e "${RED}════════════════════════════════════════${NC}"
   echo -e "${RED}  $FAILURES SMOKE CHECK(S) FAILED ❌${NC}"
+  if [ "$SKIPPED" -gt 0 ]; then
+    echo -e "${YELLOW}  ($SKIPPED check(s) skipped)${NC}"
+  fi
   echo -e "${RED}════════════════════════════════════════${NC}"
   exit 1
 fi

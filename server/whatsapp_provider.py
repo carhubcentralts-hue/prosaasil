@@ -77,7 +77,7 @@ class BaileysProvider(Provider):
                 bid = int(tenant_id.split('_', 1)[1])
                 return self._shard_router(bid)
             except (IndexError, ValueError):
-                pass
+                logger.debug("Failed to extract business_id from tenant_id=%s, using fallback", tenant_id)
         return self.outbound_url
 
     def _check_health(self) -> bool:

@@ -83,12 +83,11 @@ def test_shard_routing_explicit_shard():
 
 
 def test_shard_routing_out_of_range_falls_back():
-    """whatsapp_shard beyond configured BAILEYS_SHARDS falls back to shard 1."""
+    """whatsapp_shard beyond configured BAILEYS_SHARDS is remapped via modulo."""
     from server.whatsapp_shard_router import get_baileys_base_url
 
-    # With default BAILEYS_SHARDS=1, shard=5 is out of range
+    # With default BAILEYS_SHARDS=1, shard=5 remaps to ((5-1)%1)+1 = 1
     url = get_baileys_base_url(business_id=1, whatsapp_shard=5)
-    # Should fall back to shard 1 (the legacy single-shard URL)
     assert "baileys-5" not in url, f"Should NOT route to shard 5, got: {url}"
 
 
