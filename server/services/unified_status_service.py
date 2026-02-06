@@ -336,8 +336,8 @@ class UnifiedStatusService:
             List of valid status strings (lowercase)
         """
         try:
-            statuses = LeadStatus.query.filter_by(tenant_id=self.business_id).all()
-            return [s.status_key.lower() for s in statuses]
+            statuses = LeadStatus.query.filter_by(business_id=self.business_id).order_by(LeadStatus.order_index).all()
+            return [s.name.lower() for s in statuses]
         except Exception as e:
             logger.error(f"[UnifiedStatus] Error getting valid statuses: {e}")
             # Fallback to common statuses

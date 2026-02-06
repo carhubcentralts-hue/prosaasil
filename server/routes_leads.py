@@ -390,7 +390,7 @@ def get_valid_statuses_for_business(business_id):
     statuses = LeadStatus.query.filter_by(
         business_id=business_id,
         is_active=True
-    ).all()
+    ).order_by(LeadStatus.order_index).all()
     
     return [s.name for s in statuses]  # Return canonical lowercase names
 
