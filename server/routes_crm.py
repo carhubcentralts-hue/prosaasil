@@ -120,7 +120,7 @@ def api_threads():
                         created_at,
                         ROW_NUMBER() OVER (PARTITION BY to_number ORDER BY created_at DESC) as rn
                     FROM whatsapp_message
-                    WHERE business_id = :business_id
+                    WHERE business_id = :business_id AND COALESCE(status, '') != 'deleted'
                 ),
                 thread_stats AS (
                     SELECT 
@@ -128,7 +128,7 @@ def api_threads():
                         MAX(created_at) as last_message_time,
                         COUNT(*) as message_count
                     FROM whatsapp_message
-                    WHERE business_id = :business_id
+                    WHERE business_id = :business_id AND COALESCE(status, '') != 'deleted'
                     GROUP BY to_number
                 )
                 SELECT 
@@ -198,13 +198,14 @@ def api_thread_messages(thread_id):
             f"{thread_phone}@s.whatsapp.net"
         ]
         
-        # Get messages where to_number matches the thread phone
+        # Get messages where to_number matches the thread phone (exclude soft-deleted)
         messages = WhatsAppMessage.query.filter(
             WhatsAppMessage.business_id == business_id,
-            WhatsAppMessage.to_number.in_(phone_variants)
+            WhatsAppMessage.to_number.in_(phone_variants),
+            WhatsAppMessage.status != 'deleted'
         ).order_by(WhatsAppMessage.created_at.asc()).all()
         
-        # Convert to JSON format
+        # Convert to JSON format with enhanced fields
         messages_list = []
         for msg in messages:
             messages_list.append({
@@ -213,7 +214,10 @@ def api_thread_messages(thread_id):
                 "direction": msg.direction,  # "in" or "out"
                 "timestamp": msg.created_at.strftime('%Y-%m-%d %H:%M:%S') if msg.created_at else '',
                 "time": msg.created_at.strftime('%H:%M') if msg.created_at else '',
-                "status": msg.status or "delivered"
+                "status": msg.status or "delivered",
+                "message_type": msg.message_type or "text",
+                "source": msg.source or ("bot" if msg.direction == "out" else "client"),
+                "media_url": msg.media_url
             })
             
         return jsonify({"messages": messages_list})
