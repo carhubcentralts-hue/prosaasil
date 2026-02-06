@@ -216,8 +216,7 @@ export function BusinessDetailsPage() {
     await businessActions.editBusiness(business, data);
     setEditModalOpen(false);
     
-    // TODO: Refresh business data from API
-    // For now, update local state optimistically
+    // Optimistic update — local state refreshes immediately
     setBusiness(prev => prev ? { ...prev, ...data } : null);
   };
 

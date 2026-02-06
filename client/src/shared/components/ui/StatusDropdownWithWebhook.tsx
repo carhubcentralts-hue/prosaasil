@@ -5,6 +5,7 @@ import { LeadStatus } from '../../../features/statuses/hooks';
 import { getStatusColor, getStatusLabel, getStatusDotColor } from '../../utils/status';
 import { WebhookConfirmPopup, getWebhookPreference } from './WebhookConfirmPopup';
 import { http } from '../../../services/http';
+import { showToast } from '../../ui/toast';
 
 interface StatusDropdownWithWebhookProps {
   currentStatus: string;
@@ -130,9 +131,7 @@ export function StatusDropdownWithWebhook({
     if (pendingStatus) {
       const success = await dispatchWebhook(leadId, pendingStatus.old, pendingStatus.new, source);
       if (success) {
-        // Show success message briefly (non-blocking)
-        console.info('✅ Webhook נשלח בהצלחה');
-        // TODO: Replace with toast notification system for better UX
+        showToast.success('Webhook נשלח בהצלחה');
       }
     }
     setPendingStatus(null);
@@ -160,11 +159,7 @@ export function StatusDropdownWithWebhook({
       return true;
     } catch (error) {
       console.error('❌ Failed to dispatch webhook:', error);
-      // Show error to user (blocking alert for errors is acceptable)
-      // TODO: Replace with toast notification system for better UX
-      setTimeout(() => {
-        alert('❌ שגיאה בשליחת Webhook. אנא נסה שוב.');
-      }, 100);
+      showToast.error('שגיאה בשליחת Webhook. אנא נסה שוב.');
       return false;
     }
   };

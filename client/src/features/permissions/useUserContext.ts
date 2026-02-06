@@ -3,6 +3,7 @@
  * הנחיית-על: ניהול הרשאות דפים
  */
 import { useState, useEffect, useCallback } from 'react';
+import { meetsRoleRequirement } from '../../shared/constants/roles';
 
 export interface PageConfig {
   page_key: string;
@@ -72,21 +73,7 @@ export function useUserContext() {
 
   const hasRoleAccess = useCallback((minRole: string): boolean => {
     if (!context) return false;
-
-    // Role hierarchy matches backend ROLE_HIERARCHY in server/security/page_registry.py
-    // TODO: Consider fetching this from API to avoid drift
-    const roleHierarchy: Record<string, number> = {
-      agent: 0,
-      manager: 1,
-      admin: 2,
-      owner: 3,
-      system_admin: 4,
-    };
-
-    const userLevel = roleHierarchy[context.user.role] || 0;
-    const requiredLevel = roleHierarchy[minRole] || 0;
-
-    return userLevel >= requiredLevel;
+    return meetsRoleRequirement(context.user.role, minRole);
   }, [context]);
 
   const canAccessPage = useCallback((pageKey: string): boolean => {

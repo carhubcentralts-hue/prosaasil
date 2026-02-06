@@ -45,9 +45,9 @@ jobs:
           pip-audit --desc --requirement <(pip freeze)
         continue-on-error: false
   
-  # Frontend: Build, Audit, and Sourcemap Validation
+  # Frontend: Lint, Typecheck, Test, Build, Audit, Sourcemap Validation
   frontend:
-    name: Frontend Build & Security
+    name: Frontend Quality & Security
     runs-on: ubuntu-latest
     
     steps:
@@ -62,6 +62,19 @@ jobs:
       
       - name: Install dependencies
         run: npm ci
+        working-directory: ./client
+
+      - name: Lint (ESLint)
+        run: npm run lint
+        working-directory: ./client
+
+      - name: Typecheck (tsc)
+        run: npm run typecheck
+        working-directory: ./client
+        continue-on-error: true  # Pre-existing type issues — tracked in TECH_DEBT.md
+
+      - name: Unit tests (Vitest)
+        run: npm run test
         working-directory: ./client
       
       - name: Run npm audit

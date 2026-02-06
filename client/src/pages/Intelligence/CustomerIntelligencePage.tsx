@@ -18,7 +18,6 @@ import {
   Activity
 } from 'lucide-react';
 import { http } from '../../services/http';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Temporary UI components
 const Card = ({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => (

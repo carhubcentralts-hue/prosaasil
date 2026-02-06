@@ -98,19 +98,6 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
 
   const isTextFile = file.mime_type.startsWith('text/') || file.mime_type === 'application/json';
 
-  // Debug: Log state changes only in development mode to diagnose render issues
-  // TODO: Remove this after bug is confirmed fixed in production
-  React.useEffect(() => {
-    const DEBUG_PDF_VIEWER = process.env.NODE_ENV === 'development' && false; // Set to true to enable
-    if (DEBUG_PDF_VIEWER) {
-      if (previewUrl) {
-        logger.debug('[FilePreviewItem] previewUrl set:', previewUrl);
-      } else if (showPreview) {
-        logger.warn('[FilePreviewItem] previewUrl is null while showPreview is true');
-      }
-    }
-  }, [previewUrl, showPreview]);
-
   const handlePreviewToggle = async () => {
     if (showPreview) {
       setShowPreview(false);
