@@ -260,8 +260,8 @@ def create_rule():
                 if delay_seconds < 0 or delay_seconds > 2592000:
                     return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
                 
-                # Set delay_minutes for backward compatibility
-                delay_minutes = max(1, delay_seconds // 60) if delay_seconds > 0 else 0
+                # Set delay_minutes for backward compatibility (exact conversion)
+                delay_minutes = delay_seconds // 60
         
         # Get provider (default to baileys)
         provider = data.get('provider', 'baileys')
