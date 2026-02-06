@@ -121,10 +121,11 @@ def create_rule(
             # For immediate sends or steps, allow 0
             if delay_minutes < 0 or delay_minutes > 43200:
                 raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
-    else:
-        # For RECURRING_TIME schedules, set delay_minutes if not provided
+    elif schedule_type == "RECURRING_TIME":
+        # For RECURRING_TIME schedules, delays should be 0 (already set in lines 94-95)
+        # Set delay_minutes if not already set for backward compatibility
         if delay_minutes is None:
-            delay_minutes = delay_seconds // 60
+            delay_minutes = 0
     
     if not status_ids:
         raise ValueError("At least one status_id is required")
