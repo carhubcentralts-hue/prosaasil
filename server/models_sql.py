@@ -448,6 +448,9 @@ class WhatsAppMessage(db.Model):
     # Layer 2: Reply threading - link to message being replied to
     reply_to_message_id = db.Column(db.Integer, db.ForeignKey("whatsapp_message.id"), nullable=True)
     quoted_message_stanza_id = db.Column(db.String(128), nullable=True)  # WhatsApp stanzaId from contextInfo
+    
+    # Link to Lead for better conversation tracking
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)
 
 
 class WhatsAppConversationState(db.Model):
@@ -585,6 +588,9 @@ class Lead(db.Model):
     # Call direction tracking for filtering (inbound/outbound)
     # 🔒 IMPORTANT: Set ONCE on first interaction, never overridden by subsequent calls
     last_call_direction = db.Column(db.String(16), nullable=True, index=True)  # inbound|outbound - set on first call only
+    
+    # AI WhatsApp Settings
+    ai_whatsapp_enabled = db.Column(db.Boolean, nullable=False, default=True)  # Whether AI should respond to this lead on WhatsApp
     
     # 🆕 AI TOPIC CLASSIFICATION: Detected topic from transcript
     detected_topic_id = db.Column(db.Integer, db.ForeignKey("business_topics.id"), nullable=True, index=True)

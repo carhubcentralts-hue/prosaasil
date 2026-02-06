@@ -373,8 +373,27 @@ def get_ai_state():
         phone=phone
     ).first()
     
-    # Default to active if no state record exists
-    ai_active = state.ai_active if state else True
+    # Check phone-level AI state
+    phone_level_enabled = state.ai_active if state else True
+    
+    # Check lead-level AI state
+    lead_level_enabled = True
+    from server.agent_tools.phone_utils import normalize_phone
+    from server.models_sql import Lead
+    
+    phone_normalized = normalize_phone(phone)
+    if phone_normalized:
+        lead = Lead.query.filter_by(
+            business_id=business_id,
+            phone_e164=phone_normalized
+        ).first()
+        
+        if lead:
+            lead_level_enabled = getattr(lead, 'ai_whatsapp_enabled', True)
+    
+    # AI is enabled only if BOTH phone and lead level are enabled
+    ai_active = phone_level_enabled and lead_level_enabled
+    
     return jsonify({"success": True, "ai_active": ai_active})
 
 
@@ -400,6 +419,7 @@ def toggle_ai():
     user_id = getattr(g, 'user', {}).get('id') if hasattr(g, 'user') else None
     
     try:
+        # Update phone-level AI state
         state = WhatsAppConversationState.query.filter_by(
             business_id=business_id,
             phone=phone
@@ -416,6 +436,21 @@ def toggle_ai():
             state.updated_by = user_id
             db.session.add(state)
         
+        # 🔥 NEW: Also update lead-level AI state if lead exists
+        from server.agent_tools.phone_utils import normalize_phone
+        from server.models_sql import Lead
+        
+        phone_normalized = normalize_phone(phone)
+        if phone_normalized:
+            lead = Lead.query.filter_by(
+                business_id=business_id,
+                phone_e164=phone_normalized
+            ).first()
+            
+            if lead:
+                lead.ai_whatsapp_enabled = ai_enabled
+                log.info(f"  → Also updated lead-level AI for lead_id={lead.id}")
+        
         db.session.commit()
         log.info(f"✅ AI toggled for {phone}: {'enabled' if ai_enabled else 'disabled'} (business {business_id})")
         return jsonify({"success": True, "ai_enabled": ai_enabled})
@@ -428,17 +463,48 @@ def toggle_ai():
 def is_ai_active_for_conversation(business_id: int, phone: str) -> bool:
     """Helper function to check if AI should respond to this conversation
     
-    Used by WhatsApp message handlers to determine if AI should auto-respond.
+    Checks BOTH phone-level and lead-level AI toggles:
+    1. WhatsAppConversationState.ai_active (phone-level)
+    2. Lead.ai_whatsapp_enabled (lead-level)
+    
+    Both must be True for AI to respond.
     Returns True (AI active) by default if no state is set.
     """
     try:
+        # Check phone-level toggle
         state = WhatsAppConversationState.query.filter_by(
             business_id=business_id,
             phone=phone
         ).first()
-        return state.ai_active if state else True
+        
+        phone_level_enabled = state.ai_active if state else True
+        
+        # If phone-level is disabled, return False immediately
+        if not phone_level_enabled:
+            log.info(f"[AI-CHECK] Phone-level AI disabled for {phone[:20]}")
+            return False
+        
+        # Check lead-level toggle
+        from server.agent_tools.phone_utils import normalize_phone
+        phone_normalized = normalize_phone(phone)
+        
+        if phone_normalized:
+            from server.models_sql import Lead
+            lead = Lead.query.filter_by(
+                business_id=business_id,
+                phone_e164=phone_normalized
+            ).first()
+            
+            if lead:
+                lead_level_enabled = getattr(lead, 'ai_whatsapp_enabled', True)
+                if not lead_level_enabled:
+                    log.info(f"[AI-CHECK] Lead-level AI disabled for lead_id={lead.id}")
+                    return False
+        
+        return True
+        
     except Exception as e:
-        log.error(f"Error checking AI state for {phone}: {e}")
+        log.error(f"Error checking AI state for {phone}: {e}", exc_info=True)
         return True  # Default to active on error
 
 
@@ -1429,6 +1495,20 @@ def send_manual_message():
             
             log.info(f"[WA-SEND] Sending {message_type} attachment: {attachment.filename_original}")
         
+        # Render template placeholders in message text
+        if message and not media_url:  # Only for text messages
+            try:
+                from server.utils.whatsapp_template_utils import render_whatsapp_template
+                business = Business.query.get(business_id)
+                if lead_id:
+                    from server.models_sql import Lead
+                    lead_obj = Lead.query.get(lead_id)
+                    if lead_obj:
+                        message = render_whatsapp_template(message, lead_obj, business)
+                        log.info(f"[WA-SEND] Template rendered for manual message")
+            except Exception as render_err:
+                log.warning(f"[WA-SEND] Template rendering failed: {render_err}")
+        
         # ✅ FAST-FAIL: Send with timeout handling for better UX
         try:
             if media_url:
@@ -1493,6 +1573,7 @@ def send_manual_message():
                 wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
                 wa_msg.status = db_status
                 wa_msg.source = 'human'  # 🔥 CONTEXT FIX: Mark as human-sent for LLM context
+                wa_msg.lead_id = lead_id  # 🔥 FIX: Link message to lead for conversation tracking
                 
                 # Store media URL if attachment was sent
                 if media_url:
@@ -1500,6 +1581,7 @@ def send_manual_message():
                 
                 db.session.add(wa_msg)
                 db.session.commit()
+                log.info(f"[WA-SEND] ✅ Message saved to DB: msg_id={wa_msg.id}, lead_id={lead_id}")
                 
                 # ✅ BUILD 162: Track session for manual message
                 try:
@@ -1541,7 +1623,8 @@ def send_manual_message():
                     log.warning(f"⚠️ Session tracking (manual) failed: {e}")
                     
             except Exception as db_error:
-                log.error(f"[WA-SEND] DB save failed (message was sent): {db_error}")
+                log.error(f"[WA-SEND] ❌ CRITICAL: Failed to persist outbound WhatsApp message to DB", exc_info=True)
+                log.error(f"[WA-SEND] ❌ Details: to={str(formatted_number)[:30] if formatted_number else 'None'}, lead_id={lead_id}, error={db_error}")
                 db.session.rollback()
                 # Message was sent even if DB failed - still return success
                 return {
@@ -1967,6 +2050,21 @@ def toggle_ai_for_conversation():
         # 🔥 FIX: g.user is a dict, not an object - use .get() instead of .id
         state.updated_by = g.user.get('id') if hasattr(g, 'user') and g.user else None
         
+        # 🔥 NEW: Also update lead-level AI state if lead exists
+        from server.agent_tools.phone_utils import normalize_phone
+        from server.models_sql import Lead
+        
+        phone_normalized = normalize_phone(phone)
+        if phone_normalized:
+            lead = Lead.query.filter_by(
+                business_id=business_id,
+                phone_e164=phone_normalized
+            ).first()
+            
+            if lead:
+                lead.ai_whatsapp_enabled = bool(ai_enabled)
+                log.info(f"  → Also updated lead-level AI for lead_id={lead.id}")
+        
         db.session.commit()
         
         log.info(f"[WA-AI-TOGGLE] biz={business_id}, phone={phone}, ai_active={state.ai_active}")
@@ -2005,8 +2103,26 @@ def get_ai_state_for_conversation(phone_number):
             phone=phone
         ).first()
         
-        # Default to AI enabled if no state record exists
-        ai_enabled = state.ai_active if state else True
+        # Check phone-level AI state
+        phone_level_enabled = state.ai_active if state else True
+        
+        # Check lead-level AI state
+        lead_level_enabled = True
+        from server.agent_tools.phone_utils import normalize_phone
+        from server.models_sql import Lead
+        
+        phone_normalized = normalize_phone(phone)
+        if phone_normalized:
+            lead = Lead.query.filter_by(
+                business_id=business_id,
+                phone_e164=phone_normalized
+            ).first()
+            
+            if lead:
+                lead_level_enabled = getattr(lead, 'ai_whatsapp_enabled', True)
+        
+        # AI is enabled only if BOTH phone and lead level are enabled
+        ai_enabled = phone_level_enabled and lead_level_enabled
         
         return {
             "success": True,

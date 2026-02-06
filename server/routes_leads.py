@@ -3349,3 +3349,74 @@ def get_lead_contracts(lead_id):
     except Exception as e:
         log.error(f"Error fetching lead contracts: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/ai-settings", methods=["PATCH"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def update_lead_ai_settings(lead_id):
+    """
+    Update AI settings for a specific lead (WhatsApp AI toggle)
+    
+    Body: {
+        "whatsapp_enabled": true/false
+    }
+    """
+    try:
+        # Get current tenant
+        from server.routes_crm import get_business_id
+        business_id = get_business_id()
+        
+        # Get lead and verify access
+        lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
+        if not lead:
+            return jsonify({"error": "Lead not found"}), 404
+        
+        # Parse request
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+        
+        # Update WhatsApp AI setting
+        if 'whatsapp_enabled' in data:
+            lead.ai_whatsapp_enabled = data['whatsapp_enabled']
+            
+            logger.info(f"[LEAD-AI] Updated AI WhatsApp for lead {lead_id}: enabled={lead.ai_whatsapp_enabled}")
+        
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "ai_whatsapp_enabled": lead.ai_whatsapp_enabled
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating lead AI settings: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/ai-settings", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_lead_ai_settings(lead_id):
+    """
+    Get AI settings for a specific lead
+    """
+    try:
+        # Get current tenant
+        from server.routes_crm import get_business_id
+        business_id = get_business_id()
+        
+        # Get lead and verify access
+        lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
+        if not lead:
+            return jsonify({"error": "Lead not found"}), 404
+        
+        return jsonify({
+            "success": True,
+            "ai_whatsapp_enabled": lead.ai_whatsapp_enabled
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching lead AI settings: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
