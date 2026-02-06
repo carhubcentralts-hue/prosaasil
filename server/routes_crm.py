@@ -97,7 +97,13 @@ def get_business_id():
     else:
         # BUILD 135: owner/admin/agent/business MUST use their own business_id
         # Ignoring query param to prevent cross-tenant access
-        return g.user.get("business_id")
+        business_id = g.user.get("business_id")
+        
+        # Fallback: try to get from tenant if user doesn't have business_id
+        if not business_id and hasattr(g, 'tenant') and g.tenant:
+            business_id = g.tenant.id if hasattr(g.tenant, 'id') else None
+        
+        return business_id
 
 @crm_bp.get("/api/crm/threads")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
@@ -246,6 +252,11 @@ def api_thread_messages(thread_id):
     """Get messages for a specific thread as JSON"""
     try:
         business_id = get_business_id()
+        
+        # Handle case where business_id is not available
+        if not business_id:
+            logger.warning("api_thread_messages: business_id not found in session")
+            return jsonify({"error": "Business ID not available", "messages": []}), 401
         
         # Normalize phone number to match different formats
         thread_phone = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()

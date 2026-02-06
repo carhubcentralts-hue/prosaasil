@@ -11,6 +11,7 @@ import { formatDate } from '../../../shared/utils/format';
 import { Lead } from '../types';
 import { useAuth } from '../../../features/auth/hooks';
 import { AttachmentPicker } from '../../../shared/components/AttachmentPicker';
+import { ChatMessageList } from '../../../shared/components/whatsapp/ChatMessageList';
 
 interface WhatsAppMessage {
   id: string;
@@ -63,13 +64,8 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
     { id: 'twilio', name: 'Twilio WhatsApp', type: 'twilio', status: 'active', description: 'ספק רשמי דרך Twilio Business API' },
     { id: 'baileys', name: 'WhatsApp Web', type: 'baileys', status: 'active', description: 'חיבור ישיר דרך WhatsApp Web' }
   ]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const { user, tenant } = useAuth();
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
 
   const fetchQRCode = async () => {
     try {
@@ -204,9 +200,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
     };
   }, [isOpen, lead.phone_e164, fetchConversation, fetchAiState, startPolling, stopPolling]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+
 
   const sendMessage = async () => {
     if ((!newMessage.trim() && !attachmentId) || !lead.phone_e164 || sending) {
@@ -327,21 +321,9 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
     setShowAttachmentPicker(!showAttachmentPicker);
   };
 
-  const getMessageStatusIcon = (status?: string) => {
-    switch (status) {
-      case 'sending':
-        return <div className="w-4 h-4 animate-spin rounded-full border-2 border-blue-300 border-t-blue-600" />;
-      case 'sent':
-        return <span className="text-gray-400">✓</span>;
-      case 'delivered':
-        return <span className="text-gray-400">✓✓</span>;
-      case 'read':
-        return <span className="text-blue-500">✓✓</span>;
-      case 'failed':
-        return <span className="text-red-500">!</span>;
-      default:
-        return null;
-    }
+  const handleRetryMessage = (message: WhatsAppMessage) => {
+    setNewMessage(message.content_text);
+    setMessages(prev => prev.filter(m => m.id !== message.id));
   };
 
   if (!isOpen) return null;
@@ -368,7 +350,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
             </div>
             <div>
               <Link 
-                to={`/leads/${lead.id}?tab=whatsapp`} 
+                to={`/app/leads/${lead.id}?tab=whatsapp`} 
                 className="font-semibold text-gray-900 hover:text-green-600 transition-colors" 
                 data-testid="whatsapp-contact-name"
               >
@@ -484,80 +466,24 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
           </div>
         )}
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">טוען שיחות...</p>
-              </div>
+        {/* Messages - Using shared ChatMessageList component */}
+        {error ? (
+          <div className="flex-1 flex items-center justify-center bg-gray-50">
+            <div className="text-center">
+              <p className="text-red-600 mb-2">{error}</p>
+              <Button onClick={() => fetchConversation()} variant="secondary" size="sm">
+                נסה שוב
+              </Button>
             </div>
-          ) : error ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <p className="text-red-600 mb-2">{error}</p>
-                <Button onClick={() => fetchConversation()} variant="secondary" size="sm">
-                  נסה שוב
-                </Button>
-              </div>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p>אין הודעות</p>
-                <p className="text-sm mt-1">שלח הודעה ראשונה להתחיל שיחה</p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.direction === 'out' ? 'justify-end' : 'justify-start'}`}
-                  data-testid={`message-${message.direction}-${message.id}`}
-                >
-                  <div
-                    className={`max-w-[85%] md:max-w-xs lg:max-w-md px-4 py-2 rounded-2xl shadow-sm ${
-                      message.direction === 'out'
-                        ? message.status === 'failed'
-                          ? 'bg-red-100 text-red-800 border border-red-200 rounded-br-sm'
-                          : 'bg-green-500 text-white rounded-br-sm'
-                        : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'
-                    }`}
-                    style={{ wordBreak: 'break-word' }}
-                  >
-                    <p className="text-sm whitespace-pre-wrap break-words">{message.content_text}</p>
-                    <div className={`flex items-center justify-end gap-1 mt-1 text-xs ${
-                      message.direction === 'out' && message.status !== 'failed' 
-                        ? 'text-green-100' 
-                        : 'text-gray-400'
-                    }`}>
-                      {message.status === 'failed' && (
-                        <button
-                          onClick={() => {
-                            setNewMessage(message.content_text);
-                            setMessages(prev => prev.filter(m => m.id !== message.id));
-                          }}
-                          className="text-[10px] text-red-500 underline mr-1"
-                        >
-                          שלח שוב
-                        </button>
-                      )}
-                      <span>{formatDate(message.sent_at)}</span>
-                      {message.direction === 'out' && (
-                        <span>
-                          {getMessageStatusIcon(message.status)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <ChatMessageList 
+            messages={messages}
+            loading={loading}
+            onRetry={handleRetryMessage}
+            showSourceBadges={true}
+          />
+        )}
 
         {/* Input */}
         <div className="p-3 md:p-4 border-t border-gray-200 bg-white" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>

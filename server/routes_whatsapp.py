@@ -326,6 +326,12 @@ def set_ai_state():
         return jsonify({"success": False, "error": "Missing phone number"}), 400
     
     business_id = get_business_id()
+    
+    # Handle case where business_id is not available
+    if not business_id:
+        logger.warning("set_ai_state: business_id not found in session, cannot save AI state")
+        return jsonify({"success": False, "error": "Business ID not available in session"}), 401
+    
     user_id = getattr(g, 'user', {}).get('id') if hasattr(g, 'user') else None
     
     try:
@@ -367,6 +373,11 @@ def get_ai_state():
         return jsonify({"success": False, "error": "Missing phone number"}), 400
     
     business_id = get_business_id()
+    
+    # Handle case where business_id is not available
+    if not business_id:
+        logger.warning("get_ai_state: business_id not found in session, defaulting AI to enabled")
+        return jsonify({"success": True, "ai_active": True})
     
     state = WhatsAppConversationState.query.filter_by(
         business_id=business_id,
@@ -416,6 +427,12 @@ def toggle_ai():
     phone = phone_number.replace('+', '').strip()
     
     business_id = get_business_id()
+    
+    # Handle case where business_id is not available
+    if not business_id:
+        logger.warning("toggle_ai: business_id not found in session, cannot save AI state")
+        return jsonify({"success": False, "error": "Business ID not available in session"}), 401
+    
     user_id = getattr(g, 'user', {}).get('id') if hasattr(g, 'user') else None
     
     try:
@@ -695,7 +712,11 @@ def get_conversation(phone_number):
                 "content_text": m.body or "",
                 "sent_at": m.created_at.isoformat() if m.created_at else None,
                 "status": m.status or "sent",
-                "provider": m.provider or "baileys"
+                "provider": m.provider or "baileys",
+                # 🔥 MEDIA SUPPORT: Include media fields for ChatMessageList component
+                "message_type": m.message_type or "text",
+                "media_url": m.media_url,
+                "source": m.source  # bot, human, automation, system
             })
         
         # Get last message timestamp
@@ -2144,8 +2165,10 @@ def get_ai_state_for_conversation(phone_number):
     from server.routes_crm import get_business_id
     business_id = get_business_id()
     
+    # Handle case where business_id is not available - fail open (allow AI)
     if not business_id:
-        return {"success": False, "error": "no_business_id"}, 400
+        logger.warning("get_ai_state_for_conversation: business_id not found in session, defaulting AI to enabled")
+        return {"success": True, "ai_enabled": True, "phone_number": phone_number.replace('+', '').strip()}
     
     try:
         from server.models_sql import WhatsAppConversationState
@@ -2188,7 +2211,8 @@ def get_ai_state_for_conversation(phone_number):
     except Exception as e:
         import logging
         logging.error(f"[WA-ERROR] Failed to get AI state: {e}")
-        return {"success": False, "error": str(e)}, 500
+        # Fail open - if there's an error, allow AI to continue working
+        return {"success": True, "ai_enabled": True, "phone_number": phone_number.replace('+', '').strip()}
 
 
 # ============================================================================
