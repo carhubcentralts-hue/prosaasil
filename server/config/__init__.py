@@ -51,6 +51,7 @@ BAILEYS_BASE_URL_LEGACY: str = _env(
 
 # ─── Calls ─────────────────────────────────────────────────
 MAX_CONCURRENT_CALLS: int = _env_int("MAX_CONCURRENT_CALLS", 50)
+# MAX_ACTIVE_CALLS is an alias used by calls_capacity.py (same purpose as MAX_CONCURRENT_CALLS)
 MAX_ACTIVE_CALLS: int = _env_int("MAX_ACTIVE_CALLS", MAX_CONCURRENT_CALLS)
 CALLS_OVER_CAPACITY_BEHAVIOR: str = _env("CALLS_OVER_CAPACITY_BEHAVIOR", "reject")
 

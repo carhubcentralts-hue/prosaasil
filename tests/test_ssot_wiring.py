@@ -3,7 +3,6 @@ Tests for SSOT wiring: config, shard routing, metrics, calls state.
 Validates that all new SSOT components work correctly.
 """
 import os
-import hashlib
 
 
 # ─── Test 1: Config SSOT defaults ────────────────────────────────────────

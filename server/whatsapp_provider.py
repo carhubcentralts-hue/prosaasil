@@ -42,7 +42,9 @@ class BaileysProvider(Provider):
     
     def __init__(self):
         from server.config import BAILEYS_BASE_URL_LEGACY, INTERNAL_SECRET
+        from server.whatsapp_shard_router import get_baileys_base_url
         self.outbound_url = BAILEYS_BASE_URL_LEGACY  # legacy fallback
+        self._shard_router = get_baileys_base_url
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
         self.internal_secret = INTERNAL_SECRET or ""  # 🔒 For internal API calls
         # ⚡ OPTIMIZED: Separate connect and read timeouts for better control
@@ -73,8 +75,7 @@ class BaileysProvider(Provider):
         if tenant_id:
             try:
                 bid = int(tenant_id.split('_', 1)[1])
-                from server.whatsapp_shard_router import get_baileys_base_url
-                return get_baileys_base_url(bid)
+                return self._shard_router(bid)
             except (IndexError, ValueError):
                 pass
         return self.outbound_url
