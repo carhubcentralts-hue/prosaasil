@@ -50,9 +50,9 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
         return;
       }
 
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        setError('גודל הקובץ חורג מ-10MB');
+      // Validate file size (max 50MB - matching backend email channel limit)
+      if (file.size > 50 * 1024 * 1024) {
+        setError('גודל הקובץ חורג מ-50MB');
         return;
       }
 

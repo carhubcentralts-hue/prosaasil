@@ -58,7 +58,7 @@ BLOCKED_EXTENSIONS = {
 # 🔥 IMPORTANT: Broadcast files are base64-encoded (33% larger) before sending
 # So a 10MB file becomes ~13MB, leaving safe margin below nginx 100MB limit
 CHANNEL_LIMITS = {
-    'email': 25 * 1024 * 1024,  # 25 MB - typical email limit
+    'email': 50 * 1024 * 1024,  # 50 MB - increased for contracts and large attachments
     'whatsapp': 16 * 1024 * 1024,  # 16 MB - WhatsApp limit
     'broadcast': 10 * 1024 * 1024,  # 10 MB - safe limit for base64 encoding (becomes ~13MB)
 }
