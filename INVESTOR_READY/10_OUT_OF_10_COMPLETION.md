@@ -202,12 +202,22 @@ leads_with_whatsapp = db.session.query(func.count(func.distinct(Lead.id))).filte
 
 **Problem:** Invoice `paid_at` was always `None`.
 
-**Solution:** Fetch from linked Payment records:
+**Solution:** Batch fetch from linked Payment records to avoid N+1 queries:
 ```python
-if invoice.payment_id:
-    payment = Payment.query.get(invoice.payment_id)
-    if payment and payment.paid_at:
-        paid_at = payment.paid_at.isoformat()
+# Collect all payment_ids and fetch in single query
+payment_ids = [inv.payment_id for inv in invoices_raw if inv.payment_id]
+payments_map = {}
+if payment_ids:
+    payments = Payment.query.filter(Payment.id.in_(payment_ids)).all()
+    payments_map = {p.id: p for p in payments}
+
+# Use pre-fetched map in loop
+for invoice in invoices_raw:
+    paid_at = None
+    if invoice.payment_id and invoice.payment_id in payments_map:
+        payment = payments_map[invoice.payment_id]
+        if payment.paid_at:
+            paid_at = payment.paid_at.isoformat()
 ```
 
 ### Webhook Implementation
