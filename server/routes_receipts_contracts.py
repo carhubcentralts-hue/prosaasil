@@ -24,6 +24,23 @@ def _payments_disabled():
     """Check if payments feature is disabled"""
     return os.getenv("ENABLE_PAYMENTS", "false").lower() != "true"
 
+
+def _contracts_disabled():
+    """Check if contracts feature is disabled"""
+    return os.getenv("ENABLE_CONTRACTS", "false").lower() != "true"
+
+
+def get_business_id():
+    """Get business_id from request context"""
+    return getattr(request, 'business_id', None)
+
+
+# Import models lazily to avoid circular imports
+def get_models():
+    """Lazy import of models"""
+    from server.models_sql import Invoice, Contract, Payment
+    return Invoice, Contract, Payment
+
 def _contracts_disabled():
     """Check if contracts feature is disabled"""
     return os.getenv("ENABLE_CONTRACTS", "false").lower() != "true"
@@ -56,6 +73,13 @@ def list_receipts():
         
         invoices_list = []
         for invoice in invoices_raw:
+            # Get payment date if payment_id exists
+            paid_at = None
+            if invoice.payment_id:
+                payment = Payment.query.get(invoice.payment_id)
+                if payment and payment.paid_at:
+                    paid_at = payment.paid_at.isoformat()
+            
             # AgentKit invoices: use fields directly from invoice
             # Legacy invoices: try to load from related payment/deal
             invoices_list.append({
@@ -71,7 +95,7 @@ def list_receipts():
                 'status': invoice.status or 'final',
                 'lead_id': invoice.customer_id,
                 'created_at': invoice.issued_at.isoformat() if invoice.issued_at else None,
-                'paid_at': None  # TODO: Track payment date
+                'paid_at': paid_at
             })
         
         return jsonify({

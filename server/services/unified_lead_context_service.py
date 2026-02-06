@@ -374,7 +374,8 @@ class UnifiedLeadContextService:
                 payload.last_call_summary = last_call.summary[:500]  # Limit size
             
             # Load last WhatsApp summary (if exists in notes)
-            # TODO: Implement WhatsApp summary extraction from notes or separate field
+            # Note: WhatsApp summaries are currently stored in lead notes
+            # Future enhancement could extract from WhatsAppMessage records or separate field
             
             # Count recent interactions
             payload.recent_calls_count = CallLog.query.filter(
