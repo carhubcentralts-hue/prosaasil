@@ -216,7 +216,7 @@ def api_thread_messages(thread_id):
                 "time": msg.created_at.strftime('%H:%M') if msg.created_at else '',
                 "status": msg.status or "delivered",
                 "message_type": msg.message_type or "text",
-                "source": msg.source or ("bot" if msg.direction == "out" else "client"),
+                "source": msg.source or ("client" if msg.direction == "in" else "system"),
                 "media_url": msg.media_url
             })
             

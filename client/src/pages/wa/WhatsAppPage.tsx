@@ -164,7 +164,7 @@ function MediaContent({ msg }: { msg: WhatsAppMessageData }) {
   if ((message_type === 'document' || message_type === 'video') && media_url) {
     return (
       <a href={media_url} target="_blank" rel="noopener noreferrer" className="mb-1.5 flex items-center gap-2 bg-white/20 rounded-lg p-2 hover:bg-white/30 transition-colors">
-        {message_type === 'video' ? <FileText className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+        {message_type === 'video' ? <Image className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
         <span className="text-xs underline">{body || 'קובץ'}</span>
         <Download className="h-3.5 w-3.5 ml-auto" />
       </a>
@@ -440,7 +440,7 @@ export function WhatsAppPage() {
     const fileToSend = selectedFile;
 
     // Optimistic: add pending message to UI immediately
-    const pendingId = -(Date.now());
+    const pendingId = -(Date.now() + Math.floor(Math.random() * 10000));
     if (textToSend && !fileToSend) {
       const pendingMsg: WhatsAppMessageData = {
         id: pendingId, body: textToSend, direction: 'out', timestamp: '', time: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
@@ -462,7 +462,10 @@ export function WhatsAppPage() {
         if (textToSend) formData.append('caption', textToSend);
         formData.append('provider', selectedProvider);
         const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.phone}/message`, formData);
-        if (!response.success) alert('שגיאה בשליחת הודעה: ' + (response.error || 'שגיאה'));
+        if (!response.success) {
+          setMessages(prev => prev.map(m => m.id === pendingId ? { ...m, status: 'failed' } : m));
+          alert('שגיאה בשליחת הודעה: ' + (response.error || 'שגיאה'));
+        }
       } else {
         const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.phone}/message`, { text: textToSend, provider: selectedProvider });
         if (!response.success) {
@@ -761,15 +764,15 @@ export function WhatsAppPage() {
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
-                        className={`flex ${msg.direction === 'in' ? 'justify-end' : 'justify-start'}`}
+                        className={`flex ${msg.direction === 'in' ? 'justify-start' : 'justify-end'}`}
                       >
                         <div
                           className={`relative max-w-[75%] px-3 py-2 rounded-xl shadow-sm ${bubbleStyle(msg)} ${
                             msg.status === 'pending' ? 'opacity-70' : ''
                           }`}
                           style={{
-                            borderTopRightRadius: msg.direction === 'in' ? '4px' : undefined,
-                            borderTopLeftRadius: msg.direction === 'out' ? '4px' : undefined,
+                            borderTopRightRadius: msg.direction === 'out' ? '4px' : undefined,
+                            borderTopLeftRadius: msg.direction === 'in' ? '4px' : undefined,
                           }}
                           dir="rtl"
                         >
