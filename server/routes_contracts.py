@@ -70,6 +70,7 @@ def create_attachment_from_file(
     # Validate file
     is_valid, error_msg = attachment_service.validate_file(file, channel='email')
     if not is_valid:
+        logger.warning(f"[ATTACHMENT_CREATE] File validation failed: {error_msg}")
         raise ValueError(error_msg)
     
     # Get file metadata
@@ -80,6 +81,8 @@ def create_attachment_from_file(
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)
+    
+    logger.info(f"[ATTACHMENT_CREATE] Creating attachment: filename={filename}, size={file_size}, mime_type={mime_type}, business_id={business_id}")
     
     # Create attachment record
     attachment = Attachment(
@@ -99,8 +102,9 @@ def create_attachment_from_file(
     try:
         storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
         attachment.storage_path = storage_key
+        logger.info(f"[ATTACHMENT_CREATE] File saved successfully: attachment_id={attachment.id}, storage_key={storage_key}")
     except Exception as storage_error:
-        logger.error(f"[ATTACHMENT_CREATE] Storage save failed: {storage_error}")
+        logger.error(f"[ATTACHMENT_CREATE] Storage save failed: {storage_error}", exc_info=True)
         db.session.rollback()
         raise
     
@@ -493,15 +497,24 @@ def create_contract_with_file():
         user_id = get_current_user_id()
         
         if not business_id:
+            logger.warning(f"[CONTRACTS_CREATE_UPLOAD] No business_id found")
             return jsonify({'error': 'Business ID not found'}), 403
         
         # Get uploaded file
         if 'file' not in request.files:
+            logger.warning(f"[CONTRACTS_CREATE_UPLOAD] No file in request.files. Available keys: {list(request.files.keys())}")
             return jsonify({'error': 'No file provided'}), 400
         
         file = request.files['file']
         if file.filename == '':
+            logger.warning(f"[CONTRACTS_CREATE_UPLOAD] Empty filename")
             return jsonify({'error': 'No file selected'}), 400
+        
+        # Log file details for debugging
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        logger.info(f"[CONTRACTS_CREATE_UPLOAD] Processing file: {file.filename}, size: {file_size} bytes, mime_type: {file.content_type}, business_id: {business_id}")
         
         # Get title (default to filename if not provided)
         title = request.form.get('title', '').strip()
@@ -542,8 +555,13 @@ def create_contract_with_file():
                 user_id=user_id
             )
         except ValueError as ve:
+            logger.warning(f"[CONTRACTS_CREATE_UPLOAD] File validation failed: {ve}")
             db.session.rollback()
             return jsonify({'error': str(ve)}), 400
+        except Exception as att_err:
+            logger.error(f"[CONTRACTS_CREATE_UPLOAD] Attachment creation failed: {att_err}", exc_info=True)
+            db.session.rollback()
+            return jsonify({'error': f'Failed to save file: {str(att_err)}'}), 500
         
         # Mark attachment as compatible with contracts channel
         if attachment.channel_compatibility:
@@ -602,9 +620,11 @@ def create_contract_with_file():
         }), 201
         
     except Exception as e:
-        logger.error(f"[CONTRACTS_CREATE_UPLOAD] Error: {e}", exc_info=True)
+        logger.error(f"[CONTRACTS_CREATE_UPLOAD] Unexpected error: {e}", exc_info=True)
         db.session.rollback()
-        return jsonify({'error': 'Failed to create contract with file'}), 500
+        # Return more detailed error in development, generic in production
+        error_detail = str(e) if os.getenv('FLASK_ENV') == 'development' else 'Failed to create contract with file'
+        return jsonify({'error': error_detail}), 500
 
 
 @contracts_bp.route('/<int:contract_id>', methods=['GET'])

@@ -435,6 +435,7 @@ def create_app():
                 "img-src 'self' data: blob: https:; "
                 "media-src 'self' blob: data:; "  # Allow blob and data URLs for audio playback
                 "connect-src 'self' wss: ws: https://fonts.googleapis.com https://fonts.gstatic.com; "
+                "frame-src 'self' https://*.r2.cloudflarestorage.com; "  # Allow R2 URLs in iframes for PDF viewing
                 "frame-ancestors 'self'; "  # Allow same-origin framing for PDFs
                 "object-src 'none'; "
                 "base-uri 'self'; "
@@ -449,6 +450,7 @@ def create_app():
                 "img-src 'self' data: blob: https:; "
                 "media-src 'self' blob: data:; "  # Allow blob and data URLs for audio playback
                 "connect-src 'self' wss: ws: https://fonts.googleapis.com https://fonts.gstatic.com; "
+                "frame-src 'self' https://*.r2.cloudflarestorage.com; "  # Allow R2 URLs in iframes
                 "frame-ancestors 'none'; "
                 "object-src 'none'; "
                 "base-uri 'self'; "
