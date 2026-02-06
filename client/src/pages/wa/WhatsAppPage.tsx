@@ -131,6 +131,7 @@ function MessageStatusIcon({ status }: { status: string }) {
 export function WhatsAppPage() {
   const location = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // ─── State ──────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
