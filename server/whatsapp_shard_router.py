@@ -67,7 +67,14 @@ def get_baileys_base_url(business_id: int, whatsapp_shard: int | None = None) ->
     num_shards = BAILEYS_SHARDS
 
     if whatsapp_shard and whatsapp_shard > 0:
-        shard_id = whatsapp_shard
+        if whatsapp_shard > num_shards:
+            logger.warning(
+                "Business %d has whatsapp_shard=%d but only %d shards configured — falling back to shard 1",
+                business_id, whatsapp_shard, num_shards,
+            )
+            shard_id = 1
+        else:
+            shard_id = whatsapp_shard
     else:
         shard_id = _hash_shard(business_id, num_shards)
 

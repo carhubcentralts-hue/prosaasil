@@ -61,11 +61,35 @@ def test_shard_routing_url_format():
 
 
 def test_shard_routing_explicit_shard():
-    """Explicit whatsapp_shard overrides hash-based routing."""
+    """Explicit whatsapp_shard within range overrides hash-based routing."""
+    os.environ["BAILEYS_NUM_SHARDS"] = "5"
+    try:
+        import importlib
+        import server.config
+        importlib.reload(server.config)
+        import server.whatsapp_shard_router
+        importlib.reload(server.whatsapp_shard_router)
+        from server.whatsapp_shard_router import get_baileys_base_url
+
+        url = get_baileys_base_url(business_id=1, whatsapp_shard=3)
+        assert "baileys-3" in url, f"Expected shard 3 in URL, got: {url}"
+    finally:
+        os.environ.pop("BAILEYS_NUM_SHARDS", None)
+        import importlib
+        import server.config
+        importlib.reload(server.config)
+        import server.whatsapp_shard_router
+        importlib.reload(server.whatsapp_shard_router)
+
+
+def test_shard_routing_out_of_range_falls_back():
+    """whatsapp_shard beyond configured BAILEYS_SHARDS falls back to shard 1."""
     from server.whatsapp_shard_router import get_baileys_base_url
 
+    # With default BAILEYS_SHARDS=1, shard=5 is out of range
     url = get_baileys_base_url(business_id=1, whatsapp_shard=5)
-    assert "baileys-5" in url, f"Expected shard 5 in URL, got: {url}"
+    # Should fall back to shard 1 (the legacy single-shard URL)
+    assert "baileys-5" not in url, f"Should NOT route to shard 5, got: {url}"
 
 
 def test_shard_routing_alias():

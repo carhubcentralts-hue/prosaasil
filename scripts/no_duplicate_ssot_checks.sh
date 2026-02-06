@@ -57,6 +57,19 @@ else
   fail "calls_capacity NOT found in routes_twilio.py"
 fi
 
+echo "→ Checking calls acquire + release pair..."
+if grep -q 'try_acquire_call_slot' server/routes_twilio.py; then
+  pass "try_acquire_call_slot found in routes_twilio"
+else
+  fail "try_acquire_call_slot NOT found in routes_twilio.py — calls limiter may be bypassed"
+fi
+
+if grep -q 'release_call_slot' server/routes_twilio.py; then
+  pass "release_call_slot found in routes_twilio"
+else
+  fail "release_call_slot NOT found in routes_twilio.py — calls may leak capacity slots"
+fi
+
 # ── 4. whatsapp_shard migration in db_migrate ──────────────────────────
 echo "→ Checking whatsapp_shard migration..."
 if grep -q 'whatsapp_shard' server/db_migrate.py; then
