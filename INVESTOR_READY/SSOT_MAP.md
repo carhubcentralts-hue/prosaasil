@@ -30,6 +30,20 @@
 | **Feature flags** | `server/services/feature_flags.py` | Central feature flag management |
 | **Status mapping** | `server/services/status_service.py` | Lead status management |
 | **WhatsApp provider** | `server/whatsapp_provider.py` | WhatsApp API abstraction |
+| **Queue definitions** | `server/queues.py` | All queue names, priorities, timeouts (SSOT) |
+| **Metrics** | `server/metrics.py` | Operational counters and gauges |
+| **Shard routing** | `server/whatsapp_shard_router.py` | Baileys shard assignment per tenant |
+| **Call state** | `server/calls_state.py` | Redis-backed call session state |
+| **Health endpoints** | `server/health_endpoints.py` | All health/readiness probes |
+
+## Scaling
+
+| Concern | Source File | Notes |
+|---------|-----------|-------|
+| **Queue SSOT** | `server/queues.py` | Queue names, worker groups, job defaults |
+| **Shard SSOT** | `server/SSOT_SHARDING.md` | Baileys sharding design |
+| **Calls scaling** | `server/calls_scaling.md` | Stateless calls + Redis strategy |
+| **Scaling plan** | `INVESTOR_READY/SCALING_PLAN.md` | Full horizontal scaling plan |
 
 ## Configuration
 
@@ -37,8 +51,10 @@
 |---------|-----------|-------|
 | **Environment** | `.env` (gitignored) | All secrets and config |
 | **Docker (dev)** | `docker-compose.yml` | Development environment |
-| **Docker (prod)** | `docker-compose.prod.yml` | Production overrides |
+| **Docker (prod)** | `docker-compose.prod.yml` | Production overrides + multi-worker + shards |
 | **CI/CD** | `.github/workflows/ci.yml` | All quality gates |
+| **Quality gate** | `scripts/quality_gate.sh` | Unified quality gate script |
+| **Dependency policy** | `DEPENDENCY_POLICY.md` | Pinning and update strategy |
 | **TypeScript** | `tsconfig.json` | Compiler options |
 | **Vite** | `client/vite.config.ts` | Build configuration |
 | **ESLint** | `client/.eslintrc.cjs` | Linting rules |

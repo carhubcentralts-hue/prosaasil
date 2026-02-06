@@ -1,6 +1,8 @@
 # Quality Gate — CI Pipeline
 
-All of the following checks **must pass** before a PR can be merged to `main`:
+All of the following checks **must pass** before a PR can be merged to `main`.
+
+Unified quality gate script: `./scripts/quality_gate.sh`
 
 ## Frontend (client/)
 
@@ -11,7 +13,7 @@ All of the following checks **must pass** before a PR can be merged to `main`:
 | Unit Tests (Vitest) | `npm run test` | ✅ 41/41 pass |
 | Production Build | `npm run build -- --mode production` | ✅ Builds cleanly |
 | No Sourcemaps | `find dist -name "*.map"` | ✅ No .map files |
-| npm audit | `npm audit --production --audit-level=high` | ⚠️ Advisory only |
+| npm audit | `npm audit --omit=dev --audit-level=high` | ✅ **Blocking** (high/critical) |
 
 ## Backend (server/)
 
@@ -19,7 +21,7 @@ All of the following checks **must pass** before a PR can be merged to `main`:
 |-------|---------|--------|
 | Ruff (lint) | `ruff check server/` | ✅ Runs (warnings only) |
 | Unit Tests (Pytest) | `pytest tests/ -v --tb=short` | ✅ 32/32 unit tests pass — **blocking** |
-| pip-audit | `pip-audit` | ✅ Runs |
+| pip-audit | `pip-audit` | ✅ **Blocking** (`continue-on-error: false`) |
 
 ## Docker
 
@@ -29,10 +31,24 @@ All of the following checks **must pass** before a PR can be merged to `main`:
 | Backend Image Build | `docker build -f Dockerfile.backend.light` | ✅ Builds |
 | Frontend Image Build | `docker build -f Dockerfile.frontend` | ✅ Builds |
 
+## Security Audits
+
+| Tool | Ecosystem | Blocking | Exceptions |
+|------|-----------|----------|------------|
+| `npm audit` | Node.js | ✅ high/critical | See `client/AUDIT_ALLOWLIST.md` |
+| `pip-audit` | Python | ✅ All severities | See `server/AUDIT_ALLOWLIST.md` |
+
+## No Fake Green Policy
+
+- ❌ No `|| true` on any security audit step
+- ❌ No `continue-on-error: true` on critical checks
+- ✅ All checks are blocking — if they fail, the PR cannot be merged
+
 ## Key Changes Made
 
-1. **Removed all `continue-on-error: true`** from typecheck, pytest, and npm audit CI steps
-2. **TypeScript errors fixed**: 273 → 0 (duplicate imports, missing types, wrong paths)
-3. **Test failures fixed**: conversation.test.ts 4 failing tests → all pass
-4. **Backend lazy initialization**: OpenAI client no longer crashes at import in CI
-5. **CI runs only reliable unit tests** (no flaky integration tests that need external services)
+1. **Removed `|| true`** from npm audit CI step — now fails on high/critical
+2. **pip-audit** already blocking (`continue-on-error: false`)
+3. **TypeScript errors fixed**: 273 → 0
+4. **Test failures fixed**: all tests pass
+5. **Unified quality gate**: `scripts/quality_gate.sh` runs all checks
+6. **Audit allowlists**: documented exception process for both ecosystems
