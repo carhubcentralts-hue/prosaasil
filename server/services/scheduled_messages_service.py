@@ -109,7 +109,7 @@ def create_rule(
     
     # Set delay_minutes for backward compatibility if not provided
     if delay_minutes is None:
-        delay_minutes = max(0, delay_seconds // 60) if delay_seconds >= 0 else 0
+        delay_minutes = max(0, delay_seconds // 60)
     
     # Validate delay_minutes for backward compatibility (skip for recurring schedules or immediate sends/steps)
     if schedule_type == "STATUS_CHANGE" and not send_immediately_on_enter and not has_steps:
