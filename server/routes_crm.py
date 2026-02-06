@@ -481,11 +481,18 @@ def api_send_thread_message(thread_id):
             # Track session
             from server.services.whatsapp_session_service import update_session_activity
             try:
+                # Extract clean phone for session tracking
+                clean_phone = formatted_number.split('@')[0] if '@' in formatted_number else formatted_number
+                
+                # 🔥 FIX: Pass lead_id and phone_e164 for consistent canonical_key
+                # This ensures outbound messages use the SAME conversation as inbound
                 update_session_activity(
                     business_id=int(business_id),
-                    customer_wa_id=formatted_number,
+                    customer_wa_id=clean_phone,
                     direction="out",
-                    provider=send_result.get('provider', 'baileys')
+                    provider=send_result.get('provider', 'baileys'),
+                    lead_id=lead_id,  # 🔥 FIX: Pass lead_id for canonical_key
+                    phone_e164=lead_phone  # 🔥 FIX: Pass phone_e164 for canonical_key
                 )
             except Exception as e:
                 log.warning(f"⚠️ Session tracking failed: {e}")
