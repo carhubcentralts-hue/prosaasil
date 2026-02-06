@@ -71,3 +71,9 @@ exclude = ["tests*", "test-results*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests that require Flask app context or database",
+]
