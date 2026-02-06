@@ -8899,6 +8899,41 @@ def apply_migrations():
         
         checkpoint("✅ Migration 142 complete: Per-lead AI toggle added")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 143: Add conversation_id to whatsapp_message for unified threading
+        # 🎯 PURPOSE: Link messages to conversations to prevent thread splitting
+        # 🔥 CRITICAL FIX: Messages were not linked to conversations, causing
+        #    inbound and outbound messages to appear as separate threads in UI
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 143: Add conversation_id to whatsapp_message")
+        
+        try:
+            if check_table_exists('whatsapp_message'):
+                # Add conversation_id column if not exists
+                if not check_column_exists('whatsapp_message', 'conversation_id'):
+                    checkpoint("  → Adding conversation_id column to whatsapp_message...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_message 
+                        ADD COLUMN conversation_id INTEGER NULL 
+                        REFERENCES whatsapp_conversation(id) ON DELETE SET NULL
+                    """)
+                    checkpoint("  ✅ conversation_id column added to whatsapp_message")
+                    checkpoint("     💡 Links messages to conversations for unified threading")
+                    checkpoint("     💡 Prevents split threads in UI (lid@ vs phone)")
+                    migrations_applied.append("migration_143_message_conversation_id")
+                else:
+                    checkpoint("  ℹ️  conversation_id column already exists in whatsapp_message")
+                
+                checkpoint("  ✅ Migration 143 schema changes completed")
+                checkpoint("     🎯 Impact: Unified conversation threads in UI")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 143 failed: {e}")
+            logger.error(f"Migration 143 error: {e}", exc_info=True)
+            # Don't raise - conversation_id is important but not critical for startup
+        
+        checkpoint("✅ Migration 143 complete: Conversation linking added to messages")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

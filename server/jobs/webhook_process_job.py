@@ -217,6 +217,21 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         if not is_ai_active_for_conversation(business_id, phone_number):
                             logger.info(f"🔕 AI is INACTIVE for {phone_number} - skipping AI response")
                             
+                            # Track session with lead_id and phone_e164
+                            conversation = None
+                            try:
+                                # 🔥 BUILD 138: Pass lead_id and phone_e164 for canonical key
+                                conversation = update_session_activity(
+                                    business_id=business_id,
+                                    customer_wa_id=phone_number,
+                                    direction="in",
+                                    provider="baileys",
+                                    lead_id=None,  # No lead when AI is inactive
+                                    phone_e164=phone_e164_for_lead  # Pass normalized phone
+                                )
+                            except Exception as e:
+                                logger.error(f"🔴 [WA-SESSION] Session tracking FAILED: {e}", exc_info=True)
+                            
                             # Save incoming message only
                             incoming_msg = WhatsAppMessage()
                             incoming_msg.business_id = business_id
@@ -226,6 +241,7 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                             incoming_msg.message_type = 'text'
                             incoming_msg.status = 'received'
                             incoming_msg.provider = 'baileys'
+                            incoming_msg.conversation_id = conversation.id if conversation else None  # 🔥 BUILD 143: Link to conversation
                             
                             # 🔥 LAYER 2: Extract reply threading context even when AI is inactive
                             try:
@@ -252,20 +268,6 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                             
                             db.session.add(incoming_msg)
                             db.session.commit()
-                            
-                            # Track session with lead_id and phone_e164
-                            try:
-                                # 🔥 BUILD 138: Pass lead_id and phone_e164 for canonical key
-                                update_session_activity(
-                                    business_id=business_id,
-                                    customer_wa_id=phone_number,
-                                    direction="in",
-                                    provider="baileys",
-                                    lead_id=None,  # No lead when AI is inactive
-                                    phone_e164=phone_e164_for_lead  # Pass normalized phone
-                                )
-                            except Exception as e:
-                                logger.error(f"🔴 [WA-SESSION] Session tracking FAILED: {e}", exc_info=True)
                             
                             continue
                         
@@ -404,11 +406,27 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         # Save to DB
                         timestamp = time.strftime('%H:%M:%S')
                         
+                        # Track session for incoming first to get conversation
+                        conversation = None
+                        try:
+                            # 🔥 BUILD 138: Pass lead_id and phone_e164
+                            conversation = update_session_activity(
+                                business_id=business_id,
+                                customer_wa_id=phone_number,
+                                direction="in",
+                                provider="baileys",
+                                lead_id=lead.id if lead else None,
+                                phone_e164=phone_e164_for_lead
+                            )
+                        except Exception as e:
+                            logger.error(f"🔴 [WA-SESSION] Session tracking (in) FAILED: {e}", exc_info=True)
+                        
                         # Save incoming
                         incoming_msg = WhatsAppMessage()
                         incoming_msg.business_id = business_id
                         incoming_msg.to_number = phone_number
                         incoming_msg.lead_id = lead.id if lead else None  # 🔥 FIX: Add lead_id
+                        incoming_msg.conversation_id = conversation.id if conversation else None  # 🔥 BUILD 143: Link to conversation
                         incoming_msg.direction = 'in'
                         incoming_msg.body = message_text
                         incoming_msg.message_type = 'text'
@@ -454,20 +472,6 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         
                         db.session.add(incoming_msg)
                         
-                        # Track session for incoming
-                        try:
-                            # 🔥 BUILD 138: Pass lead_id and phone_e164
-                            update_session_activity(
-                                business_id=business_id,
-                                customer_wa_id=phone_number,
-                                direction="in",
-                                provider="baileys",
-                                lead_id=lead.id if lead else None,
-                                phone_e164=phone_e164_for_lead
-                            )
-                        except Exception as e:
-                            logger.error(f"🔴 [WA-SESSION] Session tracking (in) FAILED: {e}", exc_info=True)
-                        
                         # n8n: Send incoming message event
                         n8n_whatsapp_incoming(
                             phone=phone_number,
@@ -479,23 +483,10 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         
                         # Save outgoing if sent
                         if send_result.get('status') == 'sent':
-                            outgoing_msg = WhatsAppMessage()
-                            outgoing_msg.business_id = business_id
-                            outgoing_msg.to_number = phone_number
-                            outgoing_msg.lead_id = lead.id if lead else None  # 🔥 FIX: Add lead_id for history
-                            outgoing_msg.direction = 'out'
-                            outgoing_msg.body = ai_response
-                            outgoing_msg.message_type = 'text'
-                            outgoing_msg.status = 'sent'
-                            outgoing_msg.provider = send_result.get('provider', 'baileys')
-                            outgoing_msg.provider_message_id = send_result.get('message_id')
-                            outgoing_msg.source = 'bot'  # 🔥 CONTEXT FIX: Mark as bot-generated
-                            db.session.add(outgoing_msg)
-                            
-                            # Track session for outgoing
+                            # Track session for outgoing to get conversation
                             try:
                                 # 🔥 BUILD 138: Pass lead_id and phone_e164
-                                update_session_activity(
+                                conversation = update_session_activity(
                                     business_id=business_id,
                                     customer_wa_id=phone_number,
                                     direction="out",
@@ -505,6 +496,21 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                                 )
                             except Exception as e:
                                 logger.error(f"🔴 [WA-SESSION] Session tracking (out) FAILED: {e}", exc_info=True)
+                                conversation = None
+                            
+                            outgoing_msg = WhatsAppMessage()
+                            outgoing_msg.business_id = business_id
+                            outgoing_msg.to_number = phone_number
+                            outgoing_msg.lead_id = lead.id if lead else None  # 🔥 FIX: Add lead_id for history
+                            outgoing_msg.conversation_id = conversation.id if conversation else None  # 🔥 BUILD 143: Link to conversation
+                            outgoing_msg.direction = 'out'
+                            outgoing_msg.body = ai_response
+                            outgoing_msg.message_type = 'text'
+                            outgoing_msg.status = 'sent'
+                            outgoing_msg.provider = send_result.get('provider', 'baileys')
+                            outgoing_msg.provider_message_id = send_result.get('message_id')
+                            outgoing_msg.source = 'bot'  # 🔥 CONTEXT FIX: Mark as bot-generated
+                            db.session.add(outgoing_msg)
                             
                             # n8n: Send outgoing message event
                             n8n_whatsapp_outgoing(

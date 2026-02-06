@@ -213,9 +213,18 @@ def handle_incoming_whatsapp_message(
             business_id=business_id,
             customer_wa_id=from_clean,
             direction="in",
-            provider=provider
+            provider=provider,
+            lead_id=lead.id if lead else None,
+            phone_e164=lead.phone_e164 if lead else None
         )
         logger.info(f"[WA-GATEWAY] Updated session id={session.id if session else 'N/A'}")
+        
+        # 🔥 BUILD 143: Link message to conversation after session update
+        if session:
+            wa_msg.conversation_id = session.id
+            wa_msg.lead_id = lead.id if lead else None
+            db.session.commit()
+            logger.info(f"[WA-GATEWAY] Linked message to conversation_id={session.id}")
     except Exception as e:
         logger.error(f"[WA-GATEWAY] Session tracking failed: {e}")
     

@@ -460,33 +460,16 @@ def api_send_thread_message(thread_id):
         
         # Save message to database
         try:
-            wa_msg = WhatsAppMessage()
-            wa_msg.business_id = business_id
-            wa_msg.to_number = formatted_number
-            wa_msg.body = text
-            wa_msg.message_type = media_type or 'text'
-            wa_msg.direction = 'out'
-            wa_msg.provider = send_result.get('provider', provider)
-            wa_msg.provider_message_id = send_result.get('sid')
-            wa_msg.status = 'sent'
-            
-            # Store media metadata if applicable
-            if file_data:
-                wa_msg.media_url = send_result.get('media_url')
-                wa_msg.media_type = media_type
-            
-            db.session.add(wa_msg)
-            db.session.commit()
-            
-            # Track session
+            # Track session first to get conversation
             from server.services.whatsapp_session_service import update_session_activity
+            conversation = None
             try:
                 # Extract clean phone for session tracking
                 clean_phone = formatted_number.split('@')[0] if '@' in formatted_number else formatted_number
                 
                 # 🔥 FIX: Pass lead_id and phone_e164 for consistent canonical_key
                 # This ensures outbound messages use the SAME conversation as inbound
-                update_session_activity(
+                conversation = update_session_activity(
                     business_id=int(business_id),
                     customer_wa_id=clean_phone,
                     direction="out",
@@ -496,6 +479,26 @@ def api_send_thread_message(thread_id):
                 )
             except Exception as e:
                 log.warning(f"⚠️ Session tracking failed: {e}")
+            
+            wa_msg = WhatsAppMessage()
+            wa_msg.business_id = business_id
+            wa_msg.to_number = formatted_number
+            wa_msg.body = text
+            wa_msg.message_type = media_type or 'text'
+            wa_msg.direction = 'out'
+            wa_msg.provider = send_result.get('provider', provider)
+            wa_msg.provider_message_id = send_result.get('sid')
+            wa_msg.status = 'sent'
+            wa_msg.lead_id = lead_id  # 🔥 BUILD 143: Link to lead
+            wa_msg.conversation_id = conversation.id if conversation else None  # 🔥 BUILD 143: Link to conversation
+            
+            # Store media metadata if applicable
+            if file_data:
+                wa_msg.media_url = send_result.get('media_url')
+                wa_msg.media_type = media_type
+            
+            db.session.add(wa_msg)
+            db.session.commit()
                 
         except Exception as db_error:
             log.error(f"[CRM-SEND] DB save failed: {db_error}")

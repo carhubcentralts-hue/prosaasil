@@ -451,6 +451,9 @@ class WhatsAppMessage(db.Model):
     
     # Link to Lead for better conversation tracking
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)
+    
+    # Link to Conversation for unified threading (prevents split threads in UI)
+    conversation_id = db.Column(db.Integer, db.ForeignKey("whatsapp_conversation.id"), nullable=True, index=True)
 
 
 class WhatsAppConversationState(db.Model):

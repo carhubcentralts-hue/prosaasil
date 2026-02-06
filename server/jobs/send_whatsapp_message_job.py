@@ -99,6 +99,26 @@ def send_whatsapp_message_job(
             
             # Create outgoing message record
             try:
+                # 🔥 NEW: Track session first to get conversation
+                conversation = None
+                try:
+                    from server.services.whatsapp_session_service import update_session_activity
+                    
+                    # Extract clean phone for session tracking
+                    clean_phone = remote_jid.split('@')[0] if '@' in remote_jid else remote_jid
+                    
+                    conversation = update_session_activity(
+                        business_id=business_id,
+                        customer_wa_id=clean_phone,
+                        direction="out",
+                        provider='baileys',
+                        lead_id=lead_id,  # 🔥 FIX: Pass lead_id for canonical_key
+                        phone_e164=phone_e164  # 🔥 FIX: Pass phone_e164 for canonical_key
+                    )
+                    logger.info(f"[WA-SEND-JOB] ✅ Session activity tracked: lead_id={lead_id}, phone={phone_e164}")
+                except Exception as session_err:
+                    logger.warning(f"[WA-SEND-JOB] ⚠️ Session tracking failed: {session_err}")
+                
                 # 🔥 CRITICAL FIX: Store FULL JID (including @lid/@s.whatsapp.net) so history can find it!
                 # Previously stored only: remote_jid.split('@')[0] which broke history matching
                 outgoing_msg = WhatsAppMessage(
@@ -110,34 +130,16 @@ def send_whatsapp_message_job(
                     status='sent',
                     message_type='text',
                     source='bot',  # 🔥 CONTEXT FIX: Mark as bot-generated for LLM context
-                    lead_id=lead_id  # 🔥 NEW: Link to lead
+                    lead_id=lead_id,  # 🔥 NEW: Link to lead
+                    conversation_id=conversation.id if conversation else None  # 🔥 BUILD 143: Link to conversation
                 )
                 db.session.add(outgoing_msg)
                 db.session.commit()
-                logger.info(f"[WA-SEND-JOB] ✅ Outgoing message saved to DB: {outgoing_msg.id} (source=bot, lead_id={lead_id})")
+                logger.info(f"[WA-SEND-JOB] ✅ Outgoing message saved to DB: {outgoing_msg.id} (source=bot, lead_id={lead_id}, conv_id={conversation.id if conversation else None})")
             except Exception as db_err:
                 logger.error(f"[WA-SEND-JOB] ❌ CRITICAL: Failed to persist outbound WhatsApp message to DB", exc_info=True)
                 logger.error(f"[WA-SEND-JOB] ❌ Details: remote_jid={str(remote_jid)[:30] if remote_jid else 'None'}, lead_id={lead_id}, error={db_err}")
                 db.session.rollback()
-            
-            # 🔥 NEW: Track session for outbound message
-            try:
-                from server.services.whatsapp_session_service import update_session_activity
-                
-                # Extract clean phone for session tracking
-                clean_phone = remote_jid.split('@')[0] if '@' in remote_jid else remote_jid
-                
-                update_session_activity(
-                    business_id=business_id,
-                    customer_wa_id=clean_phone,
-                    direction="out",
-                    provider='baileys',
-                    lead_id=lead_id,  # 🔥 FIX: Pass lead_id for canonical_key
-                    phone_e164=phone_e164  # 🔥 FIX: Pass phone_e164 for canonical_key
-                )
-                logger.info(f"[WA-SEND-JOB] ✅ Session activity tracked: lead_id={lead_id}, phone={phone_e164}")
-            except Exception as session_err:
-                logger.warning(f"[WA-SEND-JOB] ⚠️ Session tracking failed: {session_err}")
             
             send_duration = time.time() - send_start
             

@@ -607,21 +607,76 @@ def get_conversation(phone_number):
     """
     Get WhatsApp conversation for a specific phone number
     Returns messages in format expected by WhatsAppChat component
+    
+    🔥 BUILD 143: Uses conversation_id for unified threading when available
     """
     try:
         # 🔒 SECURITY: business_id from authenticated session via get_business_id()
         from server.routes_crm import get_business_id
+        from server.agent_tools.phone_utils import normalize_phone
+        from server.utils.whatsapp_utils import get_canonical_conversation_key
         
         business_id = get_business_id()
         
         # Clean phone number (remove + and @s.whatsapp.net)
         clean_phone = phone_number.replace('+', '').replace('@s.whatsapp.net', '')
         
-        # Get all messages for this phone number
-        msgs = WhatsAppMessage.query.filter_by(
-            business_id=business_id,
-            to_number=clean_phone
-        ).order_by(WhatsAppMessage.created_at.asc()).all()
+        # 🔥 BUILD 143: Try to find conversation by canonical key first
+        # This ensures we get messages linked by conversation_id (prevents splitting)
+        conversation = None
+        try:
+            # Normalize phone to E.164 format for canonical key
+            phone_e164 = normalize_phone(clean_phone)
+            if not phone_e164 and not clean_phone.startswith('+'):
+                phone_e164 = f"+{clean_phone}"
+            
+            # Try to find lead for this phone
+            lead = None
+            if phone_e164:
+                lead = Lead.query.filter_by(
+                    business_id=business_id,
+                    phone_e164=phone_e164
+                ).first()
+            
+            # Generate canonical key
+            canonical_key = get_canonical_conversation_key(
+                business_id=business_id,
+                lead_id=lead.id if lead else None,
+                phone_e164=phone_e164
+            )
+            
+            # Find conversation by canonical key
+            conversation = WhatsAppConversation.query.filter_by(
+                business_id=business_id,
+                canonical_key=canonical_key
+            ).first()
+            
+            if conversation:
+                logger.info(f"[GET_CONV] Found conversation by canonical_key: {canonical_key}")
+        except Exception as e:
+            logger.warning(f"[GET_CONV] Could not find conversation by canonical key: {e}")
+        
+        # Query messages - prefer by conversation_id, fallback to phone number
+        if conversation:
+            # 🔥 BUILD 143: Query by conversation_id for unified threading
+            msgs = WhatsAppMessage.query.filter(
+                WhatsAppMessage.business_id == business_id,
+                db.or_(
+                    WhatsAppMessage.conversation_id == conversation.id,
+                    db.and_(
+                        WhatsAppMessage.to_number == clean_phone,
+                        WhatsAppMessage.conversation_id.is_(None)  # Include old messages without conversation_id
+                    )
+                )
+            ).order_by(WhatsAppMessage.created_at.asc()).all()
+            logger.info(f"[GET_CONV] Found {len(msgs)} messages for conversation_id={conversation.id}")
+        else:
+            # Fallback: Query by phone number only (old behavior)
+            msgs = WhatsAppMessage.query.filter_by(
+                business_id=business_id,
+                to_number=clean_phone
+            ).order_by(WhatsAppMessage.created_at.asc()).all()
+            logger.info(f"[GET_CONV] Found {len(msgs)} messages for phone={clean_phone} (no conversation)")
         
         # Format messages for frontend
         formatted_messages = []
