@@ -88,8 +88,9 @@ jobs:
       - name: Run npm audit
         run: |
           # Check for vulnerabilities (production only)
-          # Allow moderate vulnerabilities but fail on high/critical
-          npm audit --production --audit-level=high || true
+          # Fail on high/critical vulnerabilities
+          # If false positives exist, document them in client/AUDIT_ALLOWLIST.md
+          npm audit --omit=dev --audit-level=high
         working-directory: ./client
       
       - name: Build frontend (production mode)

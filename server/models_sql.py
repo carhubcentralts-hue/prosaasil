@@ -62,6 +62,9 @@ class Business(db.Model):
     # Max 3 primary + 3 secondary (6 total)
     # Available tabs: activity, reminders, documents, overview, whatsapp, calls, email, contracts, appointments, ai_notes, notes
     lead_tabs_config = db.Column(db.JSON, nullable=False, default=dict, server_default='{}')  # ✅ NOT NULL with default
+    # WhatsApp shard assignment for Baileys horizontal scaling
+    # Default 1 = primary shard. See server/whatsapp_shard_router.py for routing logic.
+    whatsapp_shard = db.Column(db.Integer, nullable=False, default=1, server_default='1')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
