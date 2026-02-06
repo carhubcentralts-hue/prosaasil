@@ -523,7 +523,7 @@ export function SettingsPage() {
 
       saveAppointmentMutation.mutate({
         ...appointmentSettings,
-        opening_hours_json
+        opening_hours_json: appointmentSettings.opening_hours_json || {}
       });
     } else {
       // Handle other tabs later

@@ -643,7 +643,7 @@ export function UsersPage() {
                           variant="ghost" 
                           size="sm" 
                           title="עריכה" 
-                          onClick={(e) => {
+                          onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
                             handleEditUser(user);
                           }}
@@ -656,7 +656,7 @@ export function UsersPage() {
                             variant="ghost" 
                             size="sm" 
                             title="מחיקה"
-                            onClick={(e) => {
+                            onClick={(e: React.MouseEvent) => {
                               e.stopPropagation();
                               handleDeleteUser(user);
                             }}
@@ -745,7 +745,7 @@ export function UsersPage() {
                           variant="ghost" 
                           size="sm" 
                           title="עריכה"
-                          onClick={(e) => {
+                          onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
                             handleEditUser(user);
                           }}
@@ -757,7 +757,7 @@ export function UsersPage() {
                             variant="ghost" 
                             size="sm" 
                             title="מחיקה"
-                            onClick={(e) => {
+                            onClick={(e: React.MouseEvent) => {
                               e.stopPropagation();
                               handleDeleteUser(user);
                             }}

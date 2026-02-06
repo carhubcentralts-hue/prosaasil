@@ -91,7 +91,7 @@ export function CreateProjectModal({
         });
       }
 
-      const response = await http.get(`/api/leads?${params.toString()}`);
+      const response = await http.get<any>(`/api/leads?${params.toString()}`);
       const leads = response.items || response.leads || [];
       setSystemLeads(leads);
     } catch (error) {
@@ -123,7 +123,7 @@ export function CreateProjectModal({
         });
       }
 
-      const response = await http.get(`/api/outbound/import-leads?${params.toString()}`);
+      const response = await http.get<any>(`/api/outbound/import-leads?${params.toString()}`);
       setImportLeads(response.items || []);
     } catch (error) {
       console.error('Error loading import leads:', error);
@@ -135,7 +135,7 @@ export function CreateProjectModal({
   const loadImportLists = async () => {
     try {
       setLoadingImportLists(true);
-      const response = await http.get('/api/outbound/import-lists');
+      const response = await http.get<any>('/api/outbound/import-lists');
       setImportLists(response.lists || []);
     } catch (error) {
       console.error('Error loading import lists:', error);
@@ -204,7 +204,7 @@ export function CreateProjectModal({
     }
 
     try {
-      const response = await http.post('/api/leads/select-ids', {
+      const response = await http.post<any>('/api/leads/select-ids', {
         statuses: selectedStatusFilters,
         search: systemLeadsSearch,
         tab: 'system'
@@ -225,7 +225,7 @@ export function CreateProjectModal({
     }
 
     try {
-      const response = await http.post('/api/leads/select-ids', {
+      const response = await http.post<any>('/api/leads/select-ids', {
         statuses: selectedImportStatusFilters,
         search: importLeadsSearch,
         tab: 'imported',

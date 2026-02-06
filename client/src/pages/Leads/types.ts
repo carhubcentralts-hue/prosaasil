@@ -1,7 +1,7 @@
 // ✅ Type fix: LeadStatus is now a string to support dynamic statuses from API
 export type LeadStatus = string;
 
-export type LeadSource = 'phone' | 'whatsapp';
+export type LeadSource = 'phone' | 'whatsapp' | 'form' | 'call' | 'manual';
 
 export interface Lead {
   id: number;
@@ -14,6 +14,7 @@ export interface Lead {
   phone?: string; // ✅ Server returns this field  
   phone_e164?: string;
   email?: string;
+  gender?: string;
   source: LeadSource;
   external_id?: string;
   status: LeadStatus;

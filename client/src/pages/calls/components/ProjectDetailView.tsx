@@ -71,7 +71,7 @@ export function ProjectDetailView({
   const loadProject = async () => {
     try {
       setLoading(true);
-      const data = await http.get(`/api/projects/${projectId}`);
+      const data = await http.get<any>(`/api/projects/${projectId}`);
       setProject(data.project);
       setEditedName(data.project.name);
       setEditedDescription(data.project.description || '');
@@ -89,7 +89,7 @@ export function ProjectDetailView({
       return;
     }
     try {
-      await http.patch(`/api/projects/${projectId}`, { name: editedName });
+      await http.patch<any>(`/api/projects/${projectId}`, { name: editedName });
       setProject({ ...project, name: editedName });
       setEditingName(false);
     } catch (error) {
@@ -100,7 +100,7 @@ export function ProjectDetailView({
 
   const handleUpdateDescription = async () => {
     try {
-      await http.patch(`/api/projects/${projectId}`, { description: editedDescription });
+      await http.patch<any>(`/api/projects/${projectId}`, { description: editedDescription });
       setProject({ ...project, description: editedDescription });
       setEditingDescription(false);
     } catch (error) {
@@ -155,7 +155,7 @@ export function ProjectDetailView({
     }
 
     try {
-      await http.post(`/api/projects/${projectId}/remove-leads`, {
+      await http.post<any>(`/api/projects/${projectId}/remove-leads`, {
         lead_ids: Array.from(selectedLeadIds)
       });
       setSelectedLeadIds(new Set());
@@ -169,7 +169,7 @@ export function ProjectDetailView({
   const handleStatusChange = async (leadId: number, newStatus: string) => {
     setUpdatingStatusLeadId(leadId);
     try {
-      await http.patch(`/api/leads/${leadId}/status`, { status: newStatus });
+      await http.patch<any>(`/api/leads/${leadId}/status`, { status: newStatus });
       await loadProject();
     } catch (error) {
       console.error('Error updating lead status:', error);
@@ -513,7 +513,7 @@ export function ProjectDetailView({
                   <StatusDropdownWithWebhook
                     leadId={lead.id}
                     currentStatus={lead.status}
-                    statuses={statuses}
+                    statuses={statuses as any}
                     onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
                     source="project_detail"
                     hasWebhook={hasWebhook}

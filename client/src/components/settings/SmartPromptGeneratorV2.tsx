@@ -192,7 +192,7 @@ export function SmartPromptGeneratorV2({
 
   const handleSave = async () => {
     try {
-      const result = await http.post('/api/ai/smart_prompt_generator/save', {
+      const result = await http.post<any>('/api/ai/smart_prompt_generator/save', {
         prompt_text: generatedPrompt,
         channel: selectedChannel,
         metadata: generationMetadata

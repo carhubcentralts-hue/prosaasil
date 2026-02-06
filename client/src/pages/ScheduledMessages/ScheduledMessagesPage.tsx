@@ -235,7 +235,7 @@ export function ScheduledMessagesPage() {
                         <div className="flex items-center gap-2">
                           <div className="text-sm font-medium text-gray-900">{rule.name}</div>
                           {rule.send_immediately_on_enter && (
-                            <Zap className="w-4 h-4 text-yellow-500" title="שולח מיד בעת כניסה לסטטוס" />
+                            <span title="שולח מיד בעת כניסה לסטטוס"><Zap className="w-4 h-4 text-yellow-500" /></span>
                           )}
                           {rule.steps && rule.steps.length > 0 && (
                             <Badge variant="secondary" className="flex items-center gap-1">
@@ -444,7 +444,7 @@ function CreateRuleModal({
       // For main message fields, try to insert at cursor position
       const ref = field === 'recurring_message' ? recurringMessageRef : immediateMessageRef;
       const textarea = ref.current;
-      const currentValue = formData[field] || '';
+      const currentValue = (formData as Record<string, any>)[field] || '';
       
       let newValue: string;
       if (textarea && document.activeElement === textarea) {

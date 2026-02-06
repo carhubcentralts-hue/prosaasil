@@ -26,7 +26,7 @@ export const queryClient = new QueryClient({
   },
 });
 
-export async function apiRequest(url: string, options: RequestInit & { body?: any } = {}) {
+export async function apiRequest(url: string, options: Omit<RequestInit, 'body'> & { body?: any } = {}) {
   const response = await fetch(url, {
     ...options,
     credentials: 'include',

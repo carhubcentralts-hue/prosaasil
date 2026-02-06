@@ -978,7 +978,7 @@ export function PublicSigningPage() {
       const blob = await response.blob();
       
       // Create file from blob
-      const file = new File([blob], `signature_${Date.now()}.png`, { type: 'image/png' });
+      const file = new (File as any)([blob], `signature_${Date.now()}.png`, { type: 'image/png' });
       
       const formData = new FormData();
       formData.append('file', file);

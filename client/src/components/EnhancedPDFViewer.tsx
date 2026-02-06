@@ -7,7 +7,6 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Minimize,
-  FitWidth,
   FileText
 } from 'lucide-react';
 import { logger } from '../shared/utils/logger';
@@ -164,7 +163,7 @@ export function EnhancedPDFViewer({
   useEffect(() => {
     if (!iframeLoaded && !iframeError && pdfUrl) {
       // Start a timeout when iframe starts loading
-      loadTimeoutRef.current = setTimeout(() => {
+      loadTimeoutRef.current = window.setTimeout(() => {
         logger.error('[PDF_IFRAME_TIMEOUT] Iframe loading timeout - forcing load complete');
         setIframeLoaded(true); // Force loaded to clear overlay
       }, IFRAME_TIMEOUT_MS);

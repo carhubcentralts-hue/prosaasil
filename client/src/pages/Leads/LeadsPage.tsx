@@ -1,40 +1,23 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useNavigate } from 'react-router-dom';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt, Calendar, X, ChevronLeft, ChevronRight, Loader2, Download } from 'lucide-react';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Input } from '../../shared/components/ui/Input';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Card } from '../../shared/components/ui/Card';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Checkbox } from '../../shared/components/ui/Checkbox';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../shared/components/ui/Table';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Select, SelectOption } from '../../shared/components/ui/Select';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
 import { StatusDropdownWithWebhook } from '../../shared/components/ui/StatusDropdownWithWebhook';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import LeadCreateModal from './components/LeadCreateModal';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import StatusManagementModal from './components/StatusManagementModal';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useLeads } from './hooks/useLeads';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Lead, LeadStatus, LeadSource } from './types';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useStatuses } from '../../features/statuses/hooks';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { getStatusColor, getStatusLabel, getStatusDotColor } from '../../shared/utils/status';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Safe value helper function as per guidelines
 const safe = (val: any, dash: string = '—'): string => {
@@ -102,7 +85,7 @@ export default function LeadsPage() {
   useEffect(() => {
     const loadWebhookStatus = async () => {
       try {
-        const response = await http.get('/api/business/current');
+        const response = await http.get<any>('/api/business/current');
         setHasWebhook(!!response.status_webhook_url);
       } catch (error) {
         console.error('Error loading webhook status:', error);

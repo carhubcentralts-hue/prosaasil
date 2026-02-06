@@ -300,7 +300,7 @@ export function StatusChangePromptEditor({ businessId, onSave }: StatusChangePro
         </button>
 
         <button
-          onClick={handleSave}
+          onClick={() => handleSave()}
           disabled={!isDirty || saving || promptText.length > 5000}
           className="px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg
                      hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed

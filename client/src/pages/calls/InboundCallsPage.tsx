@@ -163,7 +163,7 @@ export function InboundCallsPage() {
   useEffect(() => {
     const loadWebhookStatus = async () => {
       try {
-        const response = await http.get('/api/business/current');
+        const response = await http.get<any>('/api/business/current');
         setHasWebhook(!!response.status_webhook_url);
       } catch (error) {
         console.error('Error loading webhook status:', error);
@@ -268,7 +268,7 @@ export function InboundCallsPage() {
         params.append('search', recentCallsSearch);
       }
 
-      return await http.get(`/api/inbound/recent-calls?${params.toString()}`);
+      return await http.get<any>(`/api/inbound/recent-calls?${params.toString()}`);
     },
     enabled: activeTab === 'recent',
     retry: 1,
@@ -420,7 +420,7 @@ export function InboundCallsPage() {
     // Start new polling - check every 5 seconds (per requirement)
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const status = await http.get(`/api/outbound/runs/${runId}`);
+        const status = await http.get<any>(`/api/outbound/runs/${runId}`);
         setQueueStatus({
           queued: status.queued,
           in_progress: status.in_progress,
@@ -536,7 +536,7 @@ export function InboundCallsPage() {
     }
 
     try {
-      const response = await http.post('/api/leads/select-ids', {
+      const response = await http.post<any>('/api/leads/select-ids', {
         statuses: selectedStatuses,
         search: searchQuery,
         tab: activeTab,
@@ -906,9 +906,9 @@ export function InboundCallsPage() {
                     onStatusChange={handleStatusChange}
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
-                    updatingStatusLeadId={updatingStatusLeadId}
+                    updatingStatusLeadId={updatingStatusLeadId ?? undefined}
                     statusCounts={activeLeadsStatusCounts}
-                    totalLeads={totalActiveLeads}
+                    totalLeads={totalActiveLeads ?? 0}
                   />
                 </div>
               )}
@@ -973,7 +973,7 @@ export function InboundCallsPage() {
                         <StatusDropdownWithWebhook
                           leadId={lead.id}
                           currentStatus={lead.status}
-                          statuses={statuses}
+                          statuses={statuses as any}
                           onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
                           source="inbound_calls"
                           hasWebhook={hasWebhook}
@@ -1113,8 +1113,8 @@ export function InboundCallsPage() {
                                 <StatusDropdownWithWebhook
                                   leadId={call.lead_id}
                                   currentStatus={call.lead_status}
-                                  statuses={statuses}
-                                  onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id, newStatus)}
+                                  statuses={statuses as any}
+                                  onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id!, newStatus)}
                                   source="recent_calls_tab"
                                   hasWebhook={hasWebhook}
                                   size="sm"
@@ -1238,7 +1238,7 @@ export function InboundCallsPage() {
                             <StatusDropdownWithWebhook
                               leadId={call.lead_id}
                               currentStatus={call.lead_status}
-                              statuses={statuses}
+                              statuses={statuses as any}
                               onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id!, newStatus)}
                               source="recent_calls_tab"
                               hasWebhook={hasWebhook}

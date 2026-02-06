@@ -13,6 +13,11 @@
 export function normalizePhoneForDisplay(phone: string | undefined | null): string {
   if (!phone) return '';
   
+  // Check if it's a lid@ identifier first (e.g., 'lid@8762345')
+  if (/^lid@/i.test(phone)) {
+    return '';
+  }
+  
   // Remove WhatsApp JID suffixes
   const normalized = phone
     .replace(/@s\.whatsapp\.net/g, '')
@@ -22,10 +27,10 @@ export function normalizePhoneForDisplay(phone: string | undefined | null): stri
     .replace(/@g\.us/g, '')
     .trim();
   
-  // LID identifiers are very long numbers (12+ digits) without typical phone patterns
-  // Real phone numbers in E.164 format are typically 10-15 digits and start with +
-  // If we see 12+ digits without +, it's likely an internal WhatsApp @lid identifier
-  const MIN_LID_DIGITS = 12;
+  // LID identifiers are very long numbers (14+ digits) without typical phone patterns
+  // Real phone numbers in E.164 format are typically 10-13 digits (e.g., 972525951893)
+  // WhatsApp @lid identifiers are 14+ digit internal IDs
+  const MIN_LID_DIGITS = 14;
   if (normalized.length >= MIN_LID_DIGITS && /^\d+$/.test(normalized) && !normalized.startsWith('+')) {
     // This is likely an @lid identifier, not a real phone number
     return '';

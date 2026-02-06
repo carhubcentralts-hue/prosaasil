@@ -5,6 +5,7 @@ export interface User {
   role: 'system_admin' | 'owner' | 'admin' | 'agent';
   name?: string;
   business_id?: number;
+  token?: string;
 }
 
 export interface Tenant {

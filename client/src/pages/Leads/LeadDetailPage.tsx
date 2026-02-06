@@ -207,8 +207,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       setLoading(false);
       
       // Fire calls and appointments fetches independently (each has its own error handling)
-      fetchCalls(id);
-      fetchAppointments(id);
+      fetchCalls(id!);
+      fetchAppointments(id!);
     } catch (err) {
       console.error('Failed to fetch lead:', err);
       setError('שגיאה בטעינת פרטי הליד');
@@ -1053,12 +1053,14 @@ interface OverviewTabProps {
     last_name: string;
     phone_e164: string;
     email: string;
+    gender: string;
   };
   setEditForm: React.Dispatch<React.SetStateAction<{
     first_name: string;
     last_name: string;
     phone_e164: string;
     email: string;
+    gender: string;
   }>>;
   startEditing: () => void;
   cancelEditing: () => void;
@@ -2819,7 +2821,7 @@ function ContractsTab({ lead }: { lead: Lead }) {
         setContractForm({ title: '', type: 'sale' });
         setNewContractFiles([]);
         await loadContracts(); // Wait for contracts to load
-        setActiveTab('contracts'); // Switch to contracts tab to show the new contract
+        // setActiveTab not available in ContractsTab - contracts tab is already active
       } else {
         alert('שגיאה ביצירת החוזה');
       }
@@ -3520,6 +3522,7 @@ interface LeadNoteItem {
     sentiment?: string;
     outcome?: string;
     next_step_date?: string;
+    is_latest?: boolean;
   };
   attachments: NoteAttachment[];
   created_at: string | null;
@@ -4185,7 +4188,7 @@ function EmailTab({ lead }: EmailTabProps) {
   
   const loadTemplateSettings = async () => {
     try {
-      const response = await http.get('/api/email/settings');
+      const response = await http.get<any>('/api/email/settings');
       if (response.settings) {
         const s = response.settings;
         setSavedTemplateSettings({
@@ -4219,7 +4222,7 @@ function EmailTab({ lead }: EmailTabProps) {
     setThemesError(null);
     try {
       console.log('[LEAD_EMAIL] Fetching catalog...');
-      const response = await http.get('/api/email/template-catalog');
+      const response = await http.get<any>('/api/email/template-catalog');
       
       console.log('[LEAD_EMAIL] status', response.status || 200, 'data', response);
       
@@ -4258,7 +4261,7 @@ function EmailTab({ lead }: EmailTabProps) {
   const loadEmails = async () => {
     try {
       setLoading(true);
-      const response = await http.get(`/api/leads/${lead.id}/emails`);
+      const response = await http.get<any>(`/api/leads/${lead.id}/emails`);
       setEmails(response.data.emails || []);
     } catch (err) {
       console.error('Failed to load emails:', err);
@@ -4309,7 +4312,7 @@ function EmailTab({ lead }: EmailTabProps) {
       console.log('[LEAD_EMAIL] Rendering theme:', selectedThemeId, 'for lead:', lead.id);
       
       // First, render the theme with user fields
-      const renderResponse = await http.post('/api/email/render-theme', {
+      const renderResponse = await http.post<any>('/api/email/render-theme', {
         theme_id: selectedThemeId,
         fields: themeFields,
         lead_id: lead.id
