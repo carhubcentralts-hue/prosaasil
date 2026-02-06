@@ -1429,6 +1429,20 @@ def send_manual_message():
             
             log.info(f"[WA-SEND] Sending {message_type} attachment: {attachment.filename_original}")
         
+        # Render template placeholders in message text
+        if message and not media_url:  # Only for text messages
+            try:
+                from server.utils.whatsapp_template_utils import render_whatsapp_template
+                business = Business.query.get(business_id)
+                if lead_id:
+                    from server.models_sql import Lead
+                    lead_obj = Lead.query.get(lead_id)
+                    if lead_obj:
+                        message = render_whatsapp_template(message, lead_obj, business)
+                        log.info(f"[WA-SEND] Template rendered for manual message")
+            except Exception as render_err:
+                log.warning(f"[WA-SEND] Template rendering failed: {render_err}")
+        
         # ✅ FAST-FAIL: Send with timeout handling for better UX
         try:
             if media_url:

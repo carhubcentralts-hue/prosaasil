@@ -589,6 +589,9 @@ class Lead(db.Model):
     # 🔒 IMPORTANT: Set ONCE on first interaction, never overridden by subsequent calls
     last_call_direction = db.Column(db.String(16), nullable=True, index=True)  # inbound|outbound - set on first call only
     
+    # AI WhatsApp Settings
+    ai_whatsapp_enabled = db.Column(db.Boolean, nullable=False, default=True)  # Whether AI should respond to this lead on WhatsApp
+    
     # 🆕 AI TOPIC CLASSIFICATION: Detected topic from transcript
     detected_topic_id = db.Column(db.Integer, db.ForeignKey("business_topics.id"), nullable=True, index=True)
     detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)

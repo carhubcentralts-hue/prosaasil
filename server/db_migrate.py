@@ -8866,6 +8866,39 @@ def apply_migrations():
         
         checkpoint("✅ Migration 141 complete: WhatsApp message lead tracking added")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 142: Add ai_whatsapp_enabled to leads for per-lead AI toggle
+        # 🎯 PURPOSE: Allow AI to be enabled/disabled per lead (not just per phone)
+        # 🔥 FEATURE: Provides better UX - toggle AI on Lead page, link to lead_id
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 142: Add ai_whatsapp_enabled to leads")
+        
+        try:
+            if check_table_exists('leads'):
+                # Add ai_whatsapp_enabled column if not exists
+                if not check_column_exists('leads', 'ai_whatsapp_enabled'):
+                    checkpoint("  → Adding ai_whatsapp_enabled column to leads...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE leads 
+                        ADD COLUMN ai_whatsapp_enabled BOOLEAN NOT NULL DEFAULT TRUE
+                    """)
+                    checkpoint("  ✅ ai_whatsapp_enabled column added to leads (default=TRUE)")
+                    checkpoint("     💡 AI can now be toggled per lead, not just per phone")
+                    checkpoint("     💡 Default TRUE - AI enabled for all existing leads")
+                    migrations_applied.append("migration_142_lead_ai_toggle")
+                else:
+                    checkpoint("  ℹ️  ai_whatsapp_enabled column already exists in leads")
+                
+                checkpoint("  ✅ Migration 142 schema changes completed")
+                checkpoint("     🎯 Impact: Per-lead AI control for better UX")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 142 failed: {e}")
+            logger.error(f"Migration 142 error: {e}", exc_info=True)
+            # Don't raise - ai_whatsapp_enabled is a feature enhancement, not critical
+        
+        checkpoint("✅ Migration 142 complete: Per-lead AI toggle added")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

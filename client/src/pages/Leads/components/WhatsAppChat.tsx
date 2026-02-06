@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Phone, MoreVertical, Paperclip, Smile, X, ArrowRight, Bot, BotOff } from 'lucide-react';
 import QRCode from 'qrcode';
+import { Link } from 'react-router-dom';
 import { Button } from '../../../shared/components/ui/Button';
 import { Input } from '../../../shared/components/ui/Input';
 import { Card } from '../../../shared/components/ui/Card';
@@ -366,9 +367,13 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
               {lead.first_name?.charAt(0) || lead.full_name?.charAt(0) || '?'}
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900" data-testid="whatsapp-contact-name">
+              <Link 
+                to={`/leads/${lead.id}?tab=whatsapp`} 
+                className="font-semibold text-gray-900 hover:text-green-600 transition-colors cursor-pointer" 
+                data-testid="whatsapp-contact-name"
+              >
                 {lead.full_name || `${lead.first_name} ${lead.last_name}`.trim() || 'ללא שם'}
-              </h3>
+              </Link>
               <p className="text-sm text-gray-600" data-testid="whatsapp-contact-phone">
                 {lead.phone_e164}
               </p>

@@ -68,20 +68,26 @@ def whatsapp_ai_response_job(
             phone_e164=lead.phone_e164
         ).first() if lead.phone_e164 else None
         
-        # Check if AI is enabled
+        # Check if AI is enabled (both phone-level and lead-level)
         ai_enabled = True
         try:
+            # Check phone-level AI toggle
             conv_state = WhatsAppConversationState.query.filter_by(
                 business_id=business_id,
                 phone=conversation_key
             ).first()
             if conv_state:
                 ai_enabled = conv_state.ai_active
+            
+            # Check lead-level AI toggle (if phone-level is enabled)
+            if ai_enabled and lead:
+                ai_enabled = lead.ai_whatsapp_enabled
+                
         except Exception as e:
             logger.warning(f"[WA-AI-JOB] Could not check AI state: {e}")
         
         if not ai_enabled:
-            logger.info(f"[WA-AI-JOB] 🚫 AI disabled for {conversation_key[:30]} - skipping")
+            logger.info(f"[WA-AI-JOB] 🚫 AI disabled for lead_id={lead_id} or phone={conversation_key[:30]} - skipping")
             return {'success': True, 'ai_disabled': True}
         
         # Load conversation history (20 messages)
@@ -221,6 +227,16 @@ def whatsapp_ai_response_job(
         
         ai_duration = time.time() - ai_start
         logger.info(f"[WA-AI-JOB] ✅ AI response generated in {ai_duration:.2f}s, length={len(response_text)}")
+        
+        # Render template placeholders if any
+        if response_text:
+            try:
+                from server.utils.whatsapp_template_utils import render_whatsapp_template
+                business = Business.query.get(business_id)
+                response_text = render_whatsapp_template(response_text, lead, business)
+                logger.info(f"[WA-AI-JOB] ✅ Template rendered, final length={len(response_text)}")
+            except Exception as render_err:
+                logger.error(f"[WA-AI-JOB] ❌ Template rendering failed: {render_err}")
         
         # Update conversation state
         try:
