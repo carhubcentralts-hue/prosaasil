@@ -481,6 +481,11 @@ class WhatsAppConversation(db.Model):
     customer_wa_id = db.Column(db.String(64), nullable=True, index=True)  # Customer WhatsApp number (legacy)
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # Link to Lead if exists
     
+    # 🆕 BUILD 138: Canonical conversation key for deduplication
+    # Format: "lead:{business_id}:{lead_id}" or "phone:{business_id}:{phone_e164}"
+    # This ensures ONE conversation per person regardless of identifier changes
+    canonical_key = db.Column(db.String(255), nullable=True, index=True)
+    
     # Session timestamps
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_message_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

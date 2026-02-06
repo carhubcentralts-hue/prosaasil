@@ -32,32 +32,79 @@ _session_processor_lock = threading.Lock()
 def get_or_create_session(
     business_id: int,
     customer_wa_id: str,
-    provider: str = "baileys"
+    provider: str = "baileys",
+    lead_id: Optional[int] = None,
+    phone_e164: Optional[str] = None
 ) -> Tuple[WhatsAppConversation, bool]:
-    """Get existing open session or create new one
+    """Get existing open session or create new one using canonical key
     
-    Session Rules (BUILD 163):
-    1. Session is per-customer (customer_wa_id) + per-business
+    Session Rules (BUILD 138 - Canonical Key):
+    1. Session is uniquely identified by canonical_key = (business_id, lead_id) OR (business_id, phone_e164)
     2. Session is valid only for SAME DAY - new day = new session
     3. If 5+ minutes passed since last CUSTOMER message = close old, create new
     4. Business messages don't reset the 5-minute inactivity timer
     
     Args:
         business_id: Business ID
-        customer_wa_id: Customer WhatsApp number (cleaned)
+        customer_wa_id: Customer WhatsApp number (cleaned) - used for legacy lookups
         provider: WhatsApp provider (baileys/meta)
+        lead_id: Lead ID if customer is identified (preferred for canonical key)
+        phone_e164: Normalized E.164 phone number (fallback for canonical key)
     
     Returns:
         Tuple of (WhatsAppConversation, is_new_session)
     """
+    from server.utils.whatsapp_utils import get_canonical_conversation_key
+    
     customer_wa_id = customer_wa_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
     
-    # Find any open session for this customer
-    session = WhatsAppConversation.query.filter_by(
-        business_id=business_id,
-        customer_wa_id=customer_wa_id,
-        is_open=True
-    ).first()
+    # 🔥 BUILD 138: Generate canonical key
+    canonical_key = None
+    try:
+        # Ensure phone_e164 is properly formatted
+        if phone_e164 and not phone_e164.startswith('+'):
+            phone_e164_normalized = f"+{phone_e164}"
+        else:
+            phone_e164_normalized = phone_e164
+            
+        canonical_key = get_canonical_conversation_key(
+            business_id=business_id,
+            lead_id=lead_id,
+            phone_e164=phone_e164_normalized
+        )
+        logger.info(f"[WA-SESSION] Generated canonical_key: {canonical_key}")
+    except Exception as e:
+        logger.warning(f"[WA-SESSION] Could not generate canonical_key: {e}")
+        # Fallback to legacy behavior if canonical key generation fails
+    
+    # Find existing session
+    session = None
+    
+    # 🔥 BUILD 138: Try canonical key first (preferred)
+    if canonical_key:
+        session = WhatsAppConversation.query.filter_by(
+            business_id=business_id,
+            canonical_key=canonical_key,
+            is_open=True
+        ).first()
+        
+        if session:
+            logger.info(f"[WA-SESSION] Found session by canonical_key: session_id={session.id}")
+    
+    # Fallback: Try legacy customer_wa_id lookup
+    if not session:
+        session = WhatsAppConversation.query.filter_by(
+            business_id=business_id,
+            customer_wa_id=customer_wa_id,
+            is_open=True
+        ).first()
+        
+        if session:
+            logger.info(f"[WA-SESSION] Found session by customer_wa_id (legacy): session_id={session.id}")
+            # 🔥 BUILD 138: Update legacy session with canonical_key
+            if canonical_key and not session.canonical_key:
+                session.canonical_key = canonical_key
+                logger.info(f"[WA-SESSION] Updated legacy session with canonical_key: {canonical_key}")
     
     now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -72,41 +119,59 @@ def get_or_create_session(
             logger.info(f"[WA-SESSION] Closed old-day session id={session.id} (started {session.started_at.date()})")
             session = None
         
-        # 🔥 BUILD 163: Check 2 - Has 15+ minutes passed since last CUSTOMER message?
+        # 🔥 BUILD 163: Check 2 - Has 5+ minutes passed since last CUSTOMER message?
         elif session.last_customer_message_at:
             cutoff = now - timedelta(minutes=INACTIVITY_MINUTES)
             if session.last_customer_message_at < cutoff:
-                # Customer inactive for 15+ min - close session, background will summarize
+                # Customer inactive for 5+ min - close session, background will summarize
                 session.is_open = False
                 db.session.commit()
                 logger.info(f"[WA-SESSION] Closed stale session id={session.id} (customer inactive > {INACTIVITY_MINUTES}min)")
                 session = None
+        
+        # 🔥 BUILD 138: Update lead_id if provided and not set
+        if session and lead_id and not session.lead_id:
+            session.lead_id = lead_id
+            logger.info(f"[WA-SESSION] Updated session {session.id} with lead_id={lead_id}")
     
     if session:
         return session, False
     
-    lead_id = None
-    lead = Lead.query.filter_by(
-        tenant_id=business_id,
-        phone_e164=customer_wa_id
-    ).first()
-    
-    if not lead:
-        normalized = f"+{customer_wa_id}" if not customer_wa_id.startswith("+") else customer_wa_id
+    # 🔥 BUILD 138: Try to find lead if not provided
+    if not lead_id:
         lead = Lead.query.filter_by(
             tenant_id=business_id,
-            phone_e164=normalized
+            phone_e164=phone_e164 or f"+{customer_wa_id}" if customer_wa_id else None
         ).first()
+        
+        if not lead and customer_wa_id:
+            normalized = f"+{customer_wa_id}" if not customer_wa_id.startswith("+") else customer_wa_id
+            lead = Lead.query.filter_by(
+                tenant_id=business_id,
+                phone_e164=normalized
+            ).first()
+        
+        if lead:
+            lead_id = lead.id
+            # Recalculate canonical_key with lead_id
+            try:
+                canonical_key = get_canonical_conversation_key(
+                    business_id=business_id,
+                    lead_id=lead_id,
+                    phone_e164=phone_e164_normalized
+                )
+                logger.info(f"[WA-SESSION] Recalculated canonical_key with lead_id: {canonical_key}")
+            except Exception as e:
+                logger.warning(f"[WA-SESSION] Could not recalculate canonical_key: {e}")
     
-    if lead:
-        lead_id = lead.id
-    
+    # Create new session
     new_session = WhatsAppConversation(
         business_id=business_id,
         customer_number=customer_wa_id,  # ✅ BUILD 170.1: Required field!
         provider=provider,
         customer_wa_id=customer_wa_id,
         lead_id=lead_id,
+        canonical_key=canonical_key,  # 🔥 BUILD 138: Set canonical key
         started_at=datetime.utcnow(),
         last_message_at=datetime.utcnow(),
         last_customer_message_at=datetime.utcnow(),
@@ -117,7 +182,7 @@ def get_or_create_session(
     db.session.add(new_session)
     db.session.commit()
     
-    logger.info(f"[WA-SESSION] ✨ Created NEW session id={new_session.id} for customer={customer_wa_id[:8]}... lead_id={lead_id} business_id={business_id}")
+    logger.info(f"[WA-SESSION] ✨ Created NEW session id={new_session.id} canonical_key={canonical_key} lead_id={lead_id} business_id={business_id}")
     
     return new_session, True
 
@@ -127,7 +192,8 @@ def update_session_activity(
     customer_wa_id: str,
     direction: str = "in",
     provider: str = "baileys",
-    lead_id: Optional[int] = None  # 🔥 FIX: Add lead_id parameter
+    lead_id: Optional[int] = None,
+    phone_e164: Optional[str] = None
 ) -> Optional[WhatsAppConversation]:
     """Update session's last_message_at timestamp
     
@@ -137,12 +203,20 @@ def update_session_activity(
         direction: "in" for customer message, "out" for business message
         provider: WhatsApp provider
         lead_id: Optional lead ID to link session to lead
+        phone_e164: Optional normalized E.164 phone for canonical key
     
     Returns:
         Updated session or None
     """
     try:
-        session, is_new = get_or_create_session(business_id, customer_wa_id, provider)
+        # 🔥 BUILD 138: Pass lead_id and phone_e164 to get_or_create_session
+        session, is_new = get_or_create_session(
+            business_id, 
+            customer_wa_id, 
+            provider,
+            lead_id=lead_id,
+            phone_e164=phone_e164
+        )
         
         now = datetime.utcnow()
         session.last_message_at = now
