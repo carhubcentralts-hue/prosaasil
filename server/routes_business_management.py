@@ -802,13 +802,117 @@ def exit_impersonation():
 
 # === ADDITIONAL BUSINESS ENDPOINTS FROM api_business.py ===
 
+def _update_appointment_settings(business_id: int):
+    """
+    Helper function to update appointment settings for a business.
+    Called by PUT/PATCH /api/business/current
+    """
+    try:
+        from flask import request
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid JSON data"}), 400
+        
+        business = Business.query.filter_by(id=business_id).first()
+        if not business:
+            return jsonify({"error": "Business not found"}), 404
+        
+        # Get or create settings
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        if not settings:
+            settings = BusinessSettings()
+            settings.tenant_id = business_id
+            db.session.add(settings)
+        
+        # Track if appointment settings changed (for cache invalidation)
+        appointment_settings_changed = False
+        
+        # Update appointment settings
+        if 'slot_size_min' in data:
+            settings.slot_size_min = int(data['slot_size_min'])
+            appointment_settings_changed = True
+            logger.info(f"✅ Updated slot_size_min={settings.slot_size_min} for business {business_id}")
+        
+        if 'allow_24_7' in data:
+            settings.allow_24_7 = bool(data['allow_24_7'])
+            appointment_settings_changed = True
+            logger.info(f"✅ Updated allow_24_7={settings.allow_24_7} for business {business_id}")
+        
+        if 'booking_window_days' in data:
+            settings.booking_window_days = int(data['booking_window_days'])
+            appointment_settings_changed = True
+            logger.info(f"✅ Updated booking_window_days={settings.booking_window_days} for business {business_id}")
+        
+        if 'min_notice_min' in data:
+            settings.min_notice_min = int(data['min_notice_min'])
+            appointment_settings_changed = True
+            logger.info(f"✅ Updated min_notice_min={settings.min_notice_min} for business {business_id}")
+        
+        if 'opening_hours_json' in data:
+            settings.opening_hours_json = data['opening_hours_json']
+            appointment_settings_changed = True
+            logger.info(f"✅ Updated opening_hours_json for business {business_id}")
+        
+        # Commit changes
+        db.session.commit()
+        
+        # 🔄 Invalidate ALL caches when appointment settings change
+        if appointment_settings_changed:
+            logger.info(f"🔄 [PROMPT STUDIO] Appointment settings changed for business {business_id} - invalidating caches")
+            
+            # Invalidate business policy cache
+            try:
+                from server.policy.business_policy import invalidate_business_policy_cache
+                invalidate_business_policy_cache(business_id)
+                logger.info(f"✅ Business policy cache cleared for business {business_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to clear business policy cache: {e}")
+            
+            # Invalidate agent cache
+            try:
+                from server.agent_tools.agent_factory import invalidate_agent_cache
+                invalidate_agent_cache(business_id)
+                logger.info(f"✅ Agent cache cleared for business {business_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to clear agent cache: {e}")
+            
+            # Invalidate AI cache
+            try:
+                from server.services.ai_service import invalidate_business_cache
+                invalidate_business_cache(business_id)
+                logger.info(f"✅ AI cache cleared for business {business_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to clear AI cache: {e}")
+        
+        logger.info(f"✅ [PROMPT STUDIO] Appointment settings saved successfully for business {business_id}")
+        
+        return jsonify({
+            "success": True,
+            "message": "הגדרות תורים נשמרו בהצלחה",
+            "slot_size_min": settings.slot_size_min,
+            "allow_24_7": settings.allow_24_7,
+            "booking_window_days": settings.booking_window_days,
+            "min_notice_min": settings.min_notice_min
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error updating appointment settings for business {business_id}: {e}", exc_info=True)
+        return jsonify({"error": "שגיאה בשמירת הגדרות"}), 500
+
 # Business current info route
-@biz_mgmt_bp.route('/api/business/current', methods=['GET'])
+@biz_mgmt_bp.route('/api/business/current', methods=['GET', 'PUT', 'PATCH', 'OPTIONS'])
+@csrf.exempt
 @require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business'])
 def get_current_business():
-    """Get current business details for authenticated user"""
+    """Get current business details for authenticated user OR update appointment settings"""
     try:
         from flask import request, g, session
+        
+        # Handle OPTIONS preflight request
+        if request.method == 'OPTIONS':
+            return jsonify({"success": True}), 200
         
         business_id = g.get('tenant') or getattr(g, 'business_id', None)
         if not business_id:
@@ -819,6 +923,10 @@ def get_current_business():
         if not business_id:
             logger.warning("No business context found in get_current_business")
             return jsonify({"error": "No business context found"}), 400
+        
+        # 🔥 FIX: Handle PUT/PATCH requests for appointment settings
+        if request.method in ['PUT', 'PATCH']:
+            return _update_appointment_settings(business_id)
             
         business = Business.query.filter_by(id=business_id).first()
         if not business:

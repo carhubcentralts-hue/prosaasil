@@ -249,8 +249,10 @@ def get_business_policy(
                 merged["tz"] = settings.timezone
             if settings.slot_size_min is not None:
                 merged["slot_size_min"] = settings.slot_size_min
+                logger.info(f"✅ [POLICY] Loaded slot_size_min={settings.slot_size_min} from DB")
             if settings.allow_24_7 is not None:
                 merged["allow_24_7"] = settings.allow_24_7
+                logger.info(f"✅ [POLICY] Loaded allow_24_7={settings.allow_24_7} from DB")
             # 🔥 SOURCE OF TRUTH: opening_hours_json from BusinessSettings (priority #1)
             if settings.opening_hours_json:
                 merged["opening_hours"] = settings.opening_hours_json
@@ -304,8 +306,10 @@ def get_business_policy(
                     
             if settings.booking_window_days is not None:
                 merged["booking_window_days"] = settings.booking_window_days
+                logger.info(f"✅ [POLICY] Loaded booking_window_days={settings.booking_window_days} from DB")
             if settings.min_notice_min is not None:
                 merged["min_notice_min"] = settings.min_notice_min
+                logger.info(f"✅ [POLICY] Loaded min_notice_min={settings.min_notice_min} from DB")
             if hasattr(settings, 'require_phone_before_booking') and settings.require_phone_before_booking is not None:
                 merged["require_phone_before_booking"] = settings.require_phone_before_booking
             
