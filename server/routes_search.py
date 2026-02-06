@@ -375,7 +375,6 @@ def global_search():
                 # Prompt Studio Tabs
                 {'id': 'prompt-studio-prompts', 'title': 'עריכת פרומפטים', 'description': 'עריכת פרומפטים לשיחות ו-WhatsApp', 'keywords': ['פרומפטים', 'prompts', 'ai', 'עריכה'], 'path': '/app/admin/prompt-studio?tab=prompts', 'section': 'prompts', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
                 {'id': 'prompt-studio-builder', 'title': 'מחולל פרומפטים', 'description': 'יצירת פרומפטים חכמים באופן אוטומטי', 'keywords': ['מחולל', 'builder', 'generator', 'פרומפטים'], 'path': '/app/admin/prompt-studio?tab=builder', 'section': 'builder', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
-                {'id': 'prompt-studio-tester', 'title': 'בדיקת שיחה חיה', 'description': 'בדיקת פרומפטים בשיחה חיה', 'keywords': ['בדיקה', 'tester', 'live', 'שיחה'], 'path': '/app/admin/prompt-studio?tab=tester', 'section': 'tester', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
                 {'id': 'prompt-studio-appointments', 'title': 'הגדרות תורים', 'description': 'הגדרות קביעת פגישות ותורים', 'keywords': ['תורים', 'appointments', 'פגישות'], 'path': '/app/admin/prompt-studio?tab=appointments', 'section': 'appointments', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
                 
                 # WhatsApp Broadcast Tabs

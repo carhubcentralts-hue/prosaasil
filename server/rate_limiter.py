@@ -65,6 +65,5 @@ RATE_LIMITS = {
     'search': "30 per minute",             # Search operations
     'export': "10 per minute",             # Data export (resource intensive)
     'prompt_builder': "10 per minute",     # AI prompt generation (expensive)
-    'live_call': "30 per minute",          # Live call endpoints (browser voice chat)
     'tts_preview': "20 per minute",        # TTS preview (resource intensive)
 }

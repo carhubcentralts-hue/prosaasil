@@ -15,7 +15,6 @@ import {
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
 import { PromptBuilderChat } from '../../components/settings/PromptBuilderChat';
-import { LiveCallCard } from '../../components/settings/LiveCallCard';
 import { BusinessAISettings } from '../../components/settings/BusinessAISettings';
 
 // Temporary UI components
@@ -35,8 +34,8 @@ export function PromptStudioPage() {
   const { user } = useAuth();
   // ✅ URL-based tab navigation for search and refresh persistence
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'tester' | 'appointments' | null;
-  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'tester' | 'appointments'>(tabFromUrl || 'prompts');
+  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'appointments' | null;
+  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'appointments'>(tabFromUrl || 'prompts');
   const [showChatBuilder, setShowChatBuilder] = useState(false);
   const [smartGenChannel, setSmartGenChannel] = useState<'calls' | 'whatsapp'>('calls');
   const [saving, setSaving] = useState(false);
@@ -49,7 +48,7 @@ export function PromptStudioPage() {
   }, [tabFromUrl]);
   
   // ✅ Update URL when tab changes
-  const handleTabChange = (tab: 'prompts' | 'builder' | 'tester' | 'appointments') => {
+  const handleTabChange = (tab: 'prompts' | 'builder' | 'appointments') => {
     setActiveTab(tab);
     setSearchParams({ tab });
   };
@@ -185,16 +184,6 @@ export function PromptStudioPage() {
           מחולל פרומפטים
         </button>
         <button
-          onClick={() => handleTabChange('tester')}
-          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'tester'
-              ? 'border-purple-600 text-purple-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          שיחה חיה
-        </button>
-        <button
           onClick={() => handleTabChange('appointments')}
           className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
             activeTab === 'appointments'
@@ -236,12 +225,6 @@ export function PromptStudioPage() {
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {activeTab === 'tester' && (
-        <div className="grid grid-cols-1 gap-6">
-          <LiveCallCard />
         </div>
       )}
       

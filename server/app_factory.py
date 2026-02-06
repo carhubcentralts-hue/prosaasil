@@ -758,11 +758,6 @@ def create_app():
         from server.routes_ai_system import ai_system_bp
         app.register_blueprint(ai_system_bp)
         
-        # Live Call Blueprint - Browser-based voice chat (Web App only)
-        # 🔥 This is the ONLY voice test interface - uses saved Business settings
-        from server.routes_live_call import live_call_bp
-        app.register_blueprint(live_call_bp)
-        
         # Prompt Builder Blueprint - AI-powered prompt generation
         from server.routes_prompt_builder import prompt_builder_bp
         app.register_blueprint(prompt_builder_bp)
