@@ -286,9 +286,9 @@ def api_thread_messages(thread_id):
                 # Get messages by conversation_id (preferred) or to_number (fallback for old messages)
                 messages = WhatsAppMessage.query.filter(
                     WhatsAppMessage.business_id == business_id,
-                    db.or_(
+                    or_(
                         WhatsAppMessage.conversation_id == conversation.id,
-                        db.and_(
+                        and_(
                             WhatsAppMessage.to_number == conversation.customer_number,
                             WhatsAppMessage.conversation_id.is_(None)  # Include old messages without conversation_id
                         )

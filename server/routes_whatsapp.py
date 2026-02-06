@@ -1314,11 +1314,11 @@ def baileys_webhook():
                 try:
                     conversation = update_session_activity(
                         business_id=business_id,
-                        customer_wa_id=conversation_key,  # 🔥 FIX #3: Use conversation_key
+                        customer_wa_id=conversation_key,  # Use normalized conversation key for consistent session tracking
                         direction="in",
                         provider="baileys",
-                        lead_id=lead.id,  # 🔥 FIX: Link session to lead
-                        phone_e164=from_number_e164  # 🔥 Pass phone for canonical_key
+                        lead_id=lead.id,  # Link session to lead for canonical key generation
+                        phone_e164=from_number_e164  # Pass phone for canonical_key generation
                     )
                     log.info(f"[WA-SESSION] ✅ Conversation tracked: conv_id={conversation.id if conversation else None}, lead_id={lead.id}")
                 except Exception as e:
@@ -1328,16 +1328,16 @@ def baileys_webhook():
                 # Use ON CONFLICT DO NOTHING pattern for race condition protection
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
-                wa_msg.to_number = conversation_key  # 🔥 FIX #3: Use unified conversation_key instead of from_number_e164
+                wa_msg.to_number = conversation_key  # Use unified conversation_key for consistent message grouping
                 wa_msg.body = message_text
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'in'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = 'baileys'
                 wa_msg.status = 'received'
                 wa_msg.provider_message_id = baileys_message_id if baileys_message_id else None
-                wa_msg.lead_id = lead.id  # 🔥 Link message to lead
-                wa_msg.conversation_id = conversation.id if conversation else None  # 🔥 Link message to conversation
-                wa_msg.source = 'customer'  # 🔥 Mark as customer message
+                wa_msg.lead_id = lead.id  # Link message to lead for easier querying
+                wa_msg.conversation_id = conversation.id if conversation else None  # Link message to conversation for unified threading
+                wa_msg.source = 'customer'  # Mark as customer message for context
                 
                 try:
                     db.session.add(wa_msg)
