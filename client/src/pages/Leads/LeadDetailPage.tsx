@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File, Send, FileSignature, MoreHorizontal, ClipboardList, FolderOpen, Settings } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File, Send, FileSignature, MoreHorizontal, ClipboardList, FolderOpen, Settings, Bot, BotOff } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
 import { LeadTabsConfigModal } from './components/LeadTabsConfigModal';
@@ -108,6 +108,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);  // For "More" dropdown
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const [tabsConfigModalOpen, setTabsConfigModalOpen] = useState(false);  // For tabs configuration modal
+  const [aiWhatsappEnabled, setAiWhatsappEnabled] = useState<boolean>(true); // AI toggle state
+  const [togglingAi, setTogglingAi] = useState(false); // Loading state for AI toggle
   
   // Close more menu when clicking outside
   useEffect(() => {
@@ -203,6 +205,9 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       setActivities(response.activity || []);
       setReminders(response.reminders || []);
       
+      // Fetch AI settings for this lead
+      fetchAISettings(id!);
+      
       // Immediately hide loading state - lead is loaded
       setLoading(false);
       
@@ -213,6 +218,40 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       console.error('Failed to fetch lead:', err);
       setError('שגיאה בטעינת פרטי הליד');
       setLoading(false);
+    }
+  };
+
+  const fetchAISettings = async (leadId: string) => {
+    try {
+      const response = await http.get<{ success: boolean; ai_whatsapp_enabled: boolean }>(`/api/leads/${leadId}/ai-settings`);
+      if (response.success) {
+        setAiWhatsappEnabled(response.ai_whatsapp_enabled);
+      }
+    } catch (err) {
+      console.error('Failed to fetch AI settings:', err);
+      // Default to enabled on error
+      setAiWhatsappEnabled(true);
+    }
+  };
+
+  const toggleAIWhatsApp = async () => {
+    if (!lead) return;
+    
+    try {
+      setTogglingAi(true);
+      const newState = !aiWhatsappEnabled;
+      const response = await http.patch<{ success: boolean; ai_whatsapp_enabled: boolean }>(
+        `/api/leads/${lead.id}/ai-settings`,
+        { whatsapp_enabled: newState }
+      );
+      
+      if (response.success) {
+        setAiWhatsappEnabled(response.ai_whatsapp_enabled);
+      }
+    } catch (err) {
+      console.error('Failed to toggle AI WhatsApp:', err);
+    } finally {
+      setTogglingAi(false);
     }
   };
 
@@ -462,6 +501,26 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 data-testid="status-dropdown"
               />
               
+              {/* AI WhatsApp Toggle */}
+              <Button
+                size="sm"
+                variant={aiWhatsappEnabled ? "default" : "outline"}
+                className={`min-h-[44px] ${aiWhatsappEnabled ? 'bg-blue-600 hover:bg-blue-700' : 'hover:bg-gray-100'}`}
+                onClick={toggleAIWhatsApp}
+                disabled={togglingAi}
+                title={aiWhatsappEnabled ? 'AI פעיל - לחץ להשבתה' : 'AI כבוי - לחץ להפעלה'}
+                data-testid="button-ai-toggle"
+              >
+                {togglingAi ? (
+                  <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+                ) : aiWhatsappEnabled ? (
+                  <Bot className="w-4 h-4 ml-2" />
+                ) : (
+                  <BotOff className="w-4 h-4 ml-2" />
+                )}
+                {aiWhatsappEnabled ? 'AI פעיל' : 'AI כבוי'}
+              </Button>
+              
               {/* Primary Action Buttons - Grouped together */}
               <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1" role="group" aria-label="פעולות ראשיות">
                 <Button 
@@ -548,6 +607,27 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               >
                 <MessageSquare className="w-4 h-4 ml-2" />
                 וואטסאפ
+              </Button>
+            </div>
+            
+            {/* AI Toggle - Mobile */}
+            <div className="flex items-center justify-center mt-2">
+              <Button
+                size="sm"
+                variant={aiWhatsappEnabled ? "default" : "outline"}
+                className={`min-h-[36px] text-xs ${aiWhatsappEnabled ? 'bg-blue-600 hover:bg-blue-700' : 'hover:bg-gray-100'}`}
+                onClick={toggleAIWhatsApp}
+                disabled={togglingAi}
+                data-testid="button-ai-toggle-mobile"
+              >
+                {togglingAi ? (
+                  <Loader2 className="w-3 h-3 ml-2 animate-spin" />
+                ) : aiWhatsappEnabled ? (
+                  <Bot className="w-3 h-3 ml-2" />
+                ) : (
+                  <BotOff className="w-3 h-3 ml-2" />
+                )}
+                {aiWhatsappEnabled ? 'AI פעיל בוואטסאפ' : 'AI כבוי בוואטסאפ'}
               </Button>
             </div>
           </div>
