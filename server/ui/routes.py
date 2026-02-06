@@ -1,10 +1,9 @@
 # Clean UI Routes - Professional Hebrew CRM
 # Based on exact specification from attached_assets
-from flask import Blueprint, request, session, g, redirect, url_for, jsonify, send_file
+from flask import Blueprint, request, session, g, redirect, jsonify, send_file
 import os
 import logging
 from functools import wraps
-from datetime import datetime
 from server.security_audit import audit_action
 
 logger = logging.getLogger(__name__)
@@ -73,7 +72,7 @@ def _load_counters_for_admin():
             'today_calls': 0,
             'whatsapp_unread': 0
         }
-    except:
+    except Exception:
         return {
             'tenants_active': 0,
             'users_pending': 0,
@@ -91,7 +90,7 @@ def _load_counters_for_business(bid):
             'today_calls': 0,
             'whatsapp_unread': 0
         }
-    except:
+    except Exception:
         return {
             'biz_users_count': 0,
             'today_calls': 0,
@@ -109,8 +108,8 @@ def _load_counters_for_business(bid):
 #@require_roles("manager")
 def admin_home():
     """Professional admin dashboard"""
-    user = session.get('al_user') or session.get('user')
-    counters = _load_counters_for_admin()
+    _user = session.get('al_user') or session.get('user')
+    _counters = _load_counters_for_admin()
     # SPA fallback - return React app
     dist_path = os.path.join(os.path.dirname(__file__), '..', '..', 'client', 'dist', 'index.html')
     return send_file(dist_path)
@@ -121,7 +120,7 @@ def biz_home():
     """Professional business dashboard"""
     user = session.get('al_user') or session.get('user')
     bid = effective_business_id() or (user.get('business_id') if user else None)
-    counters = _load_counters_for_business(bid)
+    _counters = _load_counters_for_business(bid)
     # SPA fallback - return React app
     dist_path = os.path.join(os.path.dirname(__file__), '..', '..', 'client', 'dist', 'index.html')
     return send_file(dist_path)
@@ -273,7 +272,7 @@ def ui_admin_users_new():
         from server.models_sql import Business
         businesses = Business.query.filter_by(is_active=True).all()
         business_options = ''.join([f'<option value="{b.id}">{b.name}</option>' for b in businesses])
-    except:
+    except Exception:
         business_options = '<option value="">אין עסקים זמינים</option>'
     
     return f"""
@@ -474,7 +473,7 @@ def ui_admin_users():
                     business_name = biz.name if biz else 'עסק לא קיים'
                 else:
                     business_name = 'מנהל מערכת'
-            except:
+            except Exception:
                 business_name = 'לא מוגדר'
                 
             enabled = getattr(u, 'enabled', True)
@@ -514,8 +513,8 @@ def ui_admin_users():
 #@require_roles("manager","business")
 def ui_whatsapp_threads():
     """Load WhatsApp threads via HTMX"""
-    bid = effective_business_id()
-    q = request.args.get('q', '').strip()
+    _bid = effective_business_id()
+    _q = request.args.get('q', '').strip()
     
     # Mock data for demonstration
     threads_html = """
@@ -564,10 +563,10 @@ def ui_whatsapp_threads():
 #@require_roles("manager","business")
 def ui_whatsapp_messages():
     """Load WhatsApp messages for thread via HTMX"""
-    thread_id = request.args.get('thread_id')
+    _thread_id = request.args.get('thread_id')
     
     # Mock messages for demonstration
-    messages_html = f"""
+    messages_html = """
     <div id="messages" class="space-y-4 h-80 overflow-y-auto p-4">
         <div class="flex justify-start">
             <div class="bg-gray-100 rounded-2xl rounded-br-md px-4 py-2 max-w-xs">
@@ -598,7 +597,7 @@ def ui_whatsapp_messages():
 def ui_whatsapp_send():
     """Send WhatsApp message via HTMX"""
     text = request.form.get('text', '').strip()
-    business_id = request.form.get('business_id')
+    _business_id = request.form.get('business_id')
     
     if not text:
         return '<div class="text-red-600 text-sm">נדרשת הודעה לשליחה</div>'
@@ -631,8 +630,8 @@ def ui_calls_active():
 #@require_roles("manager","business")
 def ui_calls_history():
     """Load call history via HTMX"""
-    q = request.args.get('q', '').strip()
-    bid = effective_business_id()
+    _q = request.args.get('q', '').strip()
+    _bid = effective_business_id()
     
     # Mock call history
     calls_html = """
@@ -684,8 +683,8 @@ def ui_calls_history():
 #@require_roles("manager","business")
 def ui_biz_contacts():
     """Load CRM contacts via HTMX"""
-    bid = effective_business_id()
-    q = request.args.get('q', '').strip()
+    _bid = effective_business_id()
+    _q = request.args.get('q', '').strip()
     
     # Mock contacts data
     contacts_html = """
@@ -1023,11 +1022,11 @@ def api_logout():
 def api_admin_tenants_create():
     """Create new tenant"""
     try:
-        from server.models_sql import db, Business
+        from server.models_sql import db, Business  # noqa: F401
         
         name = request.form.get('name', '').strip()
         business_type = request.form.get('business_type', '').strip()
-        contact_email = request.form.get('contact_email', '').strip()
+        _contact_email = request.form.get('contact_email', '').strip()
         
         if not name or not business_type:
             return jsonify({'success': False, 'error': 'שם ועסק סוג נדרשים'}), 400
@@ -1045,13 +1044,13 @@ def api_admin_tenants_create():
 def api_admin_users_create():
     """Create new user"""
     try:
-        from server.models_sql import db, User
+        from server.models_sql import db, User  # noqa: F401
         
         name = request.form.get('name', '').strip()
         email = request.form.get('email', '').strip().lower()
         role = request.form.get('role', '').strip()
-        business_id = request.form.get('business_id', '').strip() or None
-        enabled = bool(request.form.get('enabled'))
+        _business_id = request.form.get('business_id', '').strip() or None
+        _enabled = bool(request.form.get('enabled'))
         
         if not name or not email or not role:
             return jsonify({'success': False, 'error': 'שם, אימייל ותפקיד נדרשים'}), 400
@@ -1120,7 +1119,7 @@ def api_biz_users_create():
     except Exception as e:
         try:
             db.session.rollback()
-        except:
+        except Exception:
             pass
         import traceback
         traceback.print_exc()
@@ -1232,7 +1231,7 @@ def ui_biz_invoices():
 #@require_roles("manager")
 def ui_biz_contracts():
     """חוזים עסק"""
-    business_id = effective_business_id()
+    _business_id = effective_business_id()
     
     try:
         # 🔥 BUILD 200: GENERIC mock contracts - no hardcoded business types!

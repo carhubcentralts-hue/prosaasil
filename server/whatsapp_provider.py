@@ -3,9 +3,7 @@ WhatsApp Provider Layer - Unified Baileys and Twilio Support
 שכבת ספקי WhatsApp - תמיכה מאוחדת ב-Baileys ו-Twilio
 """
 import os
-import json
 import time
-import pathlib
 import logging
 import requests
 import uuid
@@ -191,7 +189,7 @@ class BaileysProvider(Provider):
                         self._health_status = True
                         self._last_health_check = time.time()
                         return True
-            except:
+            except Exception:
                 pass
             time.sleep(0.5)  # Check every 500ms
         
@@ -222,7 +220,7 @@ class BaileysProvider(Provider):
         try:
             # 🔥 HARDENING: Require explicit tenant_id - no fallback!
             if not tenant_id:
-                logger.warning(f"[BAILEYS-WARN] send_typing: tenant_id required but not provided")
+                logger.warning("[BAILEYS-WARN] send_typing: tenant_id required but not provided")
                 return {"status": "error", "error": "tenant_id required"}
             
             payload = {
@@ -246,7 +244,7 @@ class BaileysProvider(Provider):
         """⚡ Send text message via Baileys HTTP API with RETRY and FALLBACK (MULTI-TENANT)"""
         # 🔥 HARDENING: Require explicit tenant_id - no fallback to "business_1"!
         if not tenant_id:
-            logger.error(f"[BAILEYS-ERR] send_text: tenant_id required but not provided")
+            logger.error("[BAILEYS-ERR] send_text: tenant_id required but not provided")
             return {
                 "provider": "baileys",
                 "status": "error",
@@ -336,7 +334,7 @@ class BaileysProvider(Provider):
                 logger.warning(f"⚠️ Timeout on attempt {attempt + 1}/{max_attempts}: {e}")
                 # 🔥 FIX: Retry on timeout (if not last attempt)
                 if attempt < max_attempts - 1:
-                    logger.info(f"🔄 Retrying send after timeout...")
+                    logger.info("🔄 Retrying send after timeout...")
                     time.sleep(1)  # Brief delay before retry
                     continue
                 # Last attempt failed - break to fallback
@@ -359,7 +357,7 @@ class BaileysProvider(Provider):
         """Send media message via Baileys HTTP API (MULTI-TENANT)"""
         # 🔥 HARDENING: Require explicit tenant_id - no fallback!
         if not tenant_id:
-            logger.error(f"[BAILEYS-ERR] send_media: tenant_id required but not provided")
+            logger.error("[BAILEYS-ERR] send_media: tenant_id required but not provided")
             return {
                 "provider": "baileys",
                 "status": "error",
@@ -439,7 +437,7 @@ class BaileysProvider(Provider):
             Dict with status and error details
         """
         if not tenant_id:
-            logger.error(f"[BAILEYS-ERR] send_media_message: tenant_id required")
+            logger.error("[BAILEYS-ERR] send_media_message: tenant_id required")
             return {
                 "provider": "baileys",
                 "status": "error",
@@ -504,7 +502,7 @@ class BaileysProvider(Provider):
             
             # For documents: must have filename
             if media_type == 'document' and not media.get('filename'):
-                logger.warning(f"[BAILEYS-WARN] Document missing filename, using default")
+                logger.warning("[BAILEYS-WARN] Document missing filename, using default")
                 media['filename'] = 'document.pdf'  # Default filename
             
             # Generate idempotency key
@@ -547,10 +545,10 @@ class BaileysProvider(Provider):
                 error_body = None
                 try:
                     error_body = response.json()
-                except:
+                except Exception:
                     error_body = response.text
                 
-                logger.error(f"❌ [BAILEYS-MEDIA-ERR] Media send failed!")
+                logger.error("❌ [BAILEYS-MEDIA-ERR] Media send failed!")
                 logger.error(f"   statusCode: {response.status_code}")
                 logger.error(f"   response.data: {error_body}")
                 logger.error(f"   jid: {to}")
@@ -578,7 +576,7 @@ class BaileysProvider(Provider):
             return {
                 "provider": "baileys",
                 "status": "error",
-                "error": f"Timeout after 60s - file may be too large"
+                "error": "Timeout after 60s - file may be too large"
             }
         except Exception as e:
             logger.error(f"❌ [BAILEYS-MEDIA-ERR] Exception sending {media_type}: {e}")
@@ -851,7 +849,7 @@ class WhatsAppService:
         # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
         effective_tenant = tenant_id or self.tenant_id
         if not effective_tenant:
-            logger.warning(f"[WA-SERVICE-WARN] send_typing: no tenant_id available")
+            logger.warning("[WA-SERVICE-WARN] send_typing: no tenant_id available")
             return {"status": "error", "error": "tenant_id required"}
         if hasattr(self.provider, 'send_typing'):
             return self.provider.send_typing(jid, is_typing, tenant_id=effective_tenant)
@@ -862,7 +860,7 @@ class WhatsAppService:
         # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
         effective_tenant = tenant_id or self.tenant_id
         if not effective_tenant:
-            logger.error(f"[WA-SERVICE-ERR] send_message: no tenant_id available")
+            logger.error("[WA-SERVICE-ERR] send_message: no tenant_id available")
             return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
         
         # If media provided, send media message
@@ -875,7 +873,7 @@ class WhatsAppService:
         """Send media message (image/video/audio/document) via provider"""
         effective_tenant = tenant_id or self.tenant_id
         if not effective_tenant:
-            logger.error(f"[WA-SERVICE-ERR] send_media_message: no tenant_id available")
+            logger.error("[WA-SERVICE-ERR] send_media_message: no tenant_id available")
             return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
         
         # Use provider's send_media_message method if available
@@ -890,7 +888,7 @@ class WhatsAppService:
         # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
         effective_tenant = tenant_id or self.tenant_id
         if not effective_tenant:
-            logger.error(f"[WA-SERVICE-ERR] send_media: no tenant_id available")
+            logger.error("[WA-SERVICE-ERR] send_media: no tenant_id available")
             return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
         return self.provider.send_media(to, media_url, caption, tenant_id=effective_tenant)
         
@@ -925,7 +923,7 @@ class WhatsAppService:
         # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
         effective_tenant = tenant_id or self.tenant_id
         if not effective_tenant:
-            logger.error(f"[WA-SERVICE-ERR] send_with_failover: no tenant_id available")
+            logger.error("[WA-SERVICE-ERR] send_with_failover: no tenant_id available")
             return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
         
         # Try primary provider
@@ -957,7 +955,7 @@ def get_provider_status() -> Dict[str, Any]:
     
     # Check Twilio
     try:
-        twilio_provider = TwilioProvider()
+        _twilio_provider = TwilioProvider()
         status["providers"]["twilio"] = {
             "configured": True,
             "ready": True,

@@ -14,7 +14,7 @@ export function normalizePhoneForDisplay(phone: string | undefined | null): stri
   if (!phone) return '';
   
   // Remove WhatsApp JID suffixes
-  let normalized = phone
+  const normalized = phone
     .replace(/@s\.whatsapp\.net/g, '')
     .replace(/@c\.us/g, '')
     .replace(/@lid/g, '')

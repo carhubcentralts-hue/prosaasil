@@ -2,13 +2,9 @@
 WhatsApp Appointment Handler - ניהול פגישות דרך וואטסאפ
 """
 from datetime import datetime, timedelta
-from server.models_sql import Appointment, Customer, Business, WhatsAppMessage, db
-from server.whatsapp_templates import send_template_message, select_template
-import re
-import json
+from server.models_sql import Appointment, Customer, db
 from typing import Dict, List, Optional
 import requests
-import os
 import pytz
 import logging
 
@@ -184,7 +180,7 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
         from server.models_sql import BusinessCalendar
         default_calendar = BusinessCalendar.query.filter(
             BusinessCalendar.business_id == customer.business_id,
-            BusinessCalendar.is_active == True
+            BusinessCalendar.is_active.is_(True)
         ).order_by(BusinessCalendar.priority.desc()).first()
         
         if default_calendar:
@@ -358,14 +354,14 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
         
         # 🔥 HARDENING: Require explicit business_id - no fallback to 1!
         if not business_id:
-            logger.error(f"❌ [WA-APPT-ERROR] process_incoming_whatsapp_message: business_id required but not provided")
+            logger.error("❌ [WA-APPT-ERROR] process_incoming_whatsapp_message: business_id required but not provided")
             return {'processed': False, 'error': 'business_id required for multi-tenant isolation'}
         
         # 🔥 BUILD 200: אם יש בקשה לפגישה אבל לא מספיק מידע - GENERIC message
         if appointment_info['has_request'] and not appointment_info['meeting_ready']:
             # 🚨 DEADLOCK FIX: DO NOT send message synchronously from webhook handler!
             # Let the AI handle follow-up questions instead
-            logger.info(f"[WA-APPT] Appointment request incomplete - letting AI handle follow-up")
+            logger.info("[WA-APPT] Appointment request incomplete - letting AI handle follow-up")
             
             result['processed'] = True
             result['follow_up_needed'] = True
