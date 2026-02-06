@@ -580,7 +580,7 @@ function CreateRuleModal({
       // Handle delay based on schedule_type
       if (formData.schedule_type !== 'RECURRING_TIME') {
         // STATUS_CHANGE schedule - set delay based on whether we have steps or immediate send
-        const hasSteps = formData.steps.length > 0;
+        const hasSteps = (formData.steps?.length ?? 0) > 0;
         const hasImmediate = formData.send_immediately_on_enter;
         
         if (hasSteps || hasImmediate) {

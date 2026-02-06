@@ -235,7 +235,7 @@ def create_rule():
         # Convert delay_minutes to delay_seconds if needed (for STATUS_CHANGE)
         if schedule_type == 'STATUS_CHANGE':
             # Check if we have steps or immediate send - allows 0 delay
-            has_steps = steps and len(steps) > 0
+            has_steps = bool(steps)
             has_immediate_send = data.get('send_immediately_on_enter', False)
             allow_zero_delay = has_steps or has_immediate_send
             

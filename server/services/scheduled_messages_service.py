@@ -101,7 +101,7 @@ def create_rule(
     
     # Validation for STATUS_CHANGE schedules only
     if schedule_type == "STATUS_CHANGE":
-        has_steps = steps and len(steps) > 0
+        has_steps = bool(steps)
         
         # Validate delay_seconds
         if delay_seconds == 0 and not send_immediately_on_enter and not has_steps:
