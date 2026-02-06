@@ -258,6 +258,9 @@ def update_rule(
                 if not time_pattern.match(time_str):
                     raise ValueError(f"Invalid time format '{time_str}'. Must be 'HH:MM' (e.g., '09:00', '15:30')")
         rule.recurring_times = recurring_times
+        # Mark JSON field as modified for SQLAlchemy
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(rule, 'recurring_times')
     
     # Update fields
     if name is not None:
@@ -307,8 +310,14 @@ def update_rule(
         rule.apply_mode = apply_mode
     if active_weekdays is not None:
         rule.active_weekdays = active_weekdays
+        # Mark JSON field as modified for SQLAlchemy
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(rule, 'active_weekdays')
     if excluded_weekdays is not None:
         rule.excluded_weekdays = excluded_weekdays
+        # Mark JSON field as modified for SQLAlchemy
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(rule, 'excluded_weekdays')
     
     # Update status mappings if provided
     if status_ids is not None:

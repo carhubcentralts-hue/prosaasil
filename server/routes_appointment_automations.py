@@ -274,6 +274,8 @@ def create_automation():
 def update_automation(automation_id):
     """Update an existing automation"""
     try:
+        from sqlalchemy.orm.attributes import flag_modified
+        
         business_id = get_business_id()
         if not business_id:
             return jsonify({'error': 'Business ID required'}), 400
@@ -297,9 +299,16 @@ def update_automation(automation_id):
             'cancel_on_status_exit', 'active_weekdays'
         ]
         
+        # JSON fields that need flag_modified
+        json_fields = ['trigger_status_ids', 'calendar_ids', 'appointment_type_keys', 
+                      'schedule_offsets', 'active_weekdays']
+        
         for field in updatable_fields:
             if field in data:
                 setattr(automation, field, data[field])
+                # Mark JSON fields as modified so SQLAlchemy tracks changes
+                if field in json_fields:
+                    flag_modified(automation, field)
         
         automation.updated_at = datetime.utcnow()
         
