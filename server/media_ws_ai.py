@@ -2863,6 +2863,19 @@ class MediaStreamHandler:
                 call_goal = getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only'
                 
                 if call_goal == 'appointment':
+                    # 🔥 Load appointment settings to log them
+                    slot_size = getattr(settings, 'slot_size_min', 60) if settings else 60
+                    allow_247 = getattr(settings, 'allow_24_7', False) if settings else False
+                    booking_window = getattr(settings, 'booking_window_days', 30) if settings else 30
+                    min_notice = getattr(settings, 'min_notice_min', 0) if settings else 0
+                    
+                    logger.info(
+                        f"✅ [CALL_CONTEXT] business_id={business_id} call_goal=appointment "
+                        f"appointment_rules_loaded=true slot_size_min={slot_size} "
+                        f"allow_24_7={allow_247} booking_window_days={booking_window} "
+                        f"min_notice_min={min_notice} timezone=Asia/Jerusalem"
+                    )
+                    
                     # 🔥 TOOL 1: Check Availability - MUST be called before booking
                     availability_tool = {
                         "type": "function",
