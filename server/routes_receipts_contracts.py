@@ -30,21 +30,6 @@ def _contracts_disabled():
     return os.getenv("ENABLE_CONTRACTS", "false").lower() != "true"
 
 
-def get_business_id():
-    """Get business_id from request context"""
-    return getattr(request, 'business_id', None)
-
-
-# Import models lazily to avoid circular imports
-def get_models():
-    """Lazy import of models"""
-    from server.models_sql import Invoice, Contract, Payment
-    return Invoice, Contract, Payment
-
-def _contracts_disabled():
-    """Check if contracts feature is disabled"""
-    return os.getenv("ENABLE_CONTRACTS", "false").lower() != "true"
-
 def _feature_disabled_response(feature_name):
     """Standard response for disabled features"""
     return jsonify({
@@ -71,13 +56,20 @@ def list_receipts():
         # Get all invoices for this business (AgentKit invoices may not have payment/deal)
         invoices_raw = Invoice.query.filter_by(business_id=business_id).order_by(Invoice.issued_at.desc()).all()
         
+        # Collect all payment_ids to fetch in a single query (avoiding N+1)
+        payment_ids = [inv.payment_id for inv in invoices_raw if inv.payment_id]
+        payments_map = {}
+        if payment_ids:
+            payments = Payment.query.filter(Payment.id.in_(payment_ids)).all()
+            payments_map = {p.id: p for p in payments}
+        
         invoices_list = []
         for invoice in invoices_raw:
-            # Get payment date if payment_id exists
+            # Get payment date from pre-fetched payments map
             paid_at = None
-            if invoice.payment_id:
-                payment = Payment.query.get(invoice.payment_id)
-                if payment and payment.paid_at:
+            if invoice.payment_id and invoice.payment_id in payments_map:
+                payment = payments_map[invoice.payment_id]
+                if payment.paid_at:
                     paid_at = payment.paid_at.isoformat()
             
             # AgentKit invoices: use fields directly from invoice

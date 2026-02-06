@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from server.db import db
 from server.models_sql import Lead, LeadStatusHistory, LeadStatus, BusinessSettings
+from server.services.generic_webhook_service import send_generic_webhook
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -440,9 +441,6 @@ class UnifiedStatusService:
             
             if not webhook_url:
                 return
-            
-            # Import webhook service
-            from server.services.generic_webhook_service import send_generic_webhook
             
             # Prepare webhook payload
             webhook_data = {
