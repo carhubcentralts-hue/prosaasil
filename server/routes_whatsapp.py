@@ -5,7 +5,7 @@ from server.extensions import csrf
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.db import db
-from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
+from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User, Lead, WhatsAppConversation, WhatsAppMessage
 from server.services.whatsapp_session_service import update_session_activity
 from server.utils.whatsapp_utils import normalize_conversation_key
 from server.agent_tools.phone_utils import normalize_phone
@@ -390,12 +390,11 @@ def get_ai_state():
     # Check lead-level AI state
     lead_level_enabled = True
     from server.agent_tools.phone_utils import normalize_phone
-    from server.models_sql import Lead
     
     phone_normalized = normalize_phone(phone)
     if phone_normalized:
         lead = Lead.query.filter_by(
-            business_id=business_id,
+            tenant_id=business_id,
             phone_e164=phone_normalized
         ).first()
         
@@ -455,12 +454,11 @@ def toggle_ai():
         
         # 🔥 NEW: Also update lead-level AI state if lead exists
         from server.agent_tools.phone_utils import normalize_phone
-        from server.models_sql import Lead
         
         phone_normalized = normalize_phone(phone)
         if phone_normalized:
             lead = Lead.query.filter_by(
-                business_id=business_id,
+                tenant_id=business_id,
                 phone_e164=phone_normalized
             ).first()
             
@@ -506,9 +504,8 @@ def is_ai_active_for_conversation(business_id: int, phone: str) -> bool:
         phone_normalized = normalize_phone(phone)
         
         if phone_normalized:
-            from server.models_sql import Lead
             lead = Lead.query.filter_by(
-                business_id=business_id,
+                tenant_id=business_id,
                 phone_e164=phone_normalized
             ).first()
             
@@ -651,7 +648,7 @@ def get_conversation(phone_number):
             lead = None
             if phone_e164:
                 lead = Lead.query.filter_by(
-                    business_id=business_id,
+                    tenant_id=business_id,
                     phone_e164=phone_e164
                 ).first()
             
@@ -2128,12 +2125,11 @@ def toggle_ai_for_conversation():
         
         # 🔥 NEW: Also update lead-level AI state if lead exists
         from server.agent_tools.phone_utils import normalize_phone
-        from server.models_sql import Lead
         
         phone_normalized = normalize_phone(phone)
         if phone_normalized:
             lead = Lead.query.filter_by(
-                business_id=business_id,
+                tenant_id=business_id,
                 phone_e164=phone_normalized
             ).first()
             
@@ -2187,12 +2183,11 @@ def get_ai_state_for_conversation(phone_number):
         # Check lead-level AI state
         lead_level_enabled = True
         from server.agent_tools.phone_utils import normalize_phone
-        from server.models_sql import Lead
         
         phone_normalized = normalize_phone(phone)
         if phone_normalized:
             lead = Lead.query.filter_by(
-                business_id=business_id,
+                tenant_id=business_id,
                 phone_e164=phone_normalized
             ).first()
             
