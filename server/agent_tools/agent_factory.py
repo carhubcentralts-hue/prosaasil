@@ -141,12 +141,18 @@ def invalidate_agent_cache(business_id: int):
 # 🔥 CRITICAL: Use OpenAI with timeout to prevent 10s silence!
 from openai import OpenAI as OpenAIClient
 
-# ⚡ PERFORMANCE FIX: 4s timeout + max_retries=1 prevents long silences
-_openai_client = OpenAIClient(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    timeout=4.0,  # ⚡ 4s timeout (prevents 6-8s hangs!)
-    max_retries=1  # ⚡ Fast fail instead of retry loops
-)
+# ⚡ PERFORMANCE FIX: Lazy initialization to prevent import-time failures in test environments
+_openai_client = None
+
+def _get_or_create_openai_client():
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAIClient(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            timeout=4.0,  # ⚡ 4s timeout (prevents 6-8s hangs!)
+            max_retries=1  # ⚡ Fast fail instead of retry loops
+        )
+    return _openai_client
 
 AGENT_MODEL_SETTINGS = ModelSettings(
     # 🔥 NOTE: ModelSettings is a dataclass - only accepts declared fields!
@@ -160,7 +166,7 @@ AGENT_MODEL_SETTINGS = ModelSettings(
 # 🔥 Export the client so ai_service.py can pass it to Runner
 def get_openai_client():
     """Get the pre-configured OpenAI client with timeout"""
-    return _openai_client
+    return _get_or_create_openai_client()
 
 def get_or_create_agent(business_id: int, channel: str, business_name: str = "העסק", custom_instructions: str = None) -> Optional[Agent]:
     """

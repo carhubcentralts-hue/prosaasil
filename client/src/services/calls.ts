@@ -109,7 +109,7 @@ class CallsService {
     last_activity: string | null;
   } | null> {
     try {
-      const response = await http.get('/api/outbound_calls/jobs/active');
+      const response = await http.get<any>('/api/outbound_calls/jobs/active');
       // 🔥 FIX: Handle new response format with active flag
       // When active is false, return null for backward compatibility
       if (!response.active) {

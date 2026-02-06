@@ -1,7 +1,7 @@
 import React from 'react';
 import { Phone, Clock, User, ChevronLeft } from 'lucide-react';
-import { Badge } from '../Badge';
-import { formatDate } from '../../utils/format';
+import { Badge } from './Badge';
+import { formatDate } from '../utils/format';
 
 interface CallCardProps {
   call: {

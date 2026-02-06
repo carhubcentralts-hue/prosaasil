@@ -37,7 +37,8 @@ jobs:
         run: |
           # Run pytest with coverage
           pytest tests/ -v --tb=short
-        continue-on-error: true  # Allow test failures for now (may have missing dependencies)
+        env:
+          OPENAI_API_KEY: test-key-for-ci
         
       - name: Security audit with pip-audit
         run: |
@@ -71,7 +72,6 @@ jobs:
       - name: Typecheck (tsc)
         run: npm run typecheck
         working-directory: ./client
-        continue-on-error: true  # Pre-existing type issues — tracked in TECH_DEBT.md
 
       - name: Unit tests (Vitest)
         run: npm run test
@@ -81,9 +81,8 @@ jobs:
         run: |
           # Check for vulnerabilities (production only)
           # Allow moderate vulnerabilities but fail on high/critical
-          npm audit --production --audit-level=high
+          npm audit --production --audit-level=high || true
         working-directory: ./client
-        continue-on-error: true  # Allow audit warnings for now (may have dev dependencies issues)
       
       - name: Build frontend (production mode)
         run: |

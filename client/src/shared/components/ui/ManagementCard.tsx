@@ -108,7 +108,7 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
         setBusinessCount(businessData.total || 0);
         
         // TECH_DEBT: see client/TECH_DEBT.md#MC-USERS-API
-        setUserCount(user?.role === 'admin' ? 5 : (businessData as any).total * 3);
+        setUserCount((businessData as any).total * 3);
         
       } catch (error) {
         logger.error('Error fetching management stats:', error);
