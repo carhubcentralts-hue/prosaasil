@@ -107,9 +107,9 @@ def create_rule(
         if delay_seconds < 0 or delay_seconds > 2592000:  # 0-30 days
             raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
     
-    # Set delay_minutes for backward compatibility if not provided
+    # Set delay_minutes for backward compatibility if not provided (delay_seconds already validated >= 0)
     if delay_minutes is None:
-        delay_minutes = max(0, delay_seconds // 60)
+        delay_minutes = delay_seconds // 60
     
     # Validate delay_minutes for backward compatibility (skip for recurring schedules or immediate sends/steps)
     if schedule_type == "STATUS_CHANGE" and not send_immediately_on_enter and not has_steps:
