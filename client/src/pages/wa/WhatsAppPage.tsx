@@ -69,12 +69,16 @@ interface WhatsAppStatus {
 interface WhatsAppThread {
   id: string;
   name: string;
+  lead_name?: string;
+  push_name?: string;
+  lead_id?: number;
   phone: string;
   lastMessage: string;
   unread: number;
   time: string;
   summary?: string;
   is_closed?: boolean;
+  has_media?: boolean;
 }
 
 interface WhatsAppMessageData {
@@ -215,6 +219,16 @@ export function WhatsAppPage() {
   // New: deleting states
   const [deletingChat, setDeletingChat] = useState<string | null>(null);
   const [deletingSummary, setDeletingSummary] = useState<number | null>(null);
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   // ─── Auto-scroll messages ──────────────────────────────────────────────────
   useEffect(() => {
@@ -368,12 +382,16 @@ export function WhatsAppPage() {
       const response = await http.get<{threads: any[]}>('/api/crm/threads');
       const transformedThreads = (response.threads || []).map((thread: any) => ({
         id: thread.id?.toString() || '',
-        name: thread.name || thread.peer_name || thread.phone_e164 || 'לא ידוע',
+        name: thread.lead_name || thread.push_name || thread.name || thread.peer_name || thread.phone_e164 || 'לא ידוע',
+        lead_name: thread.lead_name || undefined,
+        push_name: thread.push_name || undefined,
+        lead_id: thread.lead_id || undefined,
         phone: thread.phone_e164 || thread.phone || '',
         lastMessage: thread.lastMessage || thread.last_message || '',
         unread: thread.unread_count || thread.unread || 0,
         time: thread.time || (thread.last_activity ? formatTimeOnly(thread.last_activity) : ''),
         is_closed: thread.is_closed || false,
+        has_media: thread.has_media || false,
         summary: thread.is_closed ? 'לחץ לצפייה בסיכום' : undefined
       }));
       setThreads(transformedThreads);
@@ -584,22 +602,22 @@ export function WhatsAppPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-64px)] flex flex-col" dir="rtl">
+    <div className="h-[calc(100vh-64px)] flex flex-col max-w-[100vw] overflow-x-hidden" dir="rtl">
       {/* ══════ Top bar ══════ */}
-      <div className="flex-shrink-0 bg-[#075e54] text-white px-4 py-3 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-3">
-          <MessageSquare className="h-6 w-6" />
-          <div>
-            <h1 className="text-lg font-bold leading-tight">WhatsApp Business</h1>
-            <div className="flex items-center gap-2 text-xs text-green-200">
-              <span className={`inline-block h-2 w-2 rounded-full ${whatsappStatus.connected ? 'bg-green-400' : 'bg-red-400'}`} />
+      <div className="flex-shrink-0 bg-[#075e54] text-white px-3 md:px-4 py-2.5 md:py-3 flex items-center justify-between shadow-md">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <MessageSquare className="h-5 w-5 md:h-6 md:w-6 flex-shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-base md:text-lg font-bold leading-tight truncate">WhatsApp Business</h1>
+            <div className="flex items-center gap-1.5 md:gap-2 text-[10px] md:text-xs text-green-200">
+              <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${whatsappStatus.connected ? 'bg-green-400' : 'bg-red-400'}`} />
               {whatsappStatus.connected ? 'מחובר' : 'לא מחובר'}
-              {whatsappStatus.connected && <span>· {providerInfo?.provider || whatsappStatus.provider}</span>}
-              {activeChatsCount > 0 && <span>· {activeChatsCount} שיחות פעילות</span>}
+              {!isMobile && whatsappStatus.connected && <span>· {providerInfo?.provider || whatsappStatus.provider}</span>}
+              {!isMobile && activeChatsCount > 0 && <span>· {activeChatsCount} שיחות פעילות</span>}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
           <Button variant="ghost" size="sm" onClick={() => setShowQR(true)} className="text-white hover:bg-white/10" data-testid="button-qr">
             <QrCode className="h-4 w-4" />
           </Button>
@@ -609,11 +627,11 @@ export function WhatsAppPage() {
         </div>
       </div>
       
-      {/* ══════ Main content: Sidebar + Chat ══════ */}
+      {/* ══════ Main content: Sidebar + Chat (mobile-first) ══════ */}
       <div className="flex-1 flex min-h-0 bg-gray-100">
 
-        {/* ── Right sidebar: Conversations list ── */}
-        <div className="w-[340px] flex-shrink-0 bg-white border-l border-gray-200 flex flex-col">
+        {/* ── Right sidebar: Conversations list (hidden on mobile when chat is open) ── */}
+        <div className={`${isMobile ? (selectedThread ? 'hidden' : 'w-full') : 'w-[340px] flex-shrink-0'} bg-white border-l border-gray-200 flex flex-col`}>
           {/* Search */}
           <div className="p-3 bg-gray-50 border-b border-gray-100">
             <div className="relative">
@@ -678,7 +696,10 @@ export function WhatsAppPage() {
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="font-semibold text-gray-900 text-sm truncate">{thread.name}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-semibold text-gray-900 text-sm truncate">{thread.name}</span>
+                        {thread.lead_name && <span className="text-[9px] px-1 py-0.5 bg-blue-100 text-blue-600 rounded flex-shrink-0">ליד</span>}
+                      </div>
                       <span className="text-[11px] text-gray-400 flex-shrink-0 mr-2">{thread.time}</span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -691,10 +712,10 @@ export function WhatsAppPage() {
                       </div>
                     </div>
                   </div>
-                  {/* Delete action (visible on hover) */}
+                  {/* Delete action (visible on hover, always visible on mobile) */}
                   <button
                     onClick={(e) => { e.stopPropagation(); deleteChat(thread.phone); }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all duration-200 flex-shrink-0"
+                    className={`${isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} p-1 text-gray-300 hover:text-red-500 transition-all duration-200 flex-shrink-0`}
                     title="מחק שיחה"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -705,35 +726,35 @@ export function WhatsAppPage() {
           </div>
         </div>
 
-        {/* ── Center: Chat panel ── */}
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* ── Center: Chat panel (full width on mobile) ── */}
+        <div className={`${isMobile ? (selectedThread ? 'flex w-full' : 'hidden') : 'flex-1'} flex flex-col min-w-0`}>
           {selectedThread ? (
             <>
               {/* Chat header */}
-              <div className="flex-shrink-0 bg-[#075e54] text-white px-4 py-2.5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button onClick={closeChat} className="lg:hidden p-1 hover:bg-white/10 rounded" data-testid="button-back-chat">
+              <div className="flex-shrink-0 bg-[#075e54] text-white px-3 md:px-4 py-2 md:py-2.5 flex items-center justify-between">
+                <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                  <button onClick={closeChat} className={`${isMobile ? '' : 'lg:hidden'} p-1 hover:bg-white/10 rounded flex-shrink-0`} data-testid="button-back-chat">
                     <ArrowRight className="h-5 w-5" />
                   </button>
-                  <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold">
+                  <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold flex-shrink-0">
                     {(selectedThread.name || '?')[0]}
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-sm leading-tight">{selectedThread.name}</h3>
-                    <p className="text-xs text-green-200">{selectedThread.phone}</p>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-sm leading-tight truncate">{selectedThread.name}</h3>
+                    <p className="text-xs text-green-200 truncate">{selectedThread.phone}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
                   <button
                     onClick={toggleAi}
                     disabled={togglingAi}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
+                    className={`flex items-center gap-1 md:gap-1.5 px-2 md:px-2.5 py-1 rounded-full text-[11px] md:text-xs font-medium transition-all duration-200 ${
                       aiActive ? 'bg-green-400/20 text-green-200 hover:bg-green-400/30' : 'bg-red-400/20 text-red-200 hover:bg-red-400/30'
                     } ${togglingAi ? 'opacity-50' : ''}`}
                     data-testid="toggle-ai-active"
                   >
                     {togglingAi ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
-                    {aiActive ? 'AI פעיל' : 'AI כבוי'}
+                    {isMobile ? (aiActive ? 'AI' : 'AI') : (aiActive ? 'AI פעיל' : 'AI כבוי')}
                   </button>
                   <button onClick={() => deleteChat(selectedThread.phone)} className="p-1.5 hover:bg-white/10 rounded text-white/70 hover:text-white" title="מחק שיחה">
                     <Trash2 className="h-4 w-4" />
@@ -743,7 +764,7 @@ export function WhatsAppPage() {
 
               {/* Messages area - WhatsApp wallpaper style */}
               <div
-                className="flex-1 overflow-y-auto px-4 py-3 min-h-0"
+                className="flex-1 overflow-y-auto px-2 md:px-4 py-3 min-h-0"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cdefs%3E%3Cpattern id=\'p\' width=\'40\' height=\'40\' patternUnits=\'userSpaceOnUse\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'1\' fill=\'%23e5e7eb\' opacity=\'0.5\'/%3E%3C/pattern%3E%3C/defs%3E%3Crect fill=\'%23efeae2\' width=\'200\' height=\'200\'/%3E%3Crect fill=\'url(%23p)\' width=\'200\' height=\'200\'/%3E%3C/svg%3E")', backgroundSize: '200px 200px' }}
               >
                 {loadingMessages && messages.length === 0 ? (
@@ -767,12 +788,13 @@ export function WhatsAppPage() {
                         className={`flex ${msg.direction === 'in' ? 'justify-start' : 'justify-end'}`}
                       >
                         <div
-                          className={`relative max-w-[75%] px-3 py-2 rounded-xl shadow-sm ${bubbleStyle(msg)} ${
+                          className={`relative max-w-[85%] md:max-w-[75%] px-3 py-2 rounded-xl shadow-sm ${bubbleStyle(msg)} ${
                             msg.status === 'pending' ? 'opacity-70' : ''
-                          }`}
+                          } ${msg.status === 'failed' ? 'border-2 border-red-300' : ''}`}
                           style={{
                             borderTopRightRadius: msg.direction === 'out' ? '4px' : undefined,
                             borderTopLeftRadius: msg.direction === 'in' ? '4px' : undefined,
+                            wordBreak: 'break-word',
                           }}
                           dir="rtl"
                         >
@@ -781,9 +803,20 @@ export function WhatsAppPage() {
                           {/* Media content */}
                           <MediaContent msg={msg} />
                           {/* Text body */}
-                          {msg.body && <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{msg.body}</p>}
-                          {/* Footer: time + status */}
+                          {msg.body && <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">{msg.body}</p>}
+                          {/* Footer: time + status + resend */}
                           <div className="flex items-center justify-end gap-1 mt-0.5">
+                            {msg.status === 'failed' && (
+                              <button
+                                onClick={() => {
+                                  setMessageText(msg.body);
+                                  setMessages(prev => prev.filter(m => m.id !== msg.id));
+                                }}
+                                className="text-[10px] text-red-500 underline mr-1"
+                              >
+                                שלח שוב
+                              </button>
+                            )}
                             <span className="text-[10px] text-gray-500">{msg.time}</span>
                             {msg.direction === 'out' && <MessageStatusIcon status={msg.status} />}
                           </div>
@@ -795,8 +828,8 @@ export function WhatsAppPage() {
                 )}
               </div>
 
-              {/* ── Input area ── */}
-              <div className="flex-shrink-0 bg-gray-50 border-t border-gray-200 px-3 py-2">
+              {/* ── Input area (with safe-area for iPhone) ── */}
+              <div className="flex-shrink-0 bg-gray-50 border-t border-gray-200 px-2 md:px-3 py-2" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
                 {/* File preview */}
                 {selectedFile && (
                   <div className="mb-2 p-2 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
@@ -851,9 +884,9 @@ export function WhatsAppPage() {
               </div>
             </>
           ) : (
-            /* Empty state - no chat selected */
-            <div className="flex-1 flex flex-col items-center justify-center bg-[#f0ebe3]">
-              <div className="text-center max-w-sm">
+            /* Empty state - no chat selected (hidden on mobile - thread list shows instead) */
+            <div className={`flex-1 ${isMobile ? 'hidden' : 'flex'} flex-col items-center justify-center bg-[#f0ebe3]`}>
+              <div className="text-center max-w-sm px-4">
                 <div className="w-20 h-20 mx-auto mb-5 rounded-full bg-[#25D366]/10 flex items-center justify-center">
                   <MessageSquare className="h-10 w-10 text-[#25D366]" />
                 </div>
