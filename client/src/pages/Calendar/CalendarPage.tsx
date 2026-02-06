@@ -260,7 +260,7 @@ const DynamicSummaryDisplay: React.FC<{ appointment: Appointment; navigate: any 
         <div className="mt-3 pt-2 border-t border-purple-200">
           <div className="text-xs text-slate-600 font-medium mb-1">מידע שנאסף:</div>
           <div className="flex flex-wrap gap-1">
-            {Object.entries(summaryData.extracted_info).map(([key, value]) => (
+            {(Object.entries(summaryData.extracted_info) as [string, any][]).map(([key, value]) => (
               value && (
                 <span key={key} className="inline-flex items-center px-2 py-0.5 rounded bg-white text-xs text-slate-700">
                   <span className="font-medium">{key}:</span>&nbsp;{String(value)}
@@ -383,7 +383,7 @@ export function CalendarPage() {
     const info = statusMap.get(statusKey);
     if (info) return info;
     // Fallback to hardcoded values if not found
-    return STATUS_TYPES[statusKey] || { label: statusKey, color: 'bg-gray-100 text-gray-800' };
+    return (STATUS_TYPES as Record<string, any>)[statusKey] || { label: statusKey, color: 'bg-gray-100 text-gray-800' };
   }, [statusMap]);
   // Leads state for linking appointments to leads
   const [leads, setLeads] = useState<Array<{id: number; name: string; phone?: string}>>([]);

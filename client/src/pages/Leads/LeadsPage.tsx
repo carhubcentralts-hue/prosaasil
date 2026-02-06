@@ -85,7 +85,7 @@ export default function LeadsPage() {
   useEffect(() => {
     const loadWebhookStatus = async () => {
       try {
-        const response = await http.get('/api/business/current');
+        const response = await http.get<any>('/api/business/current');
         setHasWebhook(!!response.status_webhook_url);
       } catch (error) {
         console.error('Error loading webhook status:', error);

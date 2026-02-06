@@ -188,7 +188,7 @@ export function PDFCanvas({
     logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale, 'containerWidth:', actualWidth);
 
     // 🔥 FIX: Add timeout fallback to prevent stuck overlay (10 seconds)
-    renderTimeoutRef.current = setTimeout(() => {
+    renderTimeoutRef.current = window.setTimeout(() => {
       logger.error('[PDF_CANVAS] Render timeout - forcing isRendering to false');
       setIsRendering(false);
       renderTaskRef.current = null;
