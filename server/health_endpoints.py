@@ -135,7 +135,8 @@ def readyz():
         import requests
         baileys_status = "unknown"
         try:
-            baileys_url = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
+            from server.config import BAILEYS_BASE_URL_LEGACY
+            baileys_url = BAILEYS_BASE_URL_LEGACY
             response = requests.get(f"{baileys_url}/healthz", timeout=2)
             baileys_status = "healthy" if response.status_code == 200 else f"unhealthy: {response.status_code}"
         except Exception:
@@ -400,7 +401,8 @@ def health_whatsapp():
     
     # Check Baileys connectivity
     try:
-        baileys_url = os.getenv('BAILEYS_BASE_URL', 'http://baileys:3300')
+        from server.config import BAILEYS_BASE_URL_LEGACY
+        baileys_url = BAILEYS_BASE_URL_LEGACY
         response = requests.get(f"{baileys_url}/healthz", timeout=3)
         results["components"]["baileys_connected"] = response.status_code == 200
         results["components"]["baileys_url"] = baileys_url

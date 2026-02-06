@@ -8752,6 +8752,33 @@ def apply_migrations():
         
         checkpoint("✅ Migration 138 complete: Canonical key infrastructure added")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 139: Add whatsapp_shard column to business table
+        # Required for Baileys multi-shard routing (see whatsapp_shard_router.py)
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 139: Add whatsapp_shard to business table")
+        
+        try:
+            if check_table_exists('business'):
+                if not check_column_exists('business', 'whatsapp_shard'):
+                    checkpoint("  Adding whatsapp_shard column to business...")
+                    exec_ddl(migrate_engine, """
+                        ALTER TABLE business
+                        ADD COLUMN whatsapp_shard INTEGER NOT NULL DEFAULT 1
+                    """)
+                    checkpoint("  ✅ Added whatsapp_shard column (default=1)")
+                    migrations_applied.append("migration_139_business_whatsapp_shard")
+                else:
+                    checkpoint("  ⏭️  whatsapp_shard column already exists")
+            else:
+                checkpoint("  ⏭️  business table does not exist yet")
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 139 failed: {e}")
+            logger.error(f"Migration 139 error: {e}", exc_info=True)
+            # Don't raise - shard routing falls back to hash-based if column missing
+        
+        checkpoint("✅ Migration 139 complete: whatsapp_shard column")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

@@ -5,14 +5,19 @@
 # ==========================================
 #
 # This script ensures proper deployment order:
-# 1. Stop services to release database connections
-# 2. Run migrations (and wait for completion)
-# 3. Then start all other services
+# 1. Pre-flight checks (env vars, compose files)
+# 2. Stop services to release database connections
+# 3. Run migrations (and wait for completion)
+# 4. Build indexes + backfill (non-blocking)
+# 5. Start all services
+# 6. Wait for health + verify wiring
 #
 # It also handles:
 # - Proper error handling at each step
 # - Clear logging of what's happening
 # - Verification that migrations succeeded
+# - SSOT wiring verification
+# - Health-check wait loop (up to 120s)
 # - Idempotent operations (safe to run multiple times)
 #
 # Usage:
@@ -95,7 +100,7 @@ log_header() {
 }
 
 # ==========================================
-# 🔥 GUARD 3: Validate Environment Variables
+# Pre-Flight Check: Environment Variables
 # ==========================================
 log_header "Pre-Flight Check: Environment Variables"
 
@@ -114,8 +119,9 @@ fi
 ENV_VALID=true
 
 # Set defaults for optional variables to avoid unbound variable errors
+DATABASE_URL=${DATABASE_URL:-}
 DATABASE_URL_DIRECT=${DATABASE_URL_DIRECT:-}
-DATABASE_URL_POOLER=${DATABASE_URL_POOLER:-$DATABASE_URL}
+DATABASE_URL_POOLER=${DATABASE_URL_POOLER:-${DATABASE_URL}}
 
 if [[ -z "$DATABASE_URL_DIRECT" ]] && [[ -z "$DATABASE_URL_POOLER" ]] && [[ -z "$DATABASE_URL" ]]; then
     log_error "No database URL is configured!"
@@ -127,13 +133,11 @@ fi
 if [[ -z "$DATABASE_URL_DIRECT" ]] && [[ -n "$DATABASE_URL_POOLER" ]]; then
     log_info "DATABASE_URL_DIRECT not set - migrations will use POOLER"
     log_info "  This is acceptable but DIRECT is preferred for DDL operations"
-    log_info "  Set DATABASE_URL_DIRECT=postgresql://...@*.db.supabase.com:5432/postgres for optimal performance"
 fi
 
 if [[ -z "$DATABASE_URL_POOLER" ]] && [[ -z "$DATABASE_URL" ]]; then
     log_warning "DATABASE_URL_POOLER is not set"
     log_warning "  API/Worker should use pooler connection for best performance"
-    log_warning "  Set DATABASE_URL_POOLER=postgresql://...@*.pooler.supabase.com:5432/postgres"
 fi
 
 # Check that DIRECT doesn't contain 'pooler' (only if DIRECT is set)
@@ -148,7 +152,6 @@ fi
 if [[ -n "$DATABASE_URL_POOLER" ]] && [[ "$DATABASE_URL_POOLER" == *".db."* ]]; then
     log_warning "DATABASE_URL_POOLER contains '.db.'"
     log_warning "  This may not use connection pooler (less optimal for API traffic)"
-    log_warning "  POOLER should point to: *.pooler.supabase.com"
 fi
 
 if [[ "$ENV_VALID" == false ]]; then
@@ -159,8 +162,6 @@ fi
 
 log_success "Environment variables validated"
 echo ""
-
-# Continue with existing code...
 
 # Check that compose files exist
 if [[ ! -f "$BASE_COMPOSE" || ! -f "$PROD_COMPOSE" ]]; then
@@ -174,13 +175,6 @@ log_info "Using:"
 log_info "  - $BASE_COMPOSE"
 log_info "  - $PROD_COMPOSE"
 log_info "  - Project root: $PROJECT_ROOT"
-
-# Check if .env file exists
-if [[ ! -f ".env" ]]; then
-    log_warning ".env file not found - using environment variables"
-else
-    log_success ".env file found"
-fi
 
 # Step 1: Build images if requested
 if [[ "$REBUILD" == true ]]; then
@@ -216,7 +210,6 @@ log_info "Stopping all services that connect to the database..."
 # - prosaas-api: Main API service (holds DB connections)
 # - prosaas-calls: Calls/WebSocket service (holds DB connections)
 # - worker: Background job worker (holds DB connections)
-# - scheduler: Scheduled task service (holds DB connections)
 # - baileys: WhatsApp service (may hold DB connections)
 # - n8n: Workflow automation (may hold DB connections if using same DB)
 #
@@ -225,10 +218,17 @@ log_info "Stopping all services that connect to the database..."
 # - redis: Queue backend (no DB connection)
 # - frontend: Static files (no DB connection)
 # - postgres/db: The database itself (if running locally)
-docker compose \
-    -f "$BASE_COMPOSE" \
-    -f "$PROD_COMPOSE" \
-    stop prosaas-api prosaas-calls worker scheduler baileys n8n 2>/dev/null || true
+#
+# Note: Each service is stopped individually with || true to avoid
+# failures if a service doesn't exist in the current compose config
+
+DB_SERVICES="prosaas-api prosaas-calls worker baileys n8n"
+for service in $DB_SERVICES; do
+    docker compose \
+        -f "$BASE_COMPOSE" \
+        -f "$PROD_COMPOSE" \
+        stop "$service" 2>/dev/null || true
+done
 
 log_success "Stop command executed"
 
@@ -242,7 +242,7 @@ RUNNING_SERVICES=$(docker compose \
     ps --services --filter "status=running" 2>/dev/null || echo "")
 
 # List of services that MUST be stopped (connect to database)
-DB_SERVICES="prosaas-api prosaas-calls worker scheduler baileys n8n"
+# (already defined above: DB_SERVICES)
 
 # Check if any DB-connected service is still running
 STILL_RUNNING=""
@@ -257,11 +257,13 @@ if [ -n "$STILL_RUNNING" ]; then
     log_error "These services must be stopped before migrations to prevent locks"
     log_info "Attempting force stop..."
     
-    # Try force stop
-    docker compose \
-        -f "$BASE_COMPOSE" \
-        -f "$PROD_COMPOSE" \
-        stop -t 10 $STILL_RUNNING 2>/dev/null || true
+    # Try force stop (individually to handle missing services)
+    for svc in $STILL_RUNNING; do
+        docker compose \
+            -f "$BASE_COMPOSE" \
+            -f "$PROD_COMPOSE" \
+            stop -t 10 "$svc" 2>/dev/null || true
+    done
     
     # Check again
     sleep 2
@@ -375,16 +377,17 @@ docker compose \
 
 # Run migrations (this will create and run the migrate service)
 log_info "Executing migrations..."
+MIGRATE_EXIT_CODE=0
 docker compose \
     -f "$BASE_COMPOSE" \
     -f "$PROD_COMPOSE" \
-    run --rm migrate
+    run --rm migrate || MIGRATE_EXIT_CODE=$?
 
 # Check if migrations succeeded
-MIGRATE_EXIT_CODE=$?
 if [ $MIGRATE_EXIT_CODE -ne 0 ]; then
     log_error "Migrations failed with exit code $MIGRATE_EXIT_CODE"
     log_error "Cannot proceed with deployment"
+    log_error "Check migration logs: docker compose -f $BASE_COMPOSE -f $PROD_COMPOSE logs migrate"
     exit 1
 fi
 
@@ -407,10 +410,9 @@ log_info "Executing index builder..."
 docker compose \
     -f "$BASE_COMPOSE" \
     -f "$PROD_COMPOSE" \
-    run --rm indexer
+    run --rm indexer || log_warning "Index builder had issues (non-blocking)"
 
-# Index builder always exits 0, so we don't check exit code
-# Just log that it completed
+# Index builder is non-blocking — deployment continues even if some indexes fail
 log_success "Index builder completed (check logs above for any warnings)"
 
 # Step 3.6: Run data backfill (separate from migrations)
@@ -431,10 +433,10 @@ log_info "Executing backfill tool..."
 docker compose \
     -f "$BASE_COMPOSE" \
     -f "$PROD_COMPOSE" \
-    run --rm backfill
+    run --rm backfill || log_warning "Backfill tool had issues (non-blocking)"
 
-# Backfill tool always exits 0, so we don't check exit code
-# Just log that it completed
+# Backfill tool is non-blocking — deployment continues even if incomplete
+# Backfill is idempotent and will continue on next deployment if needed
 log_success "Backfill tool completed (check logs above for any warnings)"
 
 # If migrate-only flag is set, stop here
@@ -459,12 +461,50 @@ log_success "All services started"
 
 # Step 5: Verify services are healthy
 log_header "Step 5: Verifying Service Health"
-log_info "Waiting for services to become healthy..."
+log_info "Waiting for services to become healthy (up to 120s)..."
 
-# Wait a bit for services to start
-sleep 5
+# Wait for API to become healthy with retry loop
+HEALTH_TIMEOUT=120
+HEALTH_ELAPSED=0
+API_HEALTHY=false
 
-# Check service status
+while [ $HEALTH_ELAPSED -lt $HEALTH_TIMEOUT ]; do
+    # Check if prosaas-api is healthy via docker compose
+    API_STATUS=$(docker compose \
+        -f "$BASE_COMPOSE" \
+        -f "$PROD_COMPOSE" \
+        ps prosaas-api --format '{{.Status}}' 2>/dev/null || echo "")
+
+    if echo "$API_STATUS" | grep -qi "healthy"; then
+        API_HEALTHY=true
+        break
+    fi
+
+    # Also try direct HTTP health check
+    HTTP_CODE=$(docker compose \
+        -f "$BASE_COMPOSE" \
+        -f "$PROD_COMPOSE" \
+        exec -T prosaas-api curl -sf -o /dev/null -w "%{http_code}" http://localhost:5000/health 2>/dev/null || echo "000")
+
+    if [ "$HTTP_CODE" = "200" ]; then
+        API_HEALTHY=true
+        break
+    fi
+
+    echo -n "."
+    sleep 5
+    HEALTH_ELAPSED=$((HEALTH_ELAPSED + 5))
+done
+echo ""
+
+if [ "$API_HEALTHY" = true ]; then
+    log_success "API is healthy (after ${HEALTH_ELAPSED}s)"
+else
+    log_warning "API did not report healthy within ${HEALTH_TIMEOUT}s"
+    log_warning "Services may still be starting — check logs"
+fi
+
+# Show service status
 log_info "Service status:"
 docker compose \
     -f "$BASE_COMPOSE" \
@@ -488,9 +528,24 @@ echo "$RUNNING_SERVICES" | while read -r service; do
     log_info "  • $service"
 done
 
+# Step 5.5: Run SSOT wiring checks (no Docker containers needed)
+log_header "Step 5.5: SSOT Wiring Verification"
+log_info "Running SSOT duplicate/wiring checks..."
+
+if bash "$SCRIPT_DIR/no_duplicate_ssot_checks.sh"; then
+    log_success "All SSOT wiring checks passed"
+else
+    log_warning "SSOT wiring checks had failures — review output above"
+fi
+
 # Step 6: Show next steps
 log_header "Deployment Complete!"
 log_success "ProSaaS is now running in production mode"
+echo ""
+log_info "Post-deployment verification:"
+log_info "  • ./scripts/verify_production.sh           # Full production checks"
+log_info "  • ./scripts/verify_critical_endpoints.sh   # API endpoint checks"
+log_info "  • ./scripts/prod_smoke.sh                  # SSOT + compose validation"
 echo ""
 log_info "Useful commands:"
 log_info "  • View logs:        ./scripts/dcprod.sh logs -f [service]"

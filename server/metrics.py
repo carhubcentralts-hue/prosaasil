@@ -6,7 +6,6 @@ Exposed via /metrics.json endpoint (admin-token protected).
 No external dependencies (Prometheus optional).
 """
 
-import os
 import time
 import threading
 from collections import defaultdict
@@ -86,8 +85,9 @@ def register_metrics_endpoint(app):
 
     @app.route("/metrics.json")
     def metrics_json():
-        # Protect with admin token from env
-        token = os.environ.get("METRICS_TOKEN", os.environ.get("INTERNAL_SECRET", ""))
+        # Protect with admin token from config (read at request time)
+        from server.config import METRICS_TOKEN, INTERNAL_SECRET
+        token = METRICS_TOKEN or INTERNAL_SECRET or ""
         auth = request.headers.get("Authorization", "")
         provided = request.args.get("token", "")
 

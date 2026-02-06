@@ -1590,6 +1590,19 @@ def create_app():
         if not auth_routes_found:
             logger.error("   ❌ CRITICAL: No auth routes found! Blueprint might not be registered.")
     
+    # ─── Metrics endpoint (conditional on config) ──────────
+    try:
+        from server.config import METRICS_ENABLED, METRICS_TOKEN
+        if METRICS_ENABLED and METRICS_TOKEN:
+            from server.metrics import register_metrics_endpoint
+            register_metrics_endpoint(app)
+            logger.info("✅ /metrics.json endpoint registered (token-protected)")
+        else:
+            logger.info("ℹ️  /metrics.json endpoint NOT registered (METRICS_ENABLED=%s, token=%s)",
+                         METRICS_ENABLED, "set" if METRICS_TOKEN else "missing")
+    except Exception as metrics_err:
+        logger.warning("⚠️  Could not register metrics endpoint: %s", metrics_err)
+
     # Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton
     with _app_lock:

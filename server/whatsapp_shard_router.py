@@ -19,13 +19,13 @@ import os
 import hashlib
 import logging
 
+from server.config import (
+    BAILEYS_SHARDS,
+    BAILEYS_PORT,
+    BAILEYS_BASE_URL_LEGACY,
+)
+
 logger = logging.getLogger(__name__)
-
-# Default number of Baileys shards
-DEFAULT_NUM_SHARDS = int(os.environ.get("BAILEYS_NUM_SHARDS", "1"))
-
-# Default Baileys port
-BAILEYS_PORT = int(os.environ.get("BAILEYS_PORT", "3300"))
 
 
 def _get_shard_url(shard_id: int) -> str:
@@ -40,8 +40,8 @@ def _get_shard_url(shard_id: int) -> str:
 
     # Docker service naming convention: baileys-1, baileys-2, etc.
     # For single shard (shard_id=1), also check legacy "baileys" service name
-    if shard_id == 1 and DEFAULT_NUM_SHARDS == 1:
-        return os.environ.get("BAILEYS_BASE_URL", f"http://baileys:{BAILEYS_PORT}")
+    if shard_id == 1 and BAILEYS_SHARDS == 1:
+        return BAILEYS_BASE_URL_LEGACY
 
     return f"http://baileys-{shard_id}:{BAILEYS_PORT}"
 
@@ -64,10 +64,17 @@ def get_baileys_base_url(business_id: int, whatsapp_shard: int | None = None) ->
     Returns:
         Base URL for the Baileys shard (e.g. "http://baileys-1:3300")
     """
-    num_shards = DEFAULT_NUM_SHARDS
+    num_shards = BAILEYS_SHARDS
 
     if whatsapp_shard and whatsapp_shard > 0:
-        shard_id = whatsapp_shard
+        if whatsapp_shard > num_shards:
+            logger.warning(
+                "Business %d has whatsapp_shard=%d but only %d shards configured — remapping",
+                business_id, whatsapp_shard, num_shards,
+            )
+            shard_id = ((whatsapp_shard - 1) % num_shards) + 1
+        else:
+            shard_id = whatsapp_shard
     else:
         shard_id = _hash_shard(business_id, num_shards)
 
@@ -76,6 +83,11 @@ def get_baileys_base_url(business_id: int, whatsapp_shard: int | None = None) ->
     return url
 
 
+def get_baileys_base_url_for_business(business_id: int, whatsapp_shard: int | None = None) -> str:
+    """Alias for get_baileys_base_url — SSOT entry point."""
+    return get_baileys_base_url(business_id, whatsapp_shard)
+
+
 def get_all_shard_urls() -> dict[int, str]:
     """Return a map of shard_id → URL for all configured shards."""
-    return {i: _get_shard_url(i) for i in range(1, DEFAULT_NUM_SHARDS + 1)}
+    return {i: _get_shard_url(i) for i in range(1, BAILEYS_SHARDS + 1)}

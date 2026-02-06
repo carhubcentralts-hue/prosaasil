@@ -96,6 +96,7 @@ run_server() {
            tests/test_hebrew_datetime_year_correction.py \
            tests/test_scheduled_messages_first_name.py \
            tests/test_webhook_payload.py \
+           tests/test_ssot_wiring.py \
            -v --tb=short 2>/dev/null; then
     pass "pytest unit tests"
   else
@@ -113,6 +114,13 @@ run_server() {
     pass "pip-audit security"
   else
     fail "pip-audit security — see server/AUDIT_ALLOWLIST.md for known exceptions"
+  fi
+
+  echo "→ SSOT duplicate checks..."
+  if bash scripts/no_duplicate_ssot_checks.sh 2>/dev/null; then
+    pass "SSOT duplicate checks"
+  else
+    fail "SSOT duplicate checks — direct env usage or missing wiring detected"
   fi
 }
 

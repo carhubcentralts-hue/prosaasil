@@ -41,9 +41,12 @@ class BaileysProvider(Provider):
     """⚡ OPTIMIZED Baileys HTTP API provider with health checks and failover"""
     
     def __init__(self):
-        self.outbound_url = os.getenv("BAILEYS_BASE_URL", "http://127.0.0.1:3300")
+        from server.config import BAILEYS_BASE_URL_LEGACY, INTERNAL_SECRET
+        from server.whatsapp_shard_router import get_baileys_base_url
+        self.outbound_url = BAILEYS_BASE_URL_LEGACY  # legacy fallback
+        self._shard_router = get_baileys_base_url
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
-        self.internal_secret = os.getenv("INTERNAL_SECRET", "")  # 🔒 For internal API calls
+        self.internal_secret = INTERNAL_SECRET or ""  # 🔒 For internal API calls
         # ⚡ OPTIMIZED: Separate connect and read timeouts for better control
         self.connect_timeout = 3.0  # Quick connect timeout (2-3s)
         self.read_timeout = 25.0  # Longer read timeout for WhatsApp operations (20-30s)
@@ -66,6 +69,16 @@ class BaileysProvider(Provider):
             logger.warning("BAILEYS_WEBHOOK_SECRET not set - security risk!")
         if not self.internal_secret:
             logger.warning("INTERNAL_SECRET not set - auto-restart will fail!")
+
+    def _url_for_tenant(self, tenant_id: str | None) -> str:
+        """Resolve Baileys shard URL from tenant_id string (e.g. 'business_42')."""
+        if tenant_id:
+            try:
+                bid = int(tenant_id.split('_', 1)[1])
+                return self._shard_router(bid)
+            except (IndexError, ValueError):
+                logger.debug("Failed to extract business_id from tenant_id=%s, using fallback", tenant_id)
+        return self.outbound_url
 
     def _check_health(self) -> bool:
         """⚡ Check Baileys WhatsApp connection status with caching"""
@@ -124,7 +137,7 @@ class BaileysProvider(Provider):
         try:
             headers = {"X-Internal-Secret": self.internal_secret}
             response = self._session.get(
-                f"{self.outbound_url}/whatsapp/{tenant_id}/status",
+                f"{self._url_for_tenant(tenant_id)}/whatsapp/{tenant_id}/status",
                 headers=headers,
                 timeout=2.0  # Fast check - real-time status, no cache
             )
@@ -157,7 +170,7 @@ class BaileysProvider(Provider):
             logger.info(f"🚀 Starting Baileys session for {tenant_id}...")
             headers = {"X-Internal-Secret": self.internal_secret}
             response = self._session.post(
-                f"{self.outbound_url}/whatsapp/{tenant_id}/start",
+                f"{self._url_for_tenant(tenant_id)}/whatsapp/{tenant_id}/start",
                 headers=headers,
                 timeout=3.0
             )
@@ -178,7 +191,7 @@ class BaileysProvider(Provider):
         while time.time() - start < timeout:
             try:
                 response = self._session.get(
-                    f"{self.outbound_url}/whatsapp/{tenant_id}/status",
+                    f"{self._url_for_tenant(tenant_id)}/whatsapp/{tenant_id}/status",
                     headers=headers,
                     timeout=1.0
                 )
@@ -230,7 +243,7 @@ class BaileysProvider(Provider):
             }
             
             response = self._session.post(
-                f"{self.outbound_url}/sendTyping",
+                f"{self._url_for_tenant(tenant_id)}/sendTyping",
                 json=payload,
                 timeout=0.5  # ⚡ Super fast - don't wait
             )
@@ -309,7 +322,7 @@ class BaileysProvider(Provider):
                 logger.info(f"⚡ Sending WhatsApp to {to[:15]}... (attempt {attempt + 1}/{max_attempts})")
                 
                 response = self._session.post(
-                    f"{self.outbound_url}/send",
+                    f"{self._url_for_tenant(tenant_id)}/send",
                     json=payload,
                     timeout=self.timeout  # 🔥 FIX: Use tuple timeout (connect, read)
                 )
@@ -386,7 +399,7 @@ class BaileysProvider(Provider):
             }
             
             response = self._session.post(
-                f"{self.outbound_url}/send",
+                f"{self._url_for_tenant(tenant_id)}/send",
                 json=payload,
                 timeout=self.timeout
             )
@@ -526,7 +539,7 @@ class BaileysProvider(Provider):
             logger.info(f"⚡ [BAILEYS-MEDIA] Sending {media_type} to {to[:15]}... mime={media.get('mimetype')}, bytes={bytes_len if 'bytes_len' in locals() else 'unknown'}")
             
             response = self._session.post(
-                f"{self.outbound_url}/send",
+                f"{self._url_for_tenant(tenant_id)}/send",
                 json=payload,
                 timeout=(3.0, 60.0)  # 🔥 FIX C: Longer timeout for large media (60s read timeout)
             )

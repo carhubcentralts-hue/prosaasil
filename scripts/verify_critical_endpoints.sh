@@ -23,7 +23,7 @@ echo ""
 
 # Track results
 FAILED=0
-TOTAL=5
+TOTAL=7
 
 # Function to test endpoint
 test_endpoint() {
@@ -55,8 +55,8 @@ test_endpoint() {
     fi
 }
 
-# Run the 5 critical tests
-echo "Running 5 critical endpoint tests:"
+# Run the 7 critical tests
+echo "Running 7 critical endpoint tests:"
 echo "───────────────────────────────────────────────────────────"
 
 if ! test_endpoint "/api/health" "Health"; then
@@ -76,6 +76,14 @@ if ! test_endpoint "/api/business/current" "Business Current"; then
 fi
 
 if ! test_endpoint "/api/whatsapp/status" "WhatsApp Status"; then
+    FAILED=$((FAILED + 1))
+fi
+
+if ! test_endpoint "/api/me/context" "User Context"; then
+    FAILED=$((FAILED + 1))
+fi
+
+if ! test_endpoint "/metrics.json" "Metrics"; then
     FAILED=$((FAILED + 1))
 fi
 
