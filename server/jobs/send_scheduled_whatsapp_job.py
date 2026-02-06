@@ -145,6 +145,24 @@ def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
                     # Create WhatsApp message record
                     try:
                         from server.models_sql import WhatsAppMessage
+                        from server.services.whatsapp_session_service import update_session_activity
+                        
+                        # Track session to get conversation
+                        conversation = None
+                        try:
+                            # Extract clean phone for session tracking
+                            clean_phone = message.remote_jid.split('@')[0] if '@' in message.remote_jid else message.remote_jid
+                            
+                            conversation = update_session_activity(
+                                business_id=message.business_id,
+                                customer_wa_id=clean_phone,
+                                direction="out",
+                                provider=provider,
+                                lead_id=lead.id if lead else None,
+                                phone_e164=lead.phone_e164 if lead else None
+                            )
+                        except Exception as session_err:
+                            logger.warning(f"[SEND-SCHEDULED-WA] Session tracking failed: {session_err}")
                         
                         # 🔥 CONTEXT FIX: Store FULL JID for history matching (not just phone)
                         outgoing_msg = WhatsAppMessage(
@@ -155,11 +173,13 @@ def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
                             provider=provider,
                             status='sent',
                             message_type='text',
-                            source='automation'  # 🔥 CONTEXT FIX: Mark as automation-generated for LLM context
+                            source='automation',  # 🔥 CONTEXT FIX: Mark as automation-generated for LLM context
+                            lead_id=lead.id if lead else None,  # 🔥 BUILD 143: Link to lead
+                            conversation_id=conversation.id if conversation else None  # 🔥 BUILD 143: Link to conversation
                         )
                         db.session.add(outgoing_msg)
                         db.session.commit()
-                        logger.debug(f"[SEND-SCHEDULED-WA] Created WhatsApp message record {outgoing_msg.id} (source=automation)")
+                        logger.debug(f"[SEND-SCHEDULED-WA] Created WhatsApp message record {outgoing_msg.id} (source=automation, conv_id={conversation.id if conversation else None})")
                     except Exception as db_err:
                         logger.error(f"[SEND-SCHEDULED-WA] Failed to create message record: {db_err}")
                         db.session.rollback()
