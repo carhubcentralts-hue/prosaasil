@@ -30,6 +30,7 @@ def _business_id_from_tenant(tenant_id: str) -> int:
     try:
         return int(tenant_id.split('_', 1)[1])
     except (IndexError, ValueError):
+        log.debug("Could not parse business_id from tenant_id=%s, using fallback=1", tenant_id)
         return 1  # safe fallback for single-shard
 
 
