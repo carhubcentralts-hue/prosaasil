@@ -235,7 +235,7 @@ def create_automation():
                                 automation_id=automation.id,
                                 appointment_id=appointment.id,
                                 offset_key=offset.get('key'),
-                                scheduled_for=datetime.utcnow(),  # Immediate
+                                scheduled_for=datetime.now(),  # Immediate (naive Israel time)
                                 status='pending'
                             )
                             db.session.add(run)
@@ -309,7 +309,7 @@ def update_automation(automation_id):
                 if field in json_fields:
                     flag_modified(automation, field)
         
-        automation.updated_at = datetime.utcnow()
+        automation.updated_at = datetime.now()  # Naive Israel time (matches DB storage)
         
         db.session.commit()
         
