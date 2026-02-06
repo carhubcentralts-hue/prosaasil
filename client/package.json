@@ -88,6 +88,7 @@
     "require-from-string": "^2.0.2",
     "serve": "^14.2.4",
     "serve-handler": "^6.1.6",
+    "sonner": "^1.7.4",
     "strip-final-newline": "^2.0.0",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.13",
@@ -114,5 +115,17 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": ""
+  "description": "",
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.8.1",
+    "vitest": "^2.1.9"
+  }
 }
