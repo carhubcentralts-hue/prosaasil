@@ -206,7 +206,8 @@ services:
       RUN_MIGRATIONS_ON_START: 0
       RUN_MIGRATIONS: "0"
       PRODUCTION: ${PRODUCTION:-1}
-      RQ_QUEUES: high,default,low,receipts,receipts_sync,maintenance,recordings,broadcasts
+      RQ_QUEUES: high,default,low,receipts,receipts_sync,maintenance,recordings,broadcasts,media
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       # 🔥 SCHEDULERS: Enable schedulers only in worker to prevent duplicate cleanup logs
       ENABLE_SCHEDULERS: "true"
       # 🔥 GOOGLE STT - Service Account Credentials
@@ -241,6 +242,174 @@ services:
         condition: service_completed_successfully
       prosaas-api:
         condition: service_healthy
+    networks:
+      - prosaas-net
+
+  # ===========================================
+  # Worker-High: Dedicated worker for realtime/high-priority queue
+  # ===========================================
+  worker-high:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.light
+    restart: unless-stopped
+    profiles:
+      - multi-worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      FLASK_ENV: production
+      RUN_MIGRATIONS_ON_START: "0"
+      RUN_MIGRATIONS: "0"
+      PRODUCTION: ${PRODUCTION:-1}
+      REDIS_URL: redis://redis:6379/0
+      RQ_QUEUES: high
+      SERVICE_ROLE: worker
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    command: ["python", "-m", "server.worker"]
+    volumes:
+      - recordings_data:/app/server/recordings
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      prosaas-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); r.ping()\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - prosaas-net
+
+  # ===========================================
+  # Worker-Default: Handles default + receipts queues
+  # ===========================================
+  worker-default:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.light
+    restart: unless-stopped
+    profiles:
+      - multi-worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      FLASK_ENV: production
+      RUN_MIGRATIONS_ON_START: "0"
+      RUN_MIGRATIONS: "0"
+      PRODUCTION: ${PRODUCTION:-1}
+      REDIS_URL: redis://redis:6379/0
+      RQ_QUEUES: default,receipts,receipts_sync
+      SERVICE_ROLE: worker
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    command: ["python", "-m", "server.worker"]
+    volumes:
+      - recordings_data:/app/server/recordings
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      prosaas-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); r.ping()\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - prosaas-net
+
+  # ===========================================
+  # Worker-Low: Handles low-priority + maintenance + broadcast queues
+  # ===========================================
+  worker-low:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.light
+    restart: unless-stopped
+    profiles:
+      - multi-worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-${DATABASE_URL}}
+      DATABASE_URL_POOLER: ${DATABASE_URL_POOLER:-${DATABASE_URL}}
+      FLASK_ENV: production
+      RUN_MIGRATIONS_ON_START: "0"
+      RUN_MIGRATIONS: "0"
+      PRODUCTION: ${PRODUCTION:-1}
+      REDIS_URL: redis://redis:6379/0
+      RQ_QUEUES: low,maintenance,broadcasts,media,recordings
+      SERVICE_ROLE: worker
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    command: ["python", "-m", "server.worker"]
+    volumes:
+      - recordings_data:/app/server/recordings
+      - /root/secrets/gcp-stt-sa.json:/root/secrets/gcp-stt-sa.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      prosaas-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); r.ping()\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
     networks:
       - prosaas-net
   
@@ -363,8 +532,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
-      # 🔥 P2+Calls: Maximum concurrent calls limit (server-wide, 0 = unlimited)
-      MAX_CONCURRENT_CALLS: 0
+      # 🔥 P2+Calls: Maximum concurrent calls limit (server-wide)
+      # Enforced via Redis counter — see server/calls_state.py
+      MAX_CONCURRENT_CALLS: ${MAX_CONCURRENT_CALLS:-50}
       # 🔥 TTS WARMUP: Optional - disable TTS warmup if needed (does not affect DB)
       # Set to "true" to skip TTS client warmup (useful for faster deployments)
       DISABLE_TTS_WARMUP: ${DISABLE_TTS_WARMUP:-false}
@@ -427,11 +597,49 @@ services:
       # 🔥 FIX #1: Override backend URL to use prosaas-api service in production
       FLASK_BASE_URL: http://prosaas-api:5000
       BACKEND_BASE_URL: http://prosaas-api:5000
+      BAILEYS_SHARD_ID: "1"
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
     depends_on:
       prosaas-api:
         condition: service_healthy
+    networks:
+      - prosaas-net
+
+  # ===========================================
+  # Baileys Shard 2 (optional — activate with multi-shard profile)
+  # Each shard has its own auth volume to prevent state mixing
+  # ===========================================
+  baileys-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.baileys
+    restart: unless-stopped
+    profiles:
+      - multi-shard
+    expose:
+      - "3300"
+    env_file:
+      - .env
+    environment:
+      FLASK_BASE_URL: http://prosaas-api:5000
+      BACKEND_BASE_URL: http://prosaas-api:5000
+      BAILEYS_PORT: 3300
+      BAILEYS_SHARD_ID: "2"
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      TZ: UTC
+      LOG_LEVEL: INFO
+    volumes:
+      - whatsapp_auth_shard2:/app/storage/whatsapp
+    depends_on:
+      prosaas-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3300/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
     networks:
       - prosaas-net
 
@@ -488,4 +696,5 @@ networks:
 volumes:
   recordings_data:
   whatsapp_auth:
+  whatsapp_auth_shard2:
   n8n_data:
