@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def backfill_message_conversation_ids():
     """Backfill conversation_id for existing WhatsApp messages"""
-    from server.app import create_app
+    from server.app_factory import create_app
     from server.db import db
     from server.models_sql import WhatsAppMessage, WhatsAppConversation, Lead
     from server.utils.whatsapp_utils import get_canonical_conversation_key

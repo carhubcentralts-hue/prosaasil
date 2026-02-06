@@ -7,7 +7,7 @@ import logging
 from flask import Blueprint, jsonify, request, g, send_file
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
-from server.models_sql import Business, Customer, WhatsAppMessage, CallLog, Deal, Payment, Invoice, Contract, PaymentGateway, CRMTask, Lead
+from server.models_sql import Business, Customer, WhatsAppMessage, WhatsAppConversation, CallLog, Deal, Payment, Invoice, Contract, PaymentGateway, CRMTask, Lead
 from server.db import db
 from datetime import datetime
 from sqlalchemy import or_, and_, func, text
@@ -118,40 +118,50 @@ def api_threads():
         thread_type = request.args.get("type", "whatsapp")
         
         if thread_type == "whatsapp":
-            # Enriched query: joins leads + whatsapp_conversation for name resolution
-            # Priority: lead.name > conversation.customer_name (push_name) > customer.name > phone
+            # 🔥 FIX: Group by conversation_id (canonical key) instead of to_number
+            # This prevents duplicate threads for the same person with different identifiers
+            # Priority: conversation.canonical_key > message.conversation_id > message.to_number (fallback)
             result = db.session.execute(text("""
                 WITH ranked_messages AS (
                     SELECT 
-                        to_number,
-                        body,
-                        direction,
-                        created_at,
-                        message_type,
-                        media_url,
-                        ROW_NUMBER() OVER (PARTITION BY to_number ORDER BY created_at DESC) as rn
-                    FROM whatsapp_message
-                    WHERE business_id = :business_id AND COALESCE(status, '') != 'deleted'
+                        COALESCE(wc.id, 0) as conv_id,
+                        COALESCE(wc.canonical_key, wm.to_number) as conversation_key,
+                        wm.to_number,
+                        wm.body,
+                        wm.direction,
+                        wm.created_at,
+                        wm.message_type,
+                        wm.media_url,
+                        wm.lead_id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY COALESCE(wc.canonical_key, wm.to_number) 
+                            ORDER BY wm.created_at DESC
+                        ) as rn
+                    FROM whatsapp_message wm
+                    LEFT JOIN whatsapp_conversation wc ON wm.conversation_id = wc.id
+                    WHERE wm.business_id = :business_id AND COALESCE(wm.status, '') != 'deleted'
                 ),
                 thread_stats AS (
                     SELECT 
-                        to_number,
-                        MAX(created_at) as last_message_time,
+                        COALESCE(wc.canonical_key, wm.to_number) as conversation_key,
+                        MAX(wm.created_at) as last_message_time,
                         COUNT(*) as message_count,
-                        COUNT(*) FILTER (WHERE direction = 'in' AND status NOT IN ('read', 'deleted')) as unread_count
-                    FROM whatsapp_message
-                    WHERE business_id = :business_id AND COALESCE(status, '') != 'deleted'
-                    GROUP BY to_number
+                        COUNT(*) FILTER (WHERE wm.direction = 'in' AND wm.status NOT IN ('read', 'deleted')) as unread_count
+                    FROM whatsapp_message wm
+                    LEFT JOIN whatsapp_conversation wc ON wm.conversation_id = wc.id
+                    WHERE wm.business_id = :business_id AND COALESCE(wm.status, '') != 'deleted'
+                    GROUP BY COALESCE(wc.canonical_key, wm.to_number)
                 ),
                 latest_conv AS (
-                    SELECT DISTINCT ON (customer_number)
+                    SELECT DISTINCT ON (canonical_key)
+                        canonical_key,
                         customer_number,
                         customer_name,
                         lead_id,
                         is_open
                     FROM whatsapp_conversation
                     WHERE business_id = :business_id
-                    ORDER BY customer_number, last_message_at DESC
+                    ORDER BY canonical_key, last_message_at DESC
                 )
                 SELECT 
                     rm.to_number,
@@ -165,15 +175,13 @@ def api_threads():
                     lc.customer_name as push_name,
                     ts.unread_count,
                     rm.message_type as last_message_type,
-                    rm.media_url as last_media_url
+                    rm.media_url as last_media_url,
+                    rm.conversation_key
                 FROM ranked_messages rm
-                JOIN thread_stats ts ON rm.to_number = ts.to_number
+                JOIN thread_stats ts ON rm.conversation_key = ts.conversation_key
                 LEFT JOIN customer c ON c.phone_number = rm.to_number AND c.business_id = :business_id
-                LEFT JOIN leads l ON l.tenant_id = :business_id 
-                    AND (l.phone_e164 = rm.to_number 
-                         OR l.phone_e164 = CONCAT('+', rm.to_number)
-                         OR REPLACE(l.phone_e164, '+', '') = rm.to_number)
-                LEFT JOIN latest_conv lc ON lc.customer_number = rm.to_number
+                LEFT JOIN leads l ON l.id = rm.lead_id
+                LEFT JOIN latest_conv lc ON lc.canonical_key = rm.conversation_key
                 WHERE rm.rn = 1
                 ORDER BY ts.last_message_time DESC
                 LIMIT 50
@@ -197,6 +205,7 @@ def api_threads():
                 unread_count = row[9] or 0
                 last_message_type = row[10] or "text"
                 last_media_url = row[11] or None
+                conversation_key = row[12]  # 🔥 NEW: Canonical conversation key
                 
                 # 🔥 FIX: Clean up phone display - don't show @lid identifiers
                 # to_number might contain @lid, @s.whatsapp.net, etc.
@@ -226,12 +235,12 @@ def api_threads():
                     last_msg_preview = type_labels.get(last_message_type, "📎 קובץ")
                 
                 threads_list.append({
-                    "id": to_number,
+                    "id": conversation_key,  # 🔥 Use canonical key for consistent thread ID
                     "name": display_name,
                     "lead_name": lead_name,
                     "push_name": push_name,
                     "lead_id": lead_id,
-                    "phone": to_number,  # Keep raw for backend matching
+                    "phone": to_number,  # Keep raw for backend matching (legacy)
                     "phone_e164": display_phone or to_number,  # Cleaned version for display
                     "lastMessage": last_msg_preview,
                     "unread": unread_count,
@@ -249,7 +258,12 @@ def api_threads():
 @crm_bp.get("/api/crm/threads/<thread_id>/messages")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_thread_messages(thread_id):
-    """Get messages for a specific thread as JSON"""
+    """Get messages for a specific thread as JSON
+    
+    thread_id can be:
+    - A canonical key: "lead:1:123" or "phone:1:+972..."
+    - A legacy phone number: "+972501234567" or "972501234567"
+    """
     try:
         business_id = get_business_id()
         
@@ -258,20 +272,49 @@ def api_thread_messages(thread_id):
             logger.warning("api_thread_messages: business_id not found in session")
             return jsonify({"error": "Business ID not available", "messages": []}), 401
         
-        # Normalize phone number to match different formats
-        thread_phone = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
-        phone_variants = [
-            thread_phone,
-            f"+{thread_phone}",
-            f"{thread_phone}@s.whatsapp.net"
-        ]
+        # 🔥 FIX: Check if thread_id is a canonical key or a phone number
+        messages = []
+        if thread_id.startswith('lead:') or thread_id.startswith('phone:'):
+            # Canonical key format - query by conversation_id
+            conversation = WhatsAppConversation.query.filter_by(
+                business_id=business_id,
+                canonical_key=thread_id
+            ).first()
+            
+            if conversation:
+                logger.info(f"[THREAD-MSG] Found conversation by canonical_key: {thread_id}, conv_id={conversation.id}")
+                # Get messages by conversation_id (preferred) or to_number (fallback for old messages)
+                messages = WhatsAppMessage.query.filter(
+                    WhatsAppMessage.business_id == business_id,
+                    or_(
+                        WhatsAppMessage.conversation_id == conversation.id,
+                        and_(
+                            WhatsAppMessage.to_number == conversation.customer_number,
+                            WhatsAppMessage.conversation_id.is_(None)  # Include old messages without conversation_id
+                        )
+                    ),
+                    WhatsAppMessage.status != 'deleted'
+                ).order_by(WhatsAppMessage.created_at.asc()).all()
+            else:
+                logger.warning(f"[THREAD-MSG] No conversation found for canonical_key: {thread_id}")
+        else:
+            # Legacy phone number format - query by to_number variants
+            thread_phone = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
+            phone_variants = [
+                thread_phone,
+                f"+{thread_phone}",
+                f"{thread_phone}@s.whatsapp.net"
+            ]
+            
+            logger.info(f"[THREAD-MSG] Querying by phone variants: {phone_variants}")
+            # Get messages where to_number matches the thread phone (exclude soft-deleted)
+            messages = WhatsAppMessage.query.filter(
+                WhatsAppMessage.business_id == business_id,
+                WhatsAppMessage.to_number.in_(phone_variants),
+                WhatsAppMessage.status != 'deleted'
+            ).order_by(WhatsAppMessage.created_at.asc()).all()
         
-        # Get messages where to_number matches the thread phone (exclude soft-deleted)
-        messages = WhatsAppMessage.query.filter(
-            WhatsAppMessage.business_id == business_id,
-            WhatsAppMessage.to_number.in_(phone_variants),
-            WhatsAppMessage.status != 'deleted'
-        ).order_by(WhatsAppMessage.created_at.asc()).all()
+        logger.info(f"[THREAD-MSG] Found {len(messages)} messages for thread_id={thread_id}")
         
         # Convert to JSON format with enhanced fields
         messages_list = []
@@ -473,10 +516,23 @@ def api_send_thread_message(thread_id):
         try:
             # Track session first to get conversation
             from server.services.whatsapp_session_service import update_session_activity
+            from server.utils.whatsapp_utils import normalize_conversation_key
+            
             conversation = None
+            conversation_key = None
+            
             try:
                 # Extract clean phone for session tracking
                 clean_phone = formatted_number.split('@')[0] if '@' in formatted_number else formatted_number
+                
+                # 🔥 Generate consistent conversation_key for message storage
+                phone_e164_normalized = lead_phone if lead_phone else (f"+{clean_phone}" if not clean_phone.startswith('+') else clean_phone)
+                conversation_key = normalize_conversation_key(
+                    remote_jid=formatted_number,
+                    from_number_e164=phone_e164_normalized,
+                    phone_for_ai_check=phone_e164_normalized
+                )
+                log.info(f"[CRM-SEND] Using conversation_key={conversation_key[:30]} for message storage")
                 
                 # 🔥 FIX: Pass lead_id and phone_e164 for consistent canonical_key
                 # This ensures outbound messages use the SAME conversation as inbound
@@ -486,14 +542,14 @@ def api_send_thread_message(thread_id):
                     direction="out",
                     provider=send_result.get('provider', 'baileys'),
                     lead_id=lead_id,  # 🔥 FIX: Pass lead_id for canonical_key
-                    phone_e164=lead_phone  # 🔥 FIX: Pass phone_e164 for canonical_key
+                    phone_e164=phone_e164_normalized  # 🔥 FIX: Pass phone_e164 for canonical_key
                 )
             except Exception as e:
                 log.warning(f"⚠️ Session tracking failed: {e}")
             
             wa_msg = WhatsAppMessage()
             wa_msg.business_id = business_id
-            wa_msg.to_number = formatted_number
+            wa_msg.to_number = conversation_key if conversation_key else formatted_number  # 🔥 Use conversation_key for consistency
             wa_msg.body = text
             wa_msg.message_type = media_type or 'text'
             wa_msg.direction = 'out'
@@ -502,6 +558,7 @@ def api_send_thread_message(thread_id):
             wa_msg.status = 'sent'
             wa_msg.lead_id = lead_id  # 🔥 BUILD 143: Link to lead
             wa_msg.conversation_id = conversation.id if conversation else None  # 🔥 BUILD 143: Link to conversation
+            wa_msg.source = 'human'  # 🔥 Mark as human-sent message (from agent/UI)
             
             # Store media metadata if applicable
             if file_data:
@@ -510,6 +567,7 @@ def api_send_thread_message(thread_id):
             
             db.session.add(wa_msg)
             db.session.commit()
+            log.info(f"[CRM-SEND] ✅ Message saved: id={wa_msg.id}, conv_id={wa_msg.conversation_id}, lead_id={wa_msg.lead_id}, source={wa_msg.source}")
                 
         except Exception as db_error:
             log.error(f"[CRM-SEND] DB save failed: {db_error}")

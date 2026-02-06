@@ -1308,21 +1308,41 @@ def baileys_webhook():
                             log.warning(f"⚠️ Duplicate by content within 10s: {message_text[:50]}...")
                             continue
                 
+                # ✅ BUILD 162: Get or create conversation FIRST (before saving message)
+                # This ensures message.conversation_id is set for unified threading
+                conversation = None
+                try:
+                    conversation = update_session_activity(
+                        business_id=business_id,
+                        customer_wa_id=conversation_key,  # Use normalized conversation key for consistent session tracking
+                        direction="in",
+                        provider="baileys",
+                        lead_id=lead.id,  # Link session to lead for canonical key generation
+                        phone_e164=from_number_e164  # Pass phone for canonical_key generation
+                    )
+                    log.info(f"[WA-SESSION] ✅ Conversation tracked: conv_id={conversation.id if conversation else None}, lead_id={lead.id}")
+                except Exception as e:
+                    log.warning(f"⚠️ Session tracking failed: {e}")
+                
                 # Save incoming message to DB with message_id for deduplication
                 # Use ON CONFLICT DO NOTHING pattern for race condition protection
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
-                wa_msg.to_number = conversation_key  # 🔥 FIX #3: Use unified conversation_key instead of from_number_e164
+                wa_msg.to_number = conversation_key  # Use unified conversation_key for consistent message grouping
                 wa_msg.body = message_text
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'in'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = 'baileys'
                 wa_msg.status = 'received'
                 wa_msg.provider_message_id = baileys_message_id if baileys_message_id else None
+                wa_msg.lead_id = lead.id  # Link message to lead for easier querying
+                wa_msg.conversation_id = conversation.id if conversation else None  # Link message to conversation for unified threading
+                wa_msg.source = 'customer'  # Mark as customer message for context
                 
                 try:
                     db.session.add(wa_msg)
                     db.session.commit()
+                    log.info(f"[WA-SAVE] ✅ Message saved: id={wa_msg.id}, conv_id={wa_msg.conversation_id}, lead_id={wa_msg.lead_id}")
                 except Exception as integrity_err:
                     # Handle race condition: another thread/instance inserted same message_id
                     db.session.rollback()
@@ -1332,18 +1352,6 @@ def baileys_webhook():
                     else:
                         # Unexpected error - re-raise
                         raise
-                
-                # ✅ BUILD 162: Track session for auto-summary generation
-                try:
-                    update_session_activity(
-                        business_id=business_id,
-                        customer_wa_id=conversation_key,  # 🔥 FIX #3: Use conversation_key
-                        direction="in",
-                        provider="baileys",
-                        lead_id=lead.id  # 🔥 FIX: Link session to lead
-                    )
-                except Exception as e:
-                    log.warning(f"⚠️ Session tracking failed: {e}")
                 
                 # ✅ BUILD 93: Check for appointment request FIRST
                 appointment_created = False
