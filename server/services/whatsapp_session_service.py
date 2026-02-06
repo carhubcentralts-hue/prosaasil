@@ -38,7 +38,7 @@ def get_or_create_session(
 ) -> Tuple[WhatsAppConversation, bool]:
     """Get existing open session or create new one using canonical key
     
-    Session Rules (BUILD 138 - Canonical Key):
+    Session Rules (BUILD 138 - Canonical Key / BUILD 163 - Session Lifecycle):
     1. Session is uniquely identified by canonical_key = (business_id, lead_id) OR (business_id, phone_e164)
     2. Session is valid only for SAME DAY - new day = new session
     3. If 5+ minutes passed since last CUSTOMER message = close old, create new
@@ -141,7 +141,7 @@ def get_or_create_session(
     if not lead_id:
         lead = Lead.query.filter_by(
             tenant_id=business_id,
-            phone_e164=phone_e164 or f"+{customer_wa_id}" if customer_wa_id else None
+            phone_e164=phone_e164 or (f"+{customer_wa_id}" if customer_wa_id else None)
         ).first()
         
         if not lead and customer_wa_id:

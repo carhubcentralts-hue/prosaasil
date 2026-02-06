@@ -200,7 +200,10 @@ def merge_duplicate_conversations(
         
         for dup in duplicates_to_merge:
             try:
-                # Count messages in duplicate
+                # Count messages in duplicate (for logging only)
+                # Note: WhatsAppMessage doesn't have conversation_id foreign key
+                # Messages are linked by business_id + to_number, so they don't need explicit migration
+                # We only need to close the duplicate conversation - messages remain accessible
                 message_count = WhatsAppMessage.query.filter_by(
                     business_id=dup.business_id,
                     to_number=dup.customer_number
