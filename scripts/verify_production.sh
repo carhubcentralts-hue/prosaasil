@@ -165,6 +165,62 @@ else
 fi
 echo ""
 
+# Check 7: Database schema - business.whatsapp_shard column (Migration 139)
+echo "=== Check 7: Database Schema - business.whatsapp_shard ==="
+echo "Checking if whatsapp_shard column exists in business table..."
+
+if echo "$services" | grep -q "^prosaas-api$"; then
+    shard_check=$(./scripts/dcprod.sh exec prosaas-api python -c "
+import os
+os.environ.setdefault('FLASK_ENV', 'production')
+from server.db import db
+from server.app_factory import create_app
+from sqlalchemy import text
+
+app = create_app()
+with app.app_context():
+    try:
+        result = db.session.execute(text('''
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'business'
+              AND column_name = 'whatsapp_shard'
+        ''')).fetchall()
+        if result:
+            print('OK')
+        else:
+            print('MISSING:whatsapp_shard')
+    except Exception as e:
+        print(f'ERROR:{e}')
+" 2>&1 || echo "FAILED")
+
+    if echo "$shard_check" | grep -q "^OK$"; then
+        echo "✅ PASS: business.whatsapp_shard column exists"
+    elif echo "$shard_check" | grep -q "^MISSING:"; then
+        echo "❌ FAIL: business.whatsapp_shard column missing"
+        echo "   This will cause 500 errors when loading business context"
+        echo "   Fix: Run migrations: ./scripts/dcprod.sh run --rm migrate"
+        exit 1
+    else
+        echo "⚠️  WARNING: Could not check business.whatsapp_shard"
+        echo "   Response: $shard_check"
+    fi
+else
+    echo "⚠️  WARNING: prosaas-api not running, skipping whatsapp_shard check"
+fi
+echo ""
+
+# Check 8: SSOT wiring checks (no Docker required)
+echo "=== Check 8: SSOT Wiring Checks ==="
+if bash scripts/no_duplicate_ssot_checks.sh 2>/dev/null; then
+    echo "✅ PASS: All SSOT wiring checks pass"
+else
+    echo "❌ FAIL: SSOT wiring checks failed"
+    echo "   Run: bash scripts/no_duplicate_ssot_checks.sh for details"
+    exit 1
+fi
+echo ""
+
 # Summary
 echo "╔══════════════════════════════════════════════════════════════════════════════╗"
 echo "║                            ✅ ALL CHECKS PASSED                              ║"
