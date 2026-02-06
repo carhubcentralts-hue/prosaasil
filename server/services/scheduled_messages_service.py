@@ -99,8 +99,8 @@ def create_rule(
             delay_seconds = delay_minutes * 60
     
     # Validation for STATUS_CHANGE schedules only
-    has_steps = steps and len(steps) > 0
     if schedule_type == "STATUS_CHANGE":
+        has_steps = steps and len(steps) > 0
         # Allow delay_seconds=0 if send_immediately_on_enter is True OR if steps exist
         if delay_seconds == 0 and not send_immediately_on_enter and not has_steps:
             raise ValueError("delay_seconds must be at least 1 for STATUS_CHANGE schedules (unless immediate send or steps are enabled)")
@@ -112,13 +112,15 @@ def create_rule(
         delay_minutes = delay_seconds // 60
     
     # Validate delay_minutes for backward compatibility (skip for recurring schedules or immediate sends/steps)
-    if schedule_type == "STATUS_CHANGE" and not send_immediately_on_enter and not has_steps:
-        if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
-            raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
-    elif schedule_type == "STATUS_CHANGE" and (send_immediately_on_enter or has_steps):
-        # For immediate sends or steps, allow 0
-        if delay_minutes < 0 or delay_minutes > 43200:
-            raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
+    if schedule_type == "STATUS_CHANGE":
+        has_steps = steps and len(steps) > 0
+        if not send_immediately_on_enter and not has_steps:
+            if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
+                raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+        elif send_immediately_on_enter or has_steps:
+            # For immediate sends or steps, allow 0
+            if delay_minutes < 0 or delay_minutes > 43200:
+                raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
     
     if not status_ids:
         raise ValueError("At least one status_id is required")
