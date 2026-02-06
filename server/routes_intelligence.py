@@ -5,7 +5,7 @@ Customer Intelligence API Routes
 from flask import Blueprint, jsonify, request
 from server.extensions import csrf
 from server.auth_api import require_api_auth
-from server.models_sql import Customer, Lead, CallLog, Business
+from server.models_sql import Customer, Lead, CallLog, Business, WhatsAppMessage
 from server.db import db
 from sqlalchemy import func, desc, case
 from sqlalchemy.orm import aliased
@@ -98,6 +98,15 @@ def get_intelligent_customers():
             CallLog.from_number.in_(customer_phones)
         ).group_by(CallLog.from_number).subquery()
         
+        # Subquery 2b: Count WhatsApp messages per phone
+        whatsapp_counts_subq = db.session.query(
+            WhatsAppMessage.to_number,
+            func.count(WhatsAppMessage.id).label('whatsapp_count')
+        ).filter(
+            WhatsAppMessage.business_id == business_id,
+            WhatsAppMessage.to_number.in_(customer_phones)
+        ).group_by(WhatsAppMessage.to_number).subquery()
+        
         # Subquery 3: Get latest lead per phone (using window function for efficiency)
         from sqlalchemy import select
         latest_lead_subq = db.session.query(
@@ -153,6 +162,8 @@ def get_intelligent_customers():
                        for row in db.session.query(leads_counts_subq).all()}
         calls_counts = {row.from_number: row.calls_count 
                        for row in db.session.query(calls_counts_subq).all()}
+        whatsapp_counts = {row.to_number: row.whatsapp_count
+                          for row in db.session.query(whatsapp_counts_subq).all()}
         latest_leads_map = {row.phone_e164: row 
                            for row in db.session.query(latest_leads_filtered).all()}
         last_calls_map = {row.from_number: row 
@@ -166,6 +177,7 @@ def get_intelligent_customers():
             # Get aggregated data from lookup dictionaries (O(1) lookups)
             leads_count = leads_counts.get(phone, 0)
             calls_count = calls_counts.get(phone, 0)
+            whatsapp_count = whatsapp_counts.get(phone, 0)
             latest_lead_data = latest_leads_map.get(phone)
             last_call_data = last_calls_map.get(phone)
             
@@ -212,7 +224,7 @@ def get_intelligent_customers():
                 'last_interaction': last_interaction.isoformat() if last_interaction else '',
                 'leads_count': leads_count,
                 'calls_count': calls_count,
-                'whatsapp_count': 0,  # TODO: הוסף ספירת WhatsApp כשתהיה טבלה
+                'whatsapp_count': whatsapp_count,
                 'recent_activity': sorted(recent_activity, key=lambda x: x['timestamp'], reverse=True)[:3]
             }
             
@@ -262,8 +274,22 @@ def get_intelligence_stats():
         total_calls = CallLog.query.filter_by(business_id=business_id).count()
         call_conversion_rate = round((total_leads / total_calls * 100) if total_calls > 0 else 0, 1)
         
-        # WhatsApp conversion (placeholder)
-        whatsapp_conversion_rate = 75  # TODO: חשב בפועל כשתהיה מידע
+        # WhatsApp conversion rate calculation
+        # Count total WhatsApp interactions and leads with WhatsApp activity
+        total_whatsapp = WhatsAppMessage.query.filter_by(business_id=business_id).count()
+        # Count leads that have WhatsApp messages associated (by matching phone numbers)
+        if total_whatsapp > 0:
+            leads_with_whatsapp = db.session.query(func.count(func.distinct(Lead.id))).filter(
+                Lead.tenant_id == business_id,
+                Lead.phone_e164.in_(
+                    db.session.query(WhatsAppMessage.to_number).filter(
+                        WhatsAppMessage.business_id == business_id
+                    )
+                )
+            ).scalar() or 0
+            whatsapp_conversion_rate = round((leads_with_whatsapp / total_whatsapp * 100), 1)
+        else:
+            whatsapp_conversion_rate = 0
         
         # לידים מוכנים לפגישה
         meeting_ready_leads = Lead.query.filter_by(tenant_id=business_id)\

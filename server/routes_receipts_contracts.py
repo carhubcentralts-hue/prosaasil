@@ -24,9 +24,11 @@ def _payments_disabled():
     """Check if payments feature is disabled"""
     return os.getenv("ENABLE_PAYMENTS", "false").lower() != "true"
 
+
 def _contracts_disabled():
     """Check if contracts feature is disabled"""
     return os.getenv("ENABLE_CONTRACTS", "false").lower() != "true"
+
 
 def _feature_disabled_response(feature_name):
     """Standard response for disabled features"""
@@ -54,8 +56,22 @@ def list_receipts():
         # Get all invoices for this business (AgentKit invoices may not have payment/deal)
         invoices_raw = Invoice.query.filter_by(business_id=business_id).order_by(Invoice.issued_at.desc()).all()
         
+        # Collect all payment_ids to fetch in a single query (avoiding N+1)
+        payment_ids = [inv.payment_id for inv in invoices_raw if inv.payment_id]
+        payments_map = {}
+        if payment_ids:
+            payments = Payment.query.filter(Payment.id.in_(payment_ids)).all()
+            payments_map = {p.id: p for p in payments}
+        
         invoices_list = []
         for invoice in invoices_raw:
+            # Get payment date from pre-fetched payments map
+            paid_at = None
+            if invoice.payment_id and invoice.payment_id in payments_map:
+                payment = payments_map[invoice.payment_id]
+                if payment.paid_at:
+                    paid_at = payment.paid_at.isoformat()
+            
             # AgentKit invoices: use fields directly from invoice
             # Legacy invoices: try to load from related payment/deal
             invoices_list.append({
@@ -71,7 +87,7 @@ def list_receipts():
                 'status': invoice.status or 'final',
                 'lead_id': invoice.customer_id,
                 'created_at': invoice.issued_at.isoformat() if invoice.issued_at else None,
-                'paid_at': None  # TODO: Track payment date
+                'paid_at': paid_at
             })
         
         return jsonify({

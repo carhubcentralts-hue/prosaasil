@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from server.db import db
 from server.models_sql import Lead, LeadStatusHistory, LeadStatus, BusinessSettings
+from server.services.generic_webhook_service import send_generic_webhook
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -441,10 +442,26 @@ class UnifiedStatusService:
             if not webhook_url:
                 return
             
-            # TODO: Implement webhook trigger
-            # This would be similar to existing webhook implementations
-            logger.info(f"[UnifiedStatus] Would trigger webhook: {webhook_url} "
+            # Prepare webhook payload
+            webhook_data = {
+                'lead_id': lead.id,
+                'customer_name': lead.customer_name,
+                'phone': lead.phone_e164,
+                'old_status': old_status,
+                'new_status': new_status,
+                'channel': channel,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+            # Send webhook asynchronously
+            logger.info(f"[UnifiedStatus] Triggering status webhook: {webhook_url} "
                        f"(lead={lead.id}, {old_status}→{new_status})")
+            send_generic_webhook(
+                business_id=self.business_id,
+                event_type='status.changed',
+                data=webhook_data,
+                webhook_url=webhook_url
+            )
             
         except Exception as e:
             logger.error(f"[UnifiedStatus] Error triggering status webhook: {e}")

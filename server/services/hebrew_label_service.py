@@ -192,18 +192,16 @@ class HebrewLabelService:
         Format custom fields with labels (⚠️ TEMPORARY ENGLISH FALLBACK)
         
         IMPORTANT: This function currently returns English labels, NOT Hebrew.
-        Hebrew labels require a CustomFieldDefinition table or custom_fields_schema.
+        Hebrew labels would require implementing one of these approaches:
+            1. BusinessSettings.custom_fields_schema with label_he mappings
+            2. CustomFieldDefinition table with business_id, field_key, label_he
+            3. Hard-coded mapping for common fields
         
         Args:
             custom_fields: Dict of custom field key-value pairs
             
         Returns:
             List of dicts with field_key, field_label (English fallback), and value
-        
-        TODO: Implement proper Hebrew labels from DB sources:
-            1. BusinessSettings.custom_fields_schema
-            2. CustomFieldDefinition table  
-            3. Hard-coded mapping for common fields
         """
         if not custom_fields:
             return []
@@ -212,13 +210,8 @@ class HebrewLabelService:
             formatted_fields = []
             
             for field_key, field_value in custom_fields.items():
-                # TODO: Implement proper Hebrew labels from DB
-                # Potential sources:
-                # 1. BusinessSettings.custom_fields_schema: {"treatment_duration": {"label_he": "משך טיפול"}}
-                # 2. CustomFieldDefinition table with business_id, field_key, label_he
-                # 3. Hard-coded mapping for common fields
-                
-                # Temporary: Use English title-case as fallback
+                # Using English title-case as fallback until Hebrew labels are implemented
+                # Refer to docstring for implementation approaches
                 field_label = field_key.replace('_', ' ').title()
                 logger.warning(f"⚠️ [HebrewLabel] Using English fallback label for custom field '{field_key}' - implement CustomFieldDefinition for Hebrew")
                 

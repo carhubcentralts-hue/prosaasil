@@ -832,9 +832,10 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 from flask import g
                 from server.policy.business_policy import get_business_policy
                 
-                # Get context and session for _choose_phone
+                # Get context for _choose_phone
+                # Note: Session is not currently passed here but could be added if needed
                 context = getattr(g, 'agent_context', None)
-                session = None  # TODO: pass session if available
+                session = None
 
                 # Load policy (determines whether phone is required)
                 policy = get_business_policy(business_id, (context or {}).get("business_prompt") if context else None)

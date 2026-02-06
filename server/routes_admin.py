@@ -355,7 +355,9 @@ def api_admin_kpis_overview():
         businesses_count = Business.query.filter_by(is_active=True).count()
         calls_count = CallLog.query.filter(CallLog.created_at >= date_start).count()
         whatsapp_count = WhatsAppMessage.query.filter(WhatsAppMessage.created_at >= date_start).count()
-        unread_notifications = 4  # TODO: Replace with real notifications count
+        # Note: Notification system is implemented via routes_push.py with device tokens
+        # Unread count would require additional state tracking - currently showing 0
+        unread_notifications = 0
         
         logger.info(f"📊 KPI_OVERVIEW_REAL_DATA: businesses={businesses_count}, calls={calls_count}, whatsapp={whatsapp_count}")
         
@@ -739,11 +741,13 @@ def admin_businesses_prompts():
         from sqlalchemy import func, case
         
         # Get all businesses with their prompts
+        # Note: Currently using the same ai_prompt for both calls and WhatsApp
+        # Future enhancement could separate these into calls_prompt and whatsapp_prompt fields
         businesses_query = db.session.query(
             Business.id.label('business_id'),
             Business.name.label('business_name'),
             func.coalesce(BusinessSettings.ai_prompt, '').label('calls_prompt'),
-            func.coalesce(BusinessSettings.ai_prompt, '').label('whatsapp_prompt'),  # TODO: separate fields
+            func.coalesce(BusinessSettings.ai_prompt, '').label('whatsapp_prompt'),
             BusinessSettings.updated_at.label('last_updated'),
             func.coalesce(
                 func.row_number().over(partition_by=Business.id, order_by=BusinessSettings.updated_at.desc()), 
