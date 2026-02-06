@@ -52,12 +52,13 @@ class BroadcastWorker:
             
             try:
                 import requests
-                BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
-                INT_SECRET = os.getenv('INTERNAL_SECRET')
+                from server.whatsapp_shard_router import get_baileys_base_url
+                from server.config import INTERNAL_SECRET
+                baileys_url = get_baileys_base_url(self.broadcast.business_id)
                 
                 status_response = requests.get(
-                    f"{BAILEYS_BASE}/whatsapp/{tenant_id}/status",
-                    headers={'X-Internal-Secret': INT_SECRET},
+                    f"{baileys_url}/whatsapp/{tenant_id}/status",
+                    headers={'X-Internal-Secret': INTERNAL_SECRET or ''},
                     timeout=5
                 )
                 

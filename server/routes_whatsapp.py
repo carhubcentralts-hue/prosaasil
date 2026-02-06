@@ -12,6 +12,8 @@ from server.agent_tools.phone_utils import normalize_phone
 from server.services.jobs import enqueue_job
 from server.jobs.send_whatsapp_message_job import send_whatsapp_message_job
 from server.services.unified_lead_context_service import get_unified_context_for_lead
+from server.whatsapp_shard_router import get_baileys_base_url
+from server.config import INTERNAL_SECRET as _INT_SECRET
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,9 +21,22 @@ logger = logging.getLogger(__name__)
 
 whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
 internal_whatsapp_bp = Blueprint('internal_whatsapp', __name__, url_prefix='/api/internal/whatsapp')
-BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
-INT_SECRET   = os.getenv('INTERNAL_SECRET')
+INT_SECRET   = _INT_SECRET
 log = logging.getLogger(__name__)
+
+
+def _business_id_from_tenant(tenant_id: str) -> int:
+    """Extract numeric business_id from tenant string like 'business_42'."""
+    try:
+        return int(tenant_id.split('_', 1)[1])
+    except (IndexError, ValueError):
+        return 1  # safe fallback for single-shard
+
+
+def _baileys_url(tenant_id: str) -> str:
+    """Get the Baileys shard URL for a tenant string."""
+    return get_baileys_base_url(_business_id_from_tenant(tenant_id))
+
 
 # BUILD 136: REMOVED hardcoded business_1 - now uses tenant_id_from_ctx() dynamically
 # Helper function to get tenant-specific auth directory
@@ -122,7 +137,7 @@ def status():
         # 🔥 FIX (Problem 2.1): ALWAYS query Baileys for real-time status first
         # Don't rely on file existence alone - files may be stale
         try:
-            r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=5)
+            r = requests.get(f"{_baileys_url(t)}/whatsapp/{t}/status", headers=_headers(), timeout=5)
             if r.status_code == 200:
                 baileys_data = r.json()
                 
@@ -243,7 +258,7 @@ def qr():
                 return jsonify({"dataUrl": None, "qrText": qr_text}), 200
         
         # If no file, try Baileys API
-        r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/qr", headers=_headers(), timeout=10)
+        r = requests.get(f"{_baileys_url(t)}/whatsapp/{t}/qr", headers=_headers(), timeout=10)
         if r.status_code == 404:
             return jsonify({"dataUrl": None, "qrText": None}), 200
         return jsonify(r.json()), r.status_code
@@ -260,7 +275,7 @@ def start():
     t = tenant_id_from_ctx()
     try:
         # קריאה פנימית ל-Baileys (עם INTERNAL_SECRET)
-        r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/start", headers=_headers(), timeout=10)
+        r = requests.post(f"{_baileys_url(t)}/whatsapp/{t}/start", headers=_headers(), timeout=10)
         return jsonify(r.json()), r.status_code
     except Exception as e:
         # אם Baileys לא עונה, נחזיר OK (כי הוא כבר רץ)
@@ -273,7 +288,7 @@ def reset():
     """Reset WhatsApp session for authenticated business"""
     t = tenant_id_from_ctx()
     try:
-        r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/reset", headers=_headers(), timeout=10)
+        r = requests.post(f"{_baileys_url(t)}/whatsapp/{t}/reset", headers=_headers(), timeout=10)
         return jsonify(r.json()), r.status_code
     except Exception as e:
         log.error(f"WhatsApp reset failed: {e}")
@@ -286,7 +301,7 @@ def disconnect():
     """Disconnect WhatsApp session for authenticated business"""
     t = tenant_id_from_ctx()
     try:
-        r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/disconnect", headers=_headers(), timeout=10)
+        r = requests.post(f"{_baileys_url(t)}/whatsapp/{t}/disconnect", headers=_headers(), timeout=10)
         return jsonify(r.json()), r.status_code
     except Exception as e:
         log.error(f"WhatsApp disconnect failed: {e}")
@@ -871,7 +886,7 @@ def baileys_webhook():
                         try:
                             # Call enhanced resolver with more strategies
                             import requests
-                            resolver_url = f"{BAILEYS_BASE}/internal/resolve-jid"
+                            resolver_url = f"{get_baileys_base_url(business_id)}/internal/resolve-jid"
                             resolver_response = requests.post(resolver_url, 
                                 json={
                                     'tenantId': f'business_{business_id}',
@@ -1690,15 +1705,15 @@ def send_via_webhook():
     
     tenant_id = f"business_{business_id}"
     
-    # ✅ 7) Verify base URL is internal (Docker network) - NOT external domain
-    baileys_base = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
+    # ✅ 7) Get Baileys URL via shard router and verify it's internal
+    baileys_base = get_baileys_base_url(business_id)
     if baileys_base.startswith('https://prosaas.pro') or 'prosaas.pro' in baileys_base:
-        log.error(f"[WA_WEBHOOK] ERROR: BAILEYS_BASE_URL contains external domain: {baileys_base}")
+        log.error(f"[WA_WEBHOOK] ERROR: Baileys URL contains external domain: {baileys_base}")
         log.error("[WA_WEBHOOK] CRITICAL: Must use Docker internal URL: http://baileys:3300")
         return jsonify({
             "ok": False,
             "error_code": "invalid_base_url",
-            "message": "BAILEYS_BASE_URL must be internal Docker URL (http://baileys:3300), not external domain"
+            "message": "Baileys URL must be internal Docker URL (http://baileys:3300), not external domain"
         }), 500
     
     log.info(f"[WA_WEBHOOK] Using base_url={baileys_base}, tenant_id={tenant_id}")
@@ -1706,7 +1721,7 @@ def send_via_webhook():
     # ✅ 8) Pre-send health check - verify WhatsApp is actually connected
     try:
         import requests
-        headers = {'X-Internal-Secret': os.getenv('INTERNAL_SECRET', '')}
+        headers = {'X-Internal-Secret': INT_SECRET or ''}
         
         # Check tenant-specific status (not just service health)
         status_url = f"{baileys_base}/whatsapp/{tenant_id}/status"

@@ -18,40 +18,19 @@ Usage:
     finally:
         release_call_slot(call_id)
 """
-import os
 import logging
 import redis
 from typing import Optional
 
+from server.config import MAX_ACTIVE_CALLS as _MAX_ACTIVE_CALLS, REDIS_URL
+
 logger = logging.getLogger(__name__)
 
-# Environment configuration with fail-safe defaults
-def _get_max_active_calls() -> int:
-    """
-    Get MAX_ACTIVE_CALLS with safe fallback logic.
-    Production default: 15
-    Development default: 50
-    """
-    max_calls_env = os.getenv('MAX_ACTIVE_CALLS', '').strip()
-    is_production = os.getenv('PRODUCTION', '0') == '1'
-    
-    if max_calls_env:
-        try:
-            return int(max_calls_env)
-        except ValueError:
-            logger.warning(f"Invalid MAX_ACTIVE_CALLS value: {max_calls_env}, using default")
-    
-    # Fail-safe defaults
-    return 15 if is_production else 50
-
-
-MAX_ACTIVE_CALLS = _get_max_active_calls()
-CALLS_OVER_CAPACITY_BEHAVIOR = os.getenv('CALLS_OVER_CAPACITY_BEHAVIOR', 'reject')
-CALLS_CAPACITY_LOG_LEVEL = os.getenv('CALLS_CAPACITY_LOG_LEVEL', 'WARNING')
+MAX_ACTIVE_CALLS = _MAX_ACTIVE_CALLS
+CALLS_OVER_CAPACITY_BEHAVIOR = 'reject'
+CALLS_CAPACITY_LOG_LEVEL = 'WARNING'
 
 # Redis configuration
-REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-
 # Redis keys
 CALLS_ACTIVE_SET = "calls:active"
 CALL_KEY_PREFIX = "calls:active:"

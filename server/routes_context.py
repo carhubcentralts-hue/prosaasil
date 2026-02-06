@@ -78,6 +78,12 @@ def get_user_context():
         if not business:
             return jsonify({'error': 'Business not found'}), 404
         
+        # Safety: handle missing DB columns (e.g. whatsapp_shard before migration)
+        try:
+            business_type = business.business_type
+        except Exception:
+            business_type = None
+        
         # Get enabled pages for business
         enabled_pages = business.enabled_pages or []
         
@@ -113,7 +119,7 @@ def get_user_context():
             'business': {
                 'id': business.id,
                 'name': business.name,
-                'business_type': business.business_type
+                'business_type': business_type
             },
             'enabled_pages': accessible_pages,
             'page_registry': page_registry_subset,
@@ -121,6 +127,24 @@ def get_user_context():
         })
         
     except Exception as e:
+        # Safety net: catch DB schema errors (e.g. missing whatsapp_shard column)
+        err_str = str(e)
+        if 'UndefinedColumn' in err_str or 'no such column' in err_str:
+            logger.warning("DB schema behind - run db_migrate. Returning fallback context: %s", e)
+            user = session.get('user', {})
+            return jsonify({
+                'user': {
+                    'id': user.get('id'),
+                    'email': user.get('email'),
+                    'name': user.get('name'),
+                    'role': user.get('role'),
+                },
+                'business': {'id': user.get('business_id'), 'name': 'Unknown', 'business_type': None},
+                'enabled_pages': [],
+                'page_registry': {},
+                'is_impersonating': False,
+                '_warning': 'DB schema behind — please run db_migrate',
+            })
         logger.error(f"Error getting user context: {e}")
         import traceback
         traceback.print_exc()

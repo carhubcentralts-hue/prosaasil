@@ -14,16 +14,15 @@ Key design:
 """
 
 import json
-import os
 import time
 import logging
+
+from server.config import MAX_CONCURRENT_CALLS, REDIS_URL
 
 logger = logging.getLogger(__name__)
 
 # Default TTL for call state (1 hour — well beyond any call duration)
 CALL_STATE_TTL = 3600
-# Max concurrent calls (0 = unlimited, but we enforce a real default)
-DEFAULT_MAX_CONCURRENT = 50
 
 ACTIVE_CALLS_KEY = "calls:active_count"
 CALL_STATE_PREFIX = "calls:state:"
@@ -35,20 +34,19 @@ class CallStateManager:
 
     def __init__(self, redis_client=None):
         self._redis = redis_client
-        self._max_concurrent = int(os.environ.get("MAX_CONCURRENT_CALLS", str(DEFAULT_MAX_CONCURRENT)))
+        self._max_concurrent = MAX_CONCURRENT_CALLS
         if self._max_concurrent <= 0:
-            self._max_concurrent = DEFAULT_MAX_CONCURRENT
+            self._max_concurrent = 50
             logger.warning(
                 "MAX_CONCURRENT_CALLS was 0 or negative, using default=%d",
-                DEFAULT_MAX_CONCURRENT,
+                self._max_concurrent,
             )
 
     @property
     def redis(self):
         if self._redis is None:
             import redis as redis_lib
-            redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
-            self._redis = redis_lib.from_url(redis_url, decode_responses=True)
+            self._redis = redis_lib.from_url(REDIS_URL, decode_responses=True)
         return self._redis
 
     # ─── Active calls counter ────────────────────────────
