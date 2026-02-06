@@ -433,6 +433,7 @@ def create_app():
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
                 "font-src 'self' https://fonts.gstatic.com data:; "
                 "img-src 'self' data: blob: https:; "
+                "media-src 'self' blob: data:; "  # Allow blob and data URLs for audio playback
                 "connect-src 'self' wss: ws: https://fonts.googleapis.com https://fonts.gstatic.com; "
                 "frame-ancestors 'self'; "  # Allow same-origin framing for PDFs
                 "object-src 'none'; "
@@ -446,6 +447,7 @@ def create_app():
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
                 "font-src 'self' https://fonts.gstatic.com data:; "
                 "img-src 'self' data: blob: https:; "
+                "media-src 'self' blob: data:; "  # Allow blob and data URLs for audio playback
                 "connect-src 'self' wss: ws: https://fonts.googleapis.com https://fonts.gstatic.com; "
                 "frame-ancestors 'none'; "
                 "object-src 'none'; "
