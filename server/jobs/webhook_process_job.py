@@ -253,13 +253,16 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                             db.session.add(incoming_msg)
                             db.session.commit()
                             
-                            # Track session
+                            # Track session with lead_id and phone_e164
                             try:
+                                # 🔥 BUILD 138: Pass lead_id and phone_e164 for canonical key
                                 update_session_activity(
                                     business_id=business_id,
                                     customer_wa_id=phone_number,
                                     direction="in",
-                                    provider="baileys"
+                                    provider="baileys",
+                                    lead_id=None,  # No lead when AI is inactive
+                                    phone_e164=phone_e164_for_lead  # Pass normalized phone
                                 )
                             except Exception as e:
                                 logger.error(f"🔴 [WA-SESSION] Session tracking FAILED: {e}", exc_info=True)
@@ -453,11 +456,14 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                         
                         # Track session for incoming
                         try:
+                            # 🔥 BUILD 138: Pass lead_id and phone_e164
                             update_session_activity(
                                 business_id=business_id,
                                 customer_wa_id=phone_number,
                                 direction="in",
-                                provider="baileys"
+                                provider="baileys",
+                                lead_id=lead.id if lead else None,
+                                phone_e164=phone_e164_for_lead
                             )
                         except Exception as e:
                             logger.error(f"🔴 [WA-SESSION] Session tracking (in) FAILED: {e}", exc_info=True)
@@ -488,11 +494,14 @@ def webhook_process_job(tenant_id: str, messages: List[Dict[str, Any]], business
                             
                             # Track session for outgoing
                             try:
+                                # 🔥 BUILD 138: Pass lead_id and phone_e164
                                 update_session_activity(
                                     business_id=business_id,
                                     customer_wa_id=phone_number,
                                     direction="out",
-                                    provider="baileys"
+                                    provider="baileys",
+                                    lead_id=lead.id if lead else None,
+                                    phone_e164=phone_e164_for_lead
                                 )
                             except Exception as e:
                                 logger.error(f"🔴 [WA-SESSION] Session tracking (out) FAILED: {e}", exc_info=True)

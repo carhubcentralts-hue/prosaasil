@@ -267,3 +267,66 @@ def normalize_conversation_key(
     logger.debug(f"[CONV-KEY] Using remote_jid: {remote_jid[:30]}")
     return remote_jid
 
+
+def get_canonical_conversation_key(
+    business_id: int,
+    lead_id: Optional[int] = None,
+    phone_e164: Optional[str] = None
+) -> str:
+    """
+    🎯 CANONICAL CONVERSATION KEY - Single Source of Truth
+    
+    Generate THE authoritative key for conversation identification.
+    This ensures one conversation per person, regardless of how they're identified.
+    
+    Rules:
+    1. If lead_id exists: key = "lead:{business_id}:{lead_id}"
+    2. Otherwise: key = "phone:{business_id}:{phone_e164}"
+    
+    This key is used for:
+    - WhatsAppConversation.canonical_key (DB unique constraint)
+    - Conversation deduplication
+    - Session tracking
+    
+    Args:
+        business_id: Business/tenant ID
+        lead_id: Lead ID if customer is identified
+        phone_e164: Normalized E.164 phone number (with +)
+        
+    Returns:
+        str: Canonical conversation key
+        
+    Raises:
+        ValueError: If neither lead_id nor phone_e164 is provided
+        
+    Examples:
+        >>> get_canonical_conversation_key(1, lead_id=123)
+        "lead:1:123"
+        
+        >>> get_canonical_conversation_key(1, phone_e164="+972501234567")
+        "phone:1:+972501234567"
+        
+        >>> get_canonical_conversation_key(1, lead_id=123, phone_e164="+972501234567")
+        "lead:1:123"  # lead_id takes priority
+    """
+    if not business_id:
+        raise ValueError("business_id is required")
+    
+    # Priority 1: Lead ID (most reliable, survives phone changes)
+    if lead_id:
+        key = f"lead:{business_id}:{lead_id}"
+        logger.debug(f"[CANONICAL_KEY] Generated: {key}")
+        return key
+    
+    # Priority 2: Phone E.164 (for unidentified customers)
+    if phone_e164:
+        # Ensure phone has + prefix for consistency
+        if not phone_e164.startswith('+'):
+            phone_e164 = f"+{phone_e164}"
+        key = f"phone:{business_id}:{phone_e164}"
+        logger.debug(f"[CANONICAL_KEY] Generated: {key}")
+        return key
+    
+    # Error: Need at least one identifier
+    raise ValueError("Either lead_id or phone_e164 is required for canonical key")
+

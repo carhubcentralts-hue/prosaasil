@@ -8710,6 +8710,48 @@ def apply_migrations():
         checkpoint("✅ Migration 137 complete: Excluded weekdays support added")
         checkpoint("✅ Migration 137 complete: WhatsApp context tracking added")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 138: Add canonical_key for conversation deduplication
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 138: Conversation deduplication - canonical_key")
+        
+        try:
+            if check_table_exists('whatsapp_conversation'):
+                # Step 1: Add canonical_key column if not exists
+                if not check_column_exists('whatsapp_conversation', 'canonical_key'):
+                    checkpoint("  Adding canonical_key column to whatsapp_conversation...")
+                    exec_ddl(migrate_engine, """
+                        ALTER TABLE whatsapp_conversation 
+                        ADD COLUMN canonical_key VARCHAR(255)
+                    """)
+                    checkpoint("  ✅ Added canonical_key column")
+                    migrations_applied.append("migration_138_canonical_key_column")
+                else:
+                    checkpoint("  ⏭️  canonical_key column already exists")
+                
+                # Step 2: Create index on canonical_key for lookups (non-unique for now)
+                if not check_index_exists('idx_wa_conv_canonical_key'):
+                    checkpoint("  Creating index on canonical_key...")
+                    exec_ddl(migrate_engine, """
+                        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wa_conv_canonical_key 
+                        ON whatsapp_conversation (business_id, canonical_key)
+                    """)
+                    checkpoint("  ✅ Created index on canonical_key")
+                    migrations_applied.append("migration_138_canonical_key_index")
+                else:
+                    checkpoint("  ⏭️  canonical_key index already exists")
+                
+                checkpoint("  ✅ Migration 138 schema changes completed")
+                checkpoint("     📝 Note: Backfill and unique constraint will be added in separate backfill")
+                checkpoint("     🎯 Impact: Enables conversation deduplication across all identifiers")
+                
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 138 failed: {e}")
+            logger.error(f"Migration 138 error: {e}", exc_info=True)
+            # Don't raise - column addition is important but not critical for startup
+        
+        checkpoint("✅ Migration 138 complete: Canonical key infrastructure added")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
