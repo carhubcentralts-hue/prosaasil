@@ -1544,7 +1544,7 @@ def send_manual_message():
                     
             except Exception as db_error:
                 log.error(f"[WA-SEND] ❌ CRITICAL: Failed to persist outbound WhatsApp message to DB", exc_info=True)
-                log.error(f"[WA-SEND] ❌ Details: to={formatted_number[:30]}, lead_id={lead_id}, error={db_error}")
+                log.error(f"[WA-SEND] ❌ Details: to={str(formatted_number)[:30] if formatted_number else 'None'}, lead_id={lead_id}, error={db_error}")
                 db.session.rollback()
                 # Message was sent even if DB failed - still return success
                 return {
