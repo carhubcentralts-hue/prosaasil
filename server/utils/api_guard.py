@@ -1,6 +1,6 @@
 # server/utils/api_guard.py
 from functools import wraps
-from flask import jsonify, request, current_app, Response
+from flask import jsonify, current_app, Response
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from server.db import db
 

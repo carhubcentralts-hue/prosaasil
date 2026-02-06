@@ -20,7 +20,6 @@ import logging
 import signal
 import traceback
 import threading
-from datetime import datetime, timezone
 
 # Setup logging
 logging.basicConfig(
@@ -190,7 +189,6 @@ logger.info("=" * 80)
 try:
     import redis
     from rq import Worker, Queue
-    from rq.job import Job
     logger.info("✓ Redis and RQ modules imported successfully")
 except Exception as e:
     log_fatal_error("Importing redis/rq modules", e)
@@ -241,7 +239,7 @@ def main():
     logger.info(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
     logger.info(f"Worker PID: {os.getpid()}")
     logger.info(f"Listening to queues: {LISTEN_QUEUES} (priority order)")
-    logger.info(f"Queue system: RQ (Redis Queue)")
+    logger.info("Queue system: RQ (Redis Queue)")
     logger.info("=" * 60)
     
     # Test Redis connection
@@ -343,22 +341,21 @@ def main():
             worker.execute_job = logged_execute_job
             
             # Register custom failure handler for better logging
-            import rq.worker
             worker.push_exc_handler(failed_job_handler)
             
             logger.info(f"✓ Worker created: {worker.name}")
             logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
-            logger.info(f"✓ Worker will log: 🔨 JOB PICKED when picking up jobs")
+            logger.info("✓ Worker will log: 🔨 JOB PICKED when picking up jobs")
         except Exception as e:
             log_fatal_error("Creating RQ Worker instance", e)
         logger.info("-" * 60)
         logger.info("🚀 Worker is now READY and LISTENING for jobs...")
         logger.info(f"📩 Waiting for jobs to be enqueued to {LISTEN_QUEUES} queues...")
-        logger.info(f"📍 CRITICAL: Worker handles ALL receipt operations:")
-        logger.info(f"   - Generate receipts (receipt generation)")
-        logger.info(f"   - Sync receipts (Gmail sync)")
-        logger.info(f"   - Delete receipts (batch delete)")
-        logger.info(f"   - Fetch receipt PDF (download operations)")
+        logger.info("📍 CRITICAL: Worker handles ALL receipt operations:")
+        logger.info("   - Generate receipts (receipt generation)")
+        logger.info("   - Sync receipts (Gmail sync)")
+        logger.info("   - Delete receipts (batch delete)")
+        logger.info("   - Fetch receipt PDF (download operations)")
         logger.info("-" * 60)
         
         # Heartbeat thread for monitoring
