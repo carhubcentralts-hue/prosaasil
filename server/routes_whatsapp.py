@@ -2643,6 +2643,60 @@ def get_whatsapp_summaries():
         "summaries": summaries
     }), 200
 
+
+@whatsapp_bp.route('/summaries/<int:lead_id>', methods=['DELETE'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def delete_whatsapp_summary(lead_id):
+    """Delete a WhatsApp conversation summary for a specific lead"""
+    from server.routes_crm import get_business_id
+    from server.models_sql import Lead
+
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+
+    lead = Lead.query.filter_by(id=lead_id, tenant_id=int(business_id)).first()
+    if not lead:
+        return jsonify({"success": False, "error": "lead_not_found"}), 404
+
+    lead.whatsapp_last_summary = None
+    lead.whatsapp_last_summary_at = None
+    db.session.commit()
+
+    return jsonify({"success": True}), 200
+
+
+@whatsapp_bp.route('/conversations/<path:phone>/delete', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def delete_whatsapp_conversation(phone):
+    """Soft-delete a WhatsApp conversation by marking all its messages as deleted"""
+    from server.routes_crm import get_business_id
+    from server.models_sql import WhatsAppMessage
+
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+
+    phone_clean = phone.replace("@s.whatsapp.net", "").replace("+", "").strip()
+    phone_variants = [
+        phone_clean,
+        f"+{phone_clean}",
+        f"{phone_clean}@s.whatsapp.net"
+    ]
+
+    updated = WhatsAppMessage.query.filter(
+        WhatsAppMessage.business_id == int(business_id),
+        WhatsAppMessage.to_number.in_(phone_variants),
+        WhatsAppMessage.status != 'deleted'
+    ).update({WhatsAppMessage.status: 'deleted'}, synchronize_session='fetch')
+
+    db.session.commit()
+
+    return jsonify({"success": True, "deleted_count": updated}), 200
+
+
 # === WhatsApp Broadcast Endpoints ===
 
 @whatsapp_bp.route('/templates', methods=['GET'])

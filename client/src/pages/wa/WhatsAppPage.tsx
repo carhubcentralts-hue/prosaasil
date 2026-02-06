@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server, ArrowRight, Power, Smile, Paperclip, Image, File } from 'lucide-react';
+import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server, ArrowRight, Power, Smile, Paperclip, Image, File, Trash2, Archive, Search, CheckCheck, Check, X, Clock, AlertCircle, Volume2, FileText, Download } from 'lucide-react';
 import QRCodeReact from 'react-qr-code';
 import { http } from '../../services/http';
 import { formatDate, formatDateOnly, formatTimeOnly } from '../../shared/utils/format';
 
-// Temporary UI components
+// ─── UI Primitives ───────────────────────────────────────────────────────────
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <div className={`border border-gray-200 rounded-lg bg-white shadow-sm ${className}`}>{children}</div>
+  <div className={`border border-gray-200 rounded-xl bg-white shadow-sm ${className}`}>{children}</div>
 );
 
 const Button = ({ children, className = "", variant = "default", size = "default", disabled = false, ...props }: {
@@ -18,23 +18,16 @@ const Button = ({ children, className = "", variant = "default", size = "default
   disabled?: boolean;
   [key: string]: any;
 }) => {
-  const baseClasses = "px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  const baseClasses = "inline-flex items-center justify-center rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed";
   const variantClasses = {
-    default: "bg-blue-600 text-white hover:bg-blue-700 disabled:hover:bg-blue-600",
-    outline: "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
-    ghost: "text-gray-700 hover:bg-gray-100",
-    destructive: "bg-red-600 text-white hover:bg-red-700"
+    default: "bg-[#25D366] text-white hover:bg-[#1da851] shadow-sm",
+    outline: "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300",
+    ghost: "text-gray-600 hover:bg-gray-100",
+    destructive: "bg-red-500 text-white hover:bg-red-600 shadow-sm"
   };
-  const sizeClasses = {
-    default: "px-4 py-2",
-    sm: "px-3 py-1 text-sm"
-  };
+  const sizeClasses = { default: "px-4 py-2 text-sm", sm: "px-3 py-1.5 text-xs" };
   return (
-    <button 
-      className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`} 
-      disabled={disabled}
-      {...props}
-    >
+    <button className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`} disabled={disabled} {...props}>
       {children}
     </button>
   );
@@ -46,20 +39,16 @@ const Badge = ({ children, className = "", variant = "default" }: {
   variant?: "default" | "secondary" | "destructive" | "success" | "warning";
 }) => {
   const variantClasses = {
-    default: "bg-gray-100 text-gray-800",
-    secondary: "bg-gray-100 text-gray-800", 
-    destructive: "bg-red-100 text-red-800",
-    success: "bg-green-100 text-green-800",
-    warning: "bg-yellow-100 text-yellow-800"
+    default: "bg-gray-100 text-gray-700",
+    secondary: "bg-gray-100 text-gray-600",
+    destructive: "bg-red-500 text-white",
+    success: "bg-green-100 text-green-700",
+    warning: "bg-amber-100 text-amber-700"
   };
-  return (
-    <span className={`px-2 py-1 text-xs rounded-full ${variantClasses[variant]} ${className}`}>
-      {children}
-    </span>
-  );
+  return <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${variantClasses[variant]} ${className}`}>{children}</span>;
 };
 
-// Interface definitions
+// ─── Interfaces ──────────────────────────────────────────────────────────────
 interface WhatsAppStatus {
   provider: string;
   ready: boolean;
@@ -67,7 +56,7 @@ interface WhatsAppStatus {
   configured: boolean;
   hasQR?: boolean;
   qr_required?: boolean;
-  canSend?: boolean;  // 🔥 NEW: Separate send capability from connection status
+  canSend?: boolean;
   session_age?: number;
   session_age_human?: string;
   last_message_ts?: string;
@@ -95,35 +84,106 @@ interface WhatsAppMessageData {
   timestamp: string;
   time: string;
   status: string;
+  message_type?: string;
+  source?: string;
+  media_url?: string | null;
 }
 
 interface QRCodeData {
-  success?: boolean; // Optional - not all providers return this
-  qr?: string; // Baileys format
-  qr_data?: string; // Unified format  
-  dataUrl?: string; // Base64 QR image format
-  qrText?: string; // QR text format (new)
+  success?: boolean;
+  qr?: string;
+  qr_data?: string;
+  dataUrl?: string;
+  qrText?: string;
   status?: string;
   message?: string;
   error?: string;
   source?: string;
   fallback_mode?: boolean;
-  ready?: boolean; // Connection status
+  ready?: boolean;
+}
+
+// ─── Message Status Icon ─────────────────────────────────────────────────────
+function MessageStatusIcon({ status }: { status: string }) {
+  switch (status) {
+    case 'read':
+      return <CheckCheck className="h-3.5 w-3.5 text-blue-400" />;
+    case 'delivered':
+      return <CheckCheck className="h-3.5 w-3.5 text-gray-400" />;
+    case 'sent':
+      return <Check className="h-3.5 w-3.5 text-gray-400" />;
+    case 'pending':
+    case 'queued':
+      return <Clock className="h-3.5 w-3.5 text-gray-300" />;
+    case 'failed':
+      return <AlertCircle className="h-3.5 w-3.5 text-red-400" />;
+    default:
+      return <Check className="h-3.5 w-3.5 text-gray-400" />;
+  }
+}
+
+// ─── Source Badge ─────────────────────────────────────────────────────────────
+function SourceBadge({ source }: { source?: string }) {
+  if (!source || source === 'client') return null;
+  const config: Record<string, { label: string; cls: string }> = {
+    bot: { label: '🤖 בוט', cls: 'bg-purple-100 text-purple-700' },
+    human: { label: '👤 ידני', cls: 'bg-blue-100 text-blue-700' },
+    automation: { label: '⚡ אוטומציה', cls: 'bg-amber-100 text-amber-700' },
+    system: { label: '⚙️ מערכת', cls: 'bg-gray-100 text-gray-600' },
+  };
+  const c = config[source] || config.system;
+  return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${c.cls}`}>{c.label}</span>;
+}
+
+// ─── Media Renderer ──────────────────────────────────────────────────────────
+function MediaContent({ msg }: { msg: WhatsAppMessageData }) {
+  const { message_type, media_url, body } = msg;
+  if (!media_url && (!message_type || message_type === 'text')) return null;
+
+  if (message_type === 'image' && media_url) {
+    return (
+      <div className="mb-1.5">
+        <img
+          src={media_url}
+          alt={body || 'תמונה'}
+          className="max-w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          style={{ maxHeight: 220 }}
+          onClick={() => window.open(media_url, '_blank')}
+        />
+      </div>
+    );
+  }
+  if (message_type === 'audio' && media_url) {
+    return (
+      <div className="mb-1.5 flex items-center gap-2 bg-white/20 rounded-lg p-2">
+        <Volume2 className="h-4 w-4 flex-shrink-0" />
+        <audio controls src={media_url} className="h-8 w-full" style={{ maxWidth: 200 }} />
+      </div>
+    );
+  }
+  if ((message_type === 'document' || message_type === 'video') && media_url) {
+    return (
+      <a href={media_url} target="_blank" rel="noopener noreferrer" className="mb-1.5 flex items-center gap-2 bg-white/20 rounded-lg p-2 hover:bg-white/30 transition-colors">
+        {message_type === 'video' ? <Image className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+        <span className="text-xs underline">{body || 'קובץ'}</span>
+        <Download className="h-3.5 w-3.5 ml-auto" />
+      </a>
+    );
+  }
+  return null;
 }
 
 export function WhatsAppPage() {
   const location = useLocation();
-  // State management
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ─── State ──────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
   const [threads, setThreads] = useState<WhatsAppThread[]>([]);
   const [filteredThreads, setFilteredThreads] = useState<WhatsAppThread[]>([]);
   const [selectedThread, setSelectedThread] = useState<WhatsAppThread | null>(null);
-  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({
-    provider: 'unknown',
-    ready: false,
-    connected: false,
-    configured: false
-  });
+  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({ provider: 'unknown', ready: false, connected: false, configured: false });
   const [selectedProvider, setSelectedProvider] = useState<'baileys' | 'meta'>('baileys');
   const [providerInfo, setProviderInfo] = useState<any>(null);
   const [qrCode, setQrCode] = useState<string>('');
@@ -133,39 +193,35 @@ export function WhatsAppPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messages, setMessages] = useState<WhatsAppMessageData[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
-  
-  // Search and filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'active' | 'unread' | 'closed'>('all');
   const [deepLinkPhone, setDeepLinkPhone] = useState<string | null>(null);
-  
-  // Settings and prompt editing state
   const [showSettings, setShowSettings] = useState(false);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState('');
   const [savingPrompt, setSavingPrompt] = useState(false);
-  
-  // AI active/inactive state per conversation
   const [aiActive, setAiActive] = useState(true);
   const [togglingAi, setTogglingAi] = useState(false);
-  
-  // Provider save state
   const [savingProvider, setSavingProvider] = useState(false);
   const [providerChanged, setProviderChanged] = useState(false);
-  
-  // Active chats counter (BUILD 162)
   const [activeChatsCount, setActiveChatsCount] = useState(0);
-  
-  // WhatsApp summaries state
   const [summaries, setSummaries] = useState<{id: number; lead_name: string; phone: string; summary: string; summary_at: string}[]>([]);
   const [loadingSummaries, setLoadingSummaries] = useState(false);
-  
-  // Emoji picker and file upload state
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  // New: active tab for right panel (summaries vs settings)
+  const [rightTab, setRightTab] = useState<'summaries' | 'settings'>('summaries');
+  // New: deleting states
+  const [deletingChat, setDeletingChat] = useState<string | null>(null);
+  const [deletingSummary, setDeletingSummary] = useState<number | null>(null);
 
-  // Load initial data - fire all in parallel (each handles its own errors)
+  // ─── Auto-scroll messages ──────────────────────────────────────────────────
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // ─── Initial data load ────────────────────────────────────────────────────
   useEffect(() => {
     loadWhatsAppStatus();
     loadThreads();
@@ -174,7 +230,7 @@ export function WhatsAppPage() {
     loadSummaries();
   }, []);
 
-  // Support deep-link from Lead page tiles: /app/whatsapp?phone=... (or digits)
+  // ─── Deep-link support ────────────────────────────────────────────────────
   useEffect(() => {
     const sp = new URLSearchParams(location.search);
     const phoneParam = sp.get('phone');
@@ -186,64 +242,46 @@ export function WhatsAppPage() {
     setFilterType('all');
   }, [location.search]);
 
-  // Auto-select the thread if we can match by phone digits
   useEffect(() => {
     if (!deepLinkPhone || threads.length === 0) return;
     if (selectedThread) return;
     const match = threads.find(t => (t.phone || '').replace(/[^0-9]/g, '') === deepLinkPhone);
-    if (match) {
-      setSelectedThread(match);
-    }
+    if (match) setSelectedThread(match);
   }, [deepLinkPhone, threads, selectedThread]);
 
-  // Poll messages for selected thread and load AI state
+  // ─── Poll messages for selected thread ────────────────────────────────────
   useEffect(() => {
     if (!selectedThread) {
       setMessages([]);
-      setAiActive(true); // Reset to default when no thread selected
+      setAiActive(true);
       return;
     }
 
-    // Load AI state for this conversation
     const fetchAiState = async () => {
       try {
         const response = await http.get<{success: boolean; ai_active: boolean}>(`/api/whatsapp/ai-state?phone=${encodeURIComponent(selectedThread.phone)}`);
-        if (response.success) {
-          setAiActive(response.ai_active);
-        }
-      } catch (error) {
-        console.error('Error loading AI state:', error);
-        setAiActive(true); // Default to active on error
-      }
+        if (response.success) setAiActive(response.ai_active);
+      } catch { setAiActive(true); }
     };
 
-    // Load messages immediately
     const fetchMessages = async () => {
       try {
         setLoadingMessages(true);
         const response = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
         setMessages(response.messages || []);
-      } catch (error) {
-        console.error('Error loading messages:', error);
-        setMessages([]);
-      } finally {
-        setLoadingMessages(false);
-      }
+      } catch { setMessages([]); }
+      finally { setLoadingMessages(false); }
     };
 
     fetchAiState();
     fetchMessages();
-
-    // Poll every 3 seconds for new messages
     const interval = setInterval(fetchMessages, 3000);
-
     return () => clearInterval(interval);
   }, [selectedThread]);
 
-  // Poll status/QR only - no start calls in loop
+  // ─── QR polling ───────────────────────────────────────────────────────────
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-    
+    let interval: ReturnType<typeof setInterval> | null = null;
     if (showQR && qrCode && !whatsappStatus.connected) {
       interval = setInterval(async () => {
         try {
@@ -254,118 +292,80 @@ export function WhatsAppPage() {
             setWhatsappStatus(statusResponse);
             return;
           }
-          
           const qrResponse = await getQRCode();
           const qrData = qrResponse?.dataUrl || qrResponse?.qrText;
-          if (qrData && qrData !== qrCode) {
-            setQrCode(qrData);
-          }
-        } catch (error) {
-          // QR refresh failed silently
-        }
+          if (qrData && qrData !== qrCode) setQrCode(qrData);
+        } catch { /* QR refresh failed silently */ }
       }, 2500);
     }
-    
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+    return () => { if (interval) clearInterval(interval); };
   }, [showQR, qrCode, whatsappStatus.connected]);
 
+  // ─── Filter threads ───────────────────────────────────────────────────────
+  useEffect(() => {
+    let filtered = [...threads];
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(t =>
+        t.name.toLowerCase().includes(query) || t.phone.toLowerCase().includes(query) || t.lastMessage.toLowerCase().includes(query)
+      );
+    }
+    switch (filterType) {
+      case 'active': filtered = filtered.filter(t => !t.is_closed); break;
+      case 'unread': filtered = filtered.filter(t => t.unread > 0); break;
+      case 'closed': filtered = filtered.filter(t => t.is_closed); break;
+    }
+    setFilteredThreads(filtered);
+  }, [threads, searchQuery, filterType]);
+
+  // ─── Data loaders ─────────────────────────────────────────────────────────
   const loadWhatsAppStatus = async () => {
     try {
       const response = await http.get<WhatsAppStatus>('/api/whatsapp/status');
       setWhatsappStatus(response);
-      
-      // Load provider info to know which provider is configured
       try {
         const providerResponse = await http.get<any>('/api/whatsapp/provider-info');
         if (providerResponse.success) {
           setProviderInfo(providerResponse);
-          // Set the selected provider based on configured value
-          if (providerResponse.provider === 'meta' || providerResponse.provider === 'baileys') {
-            setSelectedProvider(providerResponse.provider);
-          }
+          if (providerResponse.provider === 'meta' || providerResponse.provider === 'baileys') setSelectedProvider(providerResponse.provider);
         }
-      } catch (providerError) {
-        // Provider info load failed
-      }
-    } catch (error) {
-      // Status load failed
-    }
+      } catch { /* provider info load failed */ }
+    } catch { /* status load failed */ }
   };
 
-  // BUILD 162: Load active chats count
   const loadActiveChats = async () => {
     try {
       const response = await http.get<{success: boolean; count: number; chats: any[]}>('/api/whatsapp/active-chats');
-      if (response.success) {
-        setActiveChatsCount(response.count);
-      }
-    } catch (error) {
-      // Active chats load failed
-    }
+      if (response.success) setActiveChatsCount(response.count);
+    } catch { /* active chats load failed */ }
   };
-  
-  // Load WhatsApp summaries
+
   const loadSummaries = async () => {
     try {
       setLoadingSummaries(true);
       const response = await http.get<{success: boolean; summaries: any[]}>('/api/whatsapp/summaries');
-      if (response.success && response.summaries) {
-        setSummaries(response.summaries);
-      }
-    } catch (error) {
-      // Summaries load failed
-    } finally {
-      setLoadingSummaries(false);
-    }
+      if (response.success && response.summaries) setSummaries(response.summaries);
+    } catch { /* summaries load failed */ }
+    finally { setLoadingSummaries(false); }
   };
 
   const loadThreadSummary = async (threadId: string) => {
-    // Check if thread is closed
     const thread = threads.find(t => t.id === threadId);
-    if (!thread?.is_closed) {
-      return; // Don't load summary for active conversations
-    }
-    
-    // Check if already loaded
-    if (thread?.summary && thread.summary !== 'לחץ לצפייה בסיכום') {
-      return; // Already loaded
-    }
-    
+    if (!thread?.is_closed) return;
+    if (thread?.summary && thread.summary !== 'לחץ לצפייה בסיכום') return;
     try {
-      // Update to loading state
-      setThreads(prevThreads => 
-        prevThreads.map(t => 
-          t.id === threadId ? { ...t, summary: 'טוען...' } : t
-        )
-      );
-      
+      setThreads(prev => prev.map(t => t.id === threadId ? { ...t, summary: 'טוען...' } : t));
       const response = await http.get<{summary: string}>(`/api/crm/threads/${threadId}/summary`);
-      
-      // Update thread with summary
-      setThreads(prevThreads => 
-        prevThreads.map(t => 
-          t.id === threadId ? { ...t, summary: response.summary } : t
-        )
-      );
-    } catch (error) {
-      console.error('Error loading summary for thread:', threadId, error);
-      setThreads(prevThreads => 
-        prevThreads.map(t => 
-          t.id === threadId ? { ...t, summary: 'שגיאה בטעינת סיכום' } : t
-        )
-      );
+      setThreads(prev => prev.map(t => t.id === threadId ? { ...t, summary: response.summary } : t));
+    } catch {
+      setThreads(prev => prev.map(t => t.id === threadId ? { ...t, summary: 'שגיאה בטעינת סיכום' } : t));
     }
   };
 
   const loadThreads = async () => {
     try {
       setLoading(true);
-      // Load real WhatsApp threads from database
       const response = await http.get<{threads: any[]}>('/api/crm/threads');
-      
-      // Transform API response to match UI interface
       const transformedThreads = (response.threads || []).map((thread: any) => ({
         id: thread.id?.toString() || '',
         name: thread.name || thread.peer_name || thread.phone_e164 || 'לא ידוע',
@@ -374,1186 +374,672 @@ export function WhatsAppPage() {
         unread: thread.unread_count || thread.unread || 0,
         time: thread.time || (thread.last_activity ? formatTimeOnly(thread.last_activity) : ''),
         is_closed: thread.is_closed || false,
-        summary: thread.is_closed ? 'לחץ לצפייה בסיכום' : undefined  // Only for closed conversations
+        summary: thread.is_closed ? 'לחץ לצפייה בסיכום' : undefined
       }));
-      
       setThreads(transformedThreads);
-      setFilteredThreads(transformedThreads); // Initialize filtered threads
-    } catch (error) {
-      console.error('Error loading threads:', error);
-      // Fallback to empty array if API fails
+      setFilteredThreads(transformedThreads);
+    } catch {
       setThreads([]);
       setFilteredThreads([]);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
-
-  // Filter threads based on search and filter type
-  useEffect(() => {
-    let filtered = [...threads];
-    
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(thread =>
-        thread.name.toLowerCase().includes(query) ||
-        thread.phone.toLowerCase().includes(query) ||
-        thread.lastMessage.toLowerCase().includes(query)
-      );
-    }
-    
-    // Apply type filter
-    switch (filterType) {
-      case 'active':
-        filtered = filtered.filter(thread => !thread.is_closed);
-        break;
-      case 'unread':
-        filtered = filtered.filter(thread => thread.unread > 0);
-        break;
-      case 'closed':
-        filtered = filtered.filter(thread => thread.is_closed);
-        break;
-      // 'all' - no additional filtering
-    }
-    
-    setFilteredThreads(filtered);
-  }, [threads, searchQuery, filterType]);
 
   const loadPrompts = async () => {
     try {
-      // Load real AI prompt from database
       const response = await http.get<{calls_prompt: string, whatsapp_prompt: string, version: number}>('/api/business/current/prompt');
-      
-      // Set the WhatsApp prompt as the editing content
       setEditingPrompt(response.whatsapp_prompt || '');
-    } catch (error) {
-      console.error('Error loading prompts:', error);
-      // Fallback to empty state if API fails
-      setEditingPrompt('');
-    }
+    } catch { setEditingPrompt(''); }
   };
 
-  // Unified QR retrieval function with all fallbacks
+  // ─── QR Code ──────────────────────────────────────────────────────────────
   const getQRCode = async (): Promise<QRCodeData | null> => {
-    const endpoints = ['/api/whatsapp/qr'];
-    
-    for (const endpoint of endpoints) {
-      try {
-        console.log(`🔍 Trying ${endpoint}...`);
-        const response = await http.get<QRCodeData>(endpoint);
-        console.log(`✅ Response from ${endpoint}:`, response);
-        
-        // Check if we got valid QR data (support both dataUrl and qrText)
-        if (response.dataUrl || response.qrText || response.status === 'connected') {
-          return response;
-        }
-      } catch (error) {
-        console.warn(`❌ ${endpoint} failed:`, error);
-      }
-    }
-    
+    try {
+      const response = await http.get<QRCodeData>('/api/whatsapp/qr');
+      if (response.dataUrl || response.qrText || response.status === 'connected') return response;
+    } catch { /* qr failed */ }
     return null;
   };
 
   const disconnectWhatsApp = async () => {
     try {
-      console.log('🔌 Disconnecting WhatsApp...');
-      const response = await http.post('/api/whatsapp/disconnect', {});
-      console.log('✅ WhatsApp disconnected:', response);
-      
-      // Reset local state
+      await http.post('/api/whatsapp/disconnect', {});
       setQrCode('');
       setShowQR(false);
       setWhatsappStatus({ provider: 'baileys', ready: false, connected: false, configured: true });
-      
-      alert('WhatsApp נותק בהצלחה! כעת תוכל/י ליצור QR חדש.');
+      alert('WhatsApp נותק בהצלחה!');
     } catch (error: any) {
-      console.error('❌ Disconnect failed:', error);
-      alert('שגיאה בניתוק WhatsApp: ' + (error?.message || 'שגיאה לא ידועה'));
+      alert('שגיאה בניתוק: ' + (error?.message || 'שגיאה לא ידועה'));
     }
   };
 
   const generateQRCode = async () => {
-    if (selectedProvider !== 'baileys') {
-      alert('QR קוד זמין רק לספק Baileys');
-      return;
-    }
-    
+    if (selectedProvider !== 'baileys') { alert('QR קוד זמין רק לספק Baileys'); return; }
     try {
       setQrLoading(true);
-      console.log('🔄 Generating QR code for provider:', selectedProvider);
-      
-      // Single start call - no duplicates!
       await http.post('/api/whatsapp/start', { provider: selectedProvider });
-      
-      // Start polling for status/QR - no looping on start!
-      const pollForQR = async () => {
+      let attempts = 0;
+      while (attempts < 10) {
+        await new Promise(resolve => setTimeout(resolve, attempts === 0 ? 500 : 2500));
         const statusResponse = await http.get<WhatsAppStatus>('/api/whatsapp/status');
-        if (statusResponse.connected) {
-          alert('WhatsApp כבר מחובר למערכת');
-          return true; // Stop polling
-        }
-        
+        if (statusResponse.connected) { alert('WhatsApp כבר מחובר למערכת'); break; }
         const qrResponse = await getQRCode();
         const qrData = qrResponse?.dataUrl || qrResponse?.qrText;
-        if (qrData) {
-          setQrCode(qrData);
-          setShowQR(true);
-          console.log('✅ QR Code received and set for display');
-          return true; // Stop polling
-        }
-        return false; // Continue polling
-      };
-      
-      // Poll up to 10 times with 2.5s intervals
-      let attempts = 0;
-      const maxAttempts = 10;
-      
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, attempts === 0 ? 500 : 2500));
-        const success = await pollForQR();
-        if (success) break;
+        if (qrData) { setQrCode(qrData); setShowQR(true); break; }
         attempts++;
       }
-      
-      if (attempts >= maxAttempts) {
-        alert('לא ניתן היה ליצור QR קוד. נסה שוב מאוחר יותר.');
-      }
+      if (attempts >= 10) alert('לא ניתן היה ליצור QR קוד. נסה שוב.');
     } catch (error: any) {
-      console.error('Error generating QR code:', error);
       alert('שגיאה ביצירת QR קוד: ' + (error.message || 'שגיאת רשת'));
-    } finally {
-      setQrLoading(false);
-    }
+    } finally { setQrLoading(false); }
   };
 
+  // ─── Send Message (with optimistic UI) ────────────────────────────────────
   const sendMessage = async () => {
     if (!selectedThread || (!messageText.trim() && !selectedFile)) return;
-    
+    const textToSend = messageText.trim();
+    const fileToSend = selectedFile;
+
+    // Optimistic: add pending message to UI immediately
+    const pendingId = -(Date.now() + Math.floor(Math.random() * 10000));
+    if (textToSend && !fileToSend) {
+      const pendingMsg: WhatsAppMessageData = {
+        id: pendingId, body: textToSend, direction: 'out', timestamp: '', time: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+        status: 'pending', message_type: 'text', source: 'human'
+      };
+      setMessages(prev => [...prev, pendingMsg]);
+    }
+    setMessageText('');
+    setSelectedFile(null);
+    setShowEmojiPicker(false);
+
     try {
       setSendingMessage(true);
-      setUploadingFile(!!selectedFile);
-      
-      // If there's a file, send it with FormData
-      if (selectedFile) {
+      setUploadingFile(!!fileToSend);
+
+      if (fileToSend) {
         const formData = new FormData();
-        formData.append('file', selectedFile);
-        if (messageText.trim()) {
-          formData.append('caption', messageText.trim());
-        }
+        formData.append('file', fileToSend);
+        if (textToSend) formData.append('caption', textToSend);
         formData.append('provider', selectedProvider);
-        
-        const response = await http.post<{success: boolean; error?: string}>(
-          `/api/crm/threads/${selectedThread.phone}/message`,
-          formData
-        );
-        
-        if (response.success) {
-          setMessageText('');
-          setSelectedFile(null);
-          setShowEmojiPicker(false);
-          // Reload threads and messages
-          await loadThreads();
-          const messagesResponse = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
-          setMessages(messagesResponse.messages || []);
-          console.log('✅ הודעה עם קובץ נשלחה בהצלחה');
-        } else {
-          console.error('❌ שגיאה בשליחת הודעה:', response.error);
-          alert('שגיאה בשליחת הודעה: ' + (response.error || 'שגיאה לא ידועה'));
+        const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.phone}/message`, formData);
+        if (!response.success) {
+          setMessages(prev => prev.map(m => m.id === pendingId ? { ...m, status: 'failed' } : m));
+          alert('שגיאה בשליחת הודעה: ' + (response.error || 'שגיאה'));
         }
       } else {
-        // Text-only message
-        const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.phone}/message`, {
-          text: messageText.trim(),
-          provider: selectedProvider
-        });
-        
-        if (response.success) {
-          setMessageText('');
-          setShowEmojiPicker(false);
-          // Reload threads to get updated last message
-          await loadThreads();
-          // Reload messages immediately
-          const messagesResponse = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
-          setMessages(messagesResponse.messages || []);
-          console.log('✅ הודעה נשלחה בהצלחה');
-        } else {
-          console.error('❌ שגיאה בשליחת הודעה:', response.error);
+        const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.phone}/message`, { text: textToSend, provider: selectedProvider });
+        if (!response.success) {
+          // Revert optimistic message on failure
+          setMessages(prev => prev.map(m => m.id === pendingId ? { ...m, status: 'failed' } : m));
         }
       }
+      // Refresh messages from server
+      const messagesResponse = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
+      setMessages(messagesResponse.messages || []);
+      loadThreads();
     } catch (error: any) {
-      console.error('❌ שגיאה בשליחת הודעה:', error.message);
-      alert('שגיאה בשליחת הודעה: ' + (error.message || 'שגיאה לא ידועה'));
+      setMessages(prev => prev.map(m => m.id === pendingId ? { ...m, status: 'failed' } : m));
+      alert('שגיאה בשליחת הודעה: ' + (error.message || 'שגיאה'));
     } finally {
       setSendingMessage(false);
       setUploadingFile(false);
     }
   };
 
-  // Toggle AI active/inactive for current conversation
+  // ─── AI Toggle ────────────────────────────────────────────────────────────
   const toggleAi = async () => {
     if (!selectedThread) return;
-    
     try {
       setTogglingAi(true);
       const newState = !aiActive;
-      
-      // Call backend to update AI state for this conversation
-      const response = await http.post<{success: boolean}>('/api/whatsapp/ai-state', {
-        phone: selectedThread.phone,
-        active: newState
-      });
-      
-      if (response.success) {
-        setAiActive(newState);
-        console.log(`✅ AI ${newState ? 'מופעל' : 'כבוי'} לשיחה עם ${selectedThread.name}`);
-      }
-    } catch (error: any) {
-      console.error('❌ שגיאה בשינוי מצב AI:', error.message);
-    } finally {
-      setTogglingAi(false);
-    }
+      const response = await http.post<{success: boolean}>('/api/whatsapp/ai-state', { phone: selectedThread.phone, active: newState });
+      if (response.success) setAiActive(newState);
+    } catch { /* toggle failed */ }
+    finally { setTogglingAi(false); }
   };
 
-  // Function to close chat and go back to thread list
-  const closeChat = () => {
-    setSelectedThread(null);
-    setMessages([]);
-    setAiActive(true); // Reset AI state when closing chat
-  };
+  const closeChat = () => { setSelectedThread(null); setMessages([]); setAiActive(true); };
 
-  // Function to save provider selection
+  // ─── Provider ─────────────────────────────────────────────────────────────
   const saveProvider = async () => {
     try {
       setSavingProvider(true);
-      
-      const response = await http.put<{success: boolean; error?: string; provider?: string}>('/api/whatsapp/provider', {
-        provider: selectedProvider
-      });
-      
-      if (response.success) {
-        setProviderChanged(false);
-        // Refresh provider info
-        await loadWhatsAppStatus();
-        alert('ספק WhatsApp נשמר בהצלחה!');
-      } else {
-        alert('שגיאה בשמירת הספק: ' + (response.error || 'שגיאה לא ידועה'));
-      }
-    } catch (error: any) {
-      console.error('Error saving provider:', error);
-      alert('שגיאה בשמירת הספק: ' + (error.message || 'שגיאה לא ידועה'));
-    } finally {
-      setSavingProvider(false);
-    }
+      const response = await http.put<{success: boolean; error?: string}>('/api/whatsapp/provider', { provider: selectedProvider });
+      if (response.success) { setProviderChanged(false); await loadWhatsAppStatus(); alert('ספק נשמר בהצלחה!'); }
+      else alert('שגיאה: ' + (response.error || 'שגיאה'));
+    } catch (error: any) { alert('שגיאה: ' + (error.message || 'שגיאה')); }
+    finally { setSavingProvider(false); }
   };
 
-  // Function to save prompt - ✅ עכשיו שומר גם calls_prompt כדי לא לדרוס אותו!
   const savePrompt = async () => {
     if (!editingPrompt.trim()) return;
-    
     try {
       setSavingPrompt(true);
-      
-      // ✅ קודם טוען את הפרומפט הנוכחי של calls
       const currentPrompt = await http.get<{calls_prompt: string, whatsapp_prompt: string}>('/api/business/current/prompt');
-      
-      // ✅ שולח גם calls וגם whatsapp כדי לא לדרוס!
       const response = await http.put<{success: boolean; error?: string}>('/api/business/current/prompt', {
-        calls_prompt: currentPrompt.calls_prompt,  // ✅ שומר את ה-calls prompt
-        whatsapp_prompt: editingPrompt.trim()      // ✅ מעדכן רק את ה-whatsapp
+        calls_prompt: currentPrompt.calls_prompt, whatsapp_prompt: editingPrompt.trim()
       });
-      
-      if (response.success) {
-        // Reload prompts
-        await loadPrompts();
-        setShowPromptEditor(false);
-        alert('פרומפט נשמר בהצלחה!');
-      } else {
-        alert('שגיאה בשמירת הפרומפט: ' + (response.error || 'שגיאה לא ידועה'));
-      }
-    } catch (error) {
-      console.error('Error saving prompt:', error);
-      alert('שגיאה בשמירת הפרומפט');
-    } finally {
-      setSavingPrompt(false);
-    }
+      if (response.success) { await loadPrompts(); setShowPromptEditor(false); alert('פרומפט נשמר!'); }
+      else alert('שגיאה: ' + (response.error || 'שגיאה'));
+    } catch { alert('שגיאה בשמירת הפרומפט'); }
+    finally { setSavingPrompt(false); }
   };
 
-  // Function to open prompt editor with current prompt
-  const openPromptEditor = () => {
-    setShowPromptEditor(true);
+  // ─── Delete summary ───────────────────────────────────────────────────────
+  const deleteSummary = async (leadId: number) => {
+    if (!confirm('למחוק את סיכום השיחה?')) return;
+    try {
+      setDeletingSummary(leadId);
+      await http.delete(`/api/whatsapp/summaries/${leadId}`);
+      setSummaries(prev => prev.filter(s => s.id !== leadId));
+    } catch { alert('שגיאה במחיקת סיכום'); }
+    finally { setDeletingSummary(null); }
   };
 
+  // ─── Delete chat (soft-delete) ────────────────────────────────────────────
+  const deleteChat = async (phone: string) => {
+    if (!confirm('למחוק את השיחה? (ניתן לשחזר)')) return;
+    try {
+      setDeletingChat(phone);
+      await http.post(`/api/whatsapp/conversations/${encodeURIComponent(phone)}/delete`, {});
+      if (selectedThread?.phone === phone) closeChat();
+      await loadThreads();
+    } catch { alert('שגיאה במחיקת שיחה'); }
+    finally { setDeletingChat(null); }
+  };
+
+  // ─── Bubble color based on source ────────────────────────────────────────
+  const bubbleStyle = (msg: WhatsAppMessageData) => {
+    if (msg.direction === 'in') return 'bg-white border border-gray-200 text-gray-900';
+    const src = msg.source || 'bot';
+    if (src === 'human') return 'bg-[#dcf8c6] text-gray-900';
+    if (src === 'automation') return 'bg-amber-50 border border-amber-200 text-gray-900';
+    return 'bg-[#d9fdd3] text-gray-900'; // bot / default outgoing
+  };
+
+  // ─── File validation helper ────────────────────────────────────────────────
+  const handleFileSelect = (file: globalThis.File | undefined) => {
+    if (!file) return;
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) { alert('הקובץ גדול מדי (מקסימום 10MB)'); return; }
+    const ok = ['image/', 'video/', 'audio/', 'application/pdf', 'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (!ok.some(t => file.type.startsWith(t) || file.type === t)) { alert('סוג קובץ לא נתמך'); return; }
+    setSelectedFile(file);
+  };
+
+  // ─── Loading state ─────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-slate-600">טוען WhatsApp...</p>
+          <div className="relative mx-auto mb-5 h-12 w-12">
+            <div className="absolute inset-0 rounded-full border-4 border-[#25D366]/20" />
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-[#25D366] animate-spin" />
+          </div>
+          <p className="text-gray-500 font-medium">טוען WhatsApp...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6" dir="rtl">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">WhatsApp Business</h1>
-          <p className="text-slate-600 mt-1">נהל את כל שיחות WhatsApp במקום אחד</p>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Button variant="outline" size="sm" onClick={() => setShowQR(true)} data-testid="button-qr">
-            <QrCode className="h-4 w-4 ml-2" />
-            QR קוד
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} data-testid="button-settings">
-            <Settings className="h-4 w-4 ml-2" />
-            הגדרות
-          </Button>
-        </div>
-      </div>
-
-      {/* Provider & Bot Configuration */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Provider Selection */}
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
-            <Server className="h-5 w-5 ml-2" />
-            בחירת ספק WhatsApp
-          </h2>
-          
-          <div className="space-y-4">
-            {/* Baileys (WhatsApp Web) - QR based */}
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="radio"
-                  name="provider"
-                  value="baileys"
-                  checked={selectedProvider === 'baileys'}
-                  onChange={(e) => {
-                    setSelectedProvider(e.target.value as 'baileys');
-                    setProviderChanged(true);
-                  }}
-                  className="ml-2"
-                  data-testid="radio-baileys"
-                />
-                <div className="flex items-center">
-                  <QrCode className="h-4 w-4 ml-2" />
-                  Baileys (WhatsApp Web)
-                </div>
-              </label>
-            </div>
-            
-            {/* Meta WhatsApp Cloud API */}
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="radio"
-                  name="provider"
-                  value="meta"
-                  checked={selectedProvider === 'meta'}
-                  onChange={(e) => {
-                    setSelectedProvider(e.target.value as 'meta');
-                    setProviderChanged(true);
-                  }}
-                  className="ml-2"
-                  data-testid="radio-meta"
-                />
-                <div className="flex items-center">
-                  <Smartphone className="h-4 w-4 ml-2" />
-                  WhatsApp Business Cloud API (Meta)
-                </div>
-              </label>
-            </div>
-
-            {/* Save Provider Button */}
-            {providerChanged && (
-              <Button 
-                onClick={saveProvider} 
-                disabled={savingProvider}
-                className="w-full bg-green-600 hover:bg-green-700"
-                data-testid="button-save-provider"
-              >
-                {savingProvider ? (
-                  <RefreshCw className="h-4 w-4 ml-2 animate-spin" />
-                ) : (
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                )}
-                {savingProvider ? "שומר..." : "שמור שינוי ספק"}
-              </Button>
-            )}
-
-            <div className="p-3 bg-slate-50 rounded-lg">
-              <p className="text-sm text-slate-600">
-                <strong>סטטוס חיבור:</strong> 
-                <Badge 
-                  variant={whatsappStatus.connected ? "success" : "warning"} 
-                  className="mr-2"
-                  data-testid="status-connection"
-                >
-                  {whatsappStatus.connected ? "מחובר ✅" : "לא מחובר"}
-                </Badge>
-                {/* 🔥 NEW: Show intermediate state when connected but not yet verified sending */}
-                {whatsappStatus.connected && !whatsappStatus.canSend && (
-                  <span className="text-xs text-amber-600">
-                    (ממתין לשליחה ראשונה לאימות)
-                  </span>
-                )}
-              </p>
-              <p className="text-sm text-slate-600 mt-1">
-                <strong>ספק נוכחי:</strong> {providerInfo?.provider || whatsappStatus.provider}
-              </p>
-              {providerInfo?.description && (
-                <p className="text-sm text-slate-500 mt-1">
-                  {providerInfo.description}
-                </p>
-              )}
-              
-              {/* ✅ FIX: Enhanced connection health info */}
-              {whatsappStatus.connected && whatsappStatus.session_age_human && (
-                <p className="text-xs text-slate-500 mt-2">
-                  <strong>זמן חיבור:</strong> {whatsappStatus.session_age_human}
-                </p>
-              )}
-              {whatsappStatus.connected && whatsappStatus.last_message_age_human && (
-                <p className="text-xs text-slate-500 mt-1">
-                  <strong>הודעה אחרונה:</strong> {whatsappStatus.last_message_age_human}
-                </p>
-              )}
-              {whatsappStatus.qr_required && !whatsappStatus.connected && (
-                <p className="text-xs text-amber-600 mt-2">
-                  ⚠️ נדרש סריקת QR code להתחברות
-                </p>
-              )}
-              
-              {/* BUILD 162: Active chats counter */}
-              <p className="text-sm text-slate-600 mt-2 flex items-center">
-                <strong>שיחות פעילות:</strong>
-                <Badge 
-                  variant={activeChatsCount > 0 ? "success" : "secondary"} 
-                  className="mr-2"
-                  data-testid="status-active-chats"
-                >
-                  {activeChatsCount}
-                </Badge>
-                <button 
-                  onClick={loadActiveChats}
-                  className="text-blue-600 hover:text-blue-800 text-xs mr-2"
-                  data-testid="button-refresh-active-chats"
-                >
-                  <RefreshCw className="h-3 w-3 inline" />
-                </button>
-              </p>
-            </div>
-
-            {/* Baileys-specific controls */}
-            {selectedProvider === 'baileys' && (
-              <div className="space-y-3">
-                <Button 
-                  onClick={generateQRCode} 
-                  disabled={qrLoading}
-                  className="w-full"
-                  data-testid="button-generate-qr"
-                >
-                  {qrLoading ? (
-                    <RefreshCw className="h-4 w-4 ml-2 animate-spin" />
-                  ) : (
-                    <QrCode className="h-4 w-4 ml-2" />
-                  )}
-                  {qrLoading ? "יוצר QR קוד..." : "צור QR קוד חדש"}
-                </Button>
-                
-                <Button 
-                  variant="destructive"
-                  onClick={disconnectWhatsApp} 
-                  className="w-full"
-                  data-testid="button-disconnect"
-                >
-                  <RefreshCw className="h-4 w-4 ml-2" />
-                  נתק חיבור מלא
-                </Button>
-              </div>
-            )}
-            
-            {/* Meta-specific info */}
-            {selectedProvider === 'meta' && (
-              <div className="space-y-3">
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h3 className="font-medium text-blue-800 mb-2">WhatsApp Business Cloud API</h3>
-                  <p className="text-sm text-blue-700">
-                    עסק זה משתמש ב-WhatsApp Business Cloud API הרשמי של Meta.
-                    <br />
-                    מספר WhatsApp Business מוגדר על ידי מנהל המערכת.
-                  </p>
-                  {providerInfo?.configured === false && (
-                    <p className="text-sm text-amber-600 mt-2">
-                      ⚠️ API לא מוגדר לחלוטין - יש לפנות למנהל המערכת
-                    </p>
-                  )}
-                </div>
-                
-                <Button 
-                  variant="outline"
-                  onClick={async () => {
-                    const phone = prompt('הכנס מספר טלפון לבדיקה (כולל קידומת מדינה):');
-                    if (phone) {
-                      try {
-                        const response = await http.post<any>('/api/whatsapp/test', {
-                          to: phone,
-                          text: 'היי, זו הודעת בדיקה מ-ProSaaS 🚀'
-                        });
-                        if (response.success) {
-                          alert('✅ הודעת בדיקה נשלחה בהצלחה!');
-                        } else {
-                          alert('❌ שגיאה: ' + (response.error || 'שגיאה לא ידועה'));
-                        }
-                      } catch (err: any) {
-                        alert('❌ שגיאה בשליחה: ' + err.message);
-                      }
-                    }
-                  }}
-                  className="w-full"
-                  data-testid="button-test-meta"
-                >
-                  <Send className="h-4 w-4 ml-2" />
-                  שלח הודעת בדיקה
-                </Button>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Bot Status Card */}
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
-            <Bot className="h-5 w-5 ml-2" />
-            סטטוס בוט WhatsApp
-          </h2>
-          
-          <div className="space-y-4">
-            <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
-              <p className="text-sm text-slate-700">
-                <strong>מצב:</strong> {whatsappStatus.connected ? 'מחובר ופעיל ✅' : 'לא מחובר'}
-                {/* 🔥 NEW: Show intermediate state for bot status */}
-                {whatsappStatus.connected && !whatsappStatus.canSend && (
-                  <span className="text-xs text-amber-600 block mt-1">
-                    (ממתין לשליחה ראשונה לאימות שליחה)
-                  </span>
-                )}
-              </p>
-              <p className="text-sm text-slate-600 mt-1">
-                <strong>ספק:</strong> {whatsappStatus.provider}
-              </p>
-            </div>
-            
-            <div className="p-3 bg-blue-50 rounded-lg">
-              <p className="text-sm text-blue-800">
-                <strong>שים לב:</strong> לעריכת הפרומפט, עבור להגדרות מערכת → AI Agent
-              </p>
+    <div className="h-[calc(100vh-64px)] flex flex-col" dir="rtl">
+      {/* ══════ Top bar ══════ */}
+      <div className="flex-shrink-0 bg-[#075e54] text-white px-4 py-3 flex items-center justify-between shadow-md">
+        <div className="flex items-center gap-3">
+          <MessageSquare className="h-6 w-6" />
+          <div>
+            <h1 className="text-lg font-bold leading-tight">WhatsApp Business</h1>
+            <div className="flex items-center gap-2 text-xs text-green-200">
+              <span className={`inline-block h-2 w-2 rounded-full ${whatsappStatus.connected ? 'bg-green-400' : 'bg-red-400'}`} />
+              {whatsappStatus.connected ? 'מחובר' : 'לא מחובר'}
+              {whatsappStatus.connected && <span>· {providerInfo?.provider || whatsappStatus.provider}</span>}
+              {activeChatsCount > 0 && <span>· {activeChatsCount} שיחות פעילות</span>}
             </div>
           </div>
-        </Card>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setShowQR(true)} className="text-white hover:bg-white/10" data-testid="button-qr">
+            <QrCode className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setShowSettings(true)} className="text-white hover:bg-white/10" data-testid="button-settings">
+            <Settings className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       
-      {/* WhatsApp Summaries Card */}
-      <Card className="p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-slate-900 flex items-center">
-            <MessageSquare className="h-5 w-5 ml-2 text-green-600" />
-            סיכומי שיחות WhatsApp
-          </h2>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={loadSummaries}
-            disabled={loadingSummaries}
-            data-testid="button-refresh-summaries"
-          >
-            <RefreshCw className={`h-4 w-4 ml-2 ${loadingSummaries ? 'animate-spin' : ''}`} />
-            רענן
-          </Button>
-        </div>
-        
-        {loadingSummaries ? (
-          <div className="text-center py-6">
-            <RefreshCw className="h-6 w-6 animate-spin mx-auto text-slate-400" />
-            <p className="text-sm text-slate-500 mt-2">טוען סיכומים...</p>
-          </div>
-        ) : summaries.length === 0 ? (
-          <div className="text-center py-6 text-slate-500">
-            <MessageSquare className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-            <p className="text-sm">אין סיכומי שיחות עדיין</p>
-            <p className="text-xs mt-1">סיכום נוצר אוטומטית אחרי 5 דקות ללא פעילות מהלקוח</p>
-          </div>
-        ) : (
-          <div className="space-y-3 max-h-64 overflow-y-auto">
-            {summaries.map((summary) => (
-              <div key={summary.id} className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <p className="font-medium text-slate-900">{summary.lead_name || 'לקוח לא ידוע'}</p>
-                    <p className="text-xs text-slate-500">{summary.phone}</p>
-                  </div>
-                  <span className="text-xs text-green-600">
-                    {summary.summary_at ? new Date(summary.summary_at).toLocaleDateString('he-IL', { 
-                      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-                      timeZone: 'Asia/Jerusalem'
-                    }) : ''}
-                  </span>
-                </div>
-                <p className="text-sm text-slate-700">{summary.summary}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      {/* ══════ Main content: Sidebar + Chat ══════ */}
+      <div className="flex-1 flex min-h-0 bg-gray-100">
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Conversations List */}
-        <div className="lg:col-span-1">
-          <Card className="p-4 h-[600px] flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="font-semibold text-slate-900">שיחות</h2>
-              <div className="flex items-center gap-2">
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={loadThreads}
-                  className="p-1"
-                  data-testid="button-refresh-threads"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
-                <Badge variant="secondary">{filteredThreads.length}</Badge>
-              </div>
-            </div>
-            
-            {/* Search Bar */}
-            <div className="mb-3">
+        {/* ── Right sidebar: Conversations list ── */}
+        <div className="w-[340px] flex-shrink-0 bg-white border-l border-gray-200 flex flex-col">
+          {/* Search */}
+          <div className="p-3 bg-gray-50 border-b border-gray-100">
+            <div className="relative">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="חיפוש שיחות..."
+                placeholder="חיפוש לפי שם או טלפון..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                className="w-full pr-9 pl-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]/30 focus:border-[#25D366]"
                 dir="rtl"
               />
             </div>
-            
-            {/* Filter Buttons */}
-            <div className="flex gap-2 mb-3 flex-wrap">
+          </div>
+
+          {/* Filters */}
+          <div className="flex gap-1 px-3 py-2 border-b border-gray-100 overflow-x-auto">
+            {([
+              { key: 'all' as const, label: 'הכל', count: threads.length },
+              { key: 'active' as const, label: 'פעילים', count: threads.filter(t => !t.is_closed).length },
+              { key: 'unread' as const, label: 'לא נקראו', count: threads.filter(t => t.unread > 0).length },
+              { key: 'closed' as const, label: 'נסגרו', count: threads.filter(t => t.is_closed).length },
+            ]).map(f => (
               <button
-                onClick={() => setFilterType('all')}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  filterType === 'all'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                key={f.key}
+                onClick={() => setFilterType(f.key)}
+                className={`whitespace-nowrap px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
+                  filterType === f.key
+                    ? 'bg-[#25D366] text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                הכל ({threads.length})
+                {f.label} ({f.count})
               </button>
-              <button
-                onClick={() => setFilterType('active')}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  filterType === 'active'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                פעילים ({threads.filter(t => !t.is_closed).length})
-              </button>
-              <button
-                onClick={() => setFilterType('unread')}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  filterType === 'unread'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                לא נקראו ({threads.filter(t => t.unread > 0).length})
-              </button>
-              <button
-                onClick={() => setFilterType('closed')}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  filterType === 'closed'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                נסגרו ({threads.filter(t => t.is_closed).length})
-              </button>
-            </div>
-            
-            <div className="space-y-3 flex-1 overflow-y-auto">
-              {filteredThreads.map((thread) => (
+            ))}
+            <button onClick={loadThreads} className="p-1 text-gray-400 hover:text-gray-600 mr-auto" data-testid="button-refresh-threads">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Thread list */}
+          <div className="flex-1 overflow-y-auto">
+            {filteredThreads.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400 px-6">
+                <MessageSquare className="h-10 w-10 mb-3" />
+                <p className="text-sm text-center">{searchQuery || filterType !== 'all' ? 'לא נמצאו שיחות' : 'אין שיחות עדיין'}</p>
+              </div>
+            ) : (
+              filteredThreads.map(thread => (
                 <div
                   key={thread.id}
-                  className={`p-4 rounded-lg cursor-pointer transition-all border ${
-                    selectedThread?.id === thread.id
-                      ? 'bg-blue-50 border-blue-300 shadow-sm'
-                      : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                  className={`group flex items-start gap-3 px-4 py-3 cursor-pointer border-b border-gray-50 transition-colors duration-150 ${
+                    selectedThread?.id === thread.id ? 'bg-[#f0faf0]' : 'hover:bg-gray-50'
                   }`}
-                  onClick={() => {
-                    setSelectedThread(thread);
-                    loadThreadSummary(thread.id);  // Load summary on click
-                  }}
+                  onClick={() => { setSelectedThread(thread); loadThreadSummary(thread.id); }}
                   data-testid={`thread-${thread.id}`}
                 >
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-slate-900 text-base">{thread.name}</h3>
-                        {thread.is_closed && (
-                          <Badge variant="success" className="text-xs">
-                            נסגרה
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5">{thread.phone}</p>
+                  {/* Avatar */}
+                  <div className="flex-shrink-0 w-11 h-11 rounded-full bg-gradient-to-br from-[#25D366] to-[#128C7E] flex items-center justify-center text-white text-sm font-bold shadow-sm">
+                    {(thread.name || '?')[0]}
+                  </div>
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-semibold text-gray-900 text-sm truncate">{thread.name}</span>
+                      <span className="text-[11px] text-gray-400 flex-shrink-0 mr-2">{thread.time}</span>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-xs text-slate-500">{thread.time}</span>
-                      {thread.unread > 0 && (
-                        <Badge variant="destructive" className="ml-2">
-                          {thread.unread}
-                        </Badge>
-                      )}
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-500 truncate leading-relaxed">{thread.lastMessage || thread.phone}</p>
+                      <div className="flex items-center gap-1 flex-shrink-0 mr-2">
+                        {thread.unread > 0 && (
+                          <span className="min-w-[18px] h-[18px] bg-[#25D366] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">{thread.unread}</span>
+                        )}
+                        {thread.is_closed && <Badge variant="success">נסגרה</Badge>}
+                      </div>
                     </div>
                   </div>
-                  
-                  {/* AI Summary - Only for closed conversations */}
-                  {thread.is_closed && thread.summary && (
-                    <div className="mt-2 pt-2 border-t border-slate-100">
-                      <div className="flex items-start gap-2">
-                        <MessageSquare className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
-                        <p className="text-sm text-slate-700 leading-snug flex-1">
-                          {thread.summary}
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                  {/* Delete action (visible on hover) */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteChat(thread.phone); }}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all duration-200 flex-shrink-0"
+                    title="מחק שיחה"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-              ))}
-              
-              {filteredThreads.length === 0 && (
-                <div className="text-center py-8 text-slate-500">
-                  <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                  {searchQuery || filterType !== 'all' ? (
-                    <p>לא נמצאו שיחות התואמות את החיפוש</p>
-                  ) : (
-                    <p>אין שיחות פעילות</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </Card>
+              ))
+            )}
+          </div>
         </div>
 
-        {/* Chat Area */}
-        <div className="lg:col-span-2">
+        {/* ── Center: Chat panel ── */}
+        <div className="flex-1 flex flex-col min-w-0">
           {selectedThread ? (
-            <Card className="p-0 h-[600px] flex flex-col">
-              {/* Chat Header */}
-              <div className="p-4 border-b border-slate-200 bg-green-50">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    {/* Back Button */}
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={closeChat}
-                      className="p-2 hover:bg-green-100"
-                      data-testid="button-back-chat"
-                    >
-                      <ArrowRight className="h-5 w-5" />
-                    </Button>
-                    <div>
-                      <h3 className="font-semibold text-slate-900">{selectedThread.name}</h3>
-                      <p className="text-sm text-slate-500">{selectedThread.phone}</p>
-                    </div>
+            <>
+              {/* Chat header */}
+              <div className="flex-shrink-0 bg-[#075e54] text-white px-4 py-2.5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button onClick={closeChat} className="lg:hidden p-1 hover:bg-white/10 rounded" data-testid="button-back-chat">
+                    <ArrowRight className="h-5 w-5" />
+                  </button>
+                  <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold">
+                    {(selectedThread.name || '?')[0]}
                   </div>
-                  <div className="flex items-center gap-2">
-                    {/* AI Active/Inactive Toggle */}
-                    <button
-                      onClick={toggleAi}
-                      disabled={togglingAi}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-                        aiActive 
-                          ? 'bg-green-100 text-green-800 hover:bg-green-200 border border-green-300' 
-                          : 'bg-red-100 text-red-800 hover:bg-red-200 border border-red-300'
-                      } ${togglingAi ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      data-testid="toggle-ai-active"
-                    >
-                      {togglingAi ? (
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Power className={`h-4 w-4 ${aiActive ? 'text-green-600' : 'text-red-600'}`} />
-                      )}
-                      <span>{aiActive ? 'AI פעיל' : 'AI כבוי'}</span>
-                    </button>
-                    <Button variant="outline" size="sm" data-testid="button-call">
-                      <Phone className="h-4 w-4" />
-                    </Button>
+                  <div>
+                    <h3 className="font-semibold text-sm leading-tight">{selectedThread.name}</h3>
+                    <p className="text-xs text-green-200">{selectedThread.phone}</p>
                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleAi}
+                    disabled={togglingAi}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
+                      aiActive ? 'bg-green-400/20 text-green-200 hover:bg-green-400/30' : 'bg-red-400/20 text-red-200 hover:bg-red-400/30'
+                    } ${togglingAi ? 'opacity-50' : ''}`}
+                    data-testid="toggle-ai-active"
+                  >
+                    {togglingAi ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
+                    {aiActive ? 'AI פעיל' : 'AI כבוי'}
+                  </button>
+                  <button onClick={() => deleteChat(selectedThread.phone)} className="p-1.5 hover:bg-white/10 rounded text-white/70 hover:text-white" title="מחק שיחה">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
 
-              {/* Messages Area */}
-              <div className="flex-1 p-4 min-h-0 overflow-y-auto">
+              {/* Messages area - WhatsApp wallpaper style */}
+              <div
+                className="flex-1 overflow-y-auto px-4 py-3 min-h-0"
+                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cdefs%3E%3Cpattern id=\'p\' width=\'40\' height=\'40\' patternUnits=\'userSpaceOnUse\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'1\' fill=\'%23e5e7eb\' opacity=\'0.5\'/%3E%3C/pattern%3E%3C/defs%3E%3Crect fill=\'%23efeae2\' width=\'200\' height=\'200\'/%3E%3Crect fill=\'url(%23p)\' width=\'200\' height=\'200\'/%3E%3C/svg%3E")', backgroundSize: '200px 200px' }}
+              >
                 {loadingMessages && messages.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <RefreshCw className="h-8 w-8 mx-auto mb-2 animate-spin" />
-                    <p>טוען הודעות...</p>
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                    <RefreshCw className="h-8 w-8 animate-spin mb-2" />
+                    <p className="text-sm">טוען הודעות...</p>
                   </div>
                 ) : messages.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                    <p>אין הודעות עדיין</p>
-                    <p className="text-xs mt-2">התחל שיחה עם הלקוח</p>
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                    <div className="bg-white/80 rounded-2xl p-6 text-center shadow-sm">
+                      <MessageSquare className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm font-medium text-gray-500">אין הודעות עדיין</p>
+                      <p className="text-xs text-gray-400 mt-1">שלח הודעה כדי להתחיל שיחה</p>
+                    </div>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-1.5 max-w-3xl mx-auto">
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
-                        className={`flex ${msg.direction === 'out' ? 'justify-start' : 'justify-end'}`}
+                        className={`flex ${msg.direction === 'in' ? 'justify-start' : 'justify-end'}`}
                       >
                         <div
-                          className={`max-w-xs px-4 py-2 rounded-lg shadow-sm ${
-                            msg.direction === 'out'
-                              ? 'bg-green-500 text-white'
-                              : 'bg-gray-100 text-slate-900 border border-gray-200'
+                          className={`relative max-w-[75%] px-3 py-2 rounded-xl shadow-sm ${bubbleStyle(msg)} ${
+                            msg.status === 'pending' ? 'opacity-70' : ''
                           }`}
+                          style={{
+                            borderTopRightRadius: msg.direction === 'out' ? '4px' : undefined,
+                            borderTopLeftRadius: msg.direction === 'in' ? '4px' : undefined,
+                          }}
                           dir="rtl"
                         >
-                          <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
-                          <p
-                            className={`text-xs mt-1 ${
-                              msg.direction === 'out' ? 'text-green-100' : 'text-slate-500'
-                            }`}
-                          >
-                            {msg.time}
-                          </p>
+                          {/* Source badge for outgoing */}
+                          {msg.direction === 'out' && <SourceBadge source={msg.source} />}
+                          {/* Media content */}
+                          <MediaContent msg={msg} />
+                          {/* Text body */}
+                          {msg.body && <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{msg.body}</p>}
+                          {/* Footer: time + status */}
+                          <div className="flex items-center justify-end gap-1 mt-0.5">
+                            <span className="text-[10px] text-gray-500">{msg.time}</span>
+                            {msg.direction === 'out' && <MessageStatusIcon status={msg.status} />}
+                          </div>
                         </div>
                       </div>
                     ))}
+                    <div ref={messagesEndRef} />
                   </div>
                 )}
               </div>
 
-              {/* Message Input */}
-              <div className="p-4 border-t border-slate-200">
-                {/* File Preview */}
+              {/* ── Input area ── */}
+              <div className="flex-shrink-0 bg-gray-50 border-t border-gray-200 px-3 py-2">
+                {/* File preview */}
                 {selectedFile && (
-                  <div className="mb-2 p-2 bg-slate-50 rounded-lg flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {selectedFile.type.startsWith('image/') ? (
-                        <Image className="h-4 w-4 text-blue-600" />
-                      ) : (
-                        <File className="h-4 w-4 text-slate-600" />
-                      )}
-                      <span className="text-sm text-slate-700">{selectedFile.name}</span>
-                      <span className="text-xs text-slate-500">
-                        ({(selectedFile.size / 1024).toFixed(1)} KB)
-                      </span>
+                  <div className="mb-2 p-2 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {selectedFile.type.startsWith('image/') ? <Image className="h-4 w-4 text-blue-500 flex-shrink-0" /> : <File className="h-4 w-4 text-gray-500 flex-shrink-0" />}
+                      <span className="text-xs text-gray-700 truncate">{selectedFile.name}</span>
+                      <span className="text-[10px] text-gray-400 flex-shrink-0">({(selectedFile.size / 1024).toFixed(0)} KB)</span>
                     </div>
-                    <button
-                      onClick={() => setSelectedFile(null)}
-                      className="text-red-600 hover:text-red-800 text-sm"
-                    >
-                      ✕
-                    </button>
+                    <button onClick={() => setSelectedFile(null)} className="text-red-400 hover:text-red-600 p-0.5"><X className="h-3.5 w-3.5" /></button>
                   </div>
                 )}
-                
-                {/* Emoji Picker */}
+                {/* Emoji grid */}
                 {showEmojiPicker && (
-                  <div className="mb-2 p-3 bg-white border border-slate-200 rounded-lg shadow-lg">
-                    <div className="grid grid-cols-8 gap-2">
-                      {['😀', '😂', '😍', '🤔', '👍', '👎', '❤️', '🎉', '🔥', '✅', '❌', '⭐', '💪', '🙏', '👏', '🤝'].map(emoji => (
-                        <button
-                          key={emoji}
-                          onClick={() => {
-                            setMessageText(prev => prev + emoji);
-                            setShowEmojiPicker(false);
-                          }}
-                          className="text-2xl hover:bg-slate-100 rounded p-1 transition-colors"
-                        >
-                          {emoji}
-                        </button>
+                  <div className="mb-2 p-2 bg-white rounded-lg border border-gray-200 shadow-lg">
+                    <div className="grid grid-cols-8 gap-1">
+                      {['😀','😂','😍','🤔','👍','👎','❤️','🎉','🔥','✅','❌','⭐','💪','🙏','👏','🤝'].map(em => (
+                        <button key={em} onClick={() => { setMessageText(p => p + em); setShowEmojiPicker(false); }}
+                          className="text-xl hover:bg-gray-100 rounded p-1 transition-colors">{em}</button>
                       ))}
                     </div>
                   </div>
                 )}
-                
-                <div className="flex gap-2">
-                  {/* File Upload Button */}
-                  <label className="cursor-pointer">
-                    <input
-                      type="file"
-                      accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          // Validate file size (max 10MB)
-                          const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-                          if (file.size > MAX_FILE_SIZE) {
-                            alert('הקובץ גדול מדי (מקסימום 10MB)');
-                            e.target.value = ''; // Clear input
-                            return;
-                          }
-                          
-                          // Validate file type
-                          const allowedTypes = [
-                            'image/', 'video/', 'audio/',
-                            'application/pdf',
-                            'application/msword',
-                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                          ];
-                          
-                          const isAllowed = allowedTypes.some(type => file.type.startsWith(type) || file.type === type);
-                          if (!isAllowed) {
-                            alert('סוג קובץ לא נתמך');
-                            e.target.value = ''; // Clear input
-                            return;
-                          }
-                          
-                          setSelectedFile(file);
-                        }
-                      }}
-                      className="hidden"
-                    />
-                    <div className="p-2 hover:bg-slate-100 rounded-md transition-colors">
-                      <Paperclip className="h-5 w-5 text-slate-600" />
-                    </div>
-                  </label>
-                  
-                  {/* Emoji Button */}
-                  <button
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    className="p-2 hover:bg-slate-100 rounded-md transition-colors"
-                  >
-                    <Smile className="h-5 w-5 text-slate-600" />
+                {/* Input row */}
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-full transition-colors">
+                    <Smile className="h-5 w-5" />
                   </button>
-                  
+                  <label className="cursor-pointer p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-full transition-colors">
+                    <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
+                      onChange={(e) => { handleFileSelect(e.target.files?.[0]); if (e.target) e.target.value = ''; }} className="hidden" />
+                    <Paperclip className="h-5 w-5" />
+                  </label>
                   <input
                     type="text"
                     placeholder="כתוב הודעה..."
                     value={messageText}
                     onChange={(e) => setMessageText(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-md"
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                    className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]/30 focus:border-[#25D366]"
                     dir="rtl"
                     data-testid="input-message"
                   />
-                  <Button 
-                    size="sm" 
+                  <button
                     onClick={sendMessage}
                     disabled={sendingMessage || (!messageText.trim() && !selectedFile)}
+                    className="p-2.5 bg-[#25D366] text-white rounded-full hover:bg-[#1da851] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-sm"
                     data-testid="button-send-message"
                   >
-                    {sendingMessage || uploadingFile ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
+                    {sendingMessage ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                  </button>
                 </div>
               </div>
-            </Card>
+            </>
           ) : (
-            <Card className="p-8 text-center">
-              <MessageSquare className="h-12 w-12 mx-auto mb-4 text-slate-400" />
-              <h3 className="font-semibold text-slate-900 mb-2">בחר שיחה</h3>
-              <p className="text-slate-600">בחר שיחה מהרשימה כדי להתחיל לצ'אט</p>
-            </Card>
+            /* Empty state - no chat selected */
+            <div className="flex-1 flex flex-col items-center justify-center bg-[#f0ebe3]">
+              <div className="text-center max-w-sm">
+                <div className="w-20 h-20 mx-auto mb-5 rounded-full bg-[#25D366]/10 flex items-center justify-center">
+                  <MessageSquare className="h-10 w-10 text-[#25D366]" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-700 mb-2">WhatsApp Business</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">בחר שיחה מהרשימה כדי לצפות בהודעות ולשלוח הודעות ללקוחות</p>
+                <div className="mt-4 flex items-center justify-center gap-3 text-xs text-gray-400">
+                  <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {threads.length} שיחות</span>
+                  <span>·</span>
+                  <span className="flex items-center gap-1"><Bot className="h-3.5 w-3.5" /> {activeChatsCount} פעילות</span>
+                </div>
+              </div>
+            </div>
           )}
+        </div>
+
+        {/* ── Left sidebar: Summaries ── */}
+        <div className="hidden xl:flex w-[300px] flex-shrink-0 bg-white border-r border-gray-200 flex-col">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="font-semibold text-sm text-gray-700 flex items-center gap-1.5">
+              <MessageSquare className="h-4 w-4 text-[#25D366]" /> סיכומי שיחות
+            </h3>
+            <button onClick={loadSummaries} disabled={loadingSummaries} className="p-1 text-gray-400 hover:text-gray-600" data-testid="button-refresh-summaries">
+              <RefreshCw className={`h-3.5 w-3.5 ${loadingSummaries ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {loadingSummaries ? (
+              <div className="flex items-center justify-center h-32">
+                <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
+              </div>
+            ) : summaries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full px-6 text-gray-400">
+                <MessageSquare className="h-8 w-8 mb-2" />
+                <p className="text-xs text-center">אין סיכומים עדיין</p>
+                <p className="text-[10px] text-center mt-1">סיכום נוצר אוטומטית אחרי 5 דקות ללא פעילות</p>
+              </div>
+            ) : (
+              summaries.map(s => (
+                <div key={s.id} className="group px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{s.lead_name || 'לקוח'}</p>
+                      <p className="text-[10px] text-gray-400">{s.phone}</p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0 mr-2">
+                      <span className="text-[10px] text-gray-400">
+                        {s.summary_at ? new Date(s.summary_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'short', timeZone: 'Asia/Jerusalem' }) : ''}
+                      </span>
+                      <button
+                        onClick={() => deleteSummary(s.id)}
+                        disabled={deletingSummary === s.id}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-red-500 transition-all"
+                        title="מחק סיכום"
+                      >
+                        {deletingSummary === s.id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">{s.summary}</p>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center">
-            <div className="p-2 bg-green-100 rounded-full ml-3">
-              <MessageSquare className="h-5 w-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-600">הודעות היום</p>
-              <p className="text-2xl font-bold text-slate-900" data-testid="stat-messages">47</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center">
-            <div className="p-2 bg-blue-100 rounded-full ml-3">
-              <Users className="h-5 w-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-600">שיחות פעילות</p>
-              <p className="text-2xl font-bold text-slate-900" data-testid="stat-threads">{threads.length}</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded-full ml-3">
-              <MessageSquare className="h-5 w-5 text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-600">ממתינות לטיפול</p>
-              <p className="text-2xl font-bold text-slate-900" data-testid="stat-pending">3</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center">
-            <div className="p-2 bg-purple-100 rounded-full ml-3">
-              <Bot className="h-5 w-5 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-600">בוט פעיל</p>
-              <p className="text-2xl font-bold text-slate-900" data-testid="stat-bot">
-                WhatsApp
-              </p>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Settings Modal */}
+      {/* ══════ Settings Modal ══════ */}
       {showSettings && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="modal-settings">
-          <Card className="p-6 max-w-md mx-4 w-full">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-slate-900">הגדרות WhatsApp</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowSettings(false)}>×</Button>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" data-testid="modal-settings" onClick={() => setShowSettings(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-[#075e54] text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-semibold">הגדרות WhatsApp</h3>
+              <button onClick={() => setShowSettings(false)} className="hover:bg-white/10 rounded p-1"><X className="h-5 w-5" /></button>
             </div>
-            
-            <div className="space-y-4">
+            <div className="p-6 space-y-5">
+              {/* Provider selection */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  ספק פעיל
-                </label>
-                <select
-                  value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value as 'baileys' | 'meta')}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                >
-                  <option value="baileys">Baileys (WhatsApp Web)</option>
-                  <option value="meta">WhatsApp Business Cloud API (Meta)</option>
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-2">ספק WhatsApp</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {(['baileys', 'meta'] as const).map(prov => (
+                    <button key={prov} onClick={() => { setSelectedProvider(prov); setProviderChanged(true); }}
+                      className={`p-3 rounded-xl border-2 text-sm font-medium transition-all ${selectedProvider === prov ? 'border-[#25D366] bg-green-50 text-green-800' : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
+                      data-testid={`radio-${prov}`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        {prov === 'baileys' ? <QrCode className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
+                        {prov === 'baileys' ? 'Baileys' : 'Meta Cloud'}
+                      </div>
+                      <p className="text-[10px] text-gray-400">{prov === 'baileys' ? 'WhatsApp Web (QR)' : 'Business Cloud API'}</p>
+                    </button>
+                  ))}
+                </div>
+                {providerChanged && (
+                  <Button onClick={saveProvider} disabled={savingProvider} className="w-full mt-3" data-testid="button-save-provider">
+                    {savingProvider ? <RefreshCw className="h-4 w-4 animate-spin ml-2" /> : null}
+                    {savingProvider ? 'שומר...' : 'שמור שינוי ספק'}
+                  </Button>
+                )}
               </div>
-              
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  <strong>סטטוס:</strong> {whatsappStatus.connected ? "מחובר ✅" : "לא מחובר"}
-                  {/* 🔥 NEW: Show intermediate state in settings panel */}
-                  {whatsappStatus.connected && !whatsappStatus.canSend && (
-                    <span className="text-xs text-amber-700 block mt-1">
-                      (ממתין לשליחה ראשונה לאימות)
-                    </span>
-                  )}
-                </p>
-                <p className="text-sm text-blue-800 mt-1">
-                  <strong>ספק נוכחי:</strong> {whatsappStatus.provider}
-                </p>
+              {/* Connection status */}
+              <div className="p-4 bg-gray-50 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600 font-medium">סטטוס חיבור</span>
+                  <Badge variant={whatsappStatus.connected ? 'success' : 'warning'} data-testid="status-connection">
+                    {whatsappStatus.connected ? 'מחובר ✅' : 'לא מחובר'}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>ספק: {providerInfo?.provider || whatsappStatus.provider}</span>
+                  {whatsappStatus.session_age_human && <span>חיבור: {whatsappStatus.session_age_human}</span>}
+                </div>
+                {whatsappStatus.qr_required && !whatsappStatus.connected && (
+                  <p className="text-xs text-amber-600">⚠️ נדרש סריקת QR code</p>
+                )}
               </div>
-              
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setShowSettings(false)}
-                  className="flex-1"
-                >
-                  בטל
+              {/* Baileys controls */}
+              {selectedProvider === 'baileys' && (
+                <div className="flex gap-2">
+                  <Button onClick={generateQRCode} disabled={qrLoading} className="flex-1" data-testid="button-generate-qr">
+                    {qrLoading ? <RefreshCw className="h-4 w-4 animate-spin ml-2" /> : <QrCode className="h-4 w-4 ml-2" />}
+                    {qrLoading ? 'יוצר...' : 'QR קוד'}
+                  </Button>
+                  <Button variant="destructive" onClick={disconnectWhatsApp} className="flex-1" data-testid="button-disconnect">
+                    נתק חיבור
+                  </Button>
+                </div>
+              )}
+              {selectedProvider === 'meta' && (
+                <Button variant="outline" className="w-full" data-testid="button-test-meta"
+                  onClick={async () => {
+                    const ph = prompt('הכנס מספר טלפון (כולל קידומת):');
+                    if (!ph) return;
+                    try {
+                      const r = await http.post<any>('/api/whatsapp/test', { to: ph, text: 'הודעת בדיקה מ-ProSaaS 🚀' });
+                      alert(r.success ? '✅ נשלחה!' : '❌ שגיאה: ' + (r.error || ''));
+                    } catch (err: any) { alert('❌ ' + err.message); }
+                  }}>
+                  <Send className="h-4 w-4 ml-2" /> שלח הודעת בדיקה
                 </Button>
-                <Button 
-                  onClick={() => {
-                    setShowSettings(false);
-                    loadWhatsAppStatus(); // Refresh status after changes
-                  }}
-                  className="flex-1"
-                >
-                  שמור
-                </Button>
-              </div>
+              )}
             </div>
-          </Card>
+          </div>
         </div>
       )}
 
-      {/* QR Code Modal */}
+      {/* ══════ QR Modal ══════ */}
       {showQR && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="modal-qr">
-          <Card className="p-6 max-w-sm mx-4">
-            <div className="text-center">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">
-                QR קוד לחיבור WhatsApp
-              </h3>
-              
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" data-testid="modal-qr" onClick={() => setShowQR(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-[#075e54] text-white px-6 py-4 text-center">
+              <h3 className="font-semibold">חיבור WhatsApp</h3>
+              <p className="text-xs text-green-200 mt-1">סרוק את הקוד עם WhatsApp שלך</p>
+            </div>
+            <div className="p-6 flex flex-col items-center">
               {qrCode ? (
-                <div className="mb-4">
-                  {qrCode.startsWith('data:image/') ? (
-                    // Legacy base64 image support
-                    <img src={qrCode} alt="QR Code" className="mx-auto mb-2 w-48 h-48" data-testid="img-qr" />
-                  ) : (
-                    // New QR string rendering with react-qr-code
-                    <div className="bg-white p-4 rounded-lg mx-auto w-fit">
-                      <QRCodeReact
-                        value={qrCode}
-                        size={192}
-                        level="M"
-                        data-testid="qr-component"
-                      />
-                    </div>
-                  )}
-                  <p className="text-sm text-slate-600 mt-2">
-                    סרוק עם WhatsApp שלך כדי להתחבר
-                  </p>
-                </div>
-              ) : (
-                <div className="mb-4">
-                  <div className="w-48 h-48 bg-slate-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-                    <QrCode className="h-16 w-16 text-slate-400" />
+                <>
+                  <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-inner">
+                    {qrCode.startsWith('data:image/') ? (
+                      <img src={qrCode} alt="QR Code" className="w-52 h-52" data-testid="img-qr" />
+                    ) : (
+                      <QRCodeReact value={qrCode} size={208} level="M" data-testid="qr-component" />
+                    )}
                   </div>
-                  <p className="text-sm text-slate-600">
-                    לחץ על "צור QR קוד" כדי להתחיל
-                  </p>
-                </div>
+                  <p className="text-xs text-gray-500 mt-3">סרוק עם WhatsApp שלך כדי להתחבר</p>
+                </>
+              ) : (
+                <>
+                  <div className="w-52 h-52 bg-gray-100 rounded-xl flex items-center justify-center">
+                    <QrCode className="h-16 w-16 text-gray-300" />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-3">לחץ כדי ליצור QR קוד</p>
+                </>
               )}
-              
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setShowQR(false)}
-                  className="flex-1"
-                  data-testid="button-close-qr"
-                >
-                  סגור
-                </Button>
+              <div className="flex gap-2 w-full mt-5">
+                <Button variant="outline" onClick={() => setShowQR(false)} className="flex-1" data-testid="button-close-qr">סגור</Button>
                 {!qrCode && (
-                  <Button 
-                    onClick={generateQRCode}
-                    disabled={qrLoading}
-                    className="flex-1"
-                    data-testid="button-generate-qr-modal"
-                  >
-                    {qrLoading ? "יוצר..." : "צור QR קוד"}
+                  <Button onClick={generateQRCode} disabled={qrLoading} className="flex-1" data-testid="button-generate-qr-modal">
+                    {qrLoading ? 'יוצר...' : 'צור QR קוד'}
                   </Button>
                 )}
               </div>
             </div>
-          </Card>
+          </div>
         </div>
       )}
     </div>
   );
+
 }
