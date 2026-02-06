@@ -269,6 +269,8 @@ def whatsapp_ai_response_job(
                 remote_jid=remote_jid,  # Use original remote_jid for LID support
                 response_text=response_text,
                 wa_msg_id=message_id,
+                lead_id=lead_id,  # 🔥 NEW: Pass lead_id for session tracking
+                phone_e164=from_number_e164,  # 🔥 NEW: Pass phone_e164 for session tracking
                 timeout=60,
                 retry=2,
                 description=f"Send WhatsApp AI response to {remote_jid[:15]}"
@@ -277,7 +279,7 @@ def whatsapp_ai_response_job(
             # Update last send time for rate limiting
             _last_send_time[conversation_key] = time.time()
             
-            logger.info(f"[WA-AI-JOB] ✅ Enqueued send job: {send_job_id}")
+            logger.info(f"[WA-AI-JOB] ✅ Enqueued send job: {send_job_id} (lead_id={lead_id})")
         else:
             logger.warning(f"[WA-AI-JOB] ⚠️ AI returned empty response - not sending")
         

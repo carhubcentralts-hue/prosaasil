@@ -8779,6 +8779,58 @@ def apply_migrations():
         
         checkpoint("✅ Migration 139 complete: whatsapp_shard column")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 140: Add unique constraint on whatsapp_conversation canonical_key
+        # Enforces "one conversation per person per business" at database level
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 140: Unique constraint on canonical_key")
+        
+        try:
+            if check_table_exists('whatsapp_conversation'):
+                # Check if unique constraint already exists
+                if not check_index_exists('uq_wa_conv_canonical_key'):
+                    checkpoint("  Adding unique constraint on (business_id, canonical_key)...")
+                    
+                    # 🔥 IMPORTANT: Before adding unique constraint, we need to handle duplicates
+                    # Check if there are any duplicate canonical_keys
+                    checkpoint("  Checking for duplicate canonical_keys...")
+                    result = execute_with_retry(migrate_engine, """
+                        SELECT canonical_key, COUNT(*) as count
+                        FROM whatsapp_conversation
+                        WHERE canonical_key IS NOT NULL
+                        GROUP BY canonical_key
+                        HAVING COUNT(*) > 1
+                    """)
+                    
+                    if result and len(result) > 0:
+                        dup_count = len(result)
+                        checkpoint(f"  ⚠️  Found {dup_count} duplicate canonical_keys")
+                        checkpoint(f"  These will need to be resolved before adding unique constraint")
+                        checkpoint(f"  Run backfill script: server/scripts/backfill_canonical_keys_and_merge_duplicates.py")
+                        checkpoint(f"  ⏭️  Skipping unique constraint for now - run backfill first")
+                    else:
+                        # No duplicates - safe to add unique constraint
+                        checkpoint("  ✅ No duplicates found - adding unique constraint...")
+                        exec_ddl(migrate_engine, """
+                            CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_conv_canonical_key
+                            ON whatsapp_conversation (business_id, canonical_key)
+                            WHERE canonical_key IS NOT NULL
+                        """)
+                        checkpoint("  ✅ Added unique constraint on canonical_key")
+                        migrations_applied.append("migration_140_canonical_key_unique")
+                else:
+                    checkpoint("  ⏭️  Unique constraint already exists")
+                
+                checkpoint("  ✅ Migration 140 schema changes completed")
+                checkpoint("     🎯 Impact: Prevents duplicate conversations at database level")
+                
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 140 failed: {e}")
+            logger.error(f"Migration 140 error: {e}", exc_info=True)
+            # Don't raise - unique constraint is important but not critical for startup
+        
+        checkpoint("✅ Migration 140 complete: Canonical key unique constraint")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")

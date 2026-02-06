@@ -1505,11 +1505,37 @@ def send_manual_message():
                 try:
                     # Extract phone number for session tracking (without @domain)
                     clean_number = formatted_number.split('@')[0] if '@' in formatted_number else formatted_number
+                    
+                    # 🔥 FIX: Pass lead_id and phone_e164 for consistent canonical_key
+                    # This ensures outbound messages use the SAME conversation as inbound
+                    session_lead_id = lead_id if lead_id else None
+                    session_phone_e164 = lead_phone if lead_phone else None
+                    
+                    # If we don't have lead info from request, try to get it from phone number
+                    if not session_lead_id and to_number:
+                        try:
+                            # Normalize phone for lookup
+                            from server.agent_tools.phone_utils import normalize_phone
+                            phone_normalized = normalize_phone(to_number)
+                            if phone_normalized:
+                                lead_lookup = db.session.query(Lead).filter_by(
+                                    business_id=business_id,
+                                    phone_e164=phone_normalized
+                                ).first()
+                                if lead_lookup:
+                                    session_lead_id = lead_lookup.id
+                                    session_phone_e164 = lead_lookup.phone_e164
+                                    log.debug(f"[WA-SESSION] Found lead for outbound: lead_id={session_lead_id}")
+                        except Exception as lookup_err:
+                            log.debug(f"[WA-SESSION] Could not lookup lead: {lookup_err}")
+                    
                     update_session_activity(
                         business_id=business_id,
                         customer_wa_id=clean_number,
                         direction="out",
-                        provider=send_result.get('provider', 'baileys')
+                        provider=send_result.get('provider', 'baileys'),
+                        lead_id=session_lead_id,  # 🔥 FIX: Pass lead_id for canonical_key
+                        phone_e164=session_phone_e164  # 🔥 FIX: Pass phone_e164 for canonical_key
                     )
                 except Exception as e:
                     log.warning(f"⚠️ Session tracking (manual) failed: {e}")
