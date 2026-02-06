@@ -32,8 +32,8 @@ def render_whatsapp_template(text: str, lead, business) -> str:
     
     Args:
         text: Message text with placeholders
-        lead: Lead object with name/phone fields
-        business: Business object with name field
+        lead: Lead object with name/phone fields (must not be None)
+        business: Business object with name field (can be None)
     
     Returns:
         str: Rendered message with placeholders replaced
@@ -48,33 +48,37 @@ def render_whatsapp_template(text: str, lead, business) -> str:
     if not text:
         return text
     
+    if not lead:
+        logger.warning("[TEMPLATE] Lead object is None - cannot render template")
+        return text
+    
     # Get lead name with fallback
-    lead_full_name = lead.full_name or lead.name or 'Customer'
+    lead_full_name = getattr(lead, 'full_name', None) or getattr(lead, 'name', None) or 'Customer'
     
     # Extract first name with proper fallbacks
-    if lead.first_name:
-        lead_first_name = lead.first_name
-    elif lead_full_name.strip() and lead_full_name != 'Customer':
-        # Try to extract first word from full name
-        name_parts = lead_full_name.split()
-        lead_first_name = name_parts[0] if name_parts else 'Customer'
-    else:
-        lead_first_name = 'Customer'
+    lead_first_name = getattr(lead, 'first_name', None)
+    if not lead_first_name:
+        if lead_full_name.strip() and lead_full_name != 'Customer':
+            # Try to extract first word from full name
+            name_parts = lead_full_name.split()
+            lead_first_name = name_parts[0] if name_parts else 'Customer'
+        else:
+            lead_first_name = 'Customer'
     
     # Build replacement dictionary - English placeholders
     replacements = {
         '{lead_name}': lead_full_name,
         '{first_name}': lead_first_name,
-        '{phone}': lead.phone_e164 or lead.phone_raw or '',
-        '{business_name}': business.name if business else ''
+        '{phone}': getattr(lead, 'phone_e164', None) or getattr(lead, 'phone_raw', None) or '',
+        '{business_name}': getattr(business, 'name', '') if business else ''
     }
     
     # Hebrew placeholders (with double braces for easier typing)
     hebrew_replacements = {
         '{{שם}}': lead_full_name,
         '{{שם פרטי}}': lead_first_name,
-        '{{טלפון}}': lead.phone_e164 or lead.phone_raw or '',
-        '{{עסק}}': business.name if business else ''
+        '{{טלפון}}': getattr(lead, 'phone_e164', None) or getattr(lead, 'phone_raw', None) or '',
+        '{{עסק}}': getattr(business, 'name', '') if business else ''
     }
     
     # Apply replacements - Hebrew first (to handle {{}} before single {})

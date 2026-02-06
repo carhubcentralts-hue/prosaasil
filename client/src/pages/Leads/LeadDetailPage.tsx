@@ -206,14 +206,18 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       setReminders(response.reminders || []);
       
       // Fetch AI settings for this lead
-      fetchAISettings(id!);
+      if (id) {
+        fetchAISettings(id);
+      }
       
       // Immediately hide loading state - lead is loaded
       setLoading(false);
       
       // Fire calls and appointments fetches independently (each has its own error handling)
-      fetchCalls(id!);
-      fetchAppointments(id!);
+      if (id) {
+        fetchCalls(id);
+        fetchAppointments(id);
+      }
     } catch (err) {
       console.error('Failed to fetch lead:', err);
       setError('שגיאה בטעינת פרטי הליד');

@@ -3378,10 +3378,9 @@ def update_lead_ai_settings(lead_id):
         
         # Update WhatsApp AI setting
         if 'whatsapp_enabled' in data:
-            enabled = bool(data['whatsapp_enabled'])
-            lead.ai_whatsapp_enabled = enabled
+            lead.ai_whatsapp_enabled = data['whatsapp_enabled']
             
-            logger.info(f"[LEAD-AI] Updated AI WhatsApp for lead {lead_id}: enabled={enabled}")
+            logger.info(f"[LEAD-AI] Updated AI WhatsApp for lead {lead_id}: enabled={lead.ai_whatsapp_enabled}")
         
         db.session.commit()
         
