@@ -22,9 +22,11 @@ export function normalizePhoneForDisplay(phone: string | undefined | null): stri
     .replace(/@g\.us/g, '')
     .trim();
   
-  // If it looks like an @lid identifier (long number without + and no typical phone pattern)
-  // Return empty string instead of showing the lid identifier
-  if (/^\d{12,}$/.test(normalized) && !normalized.startsWith('+')) {
+  // LID identifiers are very long numbers (12+ digits) without typical phone patterns
+  // Real phone numbers in E.164 format are typically 10-15 digits and start with +
+  // If we see 12+ digits without +, it's likely an internal WhatsApp @lid identifier
+  const MIN_LID_DIGITS = 12;
+  if (normalized.length >= MIN_LID_DIGITS && /^\d+$/.test(normalized) && !normalized.startsWith('+')) {
     // This is likely an @lid identifier, not a real phone number
     return '';
   }

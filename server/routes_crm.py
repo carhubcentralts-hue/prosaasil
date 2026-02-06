@@ -203,6 +203,7 @@ def api_threads():
                     display_phone = display_phone.replace('@s.whatsapp.net', '').replace('@c.us', '')
                 
                 # Name priority: lead_name > push_name > customer_name > formatted phone (if not @lid)
+                # Note: Using Hebrew 'לא ידוע' (Unknown) as this is a Hebrew-language CRM system
                 display_name = lead_name or push_name or customer_name or display_phone or 'לא ידוע'
                 
                 # Check if conversation is closed
