@@ -192,7 +192,7 @@ def get_or_create_session(
             )
             
             # On conflict, update timestamps and reopen if closed
-            from sqlalchemy import func
+            from sqlalchemy import func, case
             
             stmt = stmt.on_conflict_do_update(
                 index_elements=['business_id', 'canonical_key'],
@@ -201,11 +201,13 @@ def get_or_create_session(
                     'last_customer_message_at': now,
                     'is_open': True,
                     'updated_at': now,
-                    # Update lead_id: use new value if provided, otherwise keep existing
-                    'lead_id': func.coalesce(stmt.excluded.lead_id, WhatsAppConversation.lead_id),
-                    # Keep customer_name if it exists
-                    'customer_wa_id': customer_wa_id,
-                    'provider': provider
+                    # Update lead_id: use new value if NOT NULL, otherwise keep existing
+                    'lead_id': case(
+                        (stmt.excluded.lead_id.is_not(None), stmt.excluded.lead_id),
+                        else_=WhatsAppConversation.lead_id
+                    )
+                    # Note: customer_wa_id and provider are immutable after creation
+                    # They're part of the conversation identity and should not be updated
                 }
             ).returning(WhatsAppConversation.id)
             
@@ -218,7 +220,9 @@ def get_or_create_session(
             
             logger.info(f"[WA-SESSION] ✅ UPSERT completed: session_id={session.id} canonical_key={canonical_key} lead_id={lead_id} business_id={business_id}")
             
-            return session, True  # We can't easily distinguish if it was new or existing, but that's okay
+            # Note: We return True for is_new even though we can't distinguish INSERT vs UPDATE
+            # This is acceptable because the caller doesn't rely on this flag for critical logic
+            return session, True
             
         except Exception as upsert_err:
             logger.error(f"[WA-SESSION] ⚠️ UPSERT failed, falling back to SELECT: {upsert_err}")

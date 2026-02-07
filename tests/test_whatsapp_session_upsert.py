@@ -87,7 +87,7 @@ class TestWhatsAppSessionUpsert:
                         errors.append(e)
                 
                 # Create 20 threads
-                for i in range(20):
+                for _ in range(20):
                     t = threading.Thread(target=call_get_or_create)
                     threads.append(t)
                 
@@ -215,13 +215,13 @@ class TestWhatsAppSessionUpsert:
                     assert session is not None, "Should return existing conversation"
                     assert session.id == 789, "Should return correct conversation"
                     
-                except IntegrityError:
-                    pytest.fail("IntegrityError should not leak from get_or_create_session")
-                except Exception as e:
-                    # Other exceptions are okay for this test (e.g., mock setup issues)
-                    # but IntegrityError specifically should be handled
-                    assert not isinstance(e, IntegrityError), \
-                        f"IntegrityError should not leak, but got: {e}"
+                except IntegrityError as ie:
+                    # IntegrityError should be handled internally and not leak
+                    pytest.fail(f"IntegrityError should not leak from get_or_create_session: {ie}")
+                except Exception:
+                    # Other exceptions are acceptable for this mock-based test
+                    # The important thing is that IntegrityError specifically is caught
+                    pass
     
     def test_upsert_updates_timestamps_on_conflict(self):
         """
