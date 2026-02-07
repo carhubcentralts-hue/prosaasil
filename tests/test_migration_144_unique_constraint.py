@@ -33,9 +33,12 @@ class TestMigration144UniqueConstraint:
             "UPSERT index_elements must match the UNIQUE constraint columns"
         )
         
-        # Document the constraint name for reference
+        # Document the constraint name created by Migration 144
         constraint_name = 'uq_wa_conv_business_canonical'
-        assert constraint_name is not None
+        # Verify it follows PostgreSQL naming conventions (alphanumeric + underscore only)
+        assert constraint_name.replace('_', '').isalnum(), (
+            "Constraint name must follow PostgreSQL naming conventions"
+        )
     
     def test_migration_handles_duplicates_correctly(self):
         """

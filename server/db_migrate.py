@@ -9000,7 +9000,7 @@ def apply_migrations():
                                             UPDATE whatsapp_conversation
                                             SET is_open = false,
                                                 summary_created = true,
-                                                summary = COALESCE(summary, '') || ' [Merged: duplicate removed on ' || CURRENT_TIMESTAMP || ']',
+                                                summary = COALESCE(summary, '') || ' [Merged: duplicate removed on ' || to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS') || ']',
                                                 updated_at = CURRENT_TIMESTAMP
                                             WHERE id = :id
                                         """, {"id": dup_id})
