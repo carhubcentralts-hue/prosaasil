@@ -1463,6 +1463,11 @@ def baileys_webhook():
                 import traceback
                 log.error(f"[WA-ERROR] Processing message failed: {e}")
                 log.error(f"[WA-ERROR] Traceback: {traceback.format_exc()}")
+                # 🔥 FIX: Rollback DB session on error to prevent "cursor already closed"
+                try:
+                    db.session.rollback()
+                except Exception as rollback_err:
+                    log.error(f"[WA-ERROR] Rollback failed: {rollback_err}")
         
         overall_duration = time.time() - overall_start
         log.info(f"[WA-INCOMING] Total processing: {overall_duration:.2f}s for {len(messages)} message(s)")
@@ -1475,6 +1480,11 @@ def baileys_webhook():
         import traceback
         log.error(f"[WA-ERROR] Baileys webhook error: {e}")
         log.error(f"[WA-ERROR] Traceback: {traceback.format_exc()}")
+        # 🔥 FIX: Rollback DB session on top-level error to prevent "cursor already closed"
+        try:
+            db.session.rollback()
+        except Exception as rollback_err:
+            log.error(f"[WA-ERROR] Rollback failed: {rollback_err}")
         return jsonify({"error": str(e)}), 500
 
 @whatsapp_bp.route('/send', methods=['POST'])

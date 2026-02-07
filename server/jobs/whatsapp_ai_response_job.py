@@ -308,4 +308,9 @@ def whatsapp_ai_response_job(
         
     except Exception as e:
         logger.error(f"[WA-AI-JOB] ❌ Job failed: {e}", exc_info=True)
+        # 🔥 FIX: Rollback DB session on error to prevent "cursor already closed"
+        try:
+            db.session.rollback()
+        except Exception as rollback_err:
+            logger.error(f"[WA-AI-JOB] Rollback failed: {rollback_err}")
         return {'success': False, 'error': str(e)}
