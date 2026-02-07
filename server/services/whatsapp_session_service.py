@@ -202,14 +202,19 @@ def get_or_create_session(
                     'is_open': True,
                     'updated_at': now,
                     # Update lead_id: use new value if NOT NULL, otherwise keep existing
+                    # Lead_id is semi-mutable: it can be set once (NULL → value) but not changed afterward
+                    # This allows linking conversations to leads after initial creation
+                    # while customer_wa_id and provider are fully immutable (part of identity)
                     'lead_id': case(
                         (stmt.excluded.lead_id.isnot(None), stmt.excluded.lead_id),
                         else_=WhatsAppConversation.lead_id
                     )
-                    # Note: customer_wa_id and provider are immutable after creation
-                    # They're part of the conversation identity and should not be updated
                 }
-            ).returning(WhatsAppConversation.id, WhatsAppConversation.created_at)
+            ).returning(
+                WhatsAppConversation.id, 
+                WhatsAppConversation.created_at,
+                WhatsAppConversation.updated_at
+            )
             
             result = db.session.execute(stmt)
             db.session.commit()
@@ -218,11 +223,15 @@ def get_or_create_session(
             row = result.one()
             conv_id = row[0]
             created_at = row[1]
+            updated_at = row[2]
             session = WhatsAppConversation.query.get(conv_id)
             
-            # Heuristic: if created_at equals our 'now', it was likely just inserted
-            # This is not 100% accurate but better than always returning True
-            is_new = (created_at == now)
+            # Determine if this was a new INSERT or an UPDATE:
+            # For new records: created_at == updated_at (both set to same value on INSERT)
+            # For updates: updated_at was just set to now, but created_at is older
+            # Allow 1 second tolerance for timestamp precision differences
+            from datetime import timedelta
+            is_new = abs((updated_at - created_at).total_seconds()) < 1.0
             
             logger.info(f"[WA-SESSION] ✅ UPSERT completed: session_id={session.id} canonical_key={canonical_key} lead_id={lead_id} business_id={business_id} is_new={is_new}")
             

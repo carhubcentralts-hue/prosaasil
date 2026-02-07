@@ -211,16 +211,15 @@ class TestWhatsAppSessionUpsert:
                         phone_e164="+972501234567"
                     )
                     
-                    # Should succeed by fetching existing conversation
+                    # Verify: Should succeed by fetching existing conversation via fallback
                     assert session is not None, "Should return existing conversation"
-                    assert session.id == 789, "Should return correct conversation"
+                    assert session.id == 789, "Should return correct conversation ID from fallback"
+                    
+                    # Success: IntegrityError was handled internally
                     
                 except IntegrityError as ie:
-                    # IntegrityError should be handled internally and not leak
+                    # FAIL: IntegrityError should be handled internally and not leak
                     pytest.fail(f"IntegrityError should not leak from get_or_create_session: {ie}")
-                # Note: We don't catch other exceptions - if the function fails for other reasons,
-                # that's acceptable for this mock-based unit test. The key requirement is that
-                # IntegrityError specifically is handled internally.
     
     def test_upsert_updates_timestamps_on_conflict(self):
         """
@@ -279,10 +278,14 @@ class TestWhatsAppSessionUpsert:
                     call_args = mock_stmt.on_conflict_do_update.call_args
                     assert call_args is not None, "on_conflict_do_update should have been called"
                     
-                    # Check that index_elements includes business_id and canonical_key
-                    if 'index_elements' in call_args[1]:
-                        index_elements = call_args[1]['index_elements']
-                        assert 'business_id' in index_elements, \
-                            "UPSERT should conflict on business_id"
-                        assert 'canonical_key' in index_elements, \
-                            "UPSERT should conflict on canonical_key"
+                    # Check kwargs (call_args[1]) for index_elements
+                    assert len(call_args) >= 2, "call_args should have kwargs"
+                    kwargs = call_args[1]
+                    assert 'index_elements' in kwargs, \
+                        "on_conflict_do_update should be called with index_elements parameter"
+                    
+                    index_elements = kwargs['index_elements']
+                    assert 'business_id' in index_elements, \
+                        "UPSERT should conflict on business_id"
+                    assert 'canonical_key' in index_elements, \
+                        "UPSERT should conflict on canonical_key"
