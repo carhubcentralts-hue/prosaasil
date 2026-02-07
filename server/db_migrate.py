@@ -872,6 +872,116 @@ def exec_ddl(engine, sql: str):
     if last_error:
         raise last_error
 
+
+def exec_ddl_autocommit(engine, sql: str):
+    """
+    Execute DDL statements that require AUTOCOMMIT mode (outside transactions).
+    
+    This is specifically for operations that CANNOT run inside a transaction block:
+    - CREATE INDEX CONCURRENTLY
+    - DROP INDEX CONCURRENTLY
+    - REINDEX CONCURRENTLY
+    - VACUUM
+    
+    These operations require PostgreSQL AUTOCOMMIT mode (isolation_level=AUTOCOMMIT).
+    
+    IMPORTANT: This function creates a NEW connection with AUTOCOMMIT isolation level.
+    It does NOT try to commit an existing transaction - that would fail.
+    
+    Key differences from exec_ddl():
+    - Uses raw connection with AUTOCOMMIT isolation level
+    - No transaction block (no BEGIN/COMMIT)
+    - Still includes retry logic for transient failures
+    - Still handles "already exists" errors gracefully
+    
+    Args:
+        engine: SQLAlchemy engine
+        sql: DDL statement to execute (must be CONCURRENTLY-compatible)
+        
+    Raises:
+        Exception: If DDL fails after all retries
+    """
+    import psycopg2
+    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+    
+    # First, check and log idle-in-transaction count
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT count(*) FROM pg_stat_activity WHERE state='idle in transaction'"))
+            idle_count = result.scalar()
+            if idle_count > 0:
+                log.warning(f"Found {idle_count} idle-in-transaction connection(s) before AUTOCOMMIT DDL")
+                # Terminate old idle transactions to prevent lock contention
+                terminate_idle_in_tx(engine, 30)
+    except Exception as check_error:
+        log.warning(f"Could not check idle transactions: {check_error}")
+    
+    # Execute DDL with AUTOCOMMIT and retry logic for transient failures
+    retries = 4
+    last_error = None
+    for i in range(retries):
+        raw_conn = None
+        try:
+            # Get raw connection from SQLAlchemy engine
+            raw_conn = engine.raw_connection()
+            
+            # Set AUTOCOMMIT isolation level (required for CONCURRENTLY)
+            raw_conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            
+            # Create cursor and execute
+            cursor = raw_conn.cursor()
+            try:
+                # Set timeouts (these persist even in AUTOCOMMIT mode)
+                cursor.execute("SET lock_timeout = '5s'")
+                cursor.execute("SET statement_timeout = '120s'")
+                cursor.execute("SET idle_in_transaction_session_timeout = '60s'")
+                
+                # Execute the DDL
+                cursor.execute(sql)
+                return  # Success
+            finally:
+                cursor.close()
+                
+        except psycopg2.OperationalError as e:
+            last_error = e
+            # Check if this is a retryable connection error
+            if _is_retryable(e) and i < retries - 1:
+                sleep_time = 1.0 * (i + 1)
+                log.warning(f"⚠️ AUTOCOMMIT DDL connection error (attempt {i + 1}/{retries}), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            # Non-retryable or last attempt - fall through to error handling
+            logger.error(f"AUTOCOMMIT DDL failed: {e}", exc_info=True)
+            raise
+            
+        except Exception as e:
+            # Check if this is an "already exists" error that can be safely ignored
+            if _is_already_exists_error(e):
+                logger.warning(f"⚠️ AUTOCOMMIT DDL object already exists (safe to continue): {e}")
+                return  # Success - object already exists
+            
+            # Any other DDL error = FAIL HARD
+            logger.error(f"❌ AUTOCOMMIT DDL FAILED - STOPPING MIGRATION: {e}", exc_info=True)
+            logger.error("=" * 80)
+            logger.error("⚠️ MIGRATION STOPPED: AUTOCOMMIT DDL statement failed")
+            logger.error("⚠️ This is NOT an 'already exists' error - something is broken")
+            logger.error("⚠️ Fix the migration code and try again")
+            logger.error("=" * 80)
+            raise
+            
+        finally:
+            # Always close the raw connection
+            if raw_conn is not None:
+                try:
+                    raw_conn.close()
+                except Exception as close_error:
+                    log.warning(f"Error closing raw connection: {close_error}")
+                    
+    # Should never reach here, but handle it anyway
+    if last_error:
+        raise last_error
+
+
 def exec_dml(engine, sql: str, params=None, retries=3):
     """
     Execute a DML (Data Manipulation Language) statement with appropriate timeouts for data operations.
@@ -8730,9 +8840,10 @@ def apply_migrations():
                     checkpoint("  ⏭️  canonical_key column already exists")
                 
                 # Step 2: Create index on canonical_key for lookups (non-unique for now)
+                # NOTE: CONCURRENTLY requires AUTOCOMMIT (cannot run inside transaction)
                 if not check_index_exists('idx_wa_conv_canonical_key'):
-                    checkpoint("  Creating index on canonical_key...")
-                    exec_ddl(migrate_engine, """
+                    checkpoint("  Creating index on canonical_key (CONCURRENTLY, outside transaction)...")
+                    exec_ddl_autocommit(migrate_engine, """
                         CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wa_conv_canonical_key 
                         ON whatsapp_conversation (business_id, canonical_key)
                     """)
