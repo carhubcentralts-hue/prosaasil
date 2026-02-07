@@ -54,6 +54,12 @@ from server.jobs.call_log_jobs import create_call_log_job, save_conversation_tur
 GEMINI_PENDING_AUDIO_MAX_FRAMES = 1000  # 20s of 20ms frames to cover setup_complete delay
 GEMINI_PENDING_DRAIN_DELAY_SEC = 0.02  # 20ms pacing when draining buffered frames
 
+# ✅ FIX: Gemini Live continuous audio streaming constants
+# Gemini Live requires continuous audio stream to prevent WebSocket closure
+# 320 bytes = 20ms frame @ 16kHz mono PCM16: (16000 Hz * 2 bytes/sample * 0.02 sec)
+GEMINI_SILENCE_FRAME_SIZE = 320
+GEMINI_SILENCE_FRAME = b'\x00' * GEMINI_SILENCE_FRAME_SIZE
+
 # 🔥 GEMINI FIX: Global thread exception handler (Python 3.8+)
 # This catches any uncaught exceptions in threads that might otherwise be silent
 def _global_thread_exception_handler(args):
@@ -4727,9 +4733,7 @@ class MediaStreamHandler:
                     # Gemini Live requires continuous audio stream (20ms frames)
                     # Without continuous frames, Gemini closes the WebSocket
                     if ai_provider == 'gemini':
-                        # 320 bytes = 20ms of 16kHz mono PCM16
-                        silence_frame = b'\x00' * 320
-                        audio_chunk = silence_frame
+                        audio_chunk = GEMINI_SILENCE_FRAME
                         # Note: Count as incoming frame for metrics (synthetic but necessary)
                     else:
                         await asyncio.sleep(0.01)
@@ -5592,13 +5596,10 @@ class MediaStreamHandler:
                 
                 # ✅ FIX: Gemini Live greeting trigger via audio, not text
                 # Gemini Live API is designed for telephony and doesn't support text-based triggers
-                # Instead, send a short silence frame to initiate the audio pipeline
+                # Send a silence frame to initiate the audio pipeline
                 if reason == "GREETING" or is_greeting:
                     try:
-                        # Send short silence frame to trigger Gemini to start speaking
-                        # 320 bytes = 20ms of 16kHz mono PCM16 (silence)
-                        silence_frame = b'\x00' * 320
-                        await _client.send_audio(silence_frame, end_of_turn=False)
+                        await _client.send_audio(GEMINI_SILENCE_FRAME, end_of_turn=False)
                         logger.info(f"🎯 [GEMINI_SEND] greeting_trigger: sent audio frame to start greeting")
                         _orig_print(f"🎯 [GEMINI_SEND] greeting_trigger: sent audio to start bot-speaks-first", flush=True)
                     except Exception as e:
