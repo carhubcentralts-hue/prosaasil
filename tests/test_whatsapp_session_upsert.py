@@ -229,7 +229,6 @@ class TestWhatsAppSessionUpsert:
         """
         from server.services.whatsapp_session_service import get_or_create_session
         from server.models_sql import WhatsAppConversation
-        from datetime import datetime
         
         # This is a behavioral test - verifies the UPSERT logic updates timestamps
         # In a real scenario, the ON CONFLICT DO UPDATE should update:

@@ -192,6 +192,8 @@ def get_or_create_session(
             )
             
             # On conflict, update timestamps and reopen if closed
+            from sqlalchemy import func
+            
             stmt = stmt.on_conflict_do_update(
                 index_elements=['business_id', 'canonical_key'],
                 set_={
@@ -199,8 +201,8 @@ def get_or_create_session(
                     'last_customer_message_at': now,
                     'is_open': True,
                     'updated_at': now,
-                    # Update lead_id if provided and not already set
-                    'lead_id': stmt.excluded.lead_id if lead_id else WhatsAppConversation.lead_id,
+                    # Update lead_id: use new value if provided, otherwise keep existing
+                    'lead_id': func.coalesce(stmt.excluded.lead_id, WhatsAppConversation.lead_id),
                     # Keep customer_name if it exists
                     'customer_wa_id': customer_wa_id,
                     'provider': provider
