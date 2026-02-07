@@ -379,7 +379,9 @@ def extract_lead_fields(payload):
             # Flatten nested dict
             for nested_key, nested_value in value.items():
                 flat_payload[f"{key}_{nested_key}".lower()] = nested_value
-        flat_payload[key.lower()] = value
+        else:
+            # Only add non-dict values directly
+            flat_payload[key.lower()] = value
     
     # Extract name (try multiple patterns)
     name_fields = ['name', 'full_name', 'fullname', 'customer_name', 'contact_name']
@@ -404,15 +406,21 @@ def extract_lead_fields(payload):
     phone_fields = ['phone', 'mobile', 'tel', 'telephone', 'phone_number', 'phonenumber', 'cell', 'cellphone']
     for field in phone_fields:
         if field in flat_payload and flat_payload[field]:
-            result['phone'] = str(flat_payload[field]).strip()
-            break
+            phone_value = str(flat_payload[field]).strip()
+            # Only use non-empty phone values
+            if phone_value:
+                result['phone'] = phone_value
+                break
     
     # Extract email
     email_fields = ['email', 'email_address', 'emailaddress', 'mail']
     for field in email_fields:
         if field in flat_payload and flat_payload[field]:
-            result['email'] = str(flat_payload[field]).strip().lower()
-            break
+            email_value = str(flat_payload[field]).strip().lower()
+            # Only use non-empty email values
+            if email_value:
+                result['email'] = email_value
+                break
     
     # Extract message/notes
     message_fields = ['message', 'notes', 'description', 'comment', 'details', 'text', 'body']
@@ -498,6 +506,12 @@ def webhook_ingest_lead(webhook_id):
         # Extract lead fields
         fields = extract_lead_fields(payload)
         
+        # 🔍 Enhanced debugging (with PII masking for security)
+        masked_payload = {k: '***' if k.lower() in ['phone', 'mobile', 'email', 'tel', 'telephone'] else v for k, v in payload.items()}
+        logger.info(f"🔍 Webhook {webhook_id}: Raw payload keys = {list(payload.keys())}")
+        logger.debug(f"🔍 Webhook {webhook_id}: Masked payload = {masked_payload}")
+        logger.debug(f"🔍 Webhook {webhook_id}: Has phone={bool(fields.get('phone'))}, Has email={bool(fields.get('email'))}")
+        
         # Validate: must have phone or email
         phone = fields.get('phone')
         email = fields.get('email')
@@ -505,6 +519,8 @@ def webhook_ingest_lead(webhook_id):
         if not phone and not email:
             logger.warning(f"⚠️ Webhook {webhook_id}: No contact identifier in payload")
             logger.warning(f"   Payload keys: {list(payload.keys())}")
+            logger.warning(f"   Field types in payload: {[(k, type(v).__name__) for k, v in payload.items()]}")
+            logger.warning(f"   Extracted fields keys: {list(fields.keys())}")
             return json_response({
                 "ok": False,
                 "error": "phone_or_email_required"

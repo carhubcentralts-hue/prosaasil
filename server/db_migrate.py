@@ -9240,6 +9240,72 @@ def apply_migrations():
             logger.error(f"Migration 148 error: {e}", exc_info=True)
         
         checkpoint("✅ Migration 148 complete: ai_decisions table ready")
+        # Migration 146: Add lead_status_events table for idempotency & audit
+        # 🎯 PURPOSE: Track status change recommendations with idempotency
+        # 🔥 FEATURE: Prevents duplicate status updates from same source (call/WA summary)
+        # 🔒 SSOT: Single source of truth for all automated status changes
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 146: Add lead_status_events table")
+        
+        try:
+            if not check_table_exists('lead_status_events'):
+                checkpoint("  → Creating lead_status_events table...")
+                execute_with_retry(migrate_engine, """
+                    CREATE TABLE IF NOT EXISTS lead_status_events (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                        source VARCHAR(32) NOT NULL,
+                        source_event_id VARCHAR(255) NOT NULL,
+                        recommended_status_label VARCHAR(128),
+                        recommended_status_id VARCHAR(64),
+                        confidence DOUBLE PRECISION,  -- AI confidence (0.0-1.0), DOUBLE PRECISION is standard for ML scores
+                        reason TEXT,
+                        applied BOOLEAN NOT NULL DEFAULT FALSE,
+                        applied_at TIMESTAMP NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                checkpoint("  ✅ lead_status_events table created")
+                
+                # Create UNIQUE constraint for idempotency
+                checkpoint("  → Creating UNIQUE constraint for idempotency...")
+                execute_with_retry(migrate_engine, """
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_status_events_idempotency 
+                    ON lead_status_events(business_id, source, source_event_id)
+                """)
+                checkpoint("  ✅ Idempotency constraint created")
+                
+                # Create indexes for common queries
+                checkpoint("  → Creating indexes on lead_status_events...")
+                execute_with_retry(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_lead_status_events_lead_id 
+                    ON lead_status_events(lead_id)
+                """)
+                execute_with_retry(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_lead_status_events_business_id 
+                    ON lead_status_events(business_id)
+                """)
+                execute_with_retry(migrate_engine, """
+                    CREATE INDEX IF NOT EXISTS idx_lead_status_events_created_at 
+                    ON lead_status_events(created_at)
+                """)
+                checkpoint("  ✅ Indexes created successfully")
+                checkpoint("     💡 Enables efficient idempotency checks and audit trail queries")
+                checkpoint("     💡 Prevents duplicate status updates from retries/webhooks")
+                migrations_applied.append("migration_146_lead_status_events")
+            else:
+                checkpoint("  ⏭️  lead_status_events table already exists")
+            
+            checkpoint("  ✅ Migration 146 schema changes completed")
+            checkpoint("     🎯 Impact: Enables idempotent status updates from AI summaries")
+                
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 146 failed: {e}")
+            logger.error(f"Migration 146 error: {e}", exc_info=True)
+            # Don't raise - allow deployment to continue (service will log errors)
+        
+        checkpoint("✅ Migration 146 complete: lead_status_events table for idempotency")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:
