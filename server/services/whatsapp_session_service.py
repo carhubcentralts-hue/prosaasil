@@ -445,70 +445,35 @@ def close_session(session_id: int, summary: Optional[str] = None, mark_processed
                 except Exception as note_err:
                     logger.error(f"[WA-SUMMARY] ❌ Failed to create LeadNote: {note_err}", exc_info=True)
                 
-                # 🔥 NEW: Trigger auto-status update from WhatsApp summary
-                # This ensures WhatsApp summaries can change status just like call summaries
+                # 🔥 SSOT: Trigger auto-status update from WhatsApp summary using central service
+                # This ensures all WhatsApp summaries go through the same status update pipeline
                 try:
-                    from server.services.lead_auto_status_service import suggest_lead_status_from_call
-                    from server.services.unified_status_service import update_lead_status_unified
-                    import re
+                    from server.services.lead_status_update_service import get_status_update_service
                     
-                    logger.info(f"[WA-STATUS] 🔍 Checking if status update needed for lead {lead.id}")
+                    logger.info(f"[WA-STATUS] 🔍 Processing status recommendation for lead {lead.id}")
                     logger.info(f"[WA-STATUS]    - Current status: {lead.status}")
                     logger.info(f"[WA-STATUS]    - Summary: {summary[:150]}...")
                     
-                    # 🚨 FIX: Extract status recommendation directly from summary
-                    # Look for [המלצה: <status>] pattern
-                    suggested_status = None
-                    recommendation_match = re.search(r'\[המלצה:\s*([^\]]+)\]', summary)
+                    # Use central SSOT service for status updates
+                    status_service = get_status_update_service()
                     
-                    if recommendation_match:
-                        recommended_label = recommendation_match.group(1).strip()
-                        logger.info(f"[WA-STATUS] 📋 Found recommendation in summary: '{recommended_label}'")
-                        
-                        # Map Hebrew label to status_id
-                        from server.models_sql import LeadStatus
-                        status_obj = LeadStatus.query.filter_by(
-                            business_id=session.business_id,
-                            label=recommended_label,
-                            is_active=True
-                        ).first()
-                        
-                        if status_obj:
-                            suggested_status = status_obj.name
-                            logger.info(f"[WA-STATUS] ✅ Mapped '{recommended_label}' → status_id '{suggested_status}'")
-                        else:
-                            logger.warning(f"[WA-STATUS] ⚠️ Could not find status with label '{recommended_label}'")
-                    else:
-                        logger.info(f"[WA-STATUS] ℹ️ No [המלצה: ...] found in summary - skipping auto-status")
-                        suggested_status = None
+                    # Generate unique source_event_id for idempotency
+                    # Use canonical_key + session_id for uniqueness
+                    source_event_id = f"wa_session_{session.id}_{session.canonical_key or session.customer_wa_id}"
                     
-                    if suggested_status:
-                        logger.info(f"[WA-STATUS] 🤖 Suggested status: '{suggested_status}'")
-                        
-                        # Use unified status service with whatsapp_summary channel
-                        result = update_lead_status_unified(
-                            business_id=session.business_id,
-                            lead_id=lead.id,
-                            new_status=suggested_status,
-                            reason=f"Auto-updated from WhatsApp conversation summary",
-                            confidence=0.8,  # AI-generated from summary
-                            channel='whatsapp_summary',  # 🔥 CRITICAL: Mark as summary-based change
-                            metadata={
-                                'session_id': session_id,
-                                'old_status': lead.status,
-                                'source': 'whatsapp_session',
-                                'message_count': len(messages)
-                            }
-                        )
-                        
-                        if result.success:
-                            logger.info(f"[WA-STATUS] ✅ Updated lead {lead.id} status: {lead.status} → {suggested_status}")
-                        elif result.skipped:
-                            logger.info(f"[WA-STATUS] ⏭️ Status update skipped: {result.message}")
-                        else:
-                            logger.warning(f"[WA-STATUS] ⚠️ Status update failed: {result.message}")
+                    success, message = status_service.apply_from_recommendation(
+                        business_id=session.business_id,
+                        lead_id=lead.id,
+                        summary_text=summary,
+                        source='whatsapp_summary',
+                        source_event_id=source_event_id,
+                        confidence=0.8  # AI-generated from summary
+                    )
+                    
+                    if success:
+                        logger.info(f"[WA-STATUS] ✅ {message}")
                     else:
-                        logger.info(f"[WA-STATUS] ℹ️ No confident status match - keeping status as '{lead.status}'")
+                        logger.info(f"[WA-STATUS] ℹ️ {message}")
                         
                 except Exception as e:
                     logger.error(f"[WA-STATUS] ❌ Error updating status from WhatsApp summary: {e}", exc_info=True)

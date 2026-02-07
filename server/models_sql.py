@@ -724,6 +724,49 @@ class LeadStatusHistory(db.Model):
         db.Index('idx_lead_status_history_tenant', 'tenant_id', 'created_at'),
     )
 
+class LeadStatusEvent(db.Model):
+    """
+    Lead status change events for idempotency and audit trail
+    
+    This table ensures that status recommendations from AI summaries (WhatsApp/Calls)
+    are applied exactly once, even with retries or duplicate webhooks.
+    
+    Single source of truth (SSOT) for all automated status changes.
+    """
+    __tablename__ = "lead_status_events"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    
+    # Source tracking
+    source = db.Column(db.String(32), nullable=False)  # 'whatsapp_summary' | 'call_summary'
+    source_event_id = db.Column(db.String(255), nullable=False)  # message_id | call_sid | conversation_id
+    
+    # Status recommendation details
+    recommended_status_label = db.Column(db.String(128))  # Hebrew label from AI (e.g., "מעוניין")
+    recommended_status_id = db.Column(db.String(64))  # Mapped status_id (e.g., "interested")
+    confidence = db.Column(db.Float)  # AI confidence score (0.0-1.0)
+    reason = db.Column(db.Text)  # Short reason from summary
+    
+    # Application tracking
+    applied = db.Column(db.Boolean, nullable=False, default=False)  # Was the status change applied?
+    applied_at = db.Column(db.DateTime)  # When was it applied?
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    business = db.relationship("Business")
+    lead = db.relationship("Lead")
+    
+    # Idempotency constraint: same source+event can only be recorded once per business
+    __table_args__ = (
+        db.Index('idx_lead_status_events_idempotency', 'business_id', 'source', 'source_event_id', unique=True),
+        db.Index('idx_lead_status_events_lead', 'lead_id', 'created_at'),
+        db.Index('idx_lead_status_events_business', 'business_id', 'created_at'),
+    )
+
 class WebhookLeadIngest(db.Model):
     """Webhook configuration for lead ingestion from external sources (Make, Zapier, etc.)
     
