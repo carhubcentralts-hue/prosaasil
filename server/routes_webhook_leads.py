@@ -636,7 +636,7 @@ def webhook_ingest_lead(webhook_id):
                 email=email,
                 city=fields.get('city'),
                 notes=fields.get('notes'),
-                source=fields.get('source', f'webhook_{webhook_id}'),
+                source=f'webhook_{webhook_id}',  # Always use webhook source for traceability
                 status=target_status_name,
                 raw_payload=payload,
                 created_at=datetime.utcnow()
