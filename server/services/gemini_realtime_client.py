@@ -584,7 +584,7 @@ class GeminiRealtimeClient:
         
         # Track first audio chunk for production logging
         _first_audio_logged = False
-        _setup_complete_seen = False  # Track if we've already seen setup_complete
+        # ✅ FIX: Removed _setup_complete_seen tracking - not needed
         
         try:
             async for server_message in self.session.receive():
@@ -592,7 +592,6 @@ class GeminiRealtimeClient:
                     # Parse Gemini Live API message structure
                     # 🔥 CRITICAL: Gemini messages can have MULTIPLE attributes!
                     # We must check ALL attributes, not use if/elif
-                    # A message can have both setup_complete AND server_content!
                     
                     # 🔥 FIX: Log event keys to verify structure (as requested in problem statement)
                     # This helps debug which attributes Gemini actually sends
@@ -600,23 +599,8 @@ class GeminiRealtimeClient:
                     if not IS_PROD or REALTIME_VERBOSE:
                         logger.info(f"[GEMINI_EVENT_KEYS] {event_attrs}")
                     
-                    # Check for setup complete (only yield first time)
-                    # 🔥 FIX: Support both setupComplete (camelCase) and setup_complete (snake_case)
-                    # Different SDK versions may use different naming conventions
-                    has_setup_complete = (
-                        hasattr(server_message, 'setup_complete') or 
-                        hasattr(server_message, 'setupComplete')
-                    )
-                    if has_setup_complete and not _setup_complete_seen:
-                        _setup_complete_seen = True
-                        event = {
-                            'type': 'setup_complete',
-                            'data': None
-                        }
-                        logger.info("✅ [GEMINI_RECV] setup_complete (FIRST)")
-                        if not IS_PROD or REALTIME_VERBOSE:
-                            logger.info("[GEMINI_LIVE] Setup complete (first occurrence)")
-                        yield event
+                    # ✅ FIX: Removed setup_complete handling - Gemini Live works on audio flow, not events
+                    # setup_complete is not guaranteed and not needed for stable operation
                     
                     # Check for server content (audio/text response)
                     # 🔥 FIX: Support both serverContent (camelCase) and server_content (snake_case)
