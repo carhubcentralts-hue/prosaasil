@@ -239,9 +239,18 @@ def get_or_create_session(
             
         except Exception as upsert_err:
             logger.error(f"[WA-SESSION] ⚠️ UPSERT failed, falling back to SELECT: {upsert_err}")
-            db.session.rollback()
+            # 🔥 FIX: Rollback and close the broken session to prevent "cursor already closed"
+            try:
+                db.session.rollback()
+                db.session.close()
+            except Exception as rollback_err:
+                logger.warning(f"[WA-SESSION] Rollback/close failed: {rollback_err}")
             
-            # Fallback: Try to fetch existing conversation
+            # 🔥 FIX: Remove the broken session and let SQLAlchemy create a new one
+            # This prevents "cursor already closed" errors on subsequent queries
+            db.session.remove()
+            
+            # Fallback: Try to fetch existing conversation with fresh session
             if canonical_key:
                 session = WhatsAppConversation.query.filter_by(
                     business_id=business_id,
@@ -284,7 +293,15 @@ def get_or_create_session(
     except Exception as insert_err:
         # Last resort: rollback and try to fetch existing
         logger.error(f"[WA-SESSION] ❌ Final INSERT failed: {insert_err}")
-        db.session.rollback()
+        # 🔥 FIX: Clean up broken session to prevent "cursor already closed"
+        try:
+            db.session.rollback()
+            db.session.close()
+        except Exception as rollback_err:
+            logger.warning(f"[WA-SESSION] Final rollback/close failed: {rollback_err}")
+        
+        # 🔥 FIX: Remove broken session and use fresh one
+        db.session.remove()
         
         if canonical_key:
             session = WhatsAppConversation.query.filter_by(
