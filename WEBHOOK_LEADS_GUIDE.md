@@ -30,7 +30,7 @@
 
 - **Webhook URL** - כתובת ייחודית לקבלת לידים
   ```
-  https://yourdomain.com/api/webhooks/leads/123
+  https://yourdomain.com/api/webhook/leads/123
   ```
 
 - **Secret** - מפתח אבטחה ייחודי
@@ -194,7 +194,7 @@ Lead created in CRM automatically
 ### דוגמה 3: cURL לבדיקה
 
 ```bash
-curl -X POST https://yourdomain.com/api/webhooks/leads/123 \
+curl -X POST https://yourdomain.com/api/webhook/leads/123 \
   -H "X-Webhook-Secret: wh_abc123..." \
   -H "Content-Type: application/json" \
   -d '{

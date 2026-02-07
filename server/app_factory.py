@@ -687,7 +687,7 @@ def create_app():
         app.register_blueprint(webhook_secret_bp)
         app.logger.info("✅ Webhook Secret Management blueprint registered")
         
-        # Webhook Leads Ingestion - /api/leads/webhooks and /api/webhooks/leads
+        # Webhook Leads Ingestion - /api/leads/webhooks (CRUD) and /api/webhook/leads (public ingestion)
         from server.routes_webhook_leads import webhook_leads_bp
         app.register_blueprint(webhook_leads_bp)
         app.logger.info("✅ Webhook Leads Ingestion blueprint registered")

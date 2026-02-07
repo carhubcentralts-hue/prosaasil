@@ -438,13 +438,13 @@ def extract_lead_fields(payload):
     return result
 
 
-@webhook_leads_bp.route('/webhooks/leads/<int:webhook_id>', methods=['POST', 'OPTIONS'])
+@webhook_leads_bp.route('/webhook/leads/<int:webhook_id>', methods=['POST', 'OPTIONS'])
 @csrf.exempt  # Public webhook endpoint - authentication via X-Webhook-Secret header
 def webhook_ingest_lead(webhook_id):
     """
     Public webhook endpoint for lead ingestion
     
-    POST /api/webhooks/leads/{webhook_id}
+    POST /api/webhook/leads/{webhook_id}
     Headers:
         X-Webhook-Secret: wh_...
         Content-Type: application/json; charset=utf-8

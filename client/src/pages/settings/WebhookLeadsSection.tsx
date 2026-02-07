@@ -326,14 +326,14 @@ export function WebhookLeadsSection() {
                     <input
                       type="text"
                       readOnly
-                      value={`${baseUrl}/api/webhooks/leads/${webhook.id}`}
+                      value={`${baseUrl}/api/webhook/leads/${webhook.id}`}
                       className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono"
                       dir="ltr"
                     />
                     <button
                       onClick={() =>
                         handleCopyToClipboard(
-                          `${baseUrl}/api/webhooks/leads/${webhook.id}`,
+                          `${baseUrl}/api/webhook/leads/${webhook.id}`,
                           `url-${webhook.id}`
                         )
                       }
