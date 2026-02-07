@@ -614,7 +614,7 @@ def create_app():
          origins=cors_origins,
          supports_credentials=True,  # Required for session cookies
          allow_headers=["Content-Type", "Authorization", "X-CSRFToken", "HX-Request"],
-         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     )
     
     logger.info(f"[CORS] Configured with {len(cors_origins)} allowed origin(s)")
