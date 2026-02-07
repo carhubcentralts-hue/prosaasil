@@ -95,6 +95,15 @@ def build_whatsapp_prompt_stack(
         if context.get('collected_fields'):
             context_parts.append(f"שדות שנאספו: {context['collected_fields']}")
         
+        # Lead status context (for Logic-by-Prompt)
+        if context.get('lead_status_label'):
+            context_parts.append(f"סטטוס ליד: {context['lead_status_label']}")
+        
+        # Known facts (from lead_facts table)
+        if context.get('known_facts'):
+            import json
+            context_parts.append(f"עובדות ידועות: {json.dumps(context['known_facts'], ensure_ascii=False)}")
+        
         if context_parts:
             messages.append({
                 "role": "system",

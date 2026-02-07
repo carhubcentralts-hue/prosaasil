@@ -197,6 +197,28 @@ def whatsapp_ai_response_job(
             'lead_context': lead_context_payload.dict() if (lead_context_payload and lead_context_payload.found) else None
         }
         
+        # 🔥 Logic-by-Prompt: Enrich context with lead status label and known facts
+        try:
+            business_obj = Business.query.get(business_id)
+            if business_obj:
+                # Add lead status label for status-aware rules
+                if lead and lead.status:
+                    from server.models_sql import LeadStatus
+                    lead_status_obj = LeadStatus.query.filter_by(
+                        business_id=business_id, name=lead.status
+                    ).first()
+                    if lead_status_obj:
+                        ai_context['lead_status_label'] = lead_status_obj.label
+                
+                # Add known facts from lead_facts table
+                if lead:
+                    from server.services.decision_engine import get_known_facts_for_lead
+                    known_facts = get_known_facts_for_lead(lead.id)
+                    if known_facts:
+                        ai_context['known_facts'] = known_facts
+        except Exception as e:
+            logger.warning(f"[WA-AI-JOB] ⚠️ Could not enrich context with logic-by-prompt data: {e}")
+        
         # 🔥 CRITICAL: Generate AI response with AgentKit (ALL TOOLS ENABLED!)
         # This includes: appointments, lead updates, calendar access, etc.
         ai_start = time.time()
