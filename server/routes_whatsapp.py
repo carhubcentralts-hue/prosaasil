@@ -3061,14 +3061,18 @@ def mark_conversation_read_by_phone(phone):
                 lead_id=lead.id,
                 phone_e164=phone_e164
             )
+            # 🔥 FIX: Query both open and closed conversations for mark-as-read
+            # Reason: User might want to mark a recently closed conversation as read
             conversation = WhatsAppConversation.query.filter_by(
                 business_id=int(business_id),
                 canonical_key=canonical_key
+            ).order_by(
+                WhatsAppConversation.last_message_at.desc()
             ).first()
         except Exception as e:
             logger.warning(f"[WA-MARK-READ] Could not get canonical key: {e}")
     
-    # Fallback: try by customer_wa_id (legacy)
+    # Fallback: try by customer_wa_id (legacy) - prefer open conversations
     if not conversation:
         conversation = WhatsAppConversation.query.filter_by(
             business_id=int(business_id),
@@ -3076,13 +3080,16 @@ def mark_conversation_read_by_phone(phone):
             is_open=True
         ).first()
     
-    # Last resort: try with phone variants
+    # Last resort: try with phone variants - prefer open, but accept closed if nothing else
     if not conversation:
-        phone_variants = [phone_clean, f"+{phone_clean}", phone_e164]
+        # 🔥 FIX: Use set to eliminate duplicate phone numbers
+        phone_variants = {phone_clean, f"+{phone_clean}", phone_e164}
         conversation = WhatsAppConversation.query.filter(
             WhatsAppConversation.business_id == int(business_id),
-            WhatsAppConversation.customer_wa_id.in_(phone_variants),
-            WhatsAppConversation.is_open == True
+            WhatsAppConversation.customer_wa_id.in_(phone_variants)
+        ).order_by(
+            WhatsAppConversation.is_open.desc(),  # Prefer open conversations
+            WhatsAppConversation.last_message_at.desc()
         ).first()
     
     if not conversation:
