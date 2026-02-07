@@ -353,35 +353,92 @@ def delete_webhook(webhook_id):
 # PUBLIC WEBHOOK INGESTION ENDPOINT
 # ═══════════════════════════════════════════════════════════════════════
 
+def normalize_phone_number(phone):
+    """
+    Normalize phone number to E.164 format
+    
+    Args:
+        phone: Raw phone number string
+        
+    Returns:
+        Normalized phone number (e.g., +972501234567) or None if invalid
+    """
+    if not phone:
+        return None
+    
+    # Convert to string and strip whitespace
+    phone = str(phone).strip()
+    
+    # Remove common separators (spaces, dashes, parentheses)
+    phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    
+    # If empty after cleanup, return None
+    if not phone:
+        return None
+    
+    # If already has +, keep it
+    if phone.startswith('+'):
+        return phone
+    
+    # Israeli number starting with 0 (e.g., 0501234567)
+    if phone.startswith('0') and len(phone) >= 9:
+        return f"+972{phone[1:]}"
+    
+    # Already in international format without + (e.g., 972501234567)
+    if phone.startswith('972') and len(phone) >= 12:
+        return f"+{phone}"
+    
+    # Other international formats - add + if numeric
+    if phone.isdigit() and len(phone) >= 10:
+        return f"+{phone}"
+    
+    # Return as-is if we can't determine format
+    return phone
+
+
 def extract_lead_fields(payload):
     """
-    Extract lead fields from webhook payload using best-effort approach
+    Extract lead fields from webhook payload with support for flat and nested structures.
     
-    Looks for common field patterns:
-    - name, full_name, first_name + last_name, firstName + lastName
-    - phone, mobile, tel, telephone, phone_number
-    - email, email_address
-    - message, notes, description, comment
-    - city, location
-    - source
+    Supported payload formats:
+    1. Flat: {"name": "...", "phone": "...", "email": "...", "source": "..."}
+    2. Nested: {"contact": {"name": "...", "phone": "...", "email": "..."}, "source": "..."}
     
-    Returns: dict with extracted fields
+    This is the SSOT (Single Source of Truth) for webhook field extraction.
+    
+    Returns: dict with normalized fields: name, phone, email, city, notes, source
     """
     if not isinstance(payload, dict):
         return {}
     
     result = {}
     
-    # Flatten nested objects (one level deep only)
+    # Build a unified flat view that supports both formats
+    # Priority: direct fields > nested contact fields
     flat_payload = {}
+    
+    # First, add all direct (non-dict) values
     for key, value in payload.items():
-        if isinstance(value, dict):
-            # Flatten nested dict
-            for nested_key, nested_value in value.items():
-                flat_payload[f"{key}_{nested_key}".lower()] = nested_value
-        else:
-            # Only add non-dict values directly
+        if not isinstance(value, dict):
             flat_payload[key.lower()] = value
+    
+    # Then, check for nested "contact" object and extract its fields
+    # This handles the nested format: {"contact": {"name": "...", "phone": "..."}}
+    if 'contact' in payload and isinstance(payload['contact'], dict):
+        contact_data = payload['contact']
+        for key, value in contact_data.items():
+            # Add contact fields but don't override existing direct fields
+            field_key = key.lower()
+            if field_key not in flat_payload and not isinstance(value, dict):
+                flat_payload[field_key] = value
+    
+    # Also flatten any other nested dicts with prefix (for compatibility)
+    for key, value in payload.items():
+        if isinstance(value, dict) and key.lower() != 'contact':
+            for nested_key, nested_value in value.items():
+                prefixed_key = f"{key}_{nested_key}".lower()
+                if prefixed_key not in flat_payload and not isinstance(nested_value, dict):
+                    flat_payload[prefixed_key] = nested_value
     
     # Extract name (try multiple patterns)
     name_fields = ['name', 'full_name', 'fullname', 'customer_name', 'contact_name']
@@ -506,32 +563,31 @@ def webhook_ingest_lead(webhook_id):
         # Extract lead fields
         fields = extract_lead_fields(payload)
         
-        # 🔍 Enhanced debugging (with PII masking for security)
-        masked_payload = {k: '***' if k.lower() in ['phone', 'mobile', 'email', 'tel', 'telephone'] else v for k, v in payload.items()}
-        logger.info(f"🔍 Webhook {webhook_id}: Raw payload keys = {list(payload.keys())}")
-        logger.debug(f"🔍 Webhook {webhook_id}: Masked payload = {masked_payload}")
-        logger.debug(f"🔍 Webhook {webhook_id}: Has phone={bool(fields.get('phone'))}, Has email={bool(fields.get('email'))}")
+        # 🔍 IMPROVED LOGGING: Show what we got from extraction
+        logger.info(f"🔍 [WEBHOOK {webhook_id}] Raw payload keys: {list(payload.keys())}")
+        logger.info(f"🔍 [WEBHOOK {webhook_id}] Extracted fields keys: {list(fields.keys())}")
+        logger.info(f"🔍 [WEBHOOK {webhook_id}] Has name={bool(fields.get('name'))}, phone={bool(fields.get('phone'))}, email={bool(fields.get('email'))}, source={bool(fields.get('source'))}")
         
-        # Validate: must have phone or email
-        phone = fields.get('phone')
-        email = fields.get('email')
+        # Get raw values
+        raw_phone = fields.get('phone')
+        raw_email = fields.get('email')
         
-        if not phone and not email:
-            logger.warning(f"⚠️ Webhook {webhook_id}: No contact identifier in payload")
-            logger.warning(f"   Payload keys: {list(payload.keys())}")
-            logger.warning(f"   Field types in payload: {[(k, type(v).__name__) for k, v in payload.items()]}")
-            logger.warning(f"   Extracted fields keys: {list(fields.keys())}")
+        # Validate: must have phone or email (SSOT - this is the only requirement)
+        if not raw_phone and not raw_email:
+            logger.warning(f"⚠️ [WEBHOOK {webhook_id}] Missing phone/email - payload keys: {list(payload.keys())}, extracted: {list(fields.keys())}")
             return json_response({
                 "ok": False,
-                "error": "phone_or_email_required"
+                "error": "phone_or_email_required",
+                "message": "Payload must contain either 'phone' or 'email' field"
             }, 400)
         
-        # Normalize phone (remove spaces, dashes, etc.)
-        if phone:
-            phone = ''.join(c for c in phone if c.isdigit() or c == '+')
-            # Add + if missing and looks like international
-            if phone and phone[0] != '+' and len(phone) >= 10:
-                phone = f"+{phone}"
+        # Normalize phone using proper normalization function
+        phone = normalize_phone_number(raw_phone) if raw_phone else None
+        email = raw_email  # Email is already lowercased in extraction
+        
+        # Log normalization result
+        if raw_phone:
+            logger.info(f"🔍 [WEBHOOK {webhook_id}] Phone normalized: '{raw_phone}' → '{phone}'")
         
         # Check for duplicate lead by phone (priority) or email
         existing_lead = None
@@ -593,11 +649,15 @@ def webhook_ingest_lead(webhook_id):
             ).first()
             status_id = status_obj.id if status_obj else None
             
-            logger.info(f"✅ Updated existing lead {existing_lead.id} from webhook {webhook_id} (business_id={webhook.business_id})")
+            # Log success with details
+            identifier_type = "phone" if phone else "email"
+            identifier_value = phone if phone else email
+            logger.info(f"✅ [WEBHOOK {webhook_id}] Updated lead {existing_lead.id} via {identifier_type}={identifier_value}, status_id={status_id}")
             
             return json_response({
                 "ok": True,
                 "lead_id": existing_lead.id,
+                "created": False,
                 "status_id": status_id
             }, 200)
         
@@ -661,13 +721,18 @@ def webhook_ingest_lead(webhook_id):
             db.session.add(lead)
             db.session.commit()
             
-            logger.info(f"✅ Webhook lead created: lead_id={lead.id}, business_id={webhook.business_id}, hook_id={webhook_id}, status_id={target_status_id}, status='{target_status_name}'")
+            # Log success with all details
+            identifier_type = "phone" if phone else "email"
+            identifier_value = phone if phone else email
+            logger.info(f"✅ [WEBHOOK {webhook_id}] Created lead {lead.id} via {identifier_type}={identifier_value}, status='{target_status_name}' (id={target_status_id})")
+            logger.info(f"   Normalized fields: name='{fields.get('name', 'N/A')}', phone='{phone or 'N/A'}', email='{email or 'N/A'}', source='{fields.get('source', 'N/A')}'")
             
             return json_response({
                 "ok": True,
                 "lead_id": lead.id,
+                "created": True,
                 "status_id": target_status_id
-            }, 200)
+            }, 201)
         
     except Exception as e:
         logger.error(f"❌ Error processing webhook {webhook_id}: {e}", exc_info=True)
