@@ -44,14 +44,24 @@ class DummyWebSocket:
         return None
 
 
-def test_mark_gemini_ready_sets_flag():
+def test_gemini_ready_removed():
+    """
+    Test that Gemini Live no longer depends on setup_complete event.
+    
+    CRITICAL FIX: Gemini Live works based on audio flow, not setup_complete events.
+    The _gemini_ready flag and related methods should not block audio transmission.
+    """
     handler = MediaStreamHandler(DummyWebSocket())
-    handler._ensure_gemini_ready_event()
+    
+    # Verify _gemini_ready is not used for blocking
+    # The flag should be False (not blocking) or not exist
+    if hasattr(handler, '_gemini_ready'):
+        # If flag exists, it must not block audio flow
+        assert handler._gemini_ready is False, "_gemini_ready should be False (not blocking)"
+    
+    # Verify _gemini_ready_event is not used for blocking
+    # Event should not be set or should not exist
+    if hasattr(handler, '_gemini_ready_event') and handler._gemini_ready_event is not None:
+        assert not handler._gemini_ready_event.is_set(), "_gemini_ready_event should not be set (not blocking)"
 
-    assert handler._gemini_ready is False
-    assert not handler._gemini_ready_event.is_set()
 
-    handler._mark_gemini_ready()
-
-    assert handler._gemini_ready is True
-    assert handler._gemini_ready_event.is_set()

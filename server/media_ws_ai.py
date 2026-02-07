@@ -54,6 +54,12 @@ from server.jobs.call_log_jobs import create_call_log_job, save_conversation_tur
 GEMINI_PENDING_AUDIO_MAX_FRAMES = 1000  # 20s of 20ms frames to cover setup_complete delay
 GEMINI_PENDING_DRAIN_DELAY_SEC = 0.02  # 20ms pacing when draining buffered frames
 
+# ✅ FIX: Gemini Live continuous audio streaming constants
+# Gemini Live requires continuous audio stream to prevent WebSocket closure
+# 320 bytes = 20ms frame @ 16kHz mono PCM16: (16000 Hz * 2 bytes/sample * 0.02 sec)
+GEMINI_SILENCE_FRAME_SIZE = 320
+GEMINI_SILENCE_FRAME = b'\x00' * GEMINI_SILENCE_FRAME_SIZE
+
 # 🔥 GEMINI FIX: Global thread exception handler (Python 3.8+)
 # This catches any uncaught exceptions in threads that might otherwise be silent
 def _global_thread_exception_handler(args):
@@ -4455,17 +4461,8 @@ class MediaStreamHandler:
                 stream_registry.set_metric(self.call_sid, 'openai_connect_ms', self._metrics_openai_connect_ms)
             
             # 🔥 MASTER FIX: Always trigger greeting (hardcoded bot-first behavior)
-            if ai_provider == 'gemini' and not self._gemini_ready:
-                self._ensure_gemini_ready_event()
-                _orig_print("⏳ [GEMINI_READY] Waiting for setup_complete before greeting (timeout=5s)...", flush=True)
-                try:
-                    await asyncio.wait_for(self._gemini_ready_event.wait(), timeout=5.0)
-                    _orig_print("✅ [GEMINI_READY] setup_complete received - greeting may proceed", flush=True)
-                except asyncio.TimeoutError:
-                    _orig_print("🚨 [GEMINI_READY] setup_complete timeout - aborting realtime session", flush=True)
-                    self.realtime_failed = True
-                    self._realtime_failure_reason = "GEMINI_SETUP_TIMEOUT"
-                    return
+            # ✅ FIX: Gemini Live works based on audio flow, not setup_complete events
+            # Removed wait for setup_complete - start greeting immediately
             greeting_start_ts = time.time()
             logger.info(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
             self.greeting_sent = True  # Mark greeting as sent to allow audio through
@@ -4700,10 +4697,7 @@ class MediaStreamHandler:
         # 🔥 STEP 5: Queue audio until session is confirmed
         # ═══════════════════════════════════════════════════════════════════════
         _session_wait_logged = False
-        _gemini_ready_wait_logged = False
-        _gemini_ready_resumed_logged = False
-        _gemini_duplex_block_logged = False
-        _gemini_pending_drop_logged = False
+        # ✅ FIX: Removed _gemini_ready_wait_logged and related vars - no longer buffering
         ai_provider = getattr(self, '_ai_provider', 'openai')
         
         while not self.realtime_stop_flag and not self.closed:
@@ -4728,42 +4722,20 @@ class MediaStreamHandler:
                     _orig_print(f"▶️ [AUDIO_GATE] Session confirmed - starting audio transmission to OpenAI", flush=True)
                     _session_wait_logged = False  # Reset for next check
                 
-                if ai_provider == 'gemini' and not self._gemini_ready:
-                    if not _gemini_ready_wait_logged:
-                        _orig_print("⏸️ [GEMINI_READY] Buffering audio until setup_complete", flush=True)
-                        _gemini_ready_wait_logged = True
-                    try:
-                        audio_chunk = self.realtime_audio_in_queue.get_nowait()
-                    except queue.Empty:
-                        await asyncio.sleep(0.01)
-                        continue
-                    if audio_chunk is None:
-                        logger.info(f"📤 [REALTIME] Stop signal received")
-                        break
-                    if len(self._gemini_pending_audio) >= GEMINI_PENDING_AUDIO_MAX_FRAMES:
-                        if not _gemini_pending_drop_logged:
-                            logger.warning(
-                                "⚠️ [GEMINI_READY] Pending audio buffer full "
-                                f"({GEMINI_PENDING_AUDIO_MAX_FRAMES} frames) - dropping oldest frame"
-                            )
-                            _gemini_pending_drop_logged = True
-                        self._gemini_pending_audio.popleft()
-                    self._gemini_pending_audio.append(audio_chunk)
-                    continue
-                elif ai_provider == 'gemini' and _gemini_ready_wait_logged and not _gemini_ready_resumed_logged:
-                    _orig_print("▶️ [GEMINI_READY] setup_complete received - sending buffered audio", flush=True)
-                    _gemini_ready_resumed_logged = True
+                # ✅ FIX: Removed setup_complete audio buffering - stream continuously
+                # Gemini Live expects continuous audio flow, not event-based gating
                 
-                draining_pending = False
-                if ai_provider == 'gemini' and self._gemini_pending_audio:
-                    audio_chunk = self._gemini_pending_audio.popleft()
-                    draining_pending = True
-                    if _gemini_pending_drop_logged and len(self._gemini_pending_audio) < GEMINI_PENDING_AUDIO_MAX_FRAMES:
-                        _gemini_pending_drop_logged = False
-                else:
-                    try:
-                        audio_chunk = self.realtime_audio_in_queue.get_nowait()
-                    except queue.Empty:
+                # Get audio chunk from queue
+                try:
+                    audio_chunk = self.realtime_audio_in_queue.get_nowait()
+                except queue.Empty:
+                    # ✅ FIX: Send silence frame when no audio available
+                    # Gemini Live requires continuous audio stream (20ms frames)
+                    # Without continuous frames, Gemini closes the WebSocket
+                    if ai_provider == 'gemini':
+                        audio_chunk = GEMINI_SILENCE_FRAME
+                        # Note: Count as incoming frame for metrics (synthetic but necessary)
+                    else:
                         await asyncio.sleep(0.01)
                         continue
                 
@@ -4774,17 +4746,10 @@ class MediaStreamHandler:
                 # 🔥 BUILD 341: Count incoming frames
                 _frames_in += 1
 
-                if ai_provider == 'gemini':
-                    if self.is_ai_speaking_event.is_set():
-                        if not _gemini_duplex_block_logged:
-                            logger.info("🚫 [GEMINI_HALF_DUPLEX] AI speaking - blocking user audio forwarding")
-                            _gemini_duplex_block_logged = True
-                        self._stats_audio_blocked += 1
-                        _frames_dropped += 1
-                        continue
-                    elif _gemini_duplex_block_logged:
-                        logger.info("✅ [GEMINI_HALF_DUPLEX] AI done speaking - resuming user audio forwarding")
-                        _gemini_duplex_block_logged = False
+                # ✅ FIX: Removed Gemini half-duplex blocking - must allow continuous audio flow
+                # Gemini Live requires continuous bidirectional audio streaming for stable operation
+                # Blocking user audio when AI speaks prevents proper barge-in and can cause WebSocket closure
+                # Server-side barge-in is handled by speech_started event (line 6555+)
                 
                 # 🔥 REMOVED: greeting_lock frame dropping - all frames are now processed
                 
@@ -4951,9 +4916,6 @@ class MediaStreamHandler:
                         
                         # Send to Gemini
                         await client.send_audio(chunk_to_send, end_of_turn=False)
-
-                        if draining_pending:
-                            await asyncio.sleep(GEMINI_PENDING_DRAIN_DELAY_SEC)
                         
                         # Track bytes sent
                         self._gemini_audio_bytes_sent += len(chunk_to_send)
@@ -5075,35 +5037,17 @@ class MediaStreamHandler:
         """
         gemini_type = gemini_event.get('type')
         
-        # 🔥 FIX 4: Reset activity timestamp for all Gemini events to prevent false watchdog disconnects
-        # This includes setup_complete, function_call, turn_complete, audio, text, interrupted
-        if gemini_type in ['setup_complete', 'function_call', 'turn_complete', 'audio', 'text']:
+        # 🔥 FIX 4: Reset activity timestamp for Gemini events to prevent false watchdog disconnects
+        # ✅ FIX: Removed setup_complete from activity tracking - not needed
+        if gemini_type in ['function_call', 'turn_complete', 'audio', 'text']:
             self._last_activity_ts = time.time()
             logger.debug(f"[WATCHDOG] Activity reset on Gemini event: {gemini_type}")
         
+        # ✅ FIX: Removed setup_complete translation - Gemini Live works on audio flow, not events
+        # Gemini doesn't need session.updated event to start working
         if gemini_type == 'setup_complete':
-            # Gemini setup_complete → OpenAI session.updated
-            return {
-                'type': 'session.updated',
-                'session': {
-                    'id': 'gemini_session',
-                    'model': 'gemini-2.5-flash-native-audio-preview-12-2025',
-                    'modalities': ['text', 'audio'],
-                    'instructions': '',  # Already set during connect()
-                    'voice': getattr(self, '_call_voice', 'alloy'),
-                    'input_audio_format': 'g711_ulaw',
-                    'output_audio_format': 'g711_ulaw',
-                    'input_audio_transcription': {
-                        'model': 'gemini-live-transcribe',
-                        'language': 'he'
-                    },
-                    'turn_detection': {
-                        'type': 'server_vad',
-                        'threshold': 0.85,
-                        'silence_duration_ms': 600
-                    }
-                }
-            }
+            # Silently ignore setup_complete - not needed for audio pipeline
+            return None
         
         elif gemini_type == 'audio':
             # Gemini audio → OpenAI response.audio.delta
@@ -5650,20 +5594,14 @@ class MediaStreamHandler:
                 # But for GREETING (bot speaks first), we need to trigger it explicitly
                 logger.info(f"🎯 [GEMINI] Auto-response mode - provider handles turn-taking ({reason})")
                 
-                # 🔥 GEMINI GREETING FIX: For GREETING reason, send an empty text to trigger response
-                # WHY EMPTY TEXT: Gemini Live API is VAD-based (auto-responds on user input).
-                # For bot-speaks-first scenarios, sending text signals "start speaking now"
-                # This is the equivalent of OpenAI's response.create for Gemini.
-                # 🔥 FIX: Send proper text instead of empty string to ensure Gemini starts speaking
-                # Empty text can cause issues with function_call events
+                # ✅ FIX: Gemini Live greeting trigger via audio, not text
+                # Gemini Live API is designed for telephony and doesn't support text-based triggers
+                # Send a silence frame to initiate the audio pipeline
                 if reason == "GREETING" or is_greeting:
                     try:
-                        # Send short greeting trigger text to start conversation
-                        # "שלום, תגיד שלום ללקוח." = "Hello, say hello to the customer."
-                        # Chosen to avoid the "start conversation now" phrasing that caused odd turn behavior.
-                        await _client.send_text("שלום, תגיד שלום ללקוח.")
-                        logger.info(f"🎯 [GEMINI_SEND] greeting_trigger: sent text to start greeting")
-                        _orig_print(f"🎯 [GEMINI_SEND] greeting_trigger: sent greeting prompt to start bot-speaks-first", flush=True)
+                        await _client.send_audio(GEMINI_SILENCE_FRAME, end_of_turn=False)
+                        logger.info(f"🎯 [GEMINI_SEND] greeting_trigger: sent audio frame to start greeting")
+                        _orig_print(f"🎯 [GEMINI_SEND] greeting_trigger: sent audio to start bot-speaks-first", flush=True)
                     except Exception as e:
                         logger.error(f"❌ [GEMINI_SEND] Failed to send greeting trigger: {e}")
                         logger.exception(f"[GEMINI_THREAD_CRASH] Exception in greeting trigger", exc_info=True)
@@ -5974,11 +5912,9 @@ class MediaStreamHandler:
                         logger.info(f"📥 [GEMINI_RECV] New event type: {gemini_event_type}")
                         _orig_print(f"📥 [GEMINI_RECV] New event type: {gemini_event_type}", flush=True)
                     
-                    # Log key events always (setup_complete, turn_complete, audio chunks)
-                    if gemini_event_type == 'setup_complete':
-                        _orig_print(f"✅ [GEMINI_RECV] setup_complete (session ready)", flush=True)
-                        self._mark_gemini_ready()
-                    elif gemini_event_type == 'turn_complete':
+                    # Log key events always (turn_complete, audio chunks)
+                    # ✅ FIX: Removed setup_complete handling - not needed for audio flow
+                    if gemini_event_type == 'turn_complete':
                         _orig_print(f"✅ [GEMINI_RECV] turn_complete (AI finished speaking)", flush=True)
                     elif gemini_event_type == 'audio':
                         audio_data = event.get('data', b'')
