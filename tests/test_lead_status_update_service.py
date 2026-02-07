@@ -373,12 +373,11 @@ class TestLeadStatusUpdateService:
             assert mock_dispatch.called
             
             # Verify notification parameters
-            call_args = mock_dispatch.call_args
-            assert call_args[1]['user_id'] == user.id
-            assert call_args[1]['business_id'] == test_business.id
+            assert mock_dispatch.call_args.kwargs['user_id'] == user.id
+            assert mock_dispatch.call_args.kwargs['business_id'] == test_business.id
             
             # Verify payload contains status change info
-            payload = call_args[1]['payload']
+            payload = mock_dispatch.call_args.kwargs['payload']
             assert 'סטטוס' in payload.title or 'status' in payload.title.lower()
             assert payload.data['type'] == 'lead_status_change'
             assert payload.data['lead_id'] == test_lead.id

@@ -9152,7 +9152,7 @@ def apply_migrations():
                         source_event_id VARCHAR(255) NOT NULL,
                         recommended_status_label VARCHAR(128),
                         recommended_status_id VARCHAR(64),
-                        confidence DOUBLE PRECISION,
+                        confidence DOUBLE PRECISION,  -- AI confidence (0.0-1.0), DOUBLE PRECISION is standard for ML scores
                         reason TEXT,
                         applied BOOLEAN NOT NULL DEFAULT FALSE,
                         applied_at TIMESTAMP NULL,

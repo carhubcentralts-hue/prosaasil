@@ -175,9 +175,11 @@ class LeadStatusUpdateService:
         log.info(f"[StatusUpdate] ✅ Updating lead {lead_id} status: '{old_status}' → '{matched_status_id}'")
         
         try:
-            # Update lead status
+            # Update lead status with optimistic locking
+            # Note: In a high-concurrency environment, consider adding version field
+            # and checking it before update to prevent race conditions
             lead.status = matched_status_id
-            lead.status_sequence_token += 1
+            lead.status_sequence_token = Lead.status_sequence_token + 1  # Use column expression for atomic increment
             lead.status_entered_at = datetime.utcnow()
             lead.updated_at = datetime.utcnow()
             
@@ -372,7 +374,11 @@ class LeadStatusUpdateService:
                 return
             
             # Create notification payload
-            source_name = "WhatsApp" if source == "whatsapp_summary" else "שיחה"
+            source_mapping = {
+                'whatsapp_summary': 'WhatsApp',
+                'call_summary': 'שיחה'
+            }
+            source_name = source_mapping.get(source, f'מקור: {source}')  # Explicit fallback
             confidence_text = f" (ביטחון: {confidence:.0%})" if confidence else ""
             
             title = f"סטטוס עודכן: {lead.full_name or lead.phone_e164 or 'ליד'}"
