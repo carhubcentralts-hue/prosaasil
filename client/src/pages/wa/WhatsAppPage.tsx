@@ -238,8 +238,20 @@ export function WhatsAppPage() {
       finally { setLoadingMessages(false); }
     };
 
+    // 🔥 FIX: Mark conversation as read when opened
+    const markAsRead = async () => {
+      try {
+        // Use conversation ID (canonical key) if available, fallback to phone
+        const conversationIdentifier = selectedThread.id || selectedThread.phone;
+        await http.post(`/api/whatsapp/conversations/${encodeURIComponent(conversationIdentifier)}/mark_read`, {});
+      } catch (err) {
+        console.warn('[WhatsApp] Failed to mark conversation as read:', err);
+      }
+    };
+
     fetchAiState();
     fetchMessages();
+    markAsRead(); // Mark as read when conversation is opened
     const interval = setInterval(fetchMessages, 3000);
     return () => clearInterval(interval);
   }, [selectedThread]);

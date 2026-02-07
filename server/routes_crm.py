@@ -146,7 +146,16 @@ def api_threads():
                         COALESCE(wc.canonical_key, wm.to_number) as conversation_key,
                         MAX(wm.created_at) as last_message_time,
                         COUNT(*) as message_count,
-                        COUNT(*) FILTER (WHERE wm.direction = 'in' AND wm.status NOT IN ('read', 'deleted')) as unread_count
+                        -- 🔥 FIX: Calculate unread based on conversation.last_read_at vs last customer message
+                        -- A conversation is unread if there are incoming messages after last_read_at
+                        COUNT(*) FILTER (
+                            WHERE wm.direction = 'in' 
+                            AND wm.status != 'deleted'
+                            AND (
+                                wc.last_read_at IS NULL 
+                                OR wm.created_at > wc.last_read_at
+                            )
+                        ) as unread_count
                     FROM whatsapp_message wm
                     LEFT JOIN whatsapp_conversation wc ON wm.conversation_id = wc.id
                     WHERE wm.business_id = :business_id AND COALESCE(wm.status, '') != 'deleted'
