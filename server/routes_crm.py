@@ -146,14 +146,17 @@ def api_threads():
                         COALESCE(wc.canonical_key, wm.to_number) as conversation_key,
                         MAX(wm.created_at) as last_message_time,
                         COUNT(*) as message_count,
-                        -- 🔥 FIX: Calculate unread based on conversation.last_read_at vs last customer message
-                        -- A conversation is unread if there are incoming messages after last_read_at
+                        -- 🔥 FIX: Calculate unread based on conversation.last_read_at vs incoming messages
+                        -- If last_read_at is NULL, only count messages after the conversation started
+                        -- This prevents old imported/legacy messages from showing as unread
                         COUNT(*) FILTER (
                             WHERE wm.direction = 'in' 
                             AND wm.status != 'deleted'
                             AND (
-                                wc.last_read_at IS NULL 
-                                OR wm.created_at > wc.last_read_at
+                                -- If never read: count only messages after conversation started
+                                (wc.last_read_at IS NULL AND wc.started_at IS NOT NULL AND wm.created_at >= wc.started_at)
+                                -- If read before: count messages after last read
+                                OR (wc.last_read_at IS NOT NULL AND wm.created_at > wc.last_read_at)
                             )
                         ) as unread_count
                     FROM whatsapp_message wm

@@ -244,7 +244,7 @@ def get_or_create_session(
                 db.session.rollback()
                 db.session.close()
             except Exception as rollback_err:
-                logger.warning(f"[WA-SESSION] Rollback/close failed: {rollback_err}")
+                logger.error(f"[WA-SESSION] Rollback/close failed: {rollback_err}")
             
             # 🔥 FIX: Remove the broken session and let SQLAlchemy create a new one
             # This prevents "cursor already closed" errors on subsequent queries
@@ -298,7 +298,7 @@ def get_or_create_session(
             db.session.rollback()
             db.session.close()
         except Exception as rollback_err:
-            logger.warning(f"[WA-SESSION] Final rollback/close failed: {rollback_err}")
+            logger.error(f"[WA-SESSION] Final rollback/close failed: {rollback_err}")
         
         # 🔥 FIX: Remove broken session and use fresh one
         db.session.remove()
