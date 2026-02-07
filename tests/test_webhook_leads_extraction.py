@@ -191,7 +191,8 @@ class TestExtractLeadFields:
         assert 'email' in fields
         assert fields['email'] == 'israel@example.com'
         # Hebrew name should be preserved
-        assert 'name' in fields or payload['name'] == 'ישראל ישראלי'
+        assert 'name' in fields
+        assert fields['name'] == 'ישראל ישראלי'
 
 
 if __name__ == '__main__':

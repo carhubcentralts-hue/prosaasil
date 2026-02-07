@@ -506,9 +506,11 @@ def webhook_ingest_lead(webhook_id):
         # Extract lead fields
         fields = extract_lead_fields(payload)
         
-        # 🔍 Enhanced debugging
-        logger.info(f"🔍 Webhook {webhook_id}: Raw payload = {payload}")
-        logger.info(f"🔍 Webhook {webhook_id}: Extracted fields = {fields}")
+        # 🔍 Enhanced debugging (with PII masking for security)
+        masked_payload = {k: '***' if k.lower() in ['phone', 'mobile', 'email', 'tel', 'telephone'] else v for k, v in payload.items()}
+        logger.info(f"🔍 Webhook {webhook_id}: Raw payload keys = {list(payload.keys())}")
+        logger.debug(f"🔍 Webhook {webhook_id}: Masked payload = {masked_payload}")
+        logger.debug(f"🔍 Webhook {webhook_id}: Has phone={bool(fields.get('phone'))}, Has email={bool(fields.get('email'))}")
         
         # Validate: must have phone or email
         phone = fields.get('phone')
@@ -517,8 +519,8 @@ def webhook_ingest_lead(webhook_id):
         if not phone and not email:
             logger.warning(f"⚠️ Webhook {webhook_id}: No contact identifier in payload")
             logger.warning(f"   Payload keys: {list(payload.keys())}")
-            logger.warning(f"   Payload values: {list(payload.values())}")
-            logger.warning(f"   Extracted fields: {fields}")
+            logger.warning(f"   Field types in payload: {[(k, type(v).__name__) for k, v in payload.items()]}")
+            logger.warning(f"   Extracted fields keys: {list(fields.keys())}")
             return json_response({
                 "ok": False,
                 "error": "phone_or_email_required"
