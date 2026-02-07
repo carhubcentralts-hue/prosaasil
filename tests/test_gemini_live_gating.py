@@ -36,6 +36,12 @@ call_log_jobs_stub.save_conversation_turn_job = lambda *args, **kwargs: None
 call_log_jobs_stub.finalize_call_log_job = lambda *args, **kwargs: None
 sys.modules.setdefault("server.jobs.call_log_jobs", call_log_jobs_stub)
 
+# Add OpenAI stub
+openai_stub = types.ModuleType("openai")
+openai_stub.AsyncOpenAI = object
+openai_stub.OpenAI = object
+sys.modules.setdefault("openai", openai_stub)
+
 from server.media_ws_ai import MediaStreamHandler
 
 
@@ -44,24 +50,29 @@ class DummyWebSocket:
         return None
 
 
-def test_gemini_ready_removed():
+def test_gemini_ready_gating():
     """
-    Test that Gemini Live no longer depends on setup_complete event.
+    Test that Gemini Live properly gates audio transmission until setup_complete.
     
-    CRITICAL FIX: Gemini Live works based on audio flow, not setup_complete events.
-    The _gemini_ready flag and related methods should not block audio transmission.
+    CRITICAL FIX: Gemini closes (1000 OK) when audio is sent before setup_complete.
+    The _gemini_ready flag MUST block audio transmission until setup_complete received.
+    
+    Requirements from problem statement:
+    1. Audio must NOT be sent before setup_complete
+    2. Greeting must NOT be sent before setup_complete
+    3. Flag should start as False and be set to True only after setup_complete
     """
     handler = MediaStreamHandler(DummyWebSocket())
     
-    # Verify _gemini_ready is not used for blocking
-    # The flag should be False (not blocking) or not exist
-    if hasattr(handler, '_gemini_ready'):
-        # If flag exists, it must not block audio flow
-        assert handler._gemini_ready is False, "_gemini_ready should be False (not blocking)"
+    # Verify _gemini_ready flag exists and starts as False
+    assert hasattr(handler, '_gemini_ready'), "_gemini_ready flag must exist"
+    assert handler._gemini_ready is False, "_gemini_ready should start as False (blocking audio)"
     
-    # Verify _gemini_ready_event is not used for blocking
-    # Event should not be set or should not exist
-    if hasattr(handler, '_gemini_ready_event') and handler._gemini_ready_event is not None:
-        assert not handler._gemini_ready_event.is_set(), "_gemini_ready_event should not be set (not blocking)"
+    # Verify _gemini_ready_event exists (for async coordination)
+    assert hasattr(handler, '_gemini_ready_event'), "_gemini_ready_event must exist"
+    
+    # Verify _mark_gemini_ready method exists (to set flag on setup_complete)
+    assert hasattr(handler, '_mark_gemini_ready'), "_mark_gemini_ready method must exist"
+
 
 

@@ -2759,6 +2759,10 @@ class MediaStreamHandler:
         - Audio drain period (after response.done)
         - Active conversation (user or bot speaking)
         
+        🔥 CRITICAL: For Gemini, watchdog must NOT trigger before:
+        - setup_complete received (gemini_ready = False)
+        - First audio frame sent (frames_sent == 0)
+        
         Authority level: Non-blocking, bypasses queues/locks for reliable disconnection.
         """
         try:
@@ -2770,6 +2774,23 @@ class MediaStreamHandler:
                     return
                 
                 await asyncio.sleep(1)
+                
+                # 🔥 CRITICAL: For Gemini, don't activate watchdog before ready and first response
+                # Prevents false disconnects during setup phase
+                ai_provider = getattr(self, '_ai_provider', 'openai')
+                if ai_provider == 'gemini':
+                    # Check if Gemini is ready (setup_complete received)
+                    if not self._gemini_ready:
+                        # Reset activity timestamp - watchdog waiting for setup_complete
+                        self._last_activity_ts = time.time()
+                        continue
+                    
+                    # Check if any audio frames were sent (first response happened)
+                    frames_sent = getattr(self, '_stats_audio_sent', 0)
+                    if frames_sent == 0:
+                        # Reset activity timestamp - watchdog waiting for first response
+                        self._last_activity_ts = time.time()
+                        continue
                 
                 # 🔥 CRITICAL FIX: Check if AI is speaking FIRST, before calculating idle time
                 # This ensures that AI speech ALWAYS resets the activity timer, preventing false disconnects
@@ -4722,17 +4743,30 @@ class MediaStreamHandler:
                     _orig_print(f"▶️ [AUDIO_GATE] Session confirmed - starting audio transmission to OpenAI", flush=True)
                     _session_wait_logged = False  # Reset for next check
                 
-                # ✅ FIX: Removed setup_complete audio buffering - stream continuously
-                # Gemini Live expects continuous audio flow, not event-based gating
+                # 🔥 CRITICAL: For Gemini, wait for setup_complete before sending ANY audio
+                # Sending audio before setup_complete causes Gemini to close with 1000 OK
+                # This prevents: silence, single word response, WebSocket closure
+                if ai_provider == 'gemini' and not self._gemini_ready:
+                    # Drop frames until setup_complete received - DO NOT buffer, queue, or retry
+                    # This is realtime audio - dropping is acceptable and expected
+                    try:
+                        audio_chunk = self.realtime_audio_in_queue.get_nowait()
+                        _frames_dropped += 1
+                        # Silently drop - no logging spam
+                    except queue.Empty:
+                        pass
+                    await asyncio.sleep(0.01)
+                    continue
                 
                 # Get audio chunk from queue
                 try:
                     audio_chunk = self.realtime_audio_in_queue.get_nowait()
                 except queue.Empty:
-                    # ✅ FIX: Send silence frame when no audio available
-                    # Gemini Live requires continuous audio stream (20ms frames)
-                    # Without continuous frames, Gemini closes the WebSocket
-                    if ai_provider == 'gemini':
+                    # ✅ FIX: Send silence frame when no audio available (only if Gemini is ready)
+                    # Gemini Live requires continuous audio stream (20ms frames) AFTER setup_complete
+                    # Without continuous frames after ready, Gemini closes the WebSocket
+                    # BEFORE setup_complete: Don't send anything (handled by gemini_ready gate above)
+                    if ai_provider == 'gemini' and self._gemini_ready:
                         audio_chunk = GEMINI_SILENCE_FRAME
                         # Note: Count as incoming frame for metrics (synthetic but necessary)
                     else:
@@ -5043,11 +5077,11 @@ class MediaStreamHandler:
             self._last_activity_ts = time.time()
             logger.debug(f"[WATCHDOG] Activity reset on Gemini event: {gemini_type}")
         
-        # ✅ FIX: Removed setup_complete translation - Gemini Live works on audio flow, not events
-        # Gemini doesn't need session.updated event to start working
+        # 🔥 CRITICAL: Handle setup_complete event - mark Gemini as ready for audio transmission
+        # This prevents sending audio before Gemini is ready, which causes 1000 OK closure
         if gemini_type == 'setup_complete':
-            # Silently ignore setup_complete - not needed for audio pipeline
-            return None
+            self._mark_gemini_ready()
+            return None  # Don't translate to OpenAI event
         
         elif gemini_type == 'audio':
             # Gemini audio → OpenAI response.audio.delta
@@ -8886,11 +8920,32 @@ class MediaStreamHandler:
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME_FATAL: Exception in audio receiver loop
             # ═══════════════════════════════════════════════════════════════════════
-            import traceback
-            _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in _realtime_audio_receiver: {e}", flush=True)
-            _orig_print(f"🔥 [REALTIME_FATAL] call_sid={self.call_sid}", flush=True)
-            traceback.print_exc()
-            logger.error(f"[REALTIME_FATAL] Exception in audio receiver: {e}")
+            # 🔥 CRITICAL: Handle normal WebSocket closure (1000 OK, normal_end, limit_exceeded)
+            # These are NOT errors - they indicate graceful shutdown
+            # Throwing exceptions or crashing threads on normal close is forbidden
+            error_str = str(e).lower()
+            is_normal_close = (
+                'connectionclosedok' in error_str or
+                'code 1000' in error_str or 
+                '1000 ok' in error_str or
+                'normal_end' in error_str or
+                'limit_exceeded' in error_str or
+                'normal closure' in error_str
+            )
+            
+            if is_normal_close:
+                # Normal closure - log and exit gracefully
+                logger.info(f"✅ [GEMINI_CLOSE] Gemini closed normally: {e}")
+                _orig_print(f"✅ [GEMINI_CLOSE] Normal WebSocket closure: {error_str[:100]}", flush=True)
+                # DO NOT throw exception, crash thread, trigger fallback, or clean state aggressively
+                # Just exit gracefully
+            else:
+                # Actual error - log with details
+                import traceback
+                _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in _realtime_audio_receiver: {e}", flush=True)
+                _orig_print(f"🔥 [REALTIME_FATAL] call_sid={self.call_sid}", flush=True)
+                traceback.print_exc()
+                logger.error(f"[REALTIME_FATAL] Exception in audio receiver: {e}")
             
             # 🔥 CRITICAL: Reset greeting state on exception to prevent hangup block
             if self.is_playing_greeting:
