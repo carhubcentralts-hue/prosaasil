@@ -48,6 +48,38 @@ def send_scheduled_whatsapp_job(message_id: int, *args, **kwargs):
                 logger.warning(f"[SEND-SCHEDULED-WA] ⏭️  Message {message_id} status is '{message.status}', skipping send")
                 return {'status': 'skipped', 'reason': f'status_{message.status}'}
             
+            # Load rule to check weekday restrictions
+            from server.models_sql import ScheduledMessageRule
+            rule = ScheduledMessageRule.query.get(message.rule_id)
+            
+            if rule:
+                # Double-check weekday restrictions before sending
+                import pytz
+                ISRAEL_TZ = pytz.timezone('Asia/Jerusalem')
+                utc_now = datetime.now(pytz.utc)
+                israel_now = utc_now.astimezone(ISRAEL_TZ).replace(tzinfo=None)
+                
+                python_weekday = israel_now.weekday()  # 0=Monday, 6=Sunday
+                our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+                
+                # Check excluded weekdays for STATUS_CHANGE schedules
+                if rule.schedule_type == 'STATUS_CHANGE' and rule.excluded_weekdays:
+                    if our_weekday in rule.excluded_weekdays:
+                        weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                        error_msg = f"Skipped: Today ({weekday_names[our_weekday]}) is an excluded weekday"
+                        logger.warning(f"[SEND-SCHEDULED-WA] ⏭️  {error_msg}")
+                        scheduled_messages_service.mark_cancelled(message_id, error_msg)
+                        return {'status': 'skipped', 'reason': 'excluded_weekday'}
+                
+                # Check active weekdays for RECURRING_TIME schedules
+                if rule.schedule_type == 'RECURRING_TIME' and rule.active_weekdays:
+                    if our_weekday not in rule.active_weekdays:
+                        weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                        error_msg = f"Skipped: Today ({weekday_names[our_weekday]}) is not an active weekday"
+                        logger.warning(f"[SEND-SCHEDULED-WA] ⏭️  {error_msg}")
+                        scheduled_messages_service.mark_cancelled(message_id, error_msg)
+                        return {'status': 'skipped', 'reason': 'not_active_weekday'}
+            
             # Load lead
             lead = Lead.query.filter_by(
                 id=message.lead_id,

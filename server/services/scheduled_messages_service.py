@@ -1,10 +1,16 @@
 """
 Scheduled WhatsApp Messages Service
 Manages scheduling rules and message queue for WhatsApp messages triggered by lead status changes
+
+⏰ TIMEZONE STRATEGY:
+- All datetimes stored in DB are NAIVE and represent Israel time (Asia/Jerusalem)
+- Use get_israel_now() instead of datetime.utcnow() for current time
+- When comparing times, ensure both are in Israel timezone
 """
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+import pytz
 from sqlalchemy import text
 from sqlalchemy.orm.attributes import flag_modified
 from server.db import db
@@ -20,6 +26,27 @@ from server.models_sql import (
 from server.agent_tools.phone_utils import normalize_phone
 
 logger = logging.getLogger(__name__)
+
+# Israel timezone constant
+ISRAEL_TZ = pytz.timezone('Asia/Jerusalem')
+
+
+def get_israel_now() -> datetime:
+    """
+    Get current time in Israel timezone as a NAIVE datetime.
+    
+    This returns a naive datetime that represents the current Israel local time,
+    matching the format used in the database.
+    
+    Returns:
+        Naive datetime representing current Israel time
+    """
+    # Get current UTC time as timezone-aware
+    utc_now = datetime.now(pytz.utc)
+    # Convert to Israel timezone
+    israel_now = utc_now.astimezone(ISRAEL_TZ)
+    # Return as naive (remove timezone info) since DB stores naive datetimes
+    return israel_now.replace(tzinfo=None)
 
 
 def create_rule(
@@ -106,8 +133,8 @@ def create_rule(
         # Validate delay_seconds
         if delay_seconds == 0 and not send_immediately_on_enter and not has_steps:
             raise ValueError("delay_seconds must be at least 1 for STATUS_CHANGE schedules (unless immediate send or steps are enabled)")
-        if delay_seconds < 0 or delay_seconds > 2592000:  # 0-30 days
-            raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
+        if delay_seconds < 0:
+            raise ValueError("delay_seconds must be non-negative")
     
         # Set delay_minutes for backward compatibility if not provided (delay_seconds already validated >= 0)
         if delay_minutes is None:
@@ -116,12 +143,12 @@ def create_rule(
         # Validate delay_minutes for backward compatibility
         if not send_immediately_on_enter and not has_steps:
             # Require at least 1 minute for standard STATUS_CHANGE schedules
-            if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
-                raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+            if delay_minutes < 1:
+                raise ValueError("delay_minutes must be at least 1 for STATUS_CHANGE schedules")
         else:
             # For immediate sends or steps, allow 0
-            if delay_minutes < 0 or delay_minutes > 43200:
-                raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
+            if delay_minutes < 0:
+                raise ValueError("delay_minutes must be non-negative")
     elif schedule_type == "RECURRING_TIME":
         # For RECURRING_TIME schedules, delays should be 0 (already set in lines 94-95)
         # Set delay_minutes if not already set for backward compatibility
@@ -274,19 +301,19 @@ def update_rule(
         
         if current_schedule_type == 'RECURRING_TIME' or current_immediate:
             # Allow 0 for recurring schedules or immediate sends
-            if delay_minutes < 0 or delay_minutes > 43200:
-                raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
+            if delay_minutes < 0:
+                raise ValueError("delay_minutes must be non-negative")
         else:
             # Regular STATUS_CHANGE requires >= 1
-            if delay_minutes < 1 or delay_minutes > 43200:
-                raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+            if delay_minutes < 1:
+                raise ValueError("delay_minutes must be at least 1 for STATUS_CHANGE schedules")
         
         rule.delay_minutes = delay_minutes
         # Also update delay_seconds
         rule.delay_seconds = delay_minutes * 60
     if delay_seconds is not None:
-        if delay_seconds < 0 or delay_seconds > 2592000:
-            raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
+        if delay_seconds < 0:
+            raise ValueError("delay_seconds must be non-negative")
         rule.delay_seconds = delay_seconds
         # Also update delay_minutes for backward compatibility
         rule.delay_minutes = max(0, delay_seconds // 60)
@@ -351,7 +378,7 @@ def update_rule(
         if steps:
             create_rule_steps(rule_id, steps)
     
-    rule.updated_at = datetime.utcnow()
+    rule.updated_at = get_israel_now()
     db.session.commit()
     
     logger.info(f"[SCHEDULED-MSG] Updated rule {rule_id} for business {business_id}")
@@ -361,9 +388,18 @@ def update_rule(
 
 def delete_rule(rule_id: int, business_id: int) -> bool:
     """
-    Delete a scheduling rule
+    Delete a scheduling rule and cancel all pending messages.
     
-    This will cascade delete all rule-status mappings and pending messages.
+    This will:
+    1. Cancel all pending messages for this rule
+    2. Delete the rule (cascade will handle related records)
+    
+    Args:
+        rule_id: Rule ID to delete
+        business_id: Business ID for authorization
+    
+    Returns:
+        True if deleted, False if not found
     """
     rule = ScheduledMessageRule.query.filter_by(
         id=rule_id,
@@ -372,6 +408,10 @@ def delete_rule(rule_id: int, business_id: int) -> bool:
     
     if not rule:
         return False
+    
+    # Cancel all pending messages for this rule BEFORE deletion
+    cancelled_count = cancel_pending_for_rule(rule_id, business_id)
+    logger.info(f"[SCHEDULED-MSG] Cancelled {cancelled_count} pending message(s) for rule {rule_id} before deletion")
     
     # Delete rule (cascade will handle related records)
     db.session.delete(rule)
@@ -448,7 +488,7 @@ def update_rule_step(
     if enabled is not None:
         step.enabled = enabled
     
-    step.updated_at = datetime.utcnow()
+    step.updated_at = get_israel_now()
     db.session.commit()
     
     logger.info(f"[SCHEDULED-MSG] Updated step {step_id}")
@@ -495,7 +535,7 @@ def reorder_rule_steps(rule_id: int, step_ids: List[int]):
         
         if step:
             step.step_index = index
-            step.updated_at = datetime.utcnow()
+            step.updated_at = get_israel_now()
     
     db.session.commit()
     
@@ -555,7 +595,7 @@ def schedule_messages_for_lead_status_change(
         changed_at: When the status changed (defaults to now)
     """
     if changed_at is None:
-        changed_at = datetime.utcnow()
+        changed_at = get_israel_now()
     
     # Get lead and increment status_sequence_token
     lead = db.session.query(Lead).filter_by(
@@ -680,7 +720,7 @@ def create_scheduled_tasks_for_lead(rule_id: int, lead_id: int, triggered_at: Op
             return 0
     
     # Use provided triggered_at or default to now
-    now = triggered_at if triggered_at is not None else datetime.utcnow()
+    now = triggered_at if triggered_at is not None else get_israel_now()
     created_count = 0
     
     # Helper function to check if a date falls on an active weekday
@@ -922,17 +962,18 @@ def render_message_template(
 
 def claim_pending_messages(batch_size: int = 50) -> List[ScheduledMessagesQueue]:
     """
-    Claim pending messages that are ready to send (atomic operation)
+    Claim pending messages that are ready to send (atomic operation).
     
     This uses FOR UPDATE SKIP LOCKED to ensure only one worker claims each message.
+    After claiming, filters out messages scheduled for excluded weekdays.
     
     Args:
         batch_size: Maximum number of messages to claim
     
     Returns:
-        List of claimed ScheduledMessagesQueue entries
+        List of claimed ScheduledMessagesQueue entries (filtered by weekday rules)
     """
-    now = datetime.utcnow()
+    now = get_israel_now()
     
     # Use raw SQL for FOR UPDATE SKIP LOCKED
     query = text("""
@@ -958,18 +999,69 @@ def claim_pending_messages(batch_size: int = 50) -> List[ScheduledMessagesQueue]
     
     claimed_ids = [row[0] for row in result]
     
-    if claimed_ids:
-        db.session.commit()
-        
-        # Fetch full objects
-        messages = ScheduledMessagesQueue.query.filter(
-            ScheduledMessagesQueue.id.in_(claimed_ids)
-        ).all()
-        
-        logger.info(f"[SCHEDULED-MSG] Claimed {len(messages)} message(s) for sending")
-        return messages
+    if not claimed_ids:
+        return []
     
-    return []
+    db.session.commit()
+    
+    # Fetch full objects with rule information
+    from server.models_sql import ScheduledMessageRule
+    messages = db.session.query(ScheduledMessagesQueue).join(
+        ScheduledMessageRule,
+        ScheduledMessagesQueue.rule_id == ScheduledMessageRule.id
+    ).filter(
+        ScheduledMessagesQueue.id.in_(claimed_ids)
+    ).all()
+    
+    # Filter messages based on weekday rules
+    filtered_messages = []
+    cancelled_count = 0
+    
+    for message in messages:
+        rule = message.rule
+        scheduled_for = message.scheduled_for
+        
+        # Check if scheduled_for is an excluded weekday for STATUS_CHANGE schedules
+        if rule.schedule_type == 'STATUS_CHANGE' and rule.excluded_weekdays:
+            python_weekday = scheduled_for.weekday()  # 0=Monday, 6=Sunday
+            our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+            
+            if our_weekday in rule.excluded_weekdays:
+                # Cancel this message - scheduled for excluded weekday
+                message.status = 'canceled'
+                message.error_message = f"Cancelled: Scheduled for excluded weekday (day {our_weekday})"
+                message.updated_at = get_israel_now()
+                db.session.add(message)
+                cancelled_count += 1
+                weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                logger.info(f"[SCHEDULED-MSG] ⏭️ Skipping message {message.id} - scheduled for excluded weekday ({weekday_names[our_weekday]})")
+                continue
+        
+        # Check if scheduled_for falls on an active weekday for RECURRING_TIME schedules
+        if rule.schedule_type == 'RECURRING_TIME' and rule.active_weekdays:
+            python_weekday = scheduled_for.weekday()  # 0=Monday, 6=Sunday
+            our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+            
+            if our_weekday not in rule.active_weekdays:
+                # Cancel this message - not an active weekday
+                message.status = 'canceled'
+                message.error_message = f"Cancelled: Not an active weekday (day {our_weekday})"
+                message.updated_at = get_israel_now()
+                db.session.add(message)
+                cancelled_count += 1
+                weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                logger.info(f"[SCHEDULED-MSG] ⏭️ Skipping message {message.id} - not an active weekday ({weekday_names[our_weekday]})")
+                continue
+        
+        # This message passes all checks
+        filtered_messages.append(message)
+    
+    if cancelled_count > 0:
+        db.session.commit()
+        logger.info(f"[SCHEDULED-MSG] Cancelled {cancelled_count} message(s) due to weekday rules")
+    
+    logger.info(f"[SCHEDULED-MSG] Claimed {len(filtered_messages)} message(s) for sending (filtered from {len(messages)})")
+    return filtered_messages
 
 
 def mark_sent(message_id: int):
@@ -977,8 +1069,8 @@ def mark_sent(message_id: int):
     message = ScheduledMessagesQueue.query.get(message_id)
     if message:
         message.status = 'sent'
-        message.sent_at = datetime.utcnow()
-        message.updated_at = datetime.utcnow()
+        message.sent_at = get_israel_now()
+        message.updated_at = get_israel_now()
         db.session.commit()
         logger.info(f"[SCHEDULED-MSG] Marked message {message_id} as sent")
 
@@ -992,7 +1084,7 @@ def mark_failed(message_id: int, error_message: str):
         # ℹ️ Using getattr for migration compatibility - Migration 122 adds attempts column
         # After migration runs, this becomes message.attempts + 1
         message.attempts = getattr(message, 'attempts', 0) + 1
-        message.updated_at = datetime.utcnow()
+        message.updated_at = get_israel_now()
         db.session.commit()
         logger.error(f"[SCHEDULED-MSG] Marked message {message_id} as failed (attempt {message.attempts}): {error_message}")
 
@@ -1010,7 +1102,7 @@ def mark_cancelled(message_id: int, reason: str = None):
         message.status = 'canceled'  # Note: DB uses 'canceled' (one 'l')
         if reason:
             message.error_message = f"Cancelled: {reason[:480]}"  # Leave room for prefix
-        message.updated_at = datetime.utcnow()
+        message.updated_at = get_israel_now()
         db.session.commit()
         logger.info(f"[SCHEDULED-MSG] Marked message {message_id} as cancelled{': ' + reason if reason else ''}")
 
@@ -1038,7 +1130,7 @@ def cancel_message(message_id: int, business_id: int) -> bool:
         return False
     
     message.status = 'canceled'
-    message.updated_at = datetime.utcnow()
+    message.updated_at = get_israel_now()
     db.session.commit()
     
     logger.info(f"[SCHEDULED-MSG] Cancelled message {message_id}")
@@ -1072,7 +1164,7 @@ def cancel_pending_for_rule(rule_id: int, business_id: int) -> int:
         status='pending'
     ).update({
         'status': 'canceled',
-        'updated_at': datetime.utcnow()
+        'updated_at': get_israel_now()
     })
     
     db.session.commit()
