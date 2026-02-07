@@ -36,6 +36,12 @@ call_log_jobs_stub.save_conversation_turn_job = lambda *args, **kwargs: None
 call_log_jobs_stub.finalize_call_log_job = lambda *args, **kwargs: None
 sys.modules.setdefault("server.jobs.call_log_jobs", call_log_jobs_stub)
 
+# Add OpenAI stub
+openai_stub = types.ModuleType("openai")
+openai_stub.AsyncOpenAI = object
+openai_stub.OpenAI = object
+sys.modules.setdefault("openai", openai_stub)
+
 from server.media_ws_ai import MediaStreamHandler
 
 
