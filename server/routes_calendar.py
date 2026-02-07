@@ -631,7 +631,7 @@ def get_appointment(appointment_id):
         logger.error(f"Error fetching appointment {appointment_id}: {e}")
         return jsonify({'error': 'שגיאה בטעינת הפגישה'}), 500
 
-@calendar_bp.route('/appointments/<int:appointment_id>', methods=['PUT'])
+@calendar_bp.route('/appointments/<int:appointment_id>', methods=['PUT', 'PATCH'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 @require_page_access('calendar')
 def update_appointment(appointment_id):
@@ -661,6 +661,9 @@ def update_appointment(appointment_id):
         if not data:
             return jsonify({'error': 'Missing request data'}), 400
         
+        # 🔥 FIX: Store existing calendar_id before updating to preserve it if not sent
+        existing_calendar_id = appointment.calendar_id
+        
         # Update allowed fields
         updatable_fields = [
             'title', 'description', 'location', 'status', 'appointment_type', 
@@ -671,6 +674,11 @@ def update_appointment(appointment_id):
         for field in updatable_fields:
             if field in data:
                 setattr(appointment, field, data[field])
+        
+        # 🔥 CRITICAL FIX: Preserve calendar_id if not explicitly sent in request
+        # This prevents "no calendar" issue when editing appointments
+        if 'calendar_id' not in data and existing_calendar_id is not None:
+            appointment.calendar_id = existing_calendar_id
         
         # Handle date fields
         if 'start_time' in data:
