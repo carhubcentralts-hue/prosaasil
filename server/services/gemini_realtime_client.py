@@ -584,7 +584,8 @@ class GeminiRealtimeClient:
         
         # Track first audio chunk for production logging
         _first_audio_logged = False
-        # ✅ FIX: Removed _setup_complete_seen tracking - not needed
+        # 🔥 CRITICAL FIX: Track setup_complete to prevent audio before ready
+        _setup_complete_seen = False
         
         try:
             async for server_message in self.session.receive():
@@ -599,8 +600,22 @@ class GeminiRealtimeClient:
                     if not IS_PROD or REALTIME_VERBOSE:
                         logger.info(f"[GEMINI_EVENT_KEYS] {event_attrs}")
                     
-                    # ✅ FIX: Removed setup_complete handling - Gemini Live works on audio flow, not events
-                    # setup_complete is not guaranteed and not needed for stable operation
+                    # 🔥 CRITICAL: Handle setup_complete event - MUST wait for this before sending audio
+                    # Sending audio before setup_complete causes Gemini to close with 1000 OK
+                    has_setup_complete = (
+                        hasattr(server_message, 'setup_complete') or
+                        hasattr(server_message, 'setupComplete')
+                    )
+                    if has_setup_complete and not _setup_complete_seen:
+                        _setup_complete_seen = True
+                        logger.info("✅ [GEMINI_READY] setup_complete received - Gemini Live ready for audio")
+                        _orig_print("✅ [GEMINI_READY] setup_complete received - ready to send audio", flush=True)
+                        
+                        event = {
+                            'type': 'setup_complete',
+                            'data': None
+                        }
+                        yield event
                     
                     # Check for server content (audio/text response)
                     # 🔥 FIX: Support both serverContent (camelCase) and server_content (snake_case)
