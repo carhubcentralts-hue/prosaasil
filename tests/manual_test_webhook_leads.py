@@ -85,7 +85,7 @@ def main():
             "city": "ירושלים"
         },
         "400 Bad Request",
-        "Should return error with 'ok': false and list expected_one_of fields"
+        "Should return error with 'ok': false and 'error': 'phone_or_email_required'"
     )
     
     # Test 5: Phone variant field names
@@ -151,8 +151,8 @@ def main():
     print("\n3. Replace {webhook_id} and {your_secret} in the commands above")
     print("\n4. Run the cURL commands to test")
     print("\n5. Expected responses:")
-    print("   - Success: {\"ok\": true, \"lead_id\": 123, \"updated\": false}")
-    print("   - Error: {\"ok\": false, \"error\": \"...\", \"message\": \"...\"}")
+    print("   - Success: {\"ok\": true, \"lead_id\": 123, \"status_id\": 9}")
+    print("   - Error: {\"ok\": false, \"error\": \"phone_or_email_required\"}")
     print("\n6. Verify in UI that leads are created correctly")
     print()
     
@@ -161,11 +161,13 @@ def main():
     print("=" * 80)
     print("\n✅ URL uses /api/webhook/leads/ (singular) not /api/webhooks/leads/")
     print("✅ OPTIONS method returns 200 OK with CORS headers")
-    print("✅ Success responses use 'ok': true")
-    print("✅ Error responses use 'ok': false with helpful details")
-    print("✅ Missing contact identifier error includes 'expected_one_of' array")
+    print("✅ Success responses use 'ok': true with status_id field")
+    print("✅ Error responses use 'ok': false")
+    print("✅ Missing contact identifier returns error: 'phone_or_email_required'")
     print("✅ Hebrew content works correctly in all fields")
     print("✅ Content-Type includes charset=utf-8")
+    print("✅ Webhook creates lead with target status_id from webhook config")
+    print("✅ Falls back to business default status if target status missing/deleted")
     print()
 
 
