@@ -664,20 +664,24 @@ def update_appointment(appointment_id):
         # 🔥 FIX: Store existing calendar_id before updating to preserve it if not sent
         existing_calendar_id = appointment.calendar_id
         
-        # Update allowed fields
+        # Update allowed fields (excluding calendar_id which needs special handling)
         updatable_fields = [
             'title', 'description', 'location', 'status', 'appointment_type', 
             'priority', 'contact_name', 'contact_phone', 'contact_email', 
-            'notes', 'outcome', 'follow_up_needed', 'lead_id', 'calendar_id'  # 🔥 FIX: Allow updating lead_id and calendar_id
+            'notes', 'outcome', 'follow_up_needed', 'lead_id'
         ]
         
         for field in updatable_fields:
             if field in data:
                 setattr(appointment, field, data[field])
         
-        # 🔥 CRITICAL FIX: Preserve calendar_id if not explicitly sent in request
+        # 🔥 CRITICAL FIX: Handle calendar_id specially to preserve it if not sent
         # This prevents "no calendar" issue when editing appointments
-        if 'calendar_id' not in data and existing_calendar_id is not None:
+        if 'calendar_id' in data:
+            # Explicitly set the new value (even if None)
+            appointment.calendar_id = data['calendar_id']
+        # If calendar_id not in request and appointment had a calendar, preserve it
+        elif existing_calendar_id is not None:
             appointment.calendar_id = existing_calendar_id
         
         # Handle date fields
