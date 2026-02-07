@@ -499,6 +499,7 @@ class WhatsAppConversation(db.Model):
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_message_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     last_customer_message_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    last_read_at = db.Column(db.DateTime, nullable=True)  # When user/agent last viewed this conversation
     
     # Session state
     is_open = db.Column(db.Boolean, default=True, index=True)

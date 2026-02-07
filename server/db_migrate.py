@@ -8939,12 +8939,14 @@ def apply_migrations():
         # 🎯 PURPOSE: Fix UPSERT failures by ensuring the constraint exists
         # 🔥 CRITICAL FIX: ON CONFLICT requires the constraint to exist
         #    Without it, UPSERT fails → session tracking fails → bot doesn't respond
+        # 🔥 FIX: Migration 140 created partial index (with WHERE clause) which doesn't work for UPSERT
+        #         This migration ensures we have a proper UNIQUE CONSTRAINT (not partial index)
         # ═══════════════════════════════════════════════════════════════════════
         checkpoint("Starting Migration 144: Force UNIQUE constraint on canonical_key")
         
         try:
             if check_table_exists('whatsapp_conversation'):
-                # Check if unique constraint already exists
+                # Step 1: Check if proper UNIQUE constraint exists (not partial index)
                 constraint_exists = False
                 try:
                     result = execute_with_retry(migrate_engine, """
@@ -8958,8 +8960,35 @@ def apply_migrations():
                 except Exception as check_err:
                     checkpoint(f"  ⚠️  Could not check for existing constraint: {check_err}")
                 
+                # Step 2: Check for partial index from Migration 140 (needs to be replaced)
+                partial_index_exists = False
+                try:
+                    idx_result = execute_with_retry(migrate_engine, """
+                        SELECT indexname, indexdef
+                        FROM pg_indexes
+                        WHERE tablename = 'whatsapp_conversation'
+                        AND indexname = 'uq_wa_conv_canonical_key'
+                        AND indexdef LIKE '%WHERE%'
+                    """)
+                    partial_index_exists = idx_result and len(idx_result) > 0
+                    if partial_index_exists:
+                        checkpoint("  ⚠️  Found partial index from Migration 140 (with WHERE clause)")
+                        checkpoint("     This partial index doesn't work for UPSERT - needs replacement")
+                except Exception as idx_err:
+                    checkpoint(f"  ⚠️  Could not check for partial index: {idx_err}")
+                
                 if constraint_exists:
-                    checkpoint("  ⏭️  UNIQUE constraint already exists on (business_id, canonical_key)")
+                    checkpoint("  ✅ UNIQUE constraint already exists on (business_id, canonical_key)")
+                    # Even if constraint exists, check if we need to remove old partial index
+                    if partial_index_exists:
+                        checkpoint("  → Removing partial index (no longer needed with constraint)...")
+                        try:
+                            exec_ddl(migrate_engine, """
+                                DROP INDEX IF EXISTS uq_wa_conv_canonical_key
+                            """)
+                            checkpoint("  ✅ Removed partial index uq_wa_conv_canonical_key")
+                        except Exception as drop_err:
+                            checkpoint(f"  ⚠️  Could not drop partial index: {drop_err}")
                 else:
                     checkpoint("  → Checking for and handling duplicate canonical_keys...")
                     
@@ -9027,7 +9056,19 @@ def apply_migrations():
                         checkpoint(f"  ⚠️  Could not check for duplicates: {dup_err}")
                         # Continue anyway - try to add constraint
                     
-                    # Now add the UNIQUE constraint
+                    # Step 3: Remove partial index if exists (from Migration 140)
+                    if partial_index_exists:
+                        checkpoint("  → Removing partial index from Migration 140...")
+                        try:
+                            exec_ddl(migrate_engine, """
+                                DROP INDEX IF EXISTS uq_wa_conv_canonical_key
+                            """)
+                            checkpoint("  ✅ Removed partial index uq_wa_conv_canonical_key")
+                        except Exception as drop_err:
+                            checkpoint(f"  ⚠️  Could not drop partial index: {drop_err}")
+                            # Continue anyway - constraint creation might still work
+                    
+                    # Step 4: Add the UNIQUE constraint (works for all rows, including NULL)
                     checkpoint("  → Adding UNIQUE constraint on (business_id, canonical_key)...")
                     try:
                         exec_ddl(migrate_engine, """
@@ -9057,6 +9098,39 @@ def apply_migrations():
             # The UPSERT code has fallback logic
         
         checkpoint("✅ Migration 144 complete: UNIQUE constraint ensured for UPSERT")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 145: Add last_read_at to whatsapp_conversation for mark-as-read
+        # 🎯 PURPOSE: Track when conversation was last read by user/agent
+        # 🔥 FEATURE: Enables proper unread badge calculation for WhatsApp inbox
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 145: Add last_read_at to whatsapp_conversation")
+        
+        try:
+            if check_table_exists('whatsapp_conversation'):
+                # Add last_read_at column if not exists
+                if not check_column_exists('whatsapp_conversation', 'last_read_at'):
+                    checkpoint("  → Adding last_read_at column to whatsapp_conversation...")
+                    execute_with_retry(migrate_engine, """
+                        ALTER TABLE whatsapp_conversation 
+                        ADD COLUMN last_read_at TIMESTAMP NULL
+                    """)
+                    checkpoint("  ✅ last_read_at column added to whatsapp_conversation")
+                    checkpoint("     💡 Tracks when conversation was last viewed by user")
+                    checkpoint("     💡 Used to calculate unread messages: last_customer_message_at > last_read_at")
+                    migrations_applied.append("migration_145_last_read_at")
+                else:
+                    checkpoint("  ⏭️  last_read_at column already exists in whatsapp_conversation")
+                
+                checkpoint("  ✅ Migration 145 schema changes completed")
+                checkpoint("     🎯 Impact: Enables mark-as-read functionality for WhatsApp inbox")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 145 failed: {e}")
+            logger.error(f"Migration 145 error: {e}", exc_info=True)
+            # Don't raise - last_read_at is a feature enhancement, not critical for startup
+        
+        checkpoint("✅ Migration 145 complete: last_read_at column for mark-as-read")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:
