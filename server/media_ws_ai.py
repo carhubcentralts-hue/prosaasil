@@ -4730,7 +4730,7 @@ class MediaStreamHandler:
                         # 320 bytes = 20ms of 16kHz mono PCM16
                         silence_frame = b'\x00' * 320
                         audio_chunk = silence_frame
-                        _frames_dropped += 1  # Count as "synthetic" frame
+                        # Note: Count as incoming frame for metrics (synthetic but necessary)
                     else:
                         await asyncio.sleep(0.01)
                         continue
