@@ -1323,6 +1323,24 @@ def baileys_webhook():
                     log.info(f"[WA-SESSION] ✅ Conversation tracked: conv_id={conversation.id if conversation else None}, lead_id={lead.id}")
                 except Exception as e:
                     log.warning(f"⚠️ Session tracking failed: {e}")
+                    
+                    # 🔥 FALLBACK: Try to fetch existing conversation by canonical_key
+                    # This ensures message always has a conversation_id even if session tracking fails
+                    try:
+                        from server.utils.whatsapp_utils import get_canonical_conversation_key
+                        canonical_key = get_canonical_conversation_key(
+                            business_id=business_id,
+                            lead_id=lead.id,
+                            phone_e164=from_number_e164
+                        )
+                        conversation = WhatsAppConversation.query.filter_by(
+                            business_id=business_id,
+                            canonical_key=canonical_key
+                        ).first()
+                        if conversation:
+                            log.info(f"[WA-SESSION] ✅ Fallback: Found existing conversation conv_id={conversation.id}")
+                    except Exception as fallback_err:
+                        log.error(f"⚠️ Fallback conversation fetch failed: {fallback_err}")
                 
                 # Save incoming message to DB with message_id for deduplication
                 # Use ON CONFLICT DO NOTHING pattern for race condition protection

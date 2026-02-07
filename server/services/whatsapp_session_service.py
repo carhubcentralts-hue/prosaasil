@@ -164,27 +164,120 @@ def get_or_create_session(
             except Exception as e:
                 logger.warning(f"[WA-SESSION] Could not recalculate canonical_key: {e}")
     
-    # Create new session
+    # 🔥 UPSERT: Create new session with ON CONFLICT handling to prevent UniqueViolation
+    # Use PostgreSQL INSERT ... ON CONFLICT DO UPDATE for atomic operation
+    from sqlalchemy.dialects.postgresql import insert
+    from sqlalchemy import select
+    
+    now = datetime.utcnow()
+    
+    # Try UPSERT if canonical_key is available
+    if canonical_key:
+        try:
+            # Prepare insert statement
+            stmt = insert(WhatsAppConversation).values(
+                business_id=business_id,
+                customer_number=customer_wa_id,
+                provider=provider,
+                customer_wa_id=customer_wa_id,
+                lead_id=lead_id,
+                canonical_key=canonical_key,
+                started_at=now,
+                last_message_at=now,
+                last_customer_message_at=now,
+                is_open=True,
+                summary_created=False,
+                created_at=now,
+                updated_at=now
+            )
+            
+            # On conflict, update timestamps and reopen if closed
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['business_id', 'canonical_key'],
+                set_={
+                    'last_message_at': now,
+                    'last_customer_message_at': now,
+                    'is_open': True,
+                    'updated_at': now,
+                    # Update lead_id if provided and not already set
+                    'lead_id': stmt.excluded.lead_id if lead_id else WhatsAppConversation.lead_id,
+                    # Keep customer_name if it exists
+                    'customer_wa_id': customer_wa_id,
+                    'provider': provider
+                }
+            ).returning(WhatsAppConversation.id)
+            
+            result = db.session.execute(stmt)
+            db.session.commit()
+            
+            # Fetch the conversation that was inserted or updated
+            conv_id = result.scalar_one()
+            session = WhatsAppConversation.query.get(conv_id)
+            
+            logger.info(f"[WA-SESSION] ✅ UPSERT completed: session_id={session.id} canonical_key={canonical_key} lead_id={lead_id} business_id={business_id}")
+            
+            return session, True  # We can't easily distinguish if it was new or existing, but that's okay
+            
+        except Exception as upsert_err:
+            logger.error(f"[WA-SESSION] ⚠️ UPSERT failed, falling back to SELECT: {upsert_err}")
+            db.session.rollback()
+            
+            # Fallback: Try to fetch existing conversation
+            if canonical_key:
+                session = WhatsAppConversation.query.filter_by(
+                    business_id=business_id,
+                    canonical_key=canonical_key
+                ).first()
+                
+                if session:
+                    # Update timestamps manually
+                    session.last_message_at = now
+                    session.last_customer_message_at = now
+                    session.is_open = True
+                    session.updated_at = now
+                    if lead_id and not session.lead_id:
+                        session.lead_id = lead_id
+                    db.session.commit()
+                    logger.info(f"[WA-SESSION] ✅ Fallback update succeeded: session_id={session.id}")
+                    return session, False
+    
+    # Final fallback: Original INSERT logic (without canonical_key or after UPSERT failed)
+    # This should rarely happen in production
     new_session = WhatsAppConversation(
         business_id=business_id,
-        customer_number=customer_wa_id,  # ✅ BUILD 170.1: Required field!
+        customer_number=customer_wa_id,
         provider=provider,
         customer_wa_id=customer_wa_id,
         lead_id=lead_id,
-        canonical_key=canonical_key,  # 🔥 BUILD 138: Set canonical key
-        started_at=datetime.utcnow(),
-        last_message_at=datetime.utcnow(),
-        last_customer_message_at=datetime.utcnow(),
+        canonical_key=canonical_key,
+        started_at=now,
+        last_message_at=now,
+        last_customer_message_at=now,
         is_open=True,
         summary_created=False
     )
     
-    db.session.add(new_session)
-    db.session.commit()
-    
-    logger.info(f"[WA-SESSION] ✨ Created NEW session id={new_session.id} canonical_key={canonical_key} lead_id={lead_id} business_id={business_id}")
-    
-    return new_session, True
+    try:
+        db.session.add(new_session)
+        db.session.commit()
+        logger.info(f"[WA-SESSION] ✨ Created NEW session id={new_session.id} canonical_key={canonical_key} lead_id={lead_id} business_id={business_id}")
+        return new_session, True
+    except Exception as insert_err:
+        # Last resort: rollback and try to fetch existing
+        logger.error(f"[WA-SESSION] ❌ Final INSERT failed: {insert_err}")
+        db.session.rollback()
+        
+        if canonical_key:
+            session = WhatsAppConversation.query.filter_by(
+                business_id=business_id,
+                canonical_key=canonical_key
+            ).first()
+            if session:
+                logger.info(f"[WA-SESSION] ✅ Recovered existing session: session_id={session.id}")
+                return session, False
+        
+        # If we still can't get a session, re-raise the error
+        raise
 
 
 def update_session_activity(
