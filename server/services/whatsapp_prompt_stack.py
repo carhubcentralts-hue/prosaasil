@@ -8,6 +8,7 @@ The ONLY source of truth for bot behavior is business.whatsapp_system_prompt in 
 NO hardcoded prompts, rules, or instructions are allowed in this file.
 All behavior, tone, rules, and instructions must come from the database.
 """
+import json
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -101,7 +102,6 @@ def build_whatsapp_prompt_stack(
         
         # Known facts (from lead_facts table)
         if context.get('known_facts'):
-            import json
             context_parts.append(f"עובדות ידועות: {json.dumps(context['known_facts'], ensure_ascii=False)}")
         
         if context_parts:

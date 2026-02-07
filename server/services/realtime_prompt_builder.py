@@ -1651,8 +1651,7 @@ def build_inbound_system_prompt(
             from server.models_sql import Business as BizModel
             biz = BizModel.query.get(business_id) if business_id else None
             if biz and biz.ai_logic_compiled:
-                import json as _json
-                logic_json = _json.dumps(biz.ai_logic_compiled, ensure_ascii=False)
+                logic_json = json.dumps(biz.ai_logic_compiled, ensure_ascii=False)
                 compiled_logic_section = (
                     f"\n\nBUSINESS RULES (compiled logic - follow these rules strictly):\n"
                     f"{logic_json}\n"
@@ -1775,8 +1774,7 @@ def build_outbound_system_prompt(
             from server.models_sql import Business as BizModel
             biz = BizModel.query.get(business_id) if business_id else None
             if biz and biz.ai_logic_compiled:
-                import json as _json
-                logic_json = _json.dumps(biz.ai_logic_compiled, ensure_ascii=False)
+                logic_json = json.dumps(biz.ai_logic_compiled, ensure_ascii=False)
                 compiled_logic_section_out = (
                     f"\n\nBUSINESS RULES (compiled logic - follow these rules strictly):\n"
                     f"{logic_json}\n"

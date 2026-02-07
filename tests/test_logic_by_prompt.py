@@ -2,8 +2,9 @@
 Tests for Logic-by-Prompt system: Rules Compiler + Decision Engine + Status Logic
 ═══════════════════════════════════════════════════════════════════════════════════
 
-15 tests:
-- 10 tests for rules compilation and decision engine
+24 tests:
+- 10 tests for rules compilation
+- 9 tests for decision engine
 - 5 tests for status-based logic
 """
 import json
