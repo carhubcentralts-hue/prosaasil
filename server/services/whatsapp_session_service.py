@@ -556,7 +556,7 @@ def get_active_chats(business_id: int, limit: int = 50) -> list:
         limit: Max number of chats to return
     
     Returns:
-        List of active session dicts
+        List of active session dicts with unread status
     """
     sessions = WhatsAppConversation.query.filter_by(
         business_id=business_id,
@@ -573,6 +573,15 @@ def get_active_chats(business_id: int, limit: int = 50) -> list:
             if lead:
                 lead_name = lead.full_name
         
+        # Calculate unread status
+        # Unread if: last_customer_message_at > last_read_at (or last_read_at is None)
+        is_unread = False
+        if s.last_customer_message_at:
+            if s.last_read_at is None:
+                is_unread = True
+            else:
+                is_unread = s.last_customer_message_at > s.last_read_at
+        
         result.append({
             "id": s.id,
             "customer_wa_id": s.customer_wa_id,
@@ -580,6 +589,9 @@ def get_active_chats(business_id: int, limit: int = 50) -> list:
             "lead_name": lead_name,
             "started_at": s.started_at.isoformat() if s.started_at else None,
             "last_message_at": s.last_message_at.isoformat() if s.last_message_at else None,
+            "last_customer_message_at": s.last_customer_message_at.isoformat() if s.last_customer_message_at else None,
+            "last_read_at": s.last_read_at.isoformat() if s.last_read_at else None,
+            "is_unread": is_unread,
             "provider": s.provider
         })
     

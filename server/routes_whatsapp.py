@@ -2961,6 +2961,136 @@ def delete_whatsapp_conversation(phone):
     return jsonify({"success": True, "deleted_count": updated}), 200
 
 
+@whatsapp_bp.route('/conversations/<int:conversation_id>/mark_read', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def mark_conversation_read(conversation_id):
+    """
+    Mark a WhatsApp conversation as read
+    
+    Updates last_read_at to current timestamp, which is used to calculate unread status.
+    A conversation is considered unread if: last_customer_message_at > last_read_at
+    
+    Args:
+        conversation_id: WhatsAppConversation ID
+        
+    Returns:
+        {"success": True, "conversation_id": int, "last_read_at": timestamp}
+    """
+    from server.routes_crm import get_business_id
+    from datetime import datetime
+    
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+    
+    # Find conversation belonging to this business
+    conversation = WhatsAppConversation.query.filter_by(
+        id=conversation_id,
+        business_id=int(business_id)
+    ).first()
+    
+    if not conversation:
+        return jsonify({"success": False, "error": "conversation_not_found"}), 404
+    
+    # Update last_read_at to now
+    conversation.last_read_at = datetime.utcnow()
+    db.session.commit()
+    
+    logger.info(f"[WA-MARK-READ] ✅ Marked conversation {conversation_id} as read for business {business_id}")
+    
+    return jsonify({
+        "success": True,
+        "conversation_id": conversation_id,
+        "last_read_at": conversation.last_read_at.isoformat()
+    }), 200
+
+
+@whatsapp_bp.route('/conversations/<path:phone>/mark_read', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def mark_conversation_read_by_phone(phone):
+    """
+    Mark a WhatsApp conversation as read by phone number
+    
+    Alternative endpoint that finds conversation by phone number.
+    Useful for UI components that only have phone, not conversation_id.
+    
+    Args:
+        phone: Customer phone number (cleaned or with @s.whatsapp.net)
+        
+    Returns:
+        {"success": True, "conversation_id": int, "last_read_at": timestamp}
+    """
+    from server.routes_crm import get_business_id
+    from datetime import datetime
+    from server.utils.whatsapp_utils import get_canonical_conversation_key
+    from server.agent_tools.phone_utils import normalize_phone
+    
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+    
+    # Clean phone number
+    phone_clean = phone.replace("@s.whatsapp.net", "").replace("+", "").strip()
+    phone_e164 = normalize_phone(phone_clean)
+    
+    # Try to find conversation by canonical key first (most reliable)
+    conversation = None
+    
+    # Try to find lead by phone to get canonical key
+    lead = Lead.query.filter_by(
+        tenant_id=int(business_id),
+        phone_e164=phone_e164
+    ).first()
+    
+    if lead:
+        try:
+            canonical_key = get_canonical_conversation_key(
+                business_id=int(business_id),
+                lead_id=lead.id,
+                phone_e164=phone_e164
+            )
+            conversation = WhatsAppConversation.query.filter_by(
+                business_id=int(business_id),
+                canonical_key=canonical_key
+            ).first()
+        except Exception as e:
+            logger.warning(f"[WA-MARK-READ] Could not get canonical key: {e}")
+    
+    # Fallback: try by customer_wa_id (legacy)
+    if not conversation:
+        conversation = WhatsAppConversation.query.filter_by(
+            business_id=int(business_id),
+            customer_wa_id=phone_clean,
+            is_open=True
+        ).first()
+    
+    # Last resort: try with phone variants
+    if not conversation:
+        phone_variants = [phone_clean, f"+{phone_clean}", phone_e164]
+        conversation = WhatsAppConversation.query.filter(
+            WhatsAppConversation.business_id == int(business_id),
+            WhatsAppConversation.customer_wa_id.in_(phone_variants),
+            WhatsAppConversation.is_open == True
+        ).first()
+    
+    if not conversation:
+        return jsonify({"success": False, "error": "conversation_not_found"}), 404
+    
+    # Update last_read_at to now
+    conversation.last_read_at = datetime.utcnow()
+    db.session.commit()
+    
+    logger.info(f"[WA-MARK-READ] ✅ Marked conversation {conversation.id} as read for phone {phone_clean}")
+    
+    return jsonify({
+        "success": True,
+        "conversation_id": conversation.id,
+        "last_read_at": conversation.last_read_at.isoformat()
+    }), 200
+
+
 # === WhatsApp Broadcast Endpoints ===
 
 @whatsapp_bp.route('/templates', methods=['GET'])
