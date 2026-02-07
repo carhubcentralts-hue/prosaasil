@@ -619,7 +619,14 @@ def webhook_ingest_lead(webhook_id):
                 else:
                     # Final fallback to 'new' if no default exists
                     target_status_name = 'new'
-                    logger.warning(f"⚠️ Webhook {webhook_id}: No default status found, using hardcoded fallback 'new'")
+                    # Try to get the 'new' status ID
+                    new_status = LeadStatus.query.filter_by(
+                        business_id=webhook.business_id,
+                        name='new',
+                        is_active=True
+                    ).first()
+                    target_status_id = new_status.id if new_status else None
+                    logger.warning(f"⚠️ Webhook {webhook_id}: No default status found, using hardcoded fallback 'new' (id={target_status_id})")
             
             # Create new lead
             lead = Lead(
@@ -629,7 +636,7 @@ def webhook_ingest_lead(webhook_id):
                 email=email,
                 city=fields.get('city'),
                 notes=fields.get('notes'),
-                source=fields.get('source', 'webhook'),
+                source=fields.get('source', f'webhook_{webhook_id}'),
                 status=target_status_name,
                 raw_payload=payload,
                 created_at=datetime.utcnow()
