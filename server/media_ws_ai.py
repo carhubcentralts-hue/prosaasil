@@ -4691,10 +4691,7 @@ class MediaStreamHandler:
         # 🔥 STEP 5: Queue audio until session is confirmed
         # ═══════════════════════════════════════════════════════════════════════
         _session_wait_logged = False
-        _gemini_ready_wait_logged = False
-        _gemini_ready_resumed_logged = False
-        _gemini_duplex_block_logged = False
-        _gemini_pending_drop_logged = False
+        # ✅ FIX: Removed _gemini_ready_wait_logged and related vars - no longer buffering
         ai_provider = getattr(self, '_ai_provider', 'openai')
         
         while not self.realtime_stop_flag and not self.closed:
@@ -4745,17 +4742,10 @@ class MediaStreamHandler:
                 # 🔥 BUILD 341: Count incoming frames
                 _frames_in += 1
 
-                if ai_provider == 'gemini':
-                    if self.is_ai_speaking_event.is_set():
-                        if not _gemini_duplex_block_logged:
-                            logger.info("🚫 [GEMINI_HALF_DUPLEX] AI speaking - blocking user audio forwarding")
-                            _gemini_duplex_block_logged = True
-                        self._stats_audio_blocked += 1
-                        _frames_dropped += 1
-                        continue
-                    elif _gemini_duplex_block_logged:
-                        logger.info("✅ [GEMINI_HALF_DUPLEX] AI done speaking - resuming user audio forwarding")
-                        _gemini_duplex_block_logged = False
+                # ✅ FIX: Removed Gemini half-duplex blocking - must allow continuous audio flow
+                # Gemini Live requires continuous bidirectional audio streaming for stable operation
+                # Blocking user audio when AI speaks prevents proper barge-in and can cause WebSocket closure
+                # Server-side barge-in is handled by speech_started event (line 6555+)
                 
                 # 🔥 REMOVED: greeting_lock frame dropping - all frames are now processed
                 
