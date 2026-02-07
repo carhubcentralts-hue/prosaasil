@@ -9133,6 +9133,113 @@ def apply_migrations():
         checkpoint("✅ Migration 145 complete: last_read_at column for mark-as-read")
         
         # ═══════════════════════════════════════════════════════════════════════
+        # Migration 146: Add Logic-by-Prompt fields to business table
+        # 🎯 PURPOSE: Enable dynamic business logic rules in Hebrew
+        # 🔥 FEATURE: Business owners write rules in Hebrew, compiled to JSON
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 146: Add Logic-by-Prompt fields to business")
+        
+        try:
+            if check_table_exists('business'):
+                logic_columns = {
+                    'ai_logic_text': 'TEXT NULL',
+                    'ai_logic_compiled': 'JSONB NULL',
+                    'ai_logic_compiled_at': 'TIMESTAMP NULL',
+                    'ai_logic_compile_version': 'INTEGER NULL DEFAULT 0',
+                    'ai_logic_compile_error': 'TEXT NULL'
+                }
+                for col_name, col_def in logic_columns.items():
+                    if not check_column_exists('business', col_name):
+                        checkpoint(f"  → Adding {col_name} column to business...")
+                        execute_with_retry(migrate_engine, f"""
+                            ALTER TABLE business ADD COLUMN {col_name} {col_def}
+                        """)
+                        checkpoint(f"  ✅ {col_name} column added")
+                        migrations_applied.append(f"migration_146_{col_name}")
+                    else:
+                        checkpoint(f"  ⏭️  {col_name} already exists")
+                
+                checkpoint("  ✅ Migration 146 schema changes completed")
+                    
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 146 failed: {e}")
+            logger.error(f"Migration 146 error: {e}", exc_info=True)
+        
+        checkpoint("✅ Migration 146 complete: Logic-by-Prompt fields added")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 147: Create lead_facts table for persistent fact storage
+        # 🎯 PURPOSE: Store extracted facts from AI decisions per lead
+        # 🔥 FEATURE: Known facts are fed back to Decision Engine
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 147: Create lead_facts table")
+        
+        try:
+            if not check_table_exists('lead_facts'):
+                checkpoint("  → Creating lead_facts table...")
+                execute_with_retry(migrate_engine, """
+                    CREATE TABLE IF NOT EXISTS lead_facts (
+                        id SERIAL PRIMARY KEY,
+                        lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                        business_id INTEGER NOT NULL REFERENCES business(id),
+                        key VARCHAR(128) NOT NULL,
+                        value TEXT NOT NULL,
+                        confidence FLOAT DEFAULT 1.0,
+                        source VARCHAR(32) DEFAULT 'ai',
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW(),
+                        CONSTRAINT _lead_fact_unique UNIQUE (lead_id, key)
+                    )
+                """)
+                checkpoint("  ✅ lead_facts table created")
+                migrations_applied.append("migration_147_lead_facts")
+            else:
+                checkpoint("  ⏭️  lead_facts table already exists")
+                
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 147 failed: {e}")
+            logger.error(f"Migration 147 error: {e}", exc_info=True)
+        
+        checkpoint("✅ Migration 147 complete: lead_facts table ready")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 148: Create ai_decisions log table for KPI/debugging
+        # 🎯 PURPOSE: Log every AI decision for debugging and analytics
+        # 🔥 FEATURE: Track action, confidence, rule_hits, latency per decision
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting Migration 148: Create ai_decisions table")
+        
+        try:
+            if not check_table_exists('ai_decisions'):
+                checkpoint("  → Creating ai_decisions table...")
+                execute_with_retry(migrate_engine, """
+                    CREATE TABLE IF NOT EXISTS ai_decisions (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id),
+                        lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+                        channel VARCHAR(32) NOT NULL,
+                        action VARCHAR(64) NOT NULL,
+                        confidence FLOAT,
+                        rule_hits JSONB,
+                        missing_fields JSONB,
+                        extracted_facts JSONB,
+                        reply TEXT,
+                        latency_ms INTEGER,
+                        lead_status_label VARCHAR(128),
+                        proposed_status VARCHAR(128),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """)
+                checkpoint("  ✅ ai_decisions table created")
+                migrations_applied.append("migration_148_ai_decisions")
+            else:
+                checkpoint("  ⏭️  ai_decisions table already exists")
+                
+        except Exception as e:
+            checkpoint(f"  ❌ Migration 148 failed: {e}")
+            logger.error(f"Migration 148 error: {e}", exc_info=True)
+        
+        checkpoint("✅ Migration 148 complete: ai_decisions table ready")
         # Migration 146: Add lead_status_events table for idempotency & audit
         # 🎯 PURPOSE: Track status change recommendations with idempotency
         # 🔥 FEATURE: Prevents duplicate status updates from same source (call/WA summary)

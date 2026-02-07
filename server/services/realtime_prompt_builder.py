@@ -1642,10 +1642,29 @@ def build_inbound_system_prompt(
         # 🔥 COMBINE ALL LAYERS
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 5: COMPILED BUSINESS LOGIC (Logic-by-Prompt)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        compiled_logic_section = ""
+        try:
+            from server.models_sql import Business as BizModel
+            biz = BizModel.query.get(business_id) if business_id else None
+            if biz and biz.ai_logic_compiled:
+                logic_json = json.dumps(biz.ai_logic_compiled, ensure_ascii=False)
+                compiled_logic_section = (
+                    f"\n\nBUSINESS RULES (compiled logic - follow these rules strictly):\n"
+                    f"{logic_json}\n"
+                )
+                logger.info(f"📋 [COMPILED_LOGIC] Injected compiled rules for business {business_id}")
+        except Exception as logic_err:
+            logger.warning(f"📋 [COMPILED_LOGIC] Failed to load: {logic_err}")
+        
         full_prompt = (
             f"{system_rules}{appointment_instructions}\n\n"
             f"BUSINESS PROMPT (Business ID: {business_id}):\n{business_prompt}\n\n"
             f"{lead_context_section}"  # 🔥 NEW: Inject lead context (includes own newlines)
+            f"{compiled_logic_section}"  # 🔥 Logic-by-Prompt: Inject compiled rules
             "CALL TYPE: INBOUND. The customer called the business. Follow the business prompt for greeting and flow."
         )
         
@@ -1746,9 +1765,28 @@ def build_outbound_system_prompt(
         # 🔥 COMBINE ALL LAYERS
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 4: COMPILED BUSINESS LOGIC (Logic-by-Prompt)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        compiled_logic_section_out = ""
+        try:
+            from server.models_sql import Business as BizModel
+            biz = BizModel.query.get(business_id) if business_id else None
+            if biz and biz.ai_logic_compiled:
+                logic_json = json.dumps(biz.ai_logic_compiled, ensure_ascii=False)
+                compiled_logic_section_out = (
+                    f"\n\nBUSINESS RULES (compiled logic - follow these rules strictly):\n"
+                    f"{logic_json}\n"
+                )
+                logger.info(f"📋 [COMPILED_LOGIC] Injected compiled rules for outbound business {business_id}")
+        except Exception as logic_err:
+            logger.warning(f"📋 [COMPILED_LOGIC] Failed to load: {logic_err}")
+        
         full_prompt = (
             f"{system_rules}\n\n"
             f"BUSINESS PROMPT (Business ID: {business_id}):\n{outbound_prompt}\n\n"
+            f"{compiled_logic_section_out}"
             f'CALL TYPE: OUTBOUND from "{business_name}". If confused, briefly identify the business and continue per the outbound prompt.'
         )
         

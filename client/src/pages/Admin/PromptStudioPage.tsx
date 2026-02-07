@@ -10,12 +10,14 @@ import {
   Mic, 
   AlertCircle,
   Settings,
-  Sparkles
+  Sparkles,
+  BookOpen
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
 import { PromptBuilderChat } from '../../components/settings/PromptBuilderChat';
 import { BusinessAISettings } from '../../components/settings/BusinessAISettings';
+import { BusinessAILogicRules } from '../../components/settings/BusinessAILogicRules';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -34,8 +36,8 @@ export function PromptStudioPage() {
   const { user } = useAuth();
   // ✅ URL-based tab navigation for search and refresh persistence
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'appointments' | null;
-  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'appointments'>(tabFromUrl || 'prompts');
+  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'appointments' | 'logic' | null;
+  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'appointments' | 'logic'>(tabFromUrl || 'prompts');
   const [showChatBuilder, setShowChatBuilder] = useState(false);
   const [smartGenChannel, setSmartGenChannel] = useState<'calls' | 'whatsapp'>('calls');
   const [saving, setSaving] = useState(false);
@@ -48,7 +50,7 @@ export function PromptStudioPage() {
   }, [tabFromUrl]);
   
   // ✅ Update URL when tab changes
-  const handleTabChange = (tab: 'prompts' | 'builder' | 'appointments') => {
+  const handleTabChange = (tab: 'prompts' | 'builder' | 'appointments' | 'logic') => {
     setActiveTab(tab);
     setSearchParams({ tab });
   };
@@ -193,6 +195,17 @@ export function PromptStudioPage() {
         >
           <Settings className="h-4 w-4" />
           הגדרות תורים
+        </button>
+        <button
+          onClick={() => handleTabChange('logic')}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            activeTab === 'logic'
+              ? 'border-purple-600 text-purple-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <BookOpen className="h-4 w-4" />
+          חוקים / לוגיקה
         </button>
       </div>
 
@@ -390,6 +403,10 @@ export function PromptStudioPage() {
             </div>
           </Card>
         </div>
+      )}
+
+      {activeTab === 'logic' && (
+        <BusinessAILogicRules />
       )}
 
       {/* Prompt Builder Chat Modal */}

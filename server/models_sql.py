@@ -65,6 +65,12 @@ class Business(db.Model):
     # WhatsApp shard assignment for Baileys horizontal scaling
     # Default 1 = primary shard. See server/whatsapp_shard_router.py for routing logic.
     whatsapp_shard = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    # 🔥 Logic-by-Prompt: Business logic rules written in Hebrew, compiled to JSON
+    ai_logic_text = db.Column(db.Text, nullable=True)  # Hebrew free-text rules written by business owner
+    ai_logic_compiled = db.Column(db.JSON, nullable=True)  # Compiled JSON rules (rules[], constraints, entities_schema)
+    ai_logic_compiled_at = db.Column(db.DateTime, nullable=True)  # When last compiled
+    ai_logic_compile_version = db.Column(db.Integer, nullable=True, default=0)  # Compile version counter
+    ai_logic_compile_error = db.Column(db.Text, nullable=True)  # Last compile error message (Hebrew)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -724,6 +730,53 @@ class LeadStatusHistory(db.Model):
         db.Index('idx_lead_status_history_tenant', 'tenant_id', 'created_at'),
     )
 
+class LeadFact(db.Model):
+    """Persistent fact storage for leads - extracted by Decision Engine"""
+    __tablename__ = "lead_facts"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    key = db.Column(db.String(128), nullable=False)  # Fact key (e.g., "rooms", "city", "date")
+    value = db.Column(db.Text, nullable=False)  # Fact value
+    confidence = db.Column(db.Float, default=1.0)  # Confidence score (0.0-1.0)
+    source = db.Column(db.String(32), default="ai")  # Source: ai|manual|whatsapp|call
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    lead = db.relationship("Lead", backref="facts")
+    business = db.relationship("Business")
+    
+    __table_args__ = (
+        db.UniqueConstraint('lead_id', 'key', name='_lead_fact_unique'),
+        db.Index('idx_lead_facts_lead_business', 'lead_id', 'business_id'),
+    )
+
+
+class AIDecision(db.Model):
+    """Log of AI decisions for KPI tracking and debugging"""
+    __tablename__ = "ai_decisions"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    channel = db.Column(db.String(32), nullable=False)  # whatsapp|call
+    action = db.Column(db.String(64), nullable=False)  # collect_details|schedule_meeting|ask_clarifying_question|...
+    confidence = db.Column(db.Float)  # Decision confidence (0.0-1.0)
+    rule_hits = db.Column(db.JSON)  # List of rule IDs that matched
+    missing_fields = db.Column(db.JSON)  # List of missing fields
+    extracted_facts = db.Column(db.JSON)  # Facts extracted in this decision
+    reply = db.Column(db.Text)  # The reply generated
+    latency_ms = db.Column(db.Integer)  # Decision latency in milliseconds
+    
+    # Status context
+    lead_status_label = db.Column(db.String(128))  # Lead status at time of decision
+    proposed_status = db.Column(db.String(128))  # Proposed status change (if any)
+    
 class LeadStatusEvent(db.Model):
     """
     Lead status change events for idempotency and audit trail
@@ -760,6 +813,11 @@ class LeadStatusEvent(db.Model):
     business = db.relationship("Business")
     lead = db.relationship("Lead")
     
+    __table_args__ = (
+        db.Index('idx_ai_decisions_business_created', 'business_id', 'created_at'),
+    )
+
+
     # Idempotency constraint: same source+event can only be recorded once per business
     __table_args__ = (
         db.Index('idx_lead_status_events_idempotency', 'business_id', 'source', 'source_event_id', unique=True),
