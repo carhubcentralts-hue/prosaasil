@@ -12,7 +12,7 @@ Manages automated WhatsApp confirmations based on appointment status changes
 ⏰ TIMEZONE STRATEGY:
 - All datetimes in this system are NAIVE and represent Israel local time (Asia/Jerusalem)
 - Database stores naive datetimes (no timezone info) - treat as Israel time
-- Use datetime.now() for current time (NOT datetime.utcnow() which returns UTC)
+- Use get_israel_now() for current time (NOT datetime.utcnow() which returns UTC)
 - Offset calculations preserve the exact hour (e.g., "1 day before" = exactly 24 hours)
 - Example: Meeting at 18:30 today → "day before" trigger = yesterday at 18:30
 
@@ -32,6 +32,7 @@ Manages automated WhatsApp confirmations based on appointment status changes
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
+import pytz
 from sqlalchemy import and_, or_
 from server.db import db
 from server.models_sql import (
@@ -46,6 +47,27 @@ from server.services.jobs import enqueue
 from server.jobs.send_appointment_confirmation_job import send_appointment_confirmation
 
 logger = logging.getLogger(__name__)
+
+# Israel timezone constant
+ISRAEL_TZ = pytz.timezone('Asia/Jerusalem')
+
+
+def get_israel_now() -> datetime:
+    """
+    Get current time in Israel timezone as a NAIVE datetime.
+    
+    This returns a naive datetime that represents the current Israel local time,
+    matching the format used in the database.
+    
+    Returns:
+        Naive datetime representing current Israel time
+    """
+    # Get current UTC time as timezone-aware
+    utc_now = datetime.now(pytz.utc)
+    # Convert to Israel timezone
+    israel_now = utc_now.astimezone(ISRAEL_TZ)
+    # Return as naive (remove timezone info) since DB stores naive datetimes
+    return israel_now.replace(tzinfo=None)
 
 
 def get_active_automations(
@@ -135,7 +157,7 @@ def calculate_scheduled_time(
     minutes = offset_config.get('minutes', 0)
     
     if offset_type == 'immediate':
-        return datetime.now()  # Naive Israel time (matches DB storage)
+        return get_israel_now()  # Israel local time (matches DB storage)
     elif offset_type == 'before':
         return appointment_start_time - timedelta(minutes=minutes)
     elif offset_type == 'after':
@@ -352,7 +374,7 @@ def cancel_automation_jobs(
             
             if automation and automation.cancel_on_status_exit:
                 run.status = 'canceled'
-                run.canceled_at = datetime.now()  # Naive Israel time (matches DB storage)
+                run.canceled_at = get_israel_now()  # Israel local time (matches DB storage)
                 db.session.add(run)
                 canceled_count += 1
                 logger.info(f"Canceled automation run {run.id} for appointment {appointment_id}")
@@ -436,7 +458,7 @@ def get_pending_automation_runs(limit: int = 100) -> List[AppointmentAutomationR
         List of AppointmentAutomationRun records
     """
     try:
-        now = datetime.now()  # Naive Israel time (matches DB storage)
+        now = get_israel_now()  # Israel local time (matches DB storage)
         
         runs = AppointmentAutomationRun.query.filter(
             AppointmentAutomationRun.status == 'pending',
