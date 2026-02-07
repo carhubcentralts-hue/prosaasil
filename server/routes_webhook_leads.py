@@ -601,13 +601,15 @@ def webhook_ingest_lead(webhook_id):
             
             logger.info(f"✅ Created new lead {lead.id} from webhook {webhook_id} in status '{lead.status}'")
             
+            # Return 201 Created for new resources (REST best practice)
             return json_response({
                 "ok": True,
                 "lead_id": lead.id,
                 "updated": False
-            }, 200)
+            }, 201)
         
     except Exception as e:
         logger.error(f"❌ Error processing webhook {webhook_id}: {e}", exc_info=True)
         db.session.rollback()
-        return json_response({"ok": False, "error": "internal_server_error", "details": str(e)}, 500)
+        # Don't expose internal error details to external callers for security
+        return json_response({"ok": False, "error": "internal_server_error"}, 500)

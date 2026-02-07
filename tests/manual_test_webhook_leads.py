@@ -48,7 +48,7 @@ def main():
             "name": "ישראל ישראלי",
             "phone": "+972501234567"
         },
-        "200 OK",
+        "201 Created",
         "Should create new lead successfully"
     )
     
@@ -59,7 +59,7 @@ def main():
             "name": "שרה כהן",
             "email": "sara@example.com"
         },
-        "200 OK",
+        "201 Created",
         "Should create new lead successfully"
     )
     
@@ -73,7 +73,7 @@ def main():
             "city": "תל אביב",
             "notes": "מעוניין בשירות חשמלאי"
         },
-        "200 OK",
+        "201 Created",
         "Should create new lead with all fields"
     )
     
@@ -95,7 +95,7 @@ def main():
             "name": "מיכל שלום",
             "mobile": "+972521234567"
         },
-        "200 OK",
+        "201 Created",
         "Should recognize 'mobile' as phone field"
     )
     
@@ -106,7 +106,7 @@ def main():
             "name": "רונית גולן",
             "email_address": "ronit@example.com"
         },
-        "200 OK",
+        "201 Created",
         "Should recognize 'email_address' as email field"
     )
     
@@ -151,7 +151,8 @@ def main():
     print("\n3. Replace {webhook_id} and {your_secret} in the commands above")
     print("\n4. Run the cURL commands to test")
     print("\n5. Expected responses:")
-    print("   - Success: {\"ok\": true, \"lead_id\": 123, \"updated\": false}")
+    print("   - New lead: {\"ok\": true, \"lead_id\": 123, \"updated\": false} (201 Created)")
+    print("   - Updated lead: {\"ok\": true, \"lead_id\": 123, \"updated\": true} (200 OK)")
     print("   - Error: {\"ok\": false, \"error\": \"...\", \"message\": \"...\"}")
     print("\n6. Verify in UI that leads are created correctly")
     print()

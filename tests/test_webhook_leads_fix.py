@@ -9,8 +9,6 @@ Tests for:
 5. Response format consistency
 """
 import json
-from unittest.mock import Mock, patch
-from datetime import datetime
 
 
 def test_webhook_response_format():
@@ -21,8 +19,10 @@ def test_webhook_response_format():
     - Success responses have "ok": true
     - Error responses have "ok": false
     - All responses include proper fields
+    - New leads return 201 Created (REST best practice)
+    - Updated leads return 200 OK
     """
-    # Test success response for new lead
+    # Test success response for new lead (201 Created)
     success_new = {
         "ok": True,
         "lead_id": 123,
@@ -34,7 +34,7 @@ def test_webhook_response_format():
     assert "updated" in success_new
     assert success_new["updated"] is False
     
-    # Test success response for updated lead
+    # Test success response for updated lead (200 OK)
     success_updated = {
         "ok": True,
         "lead_id": 456,
