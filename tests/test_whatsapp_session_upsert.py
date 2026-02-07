@@ -218,10 +218,9 @@ class TestWhatsAppSessionUpsert:
                 except IntegrityError as ie:
                     # IntegrityError should be handled internally and not leak
                     pytest.fail(f"IntegrityError should not leak from get_or_create_session: {ie}")
-                except Exception:
-                    # Other exceptions are acceptable for this mock-based test
-                    # The important thing is that IntegrityError specifically is caught
-                    pass
+                # Note: We don't catch other exceptions - if the function fails for other reasons,
+                # that's acceptable for this mock-based unit test. The key requirement is that
+                # IntegrityError specifically is handled internally.
     
     def test_upsert_updates_timestamps_on_conflict(self):
         """

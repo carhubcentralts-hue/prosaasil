@@ -203,26 +203,30 @@ def get_or_create_session(
                     'updated_at': now,
                     # Update lead_id: use new value if NOT NULL, otherwise keep existing
                     'lead_id': case(
-                        (stmt.excluded.lead_id.is_not(None), stmt.excluded.lead_id),
+                        (stmt.excluded.lead_id.isnot(None), stmt.excluded.lead_id),
                         else_=WhatsAppConversation.lead_id
                     )
                     # Note: customer_wa_id and provider are immutable after creation
                     # They're part of the conversation identity and should not be updated
                 }
-            ).returning(WhatsAppConversation.id)
+            ).returning(WhatsAppConversation.id, WhatsAppConversation.created_at)
             
             result = db.session.execute(stmt)
             db.session.commit()
             
             # Fetch the conversation that was inserted or updated
-            conv_id = result.scalar_one()
+            row = result.one()
+            conv_id = row[0]
+            created_at = row[1]
             session = WhatsAppConversation.query.get(conv_id)
             
-            logger.info(f"[WA-SESSION] ✅ UPSERT completed: session_id={session.id} canonical_key={canonical_key} lead_id={lead_id} business_id={business_id}")
+            # Heuristic: if created_at equals our 'now', it was likely just inserted
+            # This is not 100% accurate but better than always returning True
+            is_new = (created_at == now)
             
-            # Note: We return True for is_new even though we can't distinguish INSERT vs UPDATE
-            # This is acceptable because the caller doesn't rely on this flag for critical logic
-            return session, True
+            logger.info(f"[WA-SESSION] ✅ UPSERT completed: session_id={session.id} canonical_key={canonical_key} lead_id={lead_id} business_id={business_id} is_new={is_new}")
+            
+            return session, is_new
             
         except Exception as upsert_err:
             logger.error(f"[WA-SESSION] ⚠️ UPSERT failed, falling back to SELECT: {upsert_err}")
