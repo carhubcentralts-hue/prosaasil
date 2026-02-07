@@ -173,6 +173,39 @@ def send_appointment_confirmation(run_id: int, business_id: int) -> Dict[str, An
             logger.info(f"[APPOINTMENT_CONFIRMATION] Run {run_id} already processed (status: {run.status})")
             return {'success': False, 'error': f'Run already {run.status}'}
         
+        # Load automation to check weekday restrictions
+        automation = AppointmentAutomation.query.get(run.automation_id)
+        if not automation:
+            error_msg = f"Automation {run.automation_id} not found"
+            logger.error(f"[APPT-CONFIRM] ❌ {error_msg}")
+            run.status = 'failed'
+            run.last_error = error_msg
+            run.attempts += 1
+            db.session.commit()
+            return {'status': 'error', 'error': error_msg}
+        
+        # 🔥 CRITICAL: Check weekday restrictions before sending
+        # Get current Israel time to determine weekday
+        ISRAEL_TZ = pytz.timezone('Asia/Jerusalem')
+        utc_now = datetime.now(pytz.utc)
+        israel_now = utc_now.astimezone(ISRAEL_TZ).replace(tzinfo=None)
+        
+        python_weekday = israel_now.weekday()  # 0=Monday, 6=Sunday
+        our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+        
+        # Check if today is an active weekday
+        if automation.active_weekdays is not None and isinstance(automation.active_weekdays, list):
+            if our_weekday not in automation.active_weekdays:
+                weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                weekday_names_he = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
+                error_msg = f"Skipped: Today ({weekday_names[our_weekday]}/{weekday_names_he[our_weekday]}) is not an active weekday"
+                logger.warning(f"[APPT-CONFIRM] ⏭️ {error_msg} for automation {automation.id}")
+                run.status = 'canceled'
+                run.last_error = error_msg
+                run.canceled_at = israel_now
+                db.session.commit()
+                return {'status': 'skipped', 'reason': 'not_active_weekday'}
+        
         # Load appointment
         appointment = Appointment.query.filter_by(
             id=run.appointment_id,

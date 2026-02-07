@@ -451,21 +451,49 @@ def get_pending_automation_runs(limit: int = 100) -> List[AppointmentAutomationR
     """
     Get pending automation runs that are due to be executed.
     
+    Filters out runs scheduled for inactive weekdays to avoid unnecessary processing.
+    
     Args:
         limit: Maximum number of runs to return
     
     Returns:
-        List of AppointmentAutomationRun records
+        List of AppointmentAutomationRun records (filtered by weekday rules)
     """
     try:
         now = get_israel_now()  # Israel local time (matches DB storage)
         
+        # Get all pending runs that are due
         runs = AppointmentAutomationRun.query.filter(
             AppointmentAutomationRun.status == 'pending',
             AppointmentAutomationRun.scheduled_for <= now
-        ).limit(limit).all()
+        ).limit(limit * 2).all()  # Get extra in case we filter some out
         
-        return runs
+        # Filter by weekday rules
+        filtered_runs = []
+        python_weekday = now.weekday()  # 0=Monday, 6=Sunday
+        our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+        
+        for run in runs:
+            # Load automation to check weekday rules
+            automation = AppointmentAutomation.query.get(run.automation_id)
+            
+            if automation:
+                # Check if today is an active weekday
+                if automation.active_weekdays is not None and isinstance(automation.active_weekdays, list):
+                    if our_weekday not in automation.active_weekdays:
+                        # Skip this run - not an active weekday
+                        weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                        logger.info(f"[AUTOMATION] Skipping run {run.id} - today ({weekday_names[our_weekday]}) is not an active weekday")
+                        continue
+            
+            filtered_runs.append(run)
+            
+            # Stop if we have enough
+            if len(filtered_runs) >= limit:
+                break
+        
+        logger.info(f"[AUTOMATION] Returning {len(filtered_runs)} pending runs (filtered from {len(runs)})")
+        return filtered_runs
         
     except Exception as e:
         logger.error(f"Error getting pending automation runs: {e}", exc_info=True)
