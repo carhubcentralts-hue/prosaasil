@@ -30,7 +30,7 @@
 
 - **Webhook URL** - כתובת ייחודית לקבלת לידים
   ```
-  https://yourdomain.com/api/webhooks/leads/123
+  https://yourdomain.com/api/webhook/leads/123
   ```
 
 - **Secret** - מפתח אבטחה ייחודי
@@ -98,10 +98,10 @@
 
 ## תגובות (Responses)
 
-### הצלחה - ליד חדש (201)
+### הצלחה - ליד חדש (200)
 ```json
 {
-  "success": true,
+  "ok": true,
   "lead_id": 456,
   "updated": false
 }
@@ -110,7 +110,7 @@
 ### הצלחה - עדכון ליד קיים (200)
 ```json
 {
-  "success": true,
+  "ok": true,
   "lead_id": 123,
   "updated": true
 }
@@ -118,12 +118,12 @@
 
 ### שגיאות
 
-| קוד | תיאור |
-|-----|-------|
-| 400 | חסר phone או email |
-| 401 | Secret שגוי או חסר |
-| 404 | Webhook לא קיים או כבוי |
-| 500 | שגיאת שרת |
+| קוד | תיאור | דוגמה |
+|-----|-------|-------|
+| 400 | חסר phone או email | `{"ok": false, "error": "missing_contact_identifier", "expected_one_of": ["phone", "email"]}` |
+| 401 | Secret שגוי או חסר | `{"ok": false, "error": "invalid_secret"}` |
+| 404 | Webhook לא קיים או כבוי | `{"ok": false, "error": "webhook_not_found"}` |
+| 500 | שגיאת שרת | `{"ok": false, "error": "internal_server_error"}` |
 
 ## מניעת כפילויות
 
@@ -194,7 +194,7 @@ Lead created in CRM automatically
 ### דוגמה 3: cURL לבדיקה
 
 ```bash
-curl -X POST https://yourdomain.com/api/webhooks/leads/123 \
+curl -X POST https://yourdomain.com/api/webhook/leads/123 \
   -H "X-Webhook-Secret: wh_abc123..." \
   -H "Content-Type: application/json" \
   -d '{

@@ -14,12 +14,30 @@ from flask import Blueprint, jsonify, request, g
 from server.models_sql import WebhookLeadIngest, Lead, LeadStatus, Business
 from server.db import db
 from server.auth_api import require_api_auth
+from server.extensions import csrf
 from datetime import datetime
 from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 
 webhook_leads_bp = Blueprint('webhook_leads', __name__, url_prefix='/api')
+
+
+def json_response(data, status_code=200):
+    """
+    Create a JSON response with proper UTF-8 charset for Hebrew support
+    
+    Args:
+        data: Dictionary to be serialized as JSON
+        status_code: HTTP status code (default: 200)
+    
+    Returns:
+        Flask Response object with Content-Type: application/json; charset=utf-8
+    """
+    response = jsonify(data)
+    response.status_code = status_code
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
 
 
 def generate_webhook_secret():
@@ -420,19 +438,20 @@ def extract_lead_fields(payload):
     return result
 
 
-@webhook_leads_bp.route('/webhooks/leads/<int:webhook_id>', methods=['POST'])
+@webhook_leads_bp.route('/webhook/leads/<int:webhook_id>', methods=['POST', 'OPTIONS'])
+@csrf.exempt  # Public webhook endpoint - authentication via X-Webhook-Secret header
 def webhook_ingest_lead(webhook_id):
     """
     Public webhook endpoint for lead ingestion
     
-    POST /api/webhooks/leads/{webhook_id}
+    POST /api/webhook/leads/{webhook_id}
     Headers:
         X-Webhook-Secret: wh_...
-        Content-Type: application/json
+        Content-Type: application/json; charset=utf-8
     Body: Any JSON payload (best-effort field extraction)
     
     Returns: {
-        "success": true,
+        "ok": true,
         "lead_id": 123,
         "updated": false  # true if existing lead was updated
     }
@@ -443,30 +462,38 @@ def webhook_ingest_lead(webhook_id):
     - 404: Webhook not found or inactive
     - 500: Server error
     """
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        response = json_response({"ok": True})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Webhook-Secret'
+        return response
+    
     try:
         # Find webhook
         webhook = WebhookLeadIngest.query.filter_by(id=webhook_id).first()
         
         if not webhook:
             logger.warning(f"⚠️ Webhook {webhook_id} not found")
-            return jsonify({"error": "Webhook not found"}), 404
+            return json_response({"ok": False, "error": "webhook_not_found"}, 404)
         
         # Check if webhook is active
         if not webhook.is_active:
             logger.warning(f"⚠️ Webhook {webhook_id} is inactive")
-            return jsonify({"error": "Webhook is inactive"}), 404
+            return json_response({"ok": False, "error": "webhook_inactive"}, 404)
         
         # Validate secret
         secret_header = request.headers.get('X-Webhook-Secret')
         if not secret_header or secret_header != webhook.secret:
             logger.warning(f"⚠️ Invalid secret for webhook {webhook_id}")
-            return jsonify({"error": "Invalid or missing X-Webhook-Secret header"}), 401
+            return json_response({"ok": False, "error": "invalid_secret"}, 401)
         
         # Get and validate payload
         payload, error_response = validate_json_body(request)
         if error_response:
             logger.warning(f"⚠️ Webhook {webhook_id}: Invalid JSON payload")
-            return error_response
+            return json_response({"ok": False, "error": "invalid_json"}, 400)
         
         # Extract lead fields
         fields = extract_lead_fields(payload)
@@ -477,10 +504,14 @@ def webhook_ingest_lead(webhook_id):
         
         if not phone and not email:
             logger.warning(f"⚠️ Webhook {webhook_id}: No contact identifier in payload")
-            return jsonify({
-                "error": "no contact identifier",
-                "message": "Must provide either phone or email"
-            }), 400
+            logger.warning(f"   Payload keys: {list(payload.keys())}")
+            return json_response({
+                "ok": False,
+                "error": "missing_contact_identifier",
+                "message": "Must provide either phone or email",
+                "expected_one_of": ["phone", "mobile", "tel", "email", "email_address"],
+                "received_fields": list(payload.keys())
+            }, 400)
         
         # Normalize phone (remove spaces, dashes, etc.)
         if phone:
@@ -544,11 +575,11 @@ def webhook_ingest_lead(webhook_id):
             
             logger.info(f"✅ Updated existing lead {existing_lead.id} from webhook {webhook_id}")
             
-            return jsonify({
-                "success": True,
+            return json_response({
+                "ok": True,
                 "lead_id": existing_lead.id,
                 "updated": True
-            }), 200
+            }, 200)
         
         else:
             # Create new lead
@@ -570,13 +601,13 @@ def webhook_ingest_lead(webhook_id):
             
             logger.info(f"✅ Created new lead {lead.id} from webhook {webhook_id} in status '{lead.status}'")
             
-            return jsonify({
-                "success": True,
+            return json_response({
+                "ok": True,
                 "lead_id": lead.id,
                 "updated": False
-            }), 200
+            }, 200)
         
     except Exception as e:
         logger.error(f"❌ Error processing webhook {webhook_id}: {e}", exc_info=True)
         db.session.rollback()
-        return jsonify({"error": "Internal server error"}), 500
+        return json_response({"ok": False, "error": "internal_server_error", "details": str(e)}, 500)
