@@ -238,10 +238,37 @@ export function WhatsAppPage() {
       finally { setLoadingMessages(false); }
     };
 
-    fetchAiState();
-    fetchMessages();
-    const interval = setInterval(fetchMessages, 3000);
-    return () => clearInterval(interval);
+    // 🔥 FIX: Mark conversation as read when opened
+    const markAsRead = async () => {
+      try {
+        // Use conversation ID (canonical key) if available, fallback to phone
+        const conversationIdentifier = selectedThread.id || selectedThread.phone;
+        await http.post(`/api/whatsapp/conversations/${encodeURIComponent(conversationIdentifier)}/mark_read`, {});
+        console.log('[WhatsApp] Marked conversation as read:', conversationIdentifier);
+      } catch (err) {
+        // Log full error details for debugging
+        console.error('[WhatsApp] Failed to mark conversation as read:', {
+          error: err,
+          conversationId: selectedThread.id,
+          phone: selectedThread.phone
+        });
+      }
+    };
+
+    // Initialize conversation: fetch state, messages, and mark as read
+    const initConversation = async () => {
+      fetchAiState();
+      await markAsRead(); // Mark as read first
+      await fetchMessages(); // Then fetch messages with updated unread count
+      const interval = setInterval(fetchMessages, 3000);
+      return interval;
+    };
+
+    const intervalPromise = initConversation();
+    
+    return () => {
+      intervalPromise.then(interval => clearInterval(interval));
+    };
   }, [selectedThread]);
 
   // ─── QR polling ───────────────────────────────────────────────────────────
