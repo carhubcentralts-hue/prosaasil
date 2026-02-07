@@ -962,15 +962,16 @@ def render_message_template(
 
 def claim_pending_messages(batch_size: int = 50) -> List[ScheduledMessagesQueue]:
     """
-    Claim pending messages that are ready to send (atomic operation)
+    Claim pending messages that are ready to send (atomic operation).
     
     This uses FOR UPDATE SKIP LOCKED to ensure only one worker claims each message.
+    After claiming, filters out messages scheduled for excluded weekdays.
     
     Args:
         batch_size: Maximum number of messages to claim
     
     Returns:
-        List of claimed ScheduledMessagesQueue entries
+        List of claimed ScheduledMessagesQueue entries (filtered by weekday rules)
     """
     now = get_israel_now()
     
@@ -998,18 +999,69 @@ def claim_pending_messages(batch_size: int = 50) -> List[ScheduledMessagesQueue]
     
     claimed_ids = [row[0] for row in result]
     
-    if claimed_ids:
-        db.session.commit()
-        
-        # Fetch full objects
-        messages = ScheduledMessagesQueue.query.filter(
-            ScheduledMessagesQueue.id.in_(claimed_ids)
-        ).all()
-        
-        logger.info(f"[SCHEDULED-MSG] Claimed {len(messages)} message(s) for sending")
-        return messages
+    if not claimed_ids:
+        return []
     
-    return []
+    db.session.commit()
+    
+    # Fetch full objects with rule information
+    from server.models_sql import ScheduledMessageRule
+    messages = db.session.query(ScheduledMessagesQueue).join(
+        ScheduledMessageRule,
+        ScheduledMessagesQueue.rule_id == ScheduledMessageRule.id
+    ).filter(
+        ScheduledMessagesQueue.id.in_(claimed_ids)
+    ).all()
+    
+    # Filter messages based on weekday rules
+    filtered_messages = []
+    cancelled_count = 0
+    
+    for message in messages:
+        rule = message.rule
+        scheduled_for = message.scheduled_for
+        
+        # Check if scheduled_for is an excluded weekday for STATUS_CHANGE schedules
+        if rule.schedule_type == 'STATUS_CHANGE' and rule.excluded_weekdays:
+            python_weekday = scheduled_for.weekday()  # 0=Monday, 6=Sunday
+            our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+            
+            if our_weekday in rule.excluded_weekdays:
+                # Cancel this message - scheduled for excluded weekday
+                message.status = 'canceled'
+                message.error_message = f"Cancelled: Scheduled for excluded weekday (day {our_weekday})"
+                message.updated_at = get_israel_now()
+                db.session.add(message)
+                cancelled_count += 1
+                weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                logger.info(f"[SCHEDULED-MSG] ⏭️ Skipping message {message.id} - scheduled for excluded weekday ({weekday_names[our_weekday]})")
+                continue
+        
+        # Check if scheduled_for falls on an active weekday for RECURRING_TIME schedules
+        if rule.schedule_type == 'RECURRING_TIME' and rule.active_weekdays:
+            python_weekday = scheduled_for.weekday()  # 0=Monday, 6=Sunday
+            our_weekday = (python_weekday + 1) % 7  # 0=Sunday, 1=Monday, ..., 6=Saturday
+            
+            if our_weekday not in rule.active_weekdays:
+                # Cancel this message - not an active weekday
+                message.status = 'canceled'
+                message.error_message = f"Cancelled: Not an active weekday (day {our_weekday})"
+                message.updated_at = get_israel_now()
+                db.session.add(message)
+                cancelled_count += 1
+                weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                logger.info(f"[SCHEDULED-MSG] ⏭️ Skipping message {message.id} - not an active weekday ({weekday_names[our_weekday]})")
+                continue
+        
+        # This message passes all checks
+        filtered_messages.append(message)
+    
+    if cancelled_count > 0:
+        db.session.commit()
+        logger.info(f"[SCHEDULED-MSG] Cancelled {cancelled_count} message(s) due to weekday rules")
+    
+    logger.info(f"[SCHEDULED-MSG] Claimed {len(filtered_messages)} message(s) for sending (filtered from {len(messages)})")
+    return filtered_messages
 
 
 def mark_sent(message_id: int):
