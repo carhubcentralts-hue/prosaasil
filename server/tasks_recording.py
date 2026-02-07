@@ -1489,82 +1489,37 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # Get call direction from call_log
                 call_direction = call_log.direction if call_log else "inbound"
                 
-                # Use new auto-status service with call duration for smart no-summary handling
-                from server.services.lead_auto_status_service import suggest_lead_status_from_call, get_auto_status_service
-                
-                # 🔥 ENHANCED LOGGING: Log what we're passing to auto-status
-                log.info(f"[AutoStatus] 🔍 DIAGNOSTIC for lead {lead.id}:")
+                # 🔥 SSOT: Use centralized status update service
+                log.info(f"[AutoStatus] 🔍 Processing status recommendation for lead {lead.id}:")
                 log.info(f"[AutoStatus]    - Call direction: {call_direction}")
                 log.info(f"[AutoStatus]    - Call duration: {call_log.duration}s")
                 log.info(f"[AutoStatus]    - Has summary: {bool(summary)} (length: {len(summary) if summary else 0})")
                 log.info(f"[AutoStatus]    - Summary preview: '{summary[:150]}...' " if summary else "[AutoStatus]    - No summary")
                 log.info(f"[AutoStatus]    - Current lead status: '{lead.status}'")
                 
-                suggested_status = suggest_lead_status_from_call(
-                    tenant_id=call_log.business_id,
-                    lead_id=lead.id,
-                    call_direction=call_direction,
-                    call_summary=summary,  # AI-generated summary
-                    call_transcript=final_transcript or "",  # 🔥 FIX: Only recording transcript
-                    call_duration=call_log.duration  # 🆕 Pass duration for smart no-summary logic
-                )
-                
-                # 🔥 ENHANCED LOGGING: Log what auto-status suggested
-                if suggested_status:
-                    log.info(f"[AutoStatus] 🤖 Suggested status: '{suggested_status}'")
-                else:
-                    log.warning(f"[AutoStatus] ⚠️ NO STATUS SUGGESTED - check if:")
-                    log.warning(f"[AutoStatus]    1. Business has valid statuses configured")
-                    log.warning(f"[AutoStatus]    2. OpenAI API key is set for AI matching")
-                    log.warning(f"[AutoStatus]    3. Summary/transcript contains matchable keywords")
-                
-                # 🆕 CRITICAL: Smart status change validation - don't change unnecessarily!
-                # Check if we should actually change the status
-                old_status = lead.status
-                auto_status_service = get_auto_status_service()
-                should_change, change_reason = auto_status_service.should_change_status(
-                    current_status=old_status,
-                    suggested_status=suggested_status,
-                    tenant_id=call_log.business_id,
-                    call_summary=summary  # 🔥 Pass call summary for context-aware decision!
-                )
-                
-                # 🔥 ENHANCED LOGGING: Log the decision
-                log.info(f"[AutoStatus] 🎯 Decision: should_change={should_change}, reason='{change_reason}'")
-                
-                if should_change and suggested_status:
-                    # 🔥 USE UNIFIED STATUS SERVICE - Single source of truth
-                    from server.services.unified_status_service import update_lead_status_unified
+                # Use SSOT service for status updates
+                try:
+                    from server.services.lead_status_update_service import get_status_update_service
                     
-                    log.info(f"[AutoStatus] 📝 Calling unified status service for lead {lead.id}")
+                    status_service = get_status_update_service()
                     
-                    result = update_lead_status_unified(
+                    # Use call_sid as unique source_event_id for idempotency
+                    success, message = status_service.apply_from_recommendation(
                         business_id=call_log.business_id,
                         lead_id=lead.id,
-                        new_status=suggested_status,
-                        reason=change_reason or f"Auto-updated from {call_direction} call summary",
-                        confidence=0.8,  # AI-generated from summary
-                        channel='call_summary',  # 🔥 CRITICAL: Mark as summary-based change
-                        metadata={
-                            'call_sid': call_sid,
-                            'old_status': old_status,
-                            'source': f'auto_{call_direction}',
-                            'has_summary': bool(summary),
-                            'call_duration': call_log.duration
-                        }
+                        summary_text=summary or "",
+                        source='call_summary',
+                        source_event_id=call_sid,  # Perfect for idempotency!
+                        confidence=0.8  # AI-generated from summary
                     )
                     
-                    if result.success:
-                        log.info(f"[AutoStatus] ✅ Updated lead {lead.id} status via unified service: {old_status} → {suggested_status}")
-                    elif result.skipped:
-                        log.info(f"[AutoStatus] ⏭️ Status update skipped: {result.message}")
+                    if success:
+                        log.info(f"[AutoStatus] ✅ {message}")
                     else:
-                        log.warning(f"[AutoStatus] ⚠️ Status update failed: {result.message}")
-                elif suggested_status:
-                    # We have a suggested status but decided not to change
-                    log.info(f"[AutoStatus] ⏭️  Keeping lead {lead.id} at status '{old_status}' (suggested '{suggested_status}' but {change_reason})")
-                else:
-                    log.info(f"[AutoStatus] ℹ️ No confident status match for lead {lead.id} - keeping status as '{old_status}'")
+                        log.info(f"[AutoStatus] ℹ️ {message}")
+                        
+                except Exception as e:
+                    log.error(f"[AutoStatus] ❌ Error updating status: {e}", exc_info=True)
                 
                 # 4.5. ✨ Auto-detect and update gender from conversation/name
                 # 🔥 NEW: Auto-detect gender if not already set or detected from conversation
@@ -1786,72 +1741,30 @@ def _handle_failed_call(call_log, call_status, db):
         log.info(f"[FAILED_CALL]    - Summary: '{summary}'")
         log.info(f"[FAILED_CALL]    - Current lead status: '{lead.status}'")
         
-        suggested_status = suggest_lead_status_from_call(
-            tenant_id=call_log.business_id,
-            lead_id=lead.id,
-            call_direction=call_log.direction or "outbound",
-            call_summary=summary,
-            call_transcript=None,  # No transcript for failed calls
-            call_duration=call_log.duration or 0
-        )
-        
-        # 🔥 ENHANCED LOGGING: Log what auto-status suggested
-        if suggested_status:
-            log.info(f"[FAILED_CALL] 🤖 Suggested status: '{suggested_status}'")
-        else:
-            log.warning(f"[FAILED_CALL] ⚠️ NO STATUS SUGGESTED - check if:")
-            log.warning(f"[FAILED_CALL]    1. Business has valid statuses configured")
-            log.warning(f"[FAILED_CALL]    2. OpenAI API key is set for AI matching")
-            log.warning(f"[FAILED_CALL]    3. Summary contains matchable keywords")
-        
-        # 🆕 CRITICAL: Smart status change validation - don't change unnecessarily!
-        old_status = lead.status
-        auto_status_service = get_auto_status_service()
-        should_change, change_reason = auto_status_service.should_change_status(
-            current_status=old_status,
-            suggested_status=suggested_status,
-            tenant_id=call_log.business_id,
-            call_summary=summary  # 🔥 Pass call summary for context-aware decision!
-        )
-        
-        # 🔥 ENHANCED LOGGING: Log the decision
-        log.info(f"[FAILED_CALL] 🎯 Decision: should_change={should_change}, reason='{change_reason}'")
-        
-        # 4. Apply status change with validation
-        if should_change and suggested_status:
-            # 🔥 USE UNIFIED STATUS SERVICE - Single source of truth
-            from server.services.unified_status_service import update_lead_status_unified
+        # 🔥 SSOT: Use centralized status update service
+        try:
+            from server.services.lead_status_update_service import get_status_update_service
             
-            log.info(f"[FAILED_CALL] 📝 Calling unified status service for lead {lead.id}")
+            status_service = get_status_update_service()
             
-            result = update_lead_status_unified(
+            # Use call_sid as unique source_event_id for idempotency
+            success, message = status_service.apply_from_recommendation(
                 business_id=call_log.business_id,
                 lead_id=lead.id,
-                new_status=suggested_status,
-                reason=f"Failed call: {call_status} - {change_reason}",
-                confidence=0.9,  # High confidence for failed calls
-                channel='call_summary',  # 🔥 CRITICAL: Mark as summary-based change
-                metadata={
-                    'call_sid': call_log.call_sid,
-                    'old_status': old_status,
-                    'source': f'auto_{call_status}_{call_log.direction or "unknown"}',
-                    'call_status': call_status,
-                    'call_duration': call_log.duration or 0
-                }
+                summary_text=summary,
+                source='call_summary',
+                source_event_id=call_log.call_sid,  # Perfect for idempotency!
+                confidence=0.9  # High confidence for failed call detection
             )
             
-            if result.success:
+            if success:
                 db.session.commit()
-                log.info(f"[FAILED_CALL] ✅ SUCCESS! Updated lead {lead.id} status via unified service: {old_status} → {suggested_status}")
-            elif result.skipped:
-                log.info(f"[FAILED_CALL] ⏭️ Status update skipped: {result.message}")
+                log.info(f"[FAILED_CALL] ✅ {message}")
             else:
-                log.warning(f"[FAILED_CALL] ⚠️ Status update failed: {result.message}")
-        elif suggested_status:
-            # We have a suggested status but decided not to change
-            log.info(f"[FAILED_CALL] ⏭️  Keeping lead {lead.id} at status '{old_status}' (suggested '{suggested_status}' but {change_reason})")
-        else:
-            log.info(f"[FAILED_CALL] ℹ️ No confident status match for lead {lead.id} - summary created, keeping current status '{old_status}'")
+                log.info(f"[FAILED_CALL] ℹ️ {message}")
+                
+        except Exception as status_err:
+            log.error(f"[FAILED_CALL] ❌ Error updating status: {status_err}", exc_info=True)
             
     except Exception as e:
         log.error(f"[FAILED_CALL] ❌ Error handling failed call {call_log.call_sid}: {e}")
