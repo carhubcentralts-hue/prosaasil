@@ -453,12 +453,12 @@ def webhook_ingest_lead(webhook_id):
     Returns: {
         "ok": true,
         "lead_id": 123,
-        "updated": false  # true if existing lead was updated
+        "status_id": 9  # ID of the status assigned to the lead
     }
     
     Errors:
     - 401: Invalid or missing secret
-    - 400: No contact identifier (phone or email)
+    - 400: No contact identifier (phone or email) - returns {"ok": false, "error": "phone_or_email_required"}
     - 404: Webhook not found or inactive
     - 500: Server error
     """
@@ -507,10 +507,7 @@ def webhook_ingest_lead(webhook_id):
             logger.warning(f"   Payload keys: {list(payload.keys())}")
             return json_response({
                 "ok": False,
-                "error": "missing_contact_identifier",
-                "message": "Must provide either phone or email",
-                "expected_one_of": ["phone", "mobile", "tel", "email", "email_address"],
-                "received_fields": list(payload.keys())
+                "error": "phone_or_email_required"
             }, 400)
         
         # Normalize phone (remove spaces, dashes, etc.)
@@ -573,15 +570,64 @@ def webhook_ingest_lead(webhook_id):
             
             db.session.commit()
             
-            logger.info(f"✅ Updated existing lead {existing_lead.id} from webhook {webhook_id}")
+            # Get status_id for response (look up current lead status)
+            status_obj = LeadStatus.query.filter_by(
+                business_id=webhook.business_id,
+                name=existing_lead.status
+            ).first()
+            status_id = status_obj.id if status_obj else None
+            
+            logger.info(f"✅ Updated existing lead {existing_lead.id} from webhook {webhook_id} (business_id={webhook.business_id})")
             
             return json_response({
                 "ok": True,
                 "lead_id": existing_lead.id,
-                "updated": True
+                "status_id": status_id
             }, 200)
         
         else:
+            # Determine target status for new lead
+            target_status_name = None
+            target_status_id = None
+            
+            # Try to use webhook's configured target status
+            if webhook.status_id:
+                target_status = LeadStatus.query.filter_by(
+                    id=webhook.status_id,
+                    business_id=webhook.business_id,
+                    is_active=True
+                ).first()
+                
+                if target_status:
+                    target_status_name = target_status.name
+                    target_status_id = target_status.id
+                else:
+                    logger.warning(f"⚠️ Webhook {webhook_id}: Target status_id {webhook.status_id} not found or inactive, using fallback")
+            
+            # Fallback to business default status
+            if not target_status_name:
+                default_status = LeadStatus.query.filter_by(
+                    business_id=webhook.business_id,
+                    is_active=True,
+                    is_default=True
+                ).first()
+                
+                if default_status:
+                    target_status_name = default_status.name
+                    target_status_id = default_status.id
+                    logger.warning(f"⚠️ Webhook {webhook_id}: Using business default status '{target_status_name}' (id={target_status_id})")
+                else:
+                    # Final fallback to 'new' if no default exists
+                    target_status_name = 'new'
+                    # Try to get the 'new' status ID
+                    new_status = LeadStatus.query.filter_by(
+                        business_id=webhook.business_id,
+                        name='new',
+                        is_active=True
+                    ).first()
+                    target_status_id = new_status.id if new_status else None
+                    logger.warning(f"⚠️ Webhook {webhook_id}: No default status found, using hardcoded fallback 'new' (id={target_status_id})")
+            
             # Create new lead
             lead = Lead(
                 tenant_id=webhook.business_id,
@@ -590,8 +636,8 @@ def webhook_ingest_lead(webhook_id):
                 email=email,
                 city=fields.get('city'),
                 notes=fields.get('notes'),
-                source=fields.get('source', f"webhook_{webhook_id}"),
-                status=webhook.status.name if webhook.status else 'new',  # Use status name for Lead model
+                source=f'webhook_{webhook_id}',  # Always use webhook source for traceability
+                status=target_status_name,
                 raw_payload=payload,
                 created_at=datetime.utcnow()
             )
@@ -599,12 +645,12 @@ def webhook_ingest_lead(webhook_id):
             db.session.add(lead)
             db.session.commit()
             
-            logger.info(f"✅ Created new lead {lead.id} from webhook {webhook_id} in status '{lead.status}'")
+            logger.info(f"✅ Webhook lead created: lead_id={lead.id}, business_id={webhook.business_id}, hook_id={webhook_id}, status_id={target_status_id}, status='{target_status_name}'")
             
             return json_response({
                 "ok": True,
                 "lead_id": lead.id,
-                "updated": False
+                "status_id": target_status_id
             }, 200)
         
     except Exception as e:

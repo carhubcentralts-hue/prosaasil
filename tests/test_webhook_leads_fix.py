@@ -20,44 +20,40 @@ def test_webhook_response_format():
     Verifies:
     - Success responses have "ok": true
     - Error responses have "ok": false
-    - All responses include proper fields
+    - All responses include proper fields including status_id
     """
     # Test success response for new lead
     success_new = {
         "ok": True,
         "lead_id": 123,
-        "updated": False
+        "status_id": 9
     }
     
     assert success_new["ok"] is True
     assert "lead_id" in success_new
-    assert "updated" in success_new
-    assert success_new["updated"] is False
+    assert "status_id" in success_new
+    assert success_new["status_id"] == 9
     
     # Test success response for updated lead
     success_updated = {
         "ok": True,
         "lead_id": 456,
-        "updated": True
+        "status_id": 5
     }
     
     assert success_updated["ok"] is True
-    assert success_updated["updated"] is True
+    assert "status_id" in success_updated
+    assert success_updated["status_id"] == 5
     
     # Test error response
     error_response = {
         "ok": False,
-        "error": "missing_contact_identifier",
-        "message": "Must provide either phone or email",
-        "expected_one_of": ["phone", "mobile", "tel", "email", "email_address"],
-        "received_fields": ["name", "city"]
+        "error": "phone_or_email_required"
     }
     
     assert error_response["ok"] is False
     assert "error" in error_response
-    assert "message" in error_response
-    assert "expected_one_of" in error_response
-    assert "received_fields" in error_response
+    assert error_response["error"] == "phone_or_email_required"
     
     print("✅ Response format test passed!")
 
@@ -67,8 +63,7 @@ def test_error_response_details():
     Test that error responses provide helpful debugging information
     
     Verifies:
-    - Missing contact identifier error includes expected fields
-    - Error includes what fields were actually received
+    - Missing contact identifier error uses 'phone_or_email_required'
     - Error message is clear and actionable
     """
     # Simulate payload with no contact identifier
@@ -81,25 +76,12 @@ def test_error_response_details():
     # Expected error response
     error = {
         "ok": False,
-        "error": "missing_contact_identifier",
-        "message": "Must provide either phone or email",
-        "expected_one_of": ["phone", "mobile", "tel", "email", "email_address"],
-        "received_fields": list(received_payload.keys())
+        "error": "phone_or_email_required"
     }
     
     # Verify error structure
     assert error["ok"] is False
-    assert error["error"] == "missing_contact_identifier"
-    assert "expected_one_of" in error
-    assert len(error["expected_one_of"]) >= 2  # At least phone and email
-    assert "received_fields" in error
-    assert "name" in error["received_fields"]
-    assert "city" in error["received_fields"]
-    
-    # Verify that expected fields include both phone and email variants
-    expected = error["expected_one_of"]
-    assert any(field in expected for field in ["phone", "mobile", "tel"])
-    assert any(field in expected for field in ["email", "email_address"])
+    assert error["error"] == "phone_or_email_required"
     
     print("✅ Error response details test passed!")
 
