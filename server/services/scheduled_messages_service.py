@@ -106,8 +106,8 @@ def create_rule(
         # Validate delay_seconds
         if delay_seconds == 0 and not send_immediately_on_enter and not has_steps:
             raise ValueError("delay_seconds must be at least 1 for STATUS_CHANGE schedules (unless immediate send or steps are enabled)")
-        if delay_seconds < 0 or delay_seconds > 2592000:  # 0-30 days
-            raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
+        if delay_seconds < 0:
+            raise ValueError("delay_seconds must be non-negative")
     
         # Set delay_minutes for backward compatibility if not provided (delay_seconds already validated >= 0)
         if delay_minutes is None:
@@ -116,12 +116,12 @@ def create_rule(
         # Validate delay_minutes for backward compatibility
         if not send_immediately_on_enter and not has_steps:
             # Require at least 1 minute for standard STATUS_CHANGE schedules
-            if delay_minutes < 1 or delay_minutes > 43200:  # 1 minute to 30 days
-                raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+            if delay_minutes < 1:
+                raise ValueError("delay_minutes must be at least 1 for STATUS_CHANGE schedules")
         else:
             # For immediate sends or steps, allow 0
-            if delay_minutes < 0 or delay_minutes > 43200:
-                raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
+            if delay_minutes < 0:
+                raise ValueError("delay_minutes must be non-negative")
     elif schedule_type == "RECURRING_TIME":
         # For RECURRING_TIME schedules, delays should be 0 (already set in lines 94-95)
         # Set delay_minutes if not already set for backward compatibility
@@ -274,19 +274,19 @@ def update_rule(
         
         if current_schedule_type == 'RECURRING_TIME' or current_immediate:
             # Allow 0 for recurring schedules or immediate sends
-            if delay_minutes < 0 or delay_minutes > 43200:
-                raise ValueError("delay_minutes must be between 0 and 43200 (30 days)")
+            if delay_minutes < 0:
+                raise ValueError("delay_minutes must be non-negative")
         else:
             # Regular STATUS_CHANGE requires >= 1
-            if delay_minutes < 1 or delay_minutes > 43200:
-                raise ValueError("delay_minutes must be between 1 and 43200 (30 days)")
+            if delay_minutes < 1:
+                raise ValueError("delay_minutes must be at least 1 for STATUS_CHANGE schedules")
         
         rule.delay_minutes = delay_minutes
         # Also update delay_seconds
         rule.delay_seconds = delay_minutes * 60
     if delay_seconds is not None:
-        if delay_seconds < 0 or delay_seconds > 2592000:
-            raise ValueError("delay_seconds must be between 0 and 2592000 (30 days)")
+        if delay_seconds < 0:
+            raise ValueError("delay_seconds must be non-negative")
         rule.delay_seconds = delay_seconds
         # Also update delay_minutes for backward compatibility
         rule.delay_minutes = max(0, delay_seconds // 60)

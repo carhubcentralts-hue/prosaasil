@@ -159,8 +159,8 @@ def create_rule():
             "name": str,  # Required
             "message_text": str,  # Required
             "status_ids": [int],  # Required - list of lead status IDs
-            "delay_minutes": int,  # Optional - 1 to 43200 (for backward compatibility)
-            "delay_seconds": int,  # Optional - 0 to 2592000 (preferred)
+            "delay_minutes": int,  # Optional - non-negative integer (for backward compatibility)
+            "delay_seconds": int,  # Optional - non-negative integer (preferred)
             "template_name": str,  # Optional
             "send_window_start": str,  # Optional - HH:MM format
             "send_window_end": str,  # Optional - HH:MM format
@@ -247,8 +247,8 @@ def create_rule():
                 
                 # Allow 0 if we have steps or immediate send
                 min_delay = 0 if allow_zero_delay else 1
-                if delay_minutes < min_delay or delay_minutes > 43200:
-                    return jsonify({'error': f'delay_minutes must be between {min_delay} and 43200 (30 days)'}), 400
+                if delay_minutes < min_delay:
+                    return jsonify({'error': f'delay_minutes must be at least {min_delay}'}), 400
                 
                 delay_seconds = delay_minutes * 60
             else:
@@ -257,8 +257,8 @@ def create_rule():
                 except (TypeError, ValueError):
                     return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
                 
-                if delay_seconds < 0 or delay_seconds > 2592000:
-                    return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+                if delay_seconds < 0:
+                    return jsonify({'error': 'delay_seconds must be non-negative'}), 400
                 
                 # Set delay_minutes for backward compatibility (delay_seconds already validated >= 0)
                 delay_minutes = delay_seconds // 60
@@ -298,8 +298,8 @@ def create_rule():
                 
                 try:
                     delay_seconds = int(step['delay_seconds'])
-                    if delay_seconds < 0 or delay_seconds > 2592000:
-                        return jsonify({'error': 'step delay_seconds must be between 0 and 2592000'}), 400
+                    if delay_seconds < 0:
+                        return jsonify({'error': 'step delay_seconds must be non-negative'}), 400
                 except (TypeError, ValueError):
                     return jsonify({'error': 'step delay_seconds must be a valid integer'}), 400
         
@@ -427,8 +427,8 @@ def update_rule(rule_id: int):
                 return jsonify({'error': 'delay_minutes must be a valid integer'}), 400
             
             # Allow 0 for immediate or recurring schedules    
-            if delay_minutes < 0 or delay_minutes > 43200:
-                return jsonify({'error': 'delay_minutes must be between 0 and 43200 (30 days)'}), 400
+            if delay_minutes < 0:
+                return jsonify({'error': 'delay_minutes must be non-negative'}), 400
             data['delay_minutes'] = delay_minutes
         
         # Validate delay_seconds if provided (more lenient)
@@ -438,8 +438,8 @@ def update_rule(rule_id: int):
             except (TypeError, ValueError):
                 return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
                 
-            if delay_seconds < 0 or delay_seconds > 2592000:
-                return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+            if delay_seconds < 0:
+                return jsonify({'error': 'delay_seconds must be non-negative'}), 400
             data['delay_seconds'] = delay_seconds
         
         # Validate provider if provided
@@ -477,8 +477,8 @@ def update_rule(rule_id: int):
                 
                 try:
                     delay_seconds = int(step['delay_seconds'])
-                    if delay_seconds < 0 or delay_seconds > 2592000:
-                        return jsonify({'error': 'step delay_seconds must be between 0 and 2592000'}), 400
+                    if delay_seconds < 0:
+                        return jsonify({'error': 'step delay_seconds must be non-negative'}), 400
                 except (TypeError, ValueError):
                     return jsonify({'error': 'step delay_seconds must be a valid integer'}), 400
         
@@ -753,7 +753,7 @@ def add_step(rule_id: int):
         {
             "step_index": int,  # Required - position in sequence (1-indexed)
             "message_template": str,  # Required - message content
-            "delay_seconds": int,  # Required - delay after status change (0-2592000)
+            "delay_seconds": int,  # Required - delay after status change (non-negative)
             "enabled": bool  # Optional - defaults to true
         }
     
@@ -792,8 +792,8 @@ def add_step(rule_id: int):
         # Validate delay_seconds
         try:
             delay_seconds = int(data['delay_seconds'])
-            if delay_seconds < 0 or delay_seconds > 2592000:
-                return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+            if delay_seconds < 0:
+                return jsonify({'error': 'delay_seconds must be non-negative'}), 400
         except (TypeError, ValueError):
             return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
         
@@ -873,8 +873,8 @@ def update_step(rule_id: int, step_id: int):
         if 'delay_seconds' in data:
             try:
                 delay_seconds = int(data['delay_seconds'])
-                if delay_seconds < 0 or delay_seconds > 2592000:
-                    return jsonify({'error': 'delay_seconds must be between 0 and 2592000 (30 days)'}), 400
+                if delay_seconds < 0:
+                    return jsonify({'error': 'delay_seconds must be non-negative'}), 400
                 data['delay_seconds'] = delay_seconds
             except (TypeError, ValueError):
                 return jsonify({'error': 'delay_seconds must be a valid integer'}), 400
