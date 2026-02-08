@@ -210,6 +210,19 @@ def whatsapp_ai_response_job(
                     if lead_status_obj:
                         ai_context['lead_status_label'] = lead_status_obj.label
                 
+                # 🔥 NEW: Load compiled business logic/rules if available
+                # This enables Logic-by-Prompt to work with WhatsApp
+                if hasattr(business_obj, 'ai_logic_compiled') and business_obj.ai_logic_compiled:
+                    ai_context['compiled_logic'] = business_obj.ai_logic_compiled
+                    logger.info(f"[WA-AI-JOB] ✅ Loaded compiled logic for business {business_id}")
+                else:
+                    logger.info(f"[WA-AI-JOB] ℹ️ No compiled logic for business {business_id} - using prompt only")
+                
+                # 🔥 NEW: Load business prompt explicitly for context
+                if hasattr(business_obj, 'ai_prompt') and business_obj.ai_prompt:
+                    ai_context['business_prompt'] = business_obj.ai_prompt
+                    logger.info(f"[WA-AI-JOB] ✅ Loaded business prompt for business {business_id}")
+                
                 # Add known facts from lead_facts table
                 if lead:
                     from server.services.decision_engine import get_known_facts_for_lead
