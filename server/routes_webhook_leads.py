@@ -10,6 +10,7 @@ Provides:
 import os
 import logging
 import secrets
+import re
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import WebhookLeadIngest, Lead, LeadStatus, Business
 from server.db import db
@@ -578,7 +579,6 @@ def webhook_ingest_lead(webhook_id):
         
         # Extract phone digits (only digits, no formatting)
         # This handles Google Sheets numbers without leading zero (e.g., 549750505 instead of 0549750505)
-        import re
         phone_digits = None
         if phone_raw:
             phone_digits = re.sub(r'\D', '', str(phone_raw))
@@ -587,11 +587,11 @@ def webhook_ingest_lead(webhook_id):
         # Validate: must have phone_digits or email (SSOT - this is the only requirement)
         # Don't block on phone format - as long as we have digits or email, we can create the lead
         if not phone_digits and not raw_email:
-            logger.warning(f"⚠️ [WEBHOOK {webhook_id}] חסר טלפון או אימייל - payload keys: {list(payload.keys())}, extracted: {list(fields.keys())}")
+            logger.warning(f"⚠️ [WEBHOOK {webhook_id}] Missing phone/email - payload keys: {list(payload.keys())}, extracted: {list(fields.keys())}")
             return json_response({
                 "ok": False,
                 "error": "phone_or_email_required",
-                "message": "חסר טלפון או אימייל"
+                "message": "Missing phone or email - חסר טלפון או אימייל"
             }, 400)
         
         # Normalize phone for E.164 format (best effort, but don't fail if can't normalize)
