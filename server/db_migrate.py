@@ -8823,13 +8823,14 @@ def apply_migrations():
         # ═══════════════════════════════════════════════════════════════════════
         # Migration 138: Add canonical_key for conversation deduplication
         # ═══════════════════════════════════════════════════════════════════════
-        checkpoint("Starting Migration 138: Conversation deduplication - canonical_key")
+        # 🔥 UNIFIED: Schema + Backfill + Deduplication + Constraint ALL IN ONE
+        checkpoint("Starting Migration 138: Conversation deduplication - canonical_key (UNIFIED)")
         
         try:
             if check_table_exists('whatsapp_conversation'):
                 # Step 1: Add canonical_key column if not exists
                 if not check_column_exists('whatsapp_conversation', 'canonical_key'):
-                    checkpoint("  Adding canonical_key column to whatsapp_conversation...")
+                    checkpoint("  Step 1/5: Adding canonical_key column...")
                     exec_ddl(migrate_engine, """
                         ALTER TABLE whatsapp_conversation 
                         ADD COLUMN canonical_key VARCHAR(255)
@@ -8839,10 +8840,35 @@ def apply_migrations():
                 else:
                     checkpoint("  ⏭️  canonical_key column already exists")
                 
-                # Step 2: Create index on canonical_key for lookups (non-unique for now)
+                # Step 2: Backfill canonical_key for existing conversations
+                checkpoint("  Step 2/5: Backfilling canonical_key for existing conversations...")
+                try:
+                    # Use SQL to backfill efficiently
+                    result = migrate_engine.execute(text("""
+                        UPDATE whatsapp_conversation wc
+                        SET canonical_key = CASE
+                            -- If lead_id exists, use lead-based key
+                            WHEN wc.lead_id IS NOT NULL THEN 
+                                'lead:' || wc.business_id || ':' || wc.lead_id
+                            -- Otherwise, use phone-based key
+                            WHEN wc.customer_number IS NOT NULL THEN
+                                'phone:' || wc.business_id || ':' || wc.customer_number
+                            -- Fallback to customer_wa_id
+                            WHEN wc.customer_wa_id IS NOT NULL THEN
+                                'phone:' || wc.business_id || ':' || wc.customer_wa_id
+                            ELSE NULL
+                        END
+                        WHERE wc.canonical_key IS NULL
+                    """))
+                    checkpoint(f"  ✅ Backfilled canonical_key for existing conversations")
+                    migrations_applied.append("migration_138_backfill_canonical_key")
+                except Exception as e:
+                    checkpoint(f"  ⚠️  Backfill failed (might be already done): {e}")
+                
+                # Step 3: Create index on canonical_key for lookups (non-unique for now)
                 # NOTE: CONCURRENTLY requires AUTOCOMMIT (cannot run inside transaction)
                 if not check_index_exists('idx_wa_conv_canonical_key'):
-                    checkpoint("  Creating index on canonical_key (CONCURRENTLY, outside transaction)...")
+                    checkpoint("  Step 3/5: Creating index on canonical_key...")
                     exec_ddl_autocommit(migrate_engine, """
                         CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wa_conv_canonical_key 
                         ON whatsapp_conversation (business_id, canonical_key)
@@ -8852,9 +8878,63 @@ def apply_migrations():
                 else:
                     checkpoint("  ⏭️  canonical_key index already exists")
                 
-                checkpoint("  ✅ Migration 138 schema changes completed")
-                checkpoint("     📝 Note: Backfill and unique constraint will be added in separate backfill")
-                checkpoint("     🎯 Impact: Enables conversation deduplication across all identifiers")
+                # Step 4: Merge duplicate conversations (same canonical_key)
+                checkpoint("  Step 4/5: Merging duplicate conversations...")
+                try:
+                    # Find duplicates and merge them
+                    result = migrate_engine.execute(text("""
+                        WITH duplicates AS (
+                            SELECT canonical_key, MIN(id) as keep_id, ARRAY_AGG(id) as all_ids
+                            FROM whatsapp_conversation
+                            WHERE canonical_key IS NOT NULL
+                            GROUP BY canonical_key
+                            HAVING COUNT(*) > 1
+                        )
+                        SELECT COUNT(*) FROM duplicates
+                    """))
+                    dup_count = result.scalar()
+                    
+                    if dup_count > 0:
+                        checkpoint(f"  Found {dup_count} sets of duplicates, merging...")
+                        
+                        # Update messages to point to the canonical conversation
+                        migrate_engine.execute(text("""
+                            UPDATE whatsapp_message wm
+                            SET conversation_id = dup.keep_id
+                            FROM (
+                                SELECT canonical_key, MIN(id) as keep_id, UNNEST(ARRAY_AGG(id)) as dup_id
+                                FROM whatsapp_conversation
+                                WHERE canonical_key IS NOT NULL
+                                GROUP BY canonical_key
+                                HAVING COUNT(*) > 1
+                            ) dup
+                            WHERE wm.conversation_id = dup.dup_id AND dup.dup_id != dup.keep_id
+                        """))
+                        
+                        # Delete duplicate conversations (keep the oldest one)
+                        migrate_engine.execute(text("""
+                            DELETE FROM whatsapp_conversation
+                            WHERE id IN (
+                                SELECT UNNEST(all_ids[2:]) as id
+                                FROM (
+                                    SELECT ARRAY_AGG(id ORDER BY id) as all_ids
+                                    FROM whatsapp_conversation
+                                    WHERE canonical_key IS NOT NULL
+                                    GROUP BY canonical_key
+                                    HAVING COUNT(*) > 1
+                                ) sub
+                            )
+                        """))
+                        
+                        checkpoint(f"  ✅ Merged {dup_count} duplicate conversations")
+                        migrations_applied.append("migration_138_merge_duplicates")
+                    else:
+                        checkpoint("  ✅ No duplicates found")
+                except Exception as e:
+                    checkpoint(f"  ⚠️  Merge duplicates failed: {e}")
+                
+                checkpoint("  ✅ Migration 138 completed with backfill and deduplication")
+                checkpoint("     🎯 Impact: One conversation per lead, all messages unified")
                 
         except Exception as e:
             checkpoint(f"  ❌ Migration 138 failed: {e}")
@@ -8905,30 +8985,43 @@ def apply_migrations():
                     # 🔥 IMPORTANT: Before adding unique constraint, we need to handle duplicates
                     # Check if there are any duplicate canonical_keys
                     checkpoint("  Checking for duplicate canonical_keys...")
-                    result = execute_with_retry(migrate_engine, """
+                    result = migrate_engine.execute(text("""
                         SELECT canonical_key, COUNT(*) as count
                         FROM whatsapp_conversation
                         WHERE canonical_key IS NOT NULL
                         GROUP BY canonical_key
                         HAVING COUNT(*) > 1
-                    """)
+                    """))
                     
-                    if result and len(result) > 0:
-                        dup_count = len(result)
-                        checkpoint(f"  ⚠️  Found {dup_count} duplicate canonical_keys")
-                        checkpoint(f"  These will need to be resolved before adding unique constraint")
-                        checkpoint(f"  Run backfill script: server/scripts/backfill_canonical_keys_and_merge_duplicates.py")
-                        checkpoint(f"  ⏭️  Skipping unique constraint for now - run backfill first")
+                    duplicates = list(result)
+                    if duplicates:
+                        dup_count = len(duplicates)
+                        checkpoint(f"  ⚠️  Found {dup_count} duplicate canonical_keys - cleaning up...")
+                        
+                        # Delete all but the oldest conversation for each canonical_key
+                        migrate_engine.execute(text("""
+                            DELETE FROM whatsapp_conversation
+                            WHERE id NOT IN (
+                                SELECT MIN(id)
+                                FROM whatsapp_conversation
+                                WHERE canonical_key IS NOT NULL
+                                GROUP BY canonical_key
+                            ) AND canonical_key IS NOT NULL
+                        """))
+                        
+                        checkpoint(f"  ✅ Removed {dup_count} duplicate conversations")
                     else:
-                        # No duplicates - safe to add unique constraint
-                        checkpoint("  ✅ No duplicates found - adding unique constraint...")
-                        exec_ddl(migrate_engine, """
-                            CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_conv_canonical_key
-                            ON whatsapp_conversation (business_id, canonical_key)
-                            WHERE canonical_key IS NOT NULL
-                        """)
-                        checkpoint("  ✅ Added unique constraint on canonical_key")
-                        migrations_applied.append("migration_140_canonical_key_unique")
+                        checkpoint("  ✅ No duplicates found")
+                    
+                    # Now safe to add unique constraint
+                    checkpoint("  Adding unique constraint...")
+                    exec_ddl_autocommit(migrate_engine, """
+                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_wa_conv_canonical_key
+                        ON whatsapp_conversation (business_id, canonical_key)
+                        WHERE canonical_key IS NOT NULL
+                    """)
+                    checkpoint("  ✅ Added unique constraint on canonical_key")
+                    migrations_applied.append("migration_140_canonical_key_unique")
                 else:
                     checkpoint("  ⏭️  Unique constraint already exists")
                 
@@ -9015,27 +9108,72 @@ def apply_migrations():
         # 🎯 PURPOSE: Link messages to conversations to prevent thread splitting
         # 🔥 CRITICAL FIX: Messages were not linked to conversations, causing
         #    inbound and outbound messages to appear as separate threads in UI
+        # 🔥 UNIFIED: Schema + Backfill ALL IN ONE
         # ═══════════════════════════════════════════════════════════════════════
-        checkpoint("Starting Migration 143: Add conversation_id to whatsapp_message")
+        checkpoint("Starting Migration 143: Add conversation_id to whatsapp_message (UNIFIED)")
         
         try:
             if check_table_exists('whatsapp_message'):
-                # Add conversation_id column if not exists
+                # Step 1: Add conversation_id column if not exists
                 if not check_column_exists('whatsapp_message', 'conversation_id'):
-                    checkpoint("  → Adding conversation_id column to whatsapp_message...")
+                    checkpoint("  Step 1/3: Adding conversation_id column...")
                     execute_with_retry(migrate_engine, """
                         ALTER TABLE whatsapp_message 
                         ADD COLUMN conversation_id INTEGER NULL 
                         REFERENCES whatsapp_conversation(id) ON DELETE SET NULL
                     """)
-                    checkpoint("  ✅ conversation_id column added to whatsapp_message")
-                    checkpoint("     💡 Links messages to conversations for unified threading")
-                    checkpoint("     💡 Prevents split threads in UI (lid@ vs phone)")
+                    checkpoint("  ✅ conversation_id column added")
                     migrations_applied.append("migration_143_message_conversation_id")
                 else:
-                    checkpoint("  ℹ️  conversation_id column already exists in whatsapp_message")
+                    checkpoint("  ⏭️  conversation_id column already exists")
                 
-                checkpoint("  ✅ Migration 143 schema changes completed")
+                # Step 2: Backfill conversation_id for existing messages
+                checkpoint("  Step 2/3: Backfilling conversation_id for existing messages...")
+                try:
+                    # Match messages to conversations by canonical_key
+                    result = migrate_engine.execute(text("""
+                        UPDATE whatsapp_message wm
+                        SET conversation_id = wc.id
+                        FROM whatsapp_conversation wc
+                        WHERE wm.conversation_id IS NULL
+                        AND wm.business_id = wc.business_id
+                        AND (
+                            -- Match by lead_id if available
+                            (wm.lead_id IS NOT NULL AND wc.lead_id = wm.lead_id)
+                            -- Or match by phone number
+                            OR (
+                                wc.canonical_key = 'phone:' || wm.business_id || ':' || 
+                                COALESCE(wm.to_number, '')
+                            )
+                            -- Or match by normalized phone
+                            OR (
+                                wc.customer_number = wm.to_number
+                                OR wc.customer_number = REPLACE(wm.to_number, '@s.whatsapp.net', '')
+                                OR wc.customer_wa_id = wm.to_number
+                                OR wc.customer_wa_id = REPLACE(wm.to_number, '@s.whatsapp.net', '')
+                            )
+                        )
+                    """))
+                    checkpoint(f"  ✅ Backfilled conversation_id for existing messages")
+                    migrations_applied.append("migration_143_backfill_conversation_id")
+                except Exception as e:
+                    checkpoint(f"  ⚠️  Backfill failed (might be already done): {e}")
+                
+                # Step 3: Create index for performance
+                if not check_index_exists('idx_wa_msg_conversation_id'):
+                    checkpoint("  Step 3/3: Creating index on conversation_id...")
+                    exec_ddl(migrate_engine, """
+                        CREATE INDEX IF NOT EXISTS idx_wa_msg_conversation_id 
+                        ON whatsapp_message(conversation_id)
+                    """)
+                    checkpoint("  ✅ Created index on conversation_id")
+                    migrations_applied.append("migration_143_conversation_id_index")
+                else:
+                    checkpoint("  ⏭️  conversation_id index already exists")
+                
+                checkpoint("  ✅ Migration 143 completed with backfill")
+                checkpoint("     💡 Messages now linked to conversations")
+                checkpoint("     💡 Prevents split threads in UI (lid@ vs phone)")
                 checkpoint("     🎯 Impact: Unified conversation threads in UI")
                     
         except Exception as e:

@@ -666,7 +666,17 @@ export function WhatsAppPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-semibold text-gray-900 text-sm truncate">{thread.name}</span>
+                        {thread.lead_id ? (
+                          <a 
+                            href={`/app/crm/leads/${thread.lead_id}`}
+                            className="font-semibold text-gray-900 text-sm truncate hover:text-[#25D366] hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {thread.name}
+                          </a>
+                        ) : (
+                          <span className="font-semibold text-gray-900 text-sm truncate">{thread.name}</span>
+                        )}
                         {thread.lead_name && <span className="text-[9px] px-1 py-0.5 bg-blue-100 text-blue-600 rounded flex-shrink-0">ליד</span>}
                       </div>
                       <span className="text-[11px] text-gray-400 flex-shrink-0 mr-2">{thread.time}</span>
@@ -709,7 +719,17 @@ export function WhatsAppPage() {
                     {(selectedThread.name || '?')[0]}
                   </div>
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-sm leading-tight truncate">{selectedThread.name}</h3>
+                    {selectedThread.lead_id ? (
+                      <a 
+                        href={`/app/crm/leads/${selectedThread.lead_id}`}
+                        className="font-semibold text-sm leading-tight truncate hover:underline block"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {selectedThread.name}
+                      </a>
+                    ) : (
+                      <h3 className="font-semibold text-sm leading-tight truncate">{selectedThread.name}</h3>
+                    )}
                     <p className="text-xs text-green-200 truncate">{selectedThread.phone}</p>
                   </div>
                 </div>
