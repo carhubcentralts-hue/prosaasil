@@ -330,6 +330,22 @@ def whatsapp_ai_response_job(
         
     except Exception as e:
         logger.error(f"[WA-AI-JOB] ❌ Job failed: {e}", exc_info=True)
+        
+        # 🔥 FAIL-SAFE: Send fallback message to customer
+        try:
+            fallback_msg = "קיבלתי ✅ אני בודק את זה וחוזר אליך בהקדם"
+            logger.info(f"[WA-AI-JOB-FAIL-SAFE] Sending fallback message to {remote_jid[:30]}")
+            
+            # Use WhatsApp send service to send fallback
+            from server.whatsapp_provider import get_whatsapp_service
+            tenant_id = f"business_{business_id}"
+            wa_service = get_whatsapp_service(tenant_id=tenant_id)
+            if wa_service:
+                wa_service.send_message(remote_jid, fallback_msg)
+                logger.info(f"[WA-AI-JOB-FAIL-SAFE] ✅ Fallback sent successfully")
+        except Exception as fallback_err:
+            logger.error(f"[WA-AI-JOB-FAIL-SAFE] ❌ Could not send fallback: {fallback_err}")
+        
         # 🔥 FIX: Rollback and clean up DB session to prevent "cursor already closed"
         try:
             db.session.rollback()
