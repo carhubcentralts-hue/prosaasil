@@ -1245,14 +1245,20 @@ def baileys_webhook():
                     ts=msg_timestamp
                 )
                 
-                log.info(f"✅ Lead resolved: lead_id={lead.id}, phone={lead.phone_e164 or 'N/A'}, name={lead.name or push_name or 'N/A'}, jid={remote_jid[:30]}...")
+                # 🔥 FIX: Extract lead_id immediately to avoid DetachedInstanceError
+                # This prevents issues when lead object is accessed after session operations
+                lead_id = lead.id
+                lead_phone_e164 = lead.phone_e164
+                lead_name = lead.name
+                
+                log.info(f"✅ Lead resolved: lead_id={lead_id}, phone={lead_phone_e164 or 'N/A'}, name={lead_name or push_name or 'N/A'}, jid={remote_jid[:30]}...")
                 
                 # Get customer for backwards compatibility (if exists)
                 from server.models_sql import Customer
                 customer = Customer.query.filter_by(
                     business_id=business_id,
-                    phone_e164=lead.phone_e164
-                ).first() if lead.phone_e164 else None
+                    phone_e164=lead_phone_e164
+                ).first() if lead_phone_e164 else None
                 
                 # ✅ Check if message already exists (prevent duplicates from webhook retries)
                 # 🔥 ENHANCED: Triple-check deduplication with message_id + remote_jid + timestamp
@@ -1317,10 +1323,10 @@ def baileys_webhook():
                         customer_wa_id=conversation_key,  # Use normalized conversation key for consistent session tracking
                         direction="in",
                         provider="baileys",
-                        lead_id=lead.id,  # Link session to lead for canonical key generation
+                        lead_id=lead_id,  # 🔥 FIX: Use extracted lead_id to avoid DetachedInstanceError
                         phone_e164=from_number_e164  # Pass phone for canonical_key generation
                     )
-                    log.info(f"[WA-SESSION] ✅ Conversation tracked: conv_id={conversation.id if conversation else None}, lead_id={lead.id}")
+                    log.info(f"[WA-SESSION] ✅ Conversation tracked: conv_id={conversation.id if conversation else None}, lead_id={lead_id}")
                 except Exception as e:
                     log.warning(f"⚠️ Session tracking failed: {e}")
                     
@@ -1330,7 +1336,7 @@ def baileys_webhook():
                         from server.utils.whatsapp_utils import get_canonical_conversation_key
                         canonical_key = get_canonical_conversation_key(
                             business_id=business_id,
-                            lead_id=lead.id,
+                            lead_id=lead_id,  # 🔥 FIX: Use extracted lead_id
                             phone_e164=from_number_e164
                         )
                         conversation = WhatsAppConversation.query.filter_by(
@@ -1353,7 +1359,7 @@ def baileys_webhook():
                 wa_msg.provider = 'baileys'
                 wa_msg.status = 'received'
                 wa_msg.provider_message_id = baileys_message_id if baileys_message_id else None
-                wa_msg.lead_id = lead.id  # Link message to lead for easier querying
+                wa_msg.lead_id = lead_id  # 🔥 FIX: Use extracted lead_id to avoid DetachedInstanceError
                 wa_msg.conversation_id = conversation.id if conversation else None  # Link message to conversation for unified threading
                 wa_msg.source = 'customer'  # Mark as customer message for context
                 
@@ -1424,7 +1430,7 @@ def baileys_webhook():
                 # Instead of processing AI synchronously (7+ seconds causing ECONNABORTED),
                 # we immediately enqueue a job and return 200 to Baileys
                 # The job will handle ALL heavy processing: history, memory, AI, tools, sending
-                log.info(f"[WA-ASYNC] 🚀 Enqueueing AI processing job for message_id={wa_msg.id}, lead_id={lead.id}")
+                log.info(f"[WA-ASYNC] 🚀 Enqueueing AI processing job for message_id={wa_msg.id}, lead_id={lead_id}")
                 
                 try:
                     from server.services.jobs import enqueue_job
@@ -1439,7 +1445,7 @@ def baileys_webhook():
                         conversation_key=conversation_key,
                         message_text=message_text,
                         from_number_e164=from_number_e164,
-                        lead_id=lead.id,
+                        lead_id=lead_id,  # 🔥 FIX: Use extracted lead_id
                         timeout=180,  # 3 minutes for AI processing (includes tools!)
                         retry=1,
                         description=f"Process WhatsApp AI response for {conversation_key[:15]}"
@@ -1463,6 +1469,20 @@ def baileys_webhook():
                 import traceback
                 log.error(f"[WA-ERROR] Processing message failed: {e}")
                 log.error(f"[WA-ERROR] Traceback: {traceback.format_exc()}")
+                
+                # 🔥 FAIL-SAFE: Send fallback message to customer so they know we received it
+                try:
+                    if remote_jid and not from_me:
+                        fallback_msg = "קיבלתי ✅ רגע בודק וחוזר אליך"
+                        log.info(f"[WA-FAIL-SAFE] Sending fallback message to {remote_jid[:30]}")
+                        
+                        # Use WhatsApp service to send fallback
+                        if wa_service:
+                            wa_service.send_message(remote_jid, fallback_msg)
+                            log.info(f"[WA-FAIL-SAFE] ✅ Fallback sent successfully")
+                except Exception as fallback_err:
+                    log.error(f"[WA-FAIL-SAFE] ❌ Could not send fallback: {fallback_err}")
+                
                 # 🔥 FIX: Rollback and clean up DB session to prevent "cursor already closed"
                 try:
                     db.session.rollback()

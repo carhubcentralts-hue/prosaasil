@@ -210,6 +210,19 @@ def whatsapp_ai_response_job(
                     if lead_status_obj:
                         ai_context['lead_status_label'] = lead_status_obj.label
                 
+                # 🔥 NEW: Load compiled business logic/rules if available
+                # This enables Logic-by-Prompt to work with WhatsApp
+                if hasattr(business_obj, 'ai_logic_compiled') and business_obj.ai_logic_compiled:
+                    ai_context['compiled_logic'] = business_obj.ai_logic_compiled
+                    logger.info(f"[WA-AI-JOB] ✅ Loaded compiled logic for business {business_id}")
+                else:
+                    logger.info(f"[WA-AI-JOB] ℹ️ No compiled logic for business {business_id} - using prompt only")
+                
+                # 🔥 NEW: Load business prompt explicitly for context
+                if hasattr(business_obj, 'ai_prompt') and business_obj.ai_prompt:
+                    ai_context['business_prompt'] = business_obj.ai_prompt
+                    logger.info(f"[WA-AI-JOB] ✅ Loaded business prompt for business {business_id}")
+                
                 # Add known facts from lead_facts table
                 if lead:
                     from server.services.decision_engine import get_known_facts_for_lead
@@ -330,6 +343,22 @@ def whatsapp_ai_response_job(
         
     except Exception as e:
         logger.error(f"[WA-AI-JOB] ❌ Job failed: {e}", exc_info=True)
+        
+        # 🔥 FAIL-SAFE: Send fallback message to customer
+        try:
+            fallback_msg = "קיבלתי ✅ אני בודק את זה וחוזר אליך בהקדם"
+            logger.info(f"[WA-AI-JOB-FAIL-SAFE] Sending fallback message to {remote_jid[:30]}")
+            
+            # Use WhatsApp send service to send fallback
+            from server.whatsapp_provider import get_whatsapp_service
+            tenant_id = f"business_{business_id}"
+            wa_service = get_whatsapp_service(tenant_id=tenant_id)
+            if wa_service:
+                wa_service.send_message(remote_jid, fallback_msg)
+                logger.info(f"[WA-AI-JOB-FAIL-SAFE] ✅ Fallback sent successfully")
+        except Exception as fallback_err:
+            logger.error(f"[WA-AI-JOB-FAIL-SAFE] ❌ Could not send fallback: {fallback_err}")
+        
         # 🔥 FIX: Rollback and clean up DB session to prevent "cursor already closed"
         try:
             db.session.rollback()
