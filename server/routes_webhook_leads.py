@@ -10,6 +10,7 @@ Provides:
 import os
 import logging
 import secrets
+import re
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import WebhookLeadIngest, Lead, LeadStatus, Business
 from server.db import db
@@ -459,8 +460,9 @@ def extract_lead_fields(payload):
         elif last_name:
             result['name'] = str(last_name).strip()
     
-    # Extract phone (try multiple patterns)
-    phone_fields = ['phone', 'mobile', 'tel', 'telephone', 'phone_number', 'phonenumber', 'cell', 'cellphone']
+    # Extract phone (try multiple patterns with aliases)
+    # Support various field names including camelCase and WhatsApp
+    phone_fields = ['phone', 'phone_number', 'mobile', 'tel', 'whatsapp', 'phoneNumber', 'telephone', 'phonenumber', 'cell', 'cellphone']
     for field in phone_fields:
         if field in flat_payload and flat_payload[field]:
             phone_value = str(flat_payload[field]).strip()
@@ -494,7 +496,8 @@ def extract_lead_fields(payload):
             break
     
     # Extract source (if not provided, will be set to webhook source)
-    source_fields = ['source', 'lead_source', 'origin']
+    # Support UTM and other source field names
+    source_fields = ['source', 'utm_source', 'lead_source', 'origin']
     for field in source_fields:
         if field in flat_payload and flat_payload[field]:
             result['source'] = str(flat_payload[field]).strip()
@@ -565,29 +568,39 @@ def webhook_ingest_lead(webhook_id):
         
         # 🔍 IMPROVED LOGGING: Show what we got from extraction
         logger.info(f"🔍 [WEBHOOK {webhook_id}] Raw payload keys: {list(payload.keys())}")
+        logger.info(f"🔍 [WEBHOOK {webhook_id}] Raw payload values (first 50 chars): {dict((k, str(v)[:50]) for k, v in payload.items())}")
         logger.info(f"🔍 [WEBHOOK {webhook_id}] Extracted fields keys: {list(fields.keys())}")
+        logger.info(f"🔍 [WEBHOOK {webhook_id}] Extracted values: name={fields.get('name')}, phone={fields.get('phone')}, email={fields.get('email')}, source={fields.get('source')}")
         logger.info(f"🔍 [WEBHOOK {webhook_id}] Has name={bool(fields.get('name'))}, phone={bool(fields.get('phone'))}, email={bool(fields.get('email'))}, source={bool(fields.get('source'))}")
         
         # Get raw values
-        raw_phone = fields.get('phone')
+        phone_raw = fields.get('phone')
         raw_email = fields.get('email')
         
-        # Validate: must have phone or email (SSOT - this is the only requirement)
-        if not raw_phone and not raw_email:
+        # Extract phone digits (only digits, no formatting)
+        # This handles Google Sheets numbers without leading zero (e.g., 549750505 instead of 0549750505)
+        phone_digits = None
+        if phone_raw:
+            phone_digits = re.sub(r'\D', '', str(phone_raw))
+            logger.info(f"🔍 [WEBHOOK {webhook_id}] Phone extraction: raw='{phone_raw}' → digits='{phone_digits}'")
+        
+        # Validate: must have phone_digits or email (SSOT - this is the only requirement)
+        # Don't block on phone format - as long as we have digits or email, we can create the lead
+        if not phone_digits and not raw_email:
             logger.warning(f"⚠️ [WEBHOOK {webhook_id}] Missing phone/email - payload keys: {list(payload.keys())}, extracted: {list(fields.keys())}")
             return json_response({
                 "ok": False,
                 "error": "phone_or_email_required",
-                "message": "Payload must contain either 'phone' or 'email' field"
+                "message": "Missing phone or email - חסר טלפון או אימייל"
             }, 400)
         
-        # Normalize phone using proper normalization function
-        phone = normalize_phone_number(raw_phone) if raw_phone else None
+        # Normalize phone for E.164 format (best effort, but don't fail if can't normalize)
+        phone = normalize_phone_number(phone_raw) if phone_raw else None
         email = raw_email  # Email is already lowercased in extraction
         
         # Log normalization result
-        if raw_phone:
-            logger.info(f"🔍 [WEBHOOK {webhook_id}] Phone normalized: '{raw_phone}' → '{phone}'")
+        if phone_raw:
+            logger.info(f"🔍 [WEBHOOK {webhook_id}] Phone normalized: raw='{phone_raw}', digits='{phone_digits}', e164='{phone}'")
         
         # Check for duplicate lead by phone (priority) or email
         existing_lead = None
@@ -667,6 +680,7 @@ def webhook_ingest_lead(webhook_id):
             target_status_id = None
             
             # Try to use webhook's configured target status
+            logger.info(f"🔍 [WEBHOOK {webhook_id}] Determining target status: webhook.status_id={webhook.status_id}")
             if webhook.status_id:
                 target_status = LeadStatus.query.filter_by(
                     id=webhook.status_id,
@@ -677,6 +691,7 @@ def webhook_ingest_lead(webhook_id):
                 if target_status:
                     target_status_name = target_status.name
                     target_status_id = target_status.id
+                    logger.info(f"✅ [WEBHOOK {webhook_id}] Using webhook target status: '{target_status_name}' (id={target_status_id})")
                 else:
                     logger.warning(f"⚠️ Webhook {webhook_id}: Target status_id {webhook.status_id} not found or inactive, using fallback")
             
@@ -691,7 +706,7 @@ def webhook_ingest_lead(webhook_id):
                 if default_status:
                     target_status_name = default_status.name
                     target_status_id = default_status.id
-                    logger.warning(f"⚠️ Webhook {webhook_id}: Using business default status '{target_status_name}' (id={target_status_id})")
+                    logger.info(f"ℹ️ [WEBHOOK {webhook_id}]: Using business default status '{target_status_name}' (id={target_status_id})")
                 else:
                     # Final fallback to 'new' if no default exists
                     target_status_name = 'new'
@@ -702,7 +717,7 @@ def webhook_ingest_lead(webhook_id):
                         is_active=True
                     ).first()
                     target_status_id = new_status.id if new_status else None
-                    logger.warning(f"⚠️ Webhook {webhook_id}: No default status found, using hardcoded fallback 'new' (id={target_status_id})")
+                    logger.warning(f"⚠️ [WEBHOOK {webhook_id}]: No default status found, using hardcoded fallback 'new' (id={target_status_id})")
             
             # Create new lead
             lead = Lead(
@@ -725,7 +740,8 @@ def webhook_ingest_lead(webhook_id):
             identifier_type = "phone" if phone else "email"
             identifier_value = phone if phone else email
             logger.info(f"✅ [WEBHOOK {webhook_id}] Created lead {lead.id} via {identifier_type}={identifier_value}, status='{target_status_name}' (id={target_status_id})")
-            logger.info(f"   Normalized fields: name='{fields.get('name', 'N/A')}', phone='{phone or 'N/A'}', email='{email or 'N/A'}', source='{fields.get('source', 'N/A')}'")
+            logger.info(f"   📋 Extracted fields: name='{fields.get('name', 'ללא שם')}', phone_raw='{phone_raw or 'N/A'}', phone_digits='{phone_digits or 'N/A'}', phone_e164='{phone or 'N/A'}', email='{email or 'N/A'}', source='{fields.get('source', 'N/A')}'")
+            logger.info(f"   🎯 Status assigned: '{target_status_name}' (id={target_status_id})")
             
             return json_response({
                 "ok": True,
